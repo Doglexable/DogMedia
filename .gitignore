@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp*
+
+# Build and test output
+dist/
+coverage/
+.vite/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data and logs
+data/
+logs/
+*.log
+*.pid
+*.pid.lock
+
+# Tool caches
+.cache/
+.eslintcache
+.npm/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local planning and agent context
+PLAN.md
+AGENTS.md
+.codex/
+.agents/

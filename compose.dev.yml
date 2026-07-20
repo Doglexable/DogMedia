@@ -1,0 +1,35 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Containerfile
+    env_file:
+      - .env
+    network_mode: host
+    command: npm run dev --workspace=server
+    environment:
+      DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
+      REDIS_URL: redis://127.0.0.1:16379
+      DATA_DIR: /app/data/media
+      UPLOAD_TMP_DIR: /app/data/tmp
+      PORT: 3001
+      NODE_ENV: development
+    volumes:
+      - ./server:/app/server:Z
+      - ./.env:/app/.env:ro,Z
+      - ./data/media:/app/data/media:Z
+      - ./data/tmp:/app/data/tmp:Z
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Containerfile
+      target: deps
+    network_mode: host
+    command: npm run dev --workspace=web -- --host 0.0.0.0 --port 5173
+    environment:
+      VITE_API_URL: http://127.0.0.1:3001
+    depends_on:
+      - server
+    volumes:
+      - ./web:/app/web:Z

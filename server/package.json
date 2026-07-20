@@ -1,0 +1,26 @@
+{
+  "name": "pfs-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../.env --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node --env-file-if-exists=../.env src/migrate.js",
+    "lint": "eslint .",
+    "test": "vitest run --reporter=verbose"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "@fastify/postgres": "^6.0.0",
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/multipart": "^10.0.0",
+    "@fastify/static": "^9.0.0",
+    "@fastify/cors": "^11.0.0",
+    "ioredis": "^5.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "vitest": "^4.0.0"
+  }
+}

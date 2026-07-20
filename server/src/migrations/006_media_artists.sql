@@ -1,0 +1,1 @@
+ALTER TABLE public.media_assets ADD artists varchar NULL;

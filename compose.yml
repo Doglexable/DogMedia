@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pfs
+      POSTGRES_USER: pfs
+      POSTGRES_PASSWORD: ${PFS_DB_PASSWORD:-pfs_secret}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data:Z
+    ports:
+      - "5440:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pfs"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "16379:6379"
+    volumes:
+      - ./data/redis:/data:Z
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Containerfile
+    env_file:
+      - .env
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
+      REDIS_URL: redis://127.0.0.1:16379
+      DATA_DIR: /app/data/media
+      UPLOAD_TMP_DIR: /app/data/tmp
+      PORT: 3001
+      HOST: 127.0.0.1
+      TRUST_PROXY: 127.0.0.1
+      NODE_ENV: production
+    volumes:
+      - ./data/media:/app/data/media:Z
+      - ./data/tmp:/app/data/tmp:Z
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Containerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+    network_mode: host
+    depends_on:
+      - server
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
+      - ./data/nginx:/var/log/nginx:Z
+    restart: unless-stopped
