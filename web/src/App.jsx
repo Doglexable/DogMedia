@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState, useRef, lazy, Suspense } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { api, getLocalIp, setClientIp } from "./api";
+import { api } from "./api";
 import { GlobalPlayerProvider } from "./components/GlobalPlayer";
 import { LibraryShell } from "./components/library-shell";
 
@@ -75,21 +75,15 @@ export function ThemeToggle({ style, className }) {
 
 function AccessGuard({ children }) {
   const [status, setStatus] = useState("loading");
-  const ipRef = useRef(null);
 
   useEffect(() => {
-    getLocalIp().then((ip) => {
-      if (ip) {
-        setClientIp(ip);
-        ipRef.current = ip;
-      }
-      return api("/api/check-access").then((res) => {
+    api("/api/check-access")
+      .then((res) => {
         if (!res.ok) throw new Error("Forbidden");
         return res.json();
-      });
-    })
+      })
       .then((data) =>
-        setStatus({ ok: true, tier: data.tier, description: data.description, firstRun: data.firstRun, clientIp: ipRef.current })
+        setStatus({ ok: true, tier: data.tier, description: data.description, firstRun: data.firstRun, clientIp: data.ip })
       )
       .catch(() => setStatus({ ok: false }));
   }, []);

@@ -348,7 +348,7 @@ const styles = {
 };
 
 export default function Dashboard() {
-  const { tier, description, firstRun } = useAccess();
+  const { tier, description, firstRun, clientIp } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
   const player = useGlobalPlayer();
   const [searchParams] = useSearchParams();
@@ -579,6 +579,7 @@ export default function Dashboard() {
         <div style={styles.headerActions} className="dashboard-header-actions">
           <span style={styles.tierbadge} className="dashboard-tier-badge">
             {description || `Tier ${tier}`}
+            {clientIp && <span style={{ fontFamily: "monospace" }}> · {clientIp}</span>}
           </span>
         </div>
       </header>
