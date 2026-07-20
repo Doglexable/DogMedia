@@ -14,96 +14,192 @@ page.
 | Cache / Queue | Redis 7 |
 | Container | Podman + Compose |
 
-## Quick start
+## Run the project
+
+### Requirements
+
+- Podman with a Compose provider (`podman compose` or `podman-compose`)
+- Git
+- At least one writable disk location for `data/`; video libraries can grow
+  quickly
+- Apache HTTP Server 2.4 when using the reverse-proxy setup below
+
+The examples use `podman compose`. If the host only provides the standalone
+Compose command, replace it with `podman-compose`.
+
+### Production with Podman
 
 ```bash
-# development (requires PostgreSQL on 5432 + Redis on 6379)
+git clone https://github.com/Doglexable/DogMedia.git
+cd DogMedia
+
+# Create the local configuration. This file is ignored by Git.
+cp .env.example .env
+chmod 600 .env
+```
+
+Edit `.env` and replace `PFS_DB_PASSWORD=pfs_secret` with a strong password.
+The Compose file supplies its own container addresses for PostgreSQL and Redis,
+so the development `DATABASE_URL` and `REDIS_URL` values in `.env` do not need
+to be changed for this setup.
+
+Build the images, start the backing services, apply the database migrations,
+and then start the application:
+
+```bash
+podman compose build
+podman compose up -d db redis
+podman compose run --rm server npm run migrate --workspace=server
+podman compose up -d server web
+
+# Confirm that all four services are running.
+podman compose ps
+
+# Test Nginx and Fastify locally. The first request bootstraps the IP whitelist.
+curl -i http://127.0.0.1:8030/api/check-access
+```
+
+The production UI listens on `http://127.0.0.1:8030` from the host. Use the
+Apache setup below to publish it on ports 80/443. Fastify listens only on
+`127.0.0.1:3001`; PostgreSQL and Redis use host ports `5440` and `16379`.
+
+Useful lifecycle commands:
+
+```bash
+podman compose logs -f server web  # follow application logs
+podman compose restart server web # restart application services
+podman compose down               # stop containers; keep data
+podman compose up --build -d      # rebuild and start after an update
+podman compose exec server npm run migrate --workspace=server
+```
+
+Do not use `podman compose down -v` unless volume deletion is intentional.
+Persistent data is bind-mounted under `data/`: PostgreSQL in `data/postgres/`,
+Redis in `data/redis/`, media in `data/media/`, temporary uploads in
+`data/tmp/`, and Nginx logs in `data/nginx/`.
+
+### Development with live reload
+
+The development override bind-mounts `server/` and `web/`, runs Fastify with
+Node watch mode, and serves Vite on port 5173:
+
+```bash
+cp .env.example .env
+# Set a strong PFS_DB_PASSWORD in .env before continuing.
+
+podman compose -f compose.yml -f compose.dev.yml up --build
+```
+
+In a second terminal, apply migrations once the database is healthy:
+
+```bash
+podman compose -f compose.yml -f compose.dev.yml \
+  exec server npm run migrate --workspace=server
+```
+
+Open `http://localhost:5173`. Database, Redis, media, and temporary-file state
+is shared with the production Compose setup under `data/`.
+
+For development without containers, install Node.js 22, PostgreSQL, and Redis;
+run `npm ci`, update `.env` with reachable database/cache URLs, then run:
+
+```bash
 npm run migrate --workspace=server
 npm run dev
-
-# development (Podman, live reload)
-PFS_DB_PASSWORD=your_secret podman-compose -f compose.yml -f compose.dev.yml up --build
-# or: PFS_DB_PASSWORD=your_secret podman compose -f compose.yml -f compose.dev.yml up --build
-
-# production (Podman)
-PFS_DB_PASSWORD=your_secret podman-compose up --build -d
 ```
-
-## Containerization
-
-```bash
-# start all services for production
-PFS_DB_PASSWORD=your_secret podman-compose up --build -d
-
-# start all services for development with live code reload
-PFS_DB_PASSWORD=your_secret podman-compose -f compose.yml -f compose.dev.yml up --build
-# or: PFS_DB_PASSWORD=your_secret podman compose -f compose.yml -f compose.dev.yml up --build
-
-# rebuild a single service
-podman-compose build web
-
-# migrations inside container
-podman exec pfs-server npm run migrate
-
-# shell inside container
-podman exec -it pfs-server sh
-```
-
-Services: `db` (postgres:17-alpine, host port 5440), `redis` (redis:7-alpine),
-`server` (fastify), `web` (nginx:alpine, host port 8030 in production).
-Persistent service data is bind-mounted under this repository's `data/` folder:
-PostgreSQL in `data/postgres/`, Redis in `data/redis/`, media files in
-`data/media/`, temporary uploads in `data/tmp/`, and nginx logs in
-`data/nginx/`.
-
-Server depends on db + redis health checks. Web proxies `/api/` to server.
-
-For live development, `compose.dev.yml` overrides the app services:
-
-- `server` bind-mounts `./server` into the container and runs
-  `npm run dev --workspace=server`, so `node --watch` reloads Fastify on code
-  changes.
-- `web` bind-mounts `./web` into the container and runs Vite on
-  `http://localhost:5173/`, so React changes hot-reload in the browser.
-- `db`, `redis`, media files, and upload temp files still come from
-  `compose.yml` bind mounts under `data/`, so local state is shared with the
-  normal Podman setup.
 
 ## Architecture
 
-```
-┌────────┐   nginx proxy
-│ Browser │ ────────────────────────────► 10.89.0.x:3001 (server container)
-└────────┘                                    │
-     │ X-Client-IP (WebRTC-discovered)         │
-     │                                         ├─ auth onRequest hook
-     │                                         │   ├─ CIDR lookup → tier + description
-     │                                         │   ├─ 403 if not whitelisted
-     │                                         │   ├─ first-run: auto-whitelist
-     │                                         │   │   ├─ caller IP → tier 999 (Admin)
-     │                                         │   │   ├─ host LAN IPs → tier 999 (Admin)
-     │                                         │   │   └─ private subnets → tier 0 (Standard)
-     │                                         │   └─ attach request.accessTier/Description
-     │                                         │
-     │                                         ├─ route handler (tier-gated)
-     │                                         │   ├─ PostgreSQL (categories, media, whitelist)
-     │                                         │   └─ Redis (queue, events, resume, now-playing)
-     │                                         │
-     │                                         └─ media stream (Range-aware)
+```text
+Browser → Apache :80/:443 → Nginx :8030 → Fastify :3001
+                                      ├─ PostgreSQL :5440
+                                      └─ Redis :16379
 ```
 
-### Podman rootless IP
+All application containers use host networking. Apache removes any
+client-supplied `X-Forwarded-For` value and adds the address of its direct
+client. Nginx accepts that header only when the connection comes from loopback,
+then sends a single normalized address to Fastify. Fastify trusts forwarding
+headers only from its local Nginx peer. Consequently, `request.ip` is suitable
+for the whitelist, per-IP queues, likes, resume state, and playback reporting.
 
-Podman rootless (`slirp4netns`) NATs all container source IPs — `request.ip`
-always shows the podman bridge address (`10.89.0.x`), not the real client.
+### Apache reverse proxy and real client IP
 
-The frontend discovers the real LAN IP via WebRTC (`getLocalIp`) and sends it
-as the `X-Client-IP` header. The server reads this first, then falls back to
-`X-Forwarded-For` → `request.ip`.
+The bundled `web/nginx.conf` trusts `X-Forwarded-For` only from `127.0.0.1` or
+`::1`. Apache must therefore run on the same host as the containers and proxy to
+`127.0.0.1:8030`. Do not broaden the trusted proxy ranges unless another known
+proxy is deliberately added to the request path.
 
-Chrome's mDNS obfuscation returns `.local` hostnames from WebRTC; `isValidIp()`
-rejects anything that isn't a valid IPv4 dotted-quad, so those fall through to
-`request.ip` (which still matches the blanket private subnets in the whitelist).
+On Debian or Ubuntu, enable the required modules:
+
+```bash
+sudo a2enmod proxy proxy_http headers ssl
+```
+
+Create `/etc/apache2/sites-available/dogmedia.conf`, replace
+`media.example.com` and the certificate paths, and use this configuration:
+
+```apache
+<VirtualHost *:80>
+    ServerName media.example.com
+    Redirect permanent / https://media.example.com/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName media.example.com
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/media.example.com/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/media.example.com/privkey.pem
+
+    ProxyRequests Off
+    ProxyPreserveHost On
+    ProxyAddHeaders On
+
+    # Discard a value supplied by the internet client. mod_proxy_http adds a
+    # fresh X-Forwarded-For value containing Apache's direct client address.
+    RequestHeader unset X-Forwarded-For
+    RequestHeader set X-Forwarded-Proto "https"
+
+    ProxyPass        / http://127.0.0.1:8030/ connectiontimeout=5 timeout=600
+    ProxyPassReverse / http://127.0.0.1:8030/
+
+    ErrorLog ${APACHE_LOG_DIR}/dogmedia-error.log
+    CustomLog ${APACHE_LOG_DIR}/dogmedia-access.log combined
+</VirtualHost>
+```
+
+For HTTP-only use on a trusted LAN, put the proxy directives in the port 80
+virtual host instead of redirecting, and set `X-Forwarded-Proto` to `http`.
+Public deployments should use HTTPS.
+
+Enable and validate the site:
+
+```bash
+sudo a2ensite dogmedia.conf
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+On Fedora/RHEL-family systems, place the virtual host in
+`/etc/httpd/conf.d/dogmedia.conf`, verify it with `sudo apachectl configtest`,
+and reload `httpd`. Ensure the host firewall exposes 80/443 but does not expose
+ports 3001, 5440, 8030, or 16379 to untrusted networks.
+
+Verify from a different client machine, not from the server itself:
+
+```bash
+curl https://media.example.com/api/check-access
+```
+
+The JSON `ip` value should match that client's address. If Apache is itself
+behind a CDN, load balancer, or router proxy, configure Apache `mod_remoteip`
+for only that proxy's documented address ranges before relying on the value.
+
+References: [Apache reverse-proxy headers](https://httpd.apache.org/docs/2.4/mod/mod_proxy.html.en),
+[Apache request-header handling](https://httpd.apache.org/docs/2.4/mod/mod_headers.html),
+[Nginx real-IP module](https://nginx.org/en/docs/http/ngx_http_realip_module.html),
+and [Fastify proxy trust](https://fastify.dev/docs/latest/Reference/Server/#trustproxy).
 
 ## IP Whitelist bootstrap
 
@@ -334,5 +430,5 @@ npm run test:web         # web tests
 - First-run auto-bootstraps the whitelist: caller + host IPs get Admin,
   common private subnets get Standard access
 - CIDR matching prefers specific entries over broader ones (`ORDER BY masklen`)
-- Podman rootless bridge → no real client IP at network layer; WebRTC
-  `X-Client-IP` header used as best-effort workaround
+- Apache sanitizes and forwards the client address; Nginx accepts forwarded
+  addresses only from host loopback, and Fastify trusts only local Nginx
