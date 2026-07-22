@@ -242,7 +242,7 @@ const styles = {
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 200,
+    zIndex: 600,
     background: "var(--modal-overlay)",
     display: "flex",
     alignItems: "center",

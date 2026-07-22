@@ -110,10 +110,10 @@ function AccessGuard({ children }) {
 }
 
 function ProtectedRoutes() {
-  const { tier } = useAccess();
+  const access = useAccess();
 
   return (
-    <LibraryShell tier={tier}>
+    <LibraryShell access={access}>
       <GlobalPlayerProvider>
         <Suspense fallback={null}>
           <Routes>

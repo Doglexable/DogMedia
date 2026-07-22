@@ -514,8 +514,9 @@ export default function Dashboard() {
       {/* ── Empty Guide Modal ── */}
       {isEmpty && showEmptyGuide && (
         <div
+          className="premium-modal-overlay"
           style={{
-            position: "fixed", inset: 0, zIndex: 200,
+            position: "fixed", inset: 0, zIndex: 600,
             display: "flex", alignItems: "center", justifyContent: "center",
             background: "var(--modal-overlay)",
           }}

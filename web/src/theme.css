@@ -128,9 +128,53 @@
 .global-sidebar-empty { padding: 8px 6px; color: var(--muted); font-size: var(--fs-xs); }
 
 .global-sidebar-footer {
+  display: grid;
+  gap: 8px;
   flex: 0 0 auto;
   padding: 10px;
   border-top: 1px solid var(--card-border);
+}
+
+.global-sidebar-access {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--bg));
+  color: var(--muted);
+}
+
+.global-sidebar-access-icon {
+  width: 16px;
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.global-sidebar-access-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.global-sidebar-access-text strong,
+.global-sidebar-access-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-sidebar-access-text strong {
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+}
+
+.global-sidebar-access-text small {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
 }
 
 .global-sidebar-theme-btn {
@@ -616,6 +660,7 @@ body {
 }
 
 .premium-modal-overlay {
+  z-index: 600 !important;
   background: rgba(0, 0, 0, 0.68) !important;
   backdrop-filter: blur(10px);
 }

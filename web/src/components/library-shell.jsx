@@ -8,6 +8,7 @@ import {
   faGear,
   faHeart,
   faHouse,
+  faNetworkWired,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { ThemeToggle } from "../App";
@@ -64,8 +65,26 @@ function BottomNavTab({ active, children, icon, onClick, to }) {
   );
 }
 
-function GlobalSidebar({ categories, categoriesLoading, tier }) {
+function AccessBadge({ access }) {
+  if (!access) return null;
+
+  const { clientIp, description, tier } = access;
+  const label = description || `Tier ${tier}`;
+
+  return (
+    <div className="global-sidebar-access">
+      <FontAwesomeIcon icon={faNetworkWired} className="global-sidebar-access-icon" />
+      <span className="global-sidebar-access-text">
+        <strong>{label}</strong>
+        {clientIp && <small>{clientIp}</small>}
+      </span>
+    </div>
+  );
+}
+
+function GlobalSidebar({ access, categories, categoriesLoading }) {
   const location = useLocation();
+  const tier = access?.tier ?? 0;
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const params = new URLSearchParams(location.search);
@@ -156,6 +175,7 @@ function GlobalSidebar({ categories, categoriesLoading, tier }) {
 
         {/* Sidebar footer: theme toggle */}
         <div className="global-sidebar-footer">
+          <AccessBadge access={access} />
           <ThemeToggle className="global-sidebar-theme-btn" />
         </div>
       </aside>
@@ -228,7 +248,7 @@ function GlobalSidebar({ categories, categoriesLoading, tier }) {
   );
 }
 
-export function LibraryShell({ children, tier }) {
+export function LibraryShell({ access, children }) {
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
@@ -248,7 +268,7 @@ export function LibraryShell({ children, tier }) {
   return (
     <LibraryContext.Provider value={{ categories, categoriesLoading, refreshCategories: loadCategories }}>
       <div className="global-app-shell">
-        <GlobalSidebar categories={categories} categoriesLoading={categoriesLoading} tier={tier} />
+        <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />
         <div className="global-app-content">{children}</div>
       </div>
     </LibraryContext.Provider>
