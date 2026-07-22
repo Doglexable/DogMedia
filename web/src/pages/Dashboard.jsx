@@ -8,6 +8,8 @@ import { MediaSearch } from "../components/dashboard/media-search";
 
 const MediaCard = lazy(() => import("../components/dashboard/media-card"));
 const MEDIA_PAGE_SIZE = 24;
+const NOW_PLAYING_POLL_MS = 10000;
+const NOW_PLAYING_TICK_MS = 1000;
 
 function MediaGridSkeleton({ count = 8 }) {
   return (
@@ -324,7 +326,7 @@ const styles = {
     height: "100%",
     borderRadius: 999,
     background: "var(--primary)",
-    transition: "width 180ms ease",
+    transition: "width 900ms linear",
   }),
   nowPlayingBadges: {
     display: "flex",
@@ -450,6 +452,7 @@ export default function Dashboard() {
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
   const [mediaPage, setMediaPage] = useState(1);
+  const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
   const categoryParam = searchParams.get("category");
@@ -506,13 +509,26 @@ export default function Dashboard() {
     const poll = () => {
       api("/api/playback/now-playing")
         .then((r) => r.json())
-        .then(setNowPlaying)
+        .then((sessions) => {
+          setNowPlaying(sessions);
+          setNowPlayingRenderNow(Date.now());
+        })
         .catch(() => {});
     };
     poll();
-    const iv = setInterval(poll, 10000);
+    const iv = setInterval(poll, NOW_PLAYING_POLL_MS);
     return () => clearInterval(iv);
   }, [tier]);
+
+  useEffect(() => {
+    if (tier < 100 || nowPlaying.length === 0) return undefined;
+
+    const tick = setInterval(() => {
+      setNowPlayingRenderNow(Date.now());
+    }, NOW_PLAYING_TICK_MS);
+
+    return () => clearInterval(tick);
+  }, [nowPlaying.length, tier]);
 
   const isEmpty = loaded && !categoriesLoading && categories.length === 0 && media.length === 0;
   const categoryById = useMemo(
@@ -792,7 +808,8 @@ export default function Dashboard() {
             <div style={styles.nowPlayingGrid}>
               {nowPlaying.map((s, i) => {
                 const stateLabels = playbackStateLabels(s);
-                const progressPercent = playbackProgressPercent(s.position, s.duration);
+                const displayPosition = playbackDisplayPosition(s, nowPlayingRenderNow);
+                const progressPercent = playbackProgressPercent(displayPosition, s.duration);
 
                 return (
                   <article key={`${s.ip}-${s.mediaId}-${i}`} style={styles.nowPlayingCard}>
@@ -811,7 +828,7 @@ export default function Dashboard() {
                     </div>
                     <div style={styles.nowPlayingProgress}>
                       <div style={styles.nowPlayingMeta}>
-                        <span>{fmtDur(s.position)}</span>
+                        <span>{fmtDur(displayPosition)}</span>
                         <span>{fmtDur(s.duration)}</span>
                       </div>
                       <div style={styles.nowPlayingProgressTrack} aria-hidden="true">
@@ -838,8 +855,21 @@ export default function Dashboard() {
 }
 
 function fmtDur(s) {
-  if (!s) return "0:00";
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const seconds = Math.max(0, Math.floor(Number(s) || 0));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function playbackDisplayPosition(session, nowMs) {
+  const position = Math.max(0, Math.floor(Number(session.position) || 0));
+  const duration = Math.max(0, Math.floor(Number(session.duration) || 0));
+
+  if (session.action !== "play" || duration <= 0) return position;
+
+  const timestampMs = Date.parse(session.timestamp);
+  if (!Number.isFinite(timestampMs)) return Math.min(position, duration);
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
+  return Math.min(position + elapsedSeconds, duration);
 }
 
 function playbackProgressPercent(position, duration) {
