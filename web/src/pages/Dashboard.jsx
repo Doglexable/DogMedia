@@ -811,7 +811,6 @@ export default function Dashboard() {
                 const displayPosition = playbackDisplayPosition(s, nowPlayingRenderNow);
                 const progressPercent = playbackProgressPercent(displayPosition, s.duration);
                 const title = s.title || `Media #${s.mediaId}`;
-                const titleClassName = `now-playing-card-title${title.length > 32 ? " now-playing-card-title--marquee" : ""}`;
 
                 return (
                   <article key={`${s.ip}-${s.mediaId}-${i}`} style={styles.nowPlayingCard}>
@@ -823,11 +822,8 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div>
-                      <h3 title={title} style={styles.nowPlayingTitle} className={titleClassName} tabIndex={title.length > 32 ? 0 : undefined}>
-                        <span className="now-playing-card-title-track">
-                          <span className="now-playing-card-title-text">{title}</span>
-                          <span className="now-playing-card-title-copy" aria-hidden="true">{title}</span>
-                        </span>
+                      <h3 aria-label={title} style={styles.nowPlayingTitle} className="now-playing-card-title">
+                        {title}
                       </h3>
                       <p style={styles.cardSubtitle}>Media #{s.mediaId}</p>
                     </div>
