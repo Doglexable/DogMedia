@@ -429,12 +429,6 @@
   /* Remove left padding injected for tablet toggle */
   .global-app-content .app-header { padding-left: revert !important; }
 
-  /* Hide tier badge on mobile — it's shown in sidebar on desktop/tablet */
-  .dashboard-tier-badge { display: none; }
-
-  /* If header actions area is empty after hiding badge, collapse it */
-  .dashboard-header-actions:empty { display: none; }
-
   /* Compact dashboard header padding on mobile */
   .dashboard-header { padding-left: 12px !important; padding-right: 12px !important; }
 

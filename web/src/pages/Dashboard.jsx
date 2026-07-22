@@ -235,7 +235,6 @@ const styles = {
   stateBadge: {
     display: "inline-flex",
     alignItems: "center",
-    marginLeft: 6,
     padding: "1px 6px",
     borderRadius: 999,
     border: "1px solid var(--card-border)",
@@ -243,6 +242,95 @@ const styles = {
     fontSize: "var(--fs-xs)",
     fontWeight: 700,
     whiteSpace: "nowrap",
+  },
+  nowPlayingSection: {
+    display: "grid",
+    gap: 12,
+  },
+  nowPlayingHeader: {
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  nowPlayingGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: 12,
+  },
+  nowPlayingCard: {
+    display: "grid",
+    gap: 12,
+    minWidth: 0,
+    padding: 14,
+    border: "1px solid var(--card-border)",
+    borderRadius: 8,
+    background: "var(--card-bg)",
+    boxShadow: "0 10px 28px rgba(0, 0, 0, 0.06)",
+  },
+  nowPlayingCardHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+  },
+  nowPlayingTitle: {
+    margin: 0,
+    overflow: "hidden",
+    color: "var(--text)",
+    fontSize: "var(--fs-md)",
+    fontWeight: 800,
+    lineHeight: 1.25,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  nowPlayingStatus: (action) => ({
+    display: "inline-flex",
+    flex: "0 0 auto",
+    alignItems: "center",
+    gap: 6,
+    padding: "4px 8px",
+    borderRadius: 999,
+    background: action === "play" ? "rgba(39, 174, 96, 0.14)" : "var(--bg)",
+    color: action === "play" ? "#16834a" : "var(--muted)",
+    fontSize: "var(--fs-xs)",
+    fontWeight: 800,
+    textTransform: "capitalize",
+  }),
+  nowPlayingMeta: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+    color: "var(--muted)",
+    fontSize: "var(--fs-xs)",
+  },
+  nowPlayingProgress: {
+    display: "grid",
+    gap: 6,
+  },
+  nowPlayingProgressTrack: {
+    height: 7,
+    overflow: "hidden",
+    borderRadius: 999,
+    background: "var(--bg)",
+    border: "1px solid var(--card-border)",
+  },
+  nowPlayingProgressFill: (percent) => ({
+    width: `${percent}%`,
+    height: "100%",
+    borderRadius: 999,
+    background: "var(--primary)",
+    transition: "width 180ms ease",
+  }),
+  nowPlayingBadges: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
   },
   warningBanner: {
     background: "var(--warning-bg)",
@@ -348,7 +436,7 @@ const styles = {
 };
 
 export default function Dashboard() {
-  const { tier, description, firstRun, clientIp } = useAccess();
+  const { tier, firstRun } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
   const player = useGlobalPlayer();
   const [searchParams] = useSearchParams();
@@ -577,12 +665,6 @@ export default function Dashboard() {
             onClear={() => setMediaSearch("")}
           />
         </div>
-        <div style={styles.headerActions} className="dashboard-header-actions">
-          <span style={styles.tierbadge} className="dashboard-tier-badge">
-            {description || `Tier ${tier}`}
-            {clientIp && <span style={{ fontFamily: "monospace" }}> · {clientIp}</span>}
-          </span>
-        </div>
       </header>
 
       {/* ── Main Content ── */}
@@ -697,41 +779,55 @@ export default function Dashboard() {
 
         {/* Now Playing (Admin) */}
         {tier >= 100 && nowPlaying.length > 0 && (
-          <section className="glass-surface" style={styles.tableCard}>
-            <div style={styles.tableHeader}>
-              <h2 style={styles.cardTitle}>Now Playing</h2>
-              <p style={styles.cardSubtitle}>Active playback sessions on this server.</p>
+          <section style={styles.nowPlayingSection}>
+            <div style={styles.nowPlayingHeader}>
+              <div>
+                <h2 style={{ ...styles.sectionTitle, marginBottom: 4 }}>Now Playing</h2>
+                <p style={styles.cardSubtitle}>Active playback sessions on this server.</p>
+              </div>
+              <span style={styles.tierbadge}>
+                {nowPlaying.length} active
+              </span>
             </div>
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>IP</th>
-                    <th style={styles.th}>Media</th>
-                    <th style={styles.th}>Position</th>
-                    <th style={styles.th}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nowPlaying.map((s, i) => {
-                    const stateLabels = playbackStateLabels(s);
-                    return (
-                      <tr key={i}>
-                        <td style={styles.td}><span style={styles.ipBadge}>{s.ip}</span></td>
-                        <td style={styles.td}>{s.title || `Media #${s.mediaId}`}</td>
-                        <td style={styles.td}>{fmtDur(s.position)} / {fmtDur(s.duration)}</td>
-                        <td style={styles.td}>
-                          <span style={styles.statusDot(s.action)} />
-                          {s.action}
-                          {stateLabels.map((label) => (
-                            <span key={label} style={styles.stateBadge}>{label}</span>
-                          ))}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={styles.nowPlayingGrid}>
+              {nowPlaying.map((s, i) => {
+                const stateLabels = playbackStateLabels(s);
+                const progressPercent = playbackProgressPercent(s.position, s.duration);
+
+                return (
+                  <article key={`${s.ip}-${s.mediaId}-${i}`} style={styles.nowPlayingCard}>
+                    <div style={styles.nowPlayingCardHeader}>
+                      <span style={styles.ipBadge}>{s.ip}</span>
+                      <span style={styles.nowPlayingStatus(s.action)}>
+                        <span style={styles.statusDot(s.action)} />
+                        {s.action}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 title={s.title || `Media #${s.mediaId}`} style={styles.nowPlayingTitle}>
+                        {s.title || `Media #${s.mediaId}`}
+                      </h3>
+                      <p style={styles.cardSubtitle}>Media #{s.mediaId}</p>
+                    </div>
+                    <div style={styles.nowPlayingProgress}>
+                      <div style={styles.nowPlayingMeta}>
+                        <span>{fmtDur(s.position)}</span>
+                        <span>{fmtDur(s.duration)}</span>
+                      </div>
+                      <div style={styles.nowPlayingProgressTrack} aria-hidden="true">
+                        <div style={styles.nowPlayingProgressFill(progressPercent)} />
+                      </div>
+                    </div>
+                    {stateLabels.length > 0 && (
+                      <div style={styles.nowPlayingBadges}>
+                        {stateLabels.map((label) => (
+                          <span key={label} style={styles.stateBadge}>{label}</span>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           </section>
         )}
@@ -744,4 +840,11 @@ export default function Dashboard() {
 function fmtDur(s) {
   if (!s) return "0:00";
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function playbackProgressPercent(position, duration) {
+  const current = Number(position) || 0;
+  const total = Number(duration) || 0;
+  if (total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((current / total) * 100)));
 }

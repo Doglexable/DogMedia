@@ -32,6 +32,16 @@ describe("getClientIp", () => {
     expect(ip).toBe("127.0.0.1");
   });
 
+  it("uses x-real-ip when the forwarded header is missing", () => {
+    const ip = getClientIp({
+      headers: { "x-real-ip": "192.168.0.213" },
+      ip: "127.0.0.1",
+      raw: { socket: { remoteAddress: "127.0.0.1" } },
+    });
+
+    expect(ip).toBe("192.168.0.213");
+  });
+
   it("ignores x-forwarded-for from direct non-local clients", () => {
     const ip = getClientIp({
       headers: { "x-forwarded-for": "192.168.1.99" },

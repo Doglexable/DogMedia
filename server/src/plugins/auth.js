@@ -33,20 +33,30 @@ function isLoopbackIp(value) {
   return ip === "::1" || ip.startsWith("127.");
 }
 
+function getFirstValidHeaderIp(value) {
+  const headers = Array.isArray(value) ? value : [value];
+
+  for (const header of headers) {
+    if (typeof header !== "string") continue;
+
+    for (const rawIp of header.split(",")) {
+      const ip = normalizeIp(rawIp);
+      if (isIP(ip)) return ip;
+    }
+  }
+
+  return null;
+}
+
 export function getClientIp(request) {
   const proxyPeerIp = request.raw?.socket?.remoteAddress || request.socket?.remoteAddress;
-  const forwardedFor = request.headers["x-forwarded-for"];
-  const forwardedIps = Array.isArray(forwardedFor) ? forwardedFor : [forwardedFor];
 
   if (isLoopbackIp(proxyPeerIp || request.ip)) {
-    for (const header of forwardedIps) {
-      if (typeof header !== "string") continue;
-
-      for (const rawIp of header.split(",")) {
-        const ip = normalizeIp(rawIp);
-        if (isIP(ip)) return ip;
-      }
-    }
+    return (
+      getFirstValidHeaderIp(request.headers["x-forwarded-for"]) ||
+      getFirstValidHeaderIp(request.headers["x-real-ip"]) ||
+      request.ip
+    );
   }
 
   return request.ip;
