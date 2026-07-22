@@ -621,6 +621,59 @@ body {
   z-index: 1;
 }
 
+.now-playing-card-title {
+  min-width: 0;
+}
+
+.now-playing-card-title-track,
+.now-playing-card-title-text {
+  display: block;
+  min-width: 0;
+}
+
+.now-playing-card-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-playing-card-title-copy {
+  display: none;
+}
+
+.now-playing-card-title--marquee:hover .now-playing-card-title-track,
+.now-playing-card-title--marquee:focus-visible .now-playing-card-title-track {
+  display: inline-flex;
+  width: max-content;
+  min-width: 100%;
+  white-space: nowrap;
+  animation: now-playing-card-title-marquee 9s linear infinite;
+}
+
+.now-playing-card-title--marquee:hover .now-playing-card-title-text,
+.now-playing-card-title--marquee:focus-visible .now-playing-card-title-text {
+  overflow: visible;
+  padding-right: 2.5rem;
+  text-overflow: clip;
+}
+
+.now-playing-card-title--marquee:hover .now-playing-card-title-copy,
+.now-playing-card-title--marquee:focus-visible .now-playing-card-title-copy {
+  display: block;
+  padding-right: 2.5rem;
+}
+
+@keyframes now-playing-card-title-marquee {
+  0%,
+  12% {
+    transform: translateX(0);
+  }
+  88%,
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
 [data-theme="dark"] .dashboard-view-ambient {
   border-color: color-mix(in srgb, var(--primary) 42%, var(--card-border)) !important;
   background:
