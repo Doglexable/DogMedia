@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { ThemeToggle } from "../App";
 import { api } from "../api";
 
 const DAY_MS = 86400000;
@@ -260,16 +259,13 @@ function TopMediaList({ media, maxMediaTime }) {
 function PageShell({ children }) {
   return (
     <div className="premium-app-shell min-h-screen bg-surface text-content">
-      <header className="app-header sticky top-0 z-[100] flex min-h-[var(--app-header-height)] flex-wrap items-center justify-between gap-3 border-b border-card-border bg-card px-3 py-2 sm:px-6">
+      <header className="app-header sticky top-0 z-[100] flex min-h-[var(--app-header-height)] flex-wrap items-center gap-3 border-b border-card-border bg-card px-3 py-2 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <div className="min-w-0">
             <div className="truncate text-[var(--fs-md)] font-extrabold tracking-normal text-content">Wrapped</div>
             <div className="truncate text-xs text-muted">Playback activity and contribution history</div>
           </div>
         </div>
-        <nav className="flex flex-wrap items-center justify-end gap-2">
-          <ThemeToggle className="rounded-[10px] border border-card-border bg-surface px-3.5 py-2.5 text-sm font-bold text-primary no-underline" />
-        </nav>
       </header>
       <main className="app-main mx-auto max-w-6xl px-4 py-7">
         {children}

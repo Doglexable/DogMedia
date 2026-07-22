@@ -1339,23 +1339,23 @@ body {
 }
 
 .wrapped-heatmap-cell[data-level="1"] {
-  background: #bfdbfe;
-  border-color: color-mix(in srgb, #bfdbfe 75%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 22%, var(--bg));
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--card-border));
 }
 
 .wrapped-heatmap-cell[data-level="2"] {
-  background: #60a5fa;
-  border-color: color-mix(in srgb, #60a5fa 75%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 45%, var(--bg));
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--card-border));
 }
 
 .wrapped-heatmap-cell[data-level="3"] {
-  background: #3b82f6;
-  border-color: color-mix(in srgb, #3b82f6 75%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 70%, var(--bg));
+  border-color: color-mix(in srgb, var(--primary) 78%, var(--card-border));
 }
 
 .wrapped-heatmap-cell[data-level="4"] {
-  background: #1d4ed8;
-  border-color: color-mix(in srgb, #1d4ed8 75%, var(--card-border));
+  background: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 88%, var(--card-border));
 }
 
 .wrapped-heatmap-footer {
@@ -1412,8 +1412,8 @@ body {
   flex: 0 0 auto;
   margin-top: 5px;
   border-radius: 50%;
-  background: #3b82f6;
-  box-shadow: 0 0 0 4px color-mix(in srgb, #3b82f6 16%, transparent);
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 .wrapped-feed-title,
@@ -1447,7 +1447,7 @@ body {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #3b82f6;
+  background: var(--primary);
   transform-origin: left;
   animation: wrapped-bar-fill 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
   animation-delay: calc(260ms + var(--wrapped-index, 0) * 35ms);
