@@ -1,4 +1,5 @@
 import os from "os";
+import { isIP } from "net";
 
 function getHostIps() {
   const interfaces = os.networkInterfaces();
@@ -13,7 +14,41 @@ function getHostIps() {
   return ips;
 }
 
-function getClientIp(request) {
+function stripPortOrBrackets(value) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[") && trimmed.includes("]")) {
+    return trimmed.slice(1, trimmed.indexOf("]"));
+  }
+
+  return trimmed;
+}
+
+function normalizeIp(value) {
+  const ip = stripPortOrBrackets(value || "");
+  return ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+}
+
+function isLoopbackIp(value) {
+  const ip = normalizeIp(value);
+  return ip === "::1" || ip.startsWith("127.");
+}
+
+export function getClientIp(request) {
+  const proxyPeerIp = request.raw?.socket?.remoteAddress || request.socket?.remoteAddress;
+  const forwardedFor = request.headers["x-forwarded-for"];
+  const forwardedIps = Array.isArray(forwardedFor) ? forwardedFor : [forwardedFor];
+
+  if (isLoopbackIp(proxyPeerIp || request.ip)) {
+    for (const header of forwardedIps) {
+      if (typeof header !== "string") continue;
+
+      for (const rawIp of header.split(",")) {
+        const ip = normalizeIp(rawIp);
+        if (isIP(ip)) return ip;
+      }
+    }
+  }
+
   return request.ip;
 }
 
