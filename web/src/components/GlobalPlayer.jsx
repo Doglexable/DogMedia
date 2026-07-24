@@ -1110,6 +1110,7 @@ export function GlobalPlayerProvider({ children }) {
       )}
       {queueOpen && (
         <QueuePanel
+          currentIndex={queueIndex}
           currentMedia={currentMedia}
           items={queueItems}
           loading={queueLoading}

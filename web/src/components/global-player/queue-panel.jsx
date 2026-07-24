@@ -80,7 +80,62 @@ function SortableQueueItem({ active, index, item, onRemove, onSelect }) {
   );
 }
 
-export function QueuePanel({ currentMedia, items, loading, total, onClear, onClose, onRemove, onReorder, onSelect }) {
+function PinnedQueueItem({ index, item, onRemove, onSelect }) {
+  const meta = getMediaMeta(item.mime_type || "");
+  return (
+    <div
+      style={{
+        ...styles.queueItem(true),
+        gridTemplateColumns: "32px 26px minmax(0, 1fr) auto auto",
+        opacity: 0.92,
+      }}
+    >
+      <button
+        type="button"
+        aria-label={`${item.title} is currently playing and cannot be moved`}
+        title="Now playing — locked in place"
+        disabled
+        style={{ ...styles.queueActionButton, cursor: "not-allowed", opacity: 0.45 }}
+      >
+        <FontAwesomeIcon icon={faGripVertical} />
+      </button>
+      <span style={{ color: "var(--primary)", fontSize: 12, fontWeight: 800 }}>
+        {index + 1}
+      </span>
+      <button type="button" style={styles.queueSelectButton} onClick={() => onSelect(item)} title={item.title}>
+        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 700 }}>
+          {item.title}
+        </span>
+        <span
+          title={`Now Playing · Locked · ${meta.label}`}
+          style={{ display: "block", marginTop: 2, overflow: "hidden", color: "var(--muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          Now Playing · Locked
+        </span>
+      </button>
+      <span style={{ color: "var(--muted)", fontSize: 12 }}>
+        {item.duration ? formatDuration(item.duration) : ""}
+      </span>
+      <button type="button" aria-label={`Remove ${item.title}`} title="Remove from queue" style={styles.queueActionButton} onClick={() => onRemove(item.id)}>
+        <FontAwesomeIcon icon={faTrash} />
+      </button>
+    </div>
+  );
+}
+
+function resolveCurrentIndex(items, currentIndex, currentMedia) {
+  if (
+    Number.isInteger(currentIndex)
+    && currentIndex >= 0
+    && currentIndex < items.length
+    && (!currentMedia || Number(items[currentIndex]?.id) === Number(currentMedia.id))
+  ) {
+    return currentIndex;
+  }
+  return items.findIndex((item) => Number(item.id) === Number(currentMedia?.id));
+}
+
+export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, total, onClear, onClose, onRemove, onReorder, onSelect }) {
   const [error, setError] = useState("");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -93,12 +148,24 @@ export function QueuePanel({ currentMedia, items, loading, total, onClear, onClo
     Promise.resolve(operation).catch((err) => setError(err.message || "Queue update failed"));
   };
 
+  const pinnedIndex = resolveCurrentIndex(items, currentIndex, currentMedia);
+  const hasPinnedItem = pinnedIndex > -1;
+  const pinnedItem = hasPinnedItem ? items[pinnedIndex] : null;
+  const previousItems = hasPinnedItem ? items.slice(0, pinnedIndex) : [];
+  const upcomingItems = hasPinnedItem ? items.slice(pinnedIndex + 1) : items;
+  const displayedTotal = loading ? total : (hasPinnedItem ? upcomingItems.length + 1 : items.length);
+
   const handleDragEnd = ({ active, over }) => {
     if (!over || active.id === over.id) return;
-    if (Number(active.id) === Number(currentMedia?.id)) return;
-    const oldIndex = items.findIndex((item) => Number(item.id) === Number(active.id));
-    const newIndex = items.findIndex((item) => Number(item.id) === Number(over.id));
-    run(onReorder(arrayMove(items, oldIndex, newIndex).map((item) => Number(item.id))));
+    if (hasPinnedItem && Number(active.id) === Number(pinnedItem.id)) return;
+    const oldIndex = upcomingItems.findIndex((item) => Number(item.id) === Number(active.id));
+    const newIndex = upcomingItems.findIndex((item) => Number(item.id) === Number(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    const reorderedUpcoming = arrayMove(upcomingItems, oldIndex, newIndex);
+    const nextItems = hasPinnedItem
+      ? [...previousItems, pinnedItem, ...reorderedUpcoming]
+      : reorderedUpcoming;
+    run(onReorder(nextItems.map((item) => Number(item.id))));
   };
 
   return (
@@ -107,7 +174,7 @@ export function QueuePanel({ currentMedia, items, loading, total, onClear, onClo
         <div>
           <div style={{ fontSize: 14, fontWeight: 800 }}>Queue</div>
           <div style={{ marginTop: 2, fontSize: 12, color: "var(--muted)" }}>
-            {total ? `${total} item${total === 1 ? "" : "s"} queued` : "No items queued"}
+            {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -123,20 +190,35 @@ export function QueuePanel({ currentMedia, items, loading, total, onClear, onClo
         {loading ? (
           <QueueListSkeleton count={Math.min(Math.max(total, 3), 6)} />
         ) : items.length > 0 ? (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={items.map((item) => Number(item.id))} strategy={verticalListSortingStrategy}>
-              {items.map((item, index) => (
-                <SortableQueueItem
-                  key={item.id}
-                  active={Number(item.id) === Number(currentMedia?.id)}
-                  index={index}
-                  item={item}
-                  onRemove={(id) => run(onRemove(id))}
-                  onSelect={onSelect}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+          <>
+            {pinnedItem && (
+              <PinnedQueueItem
+                index={pinnedIndex}
+                item={pinnedItem}
+                onRemove={(id) => run(onRemove(id))}
+                onSelect={onSelect}
+              />
+            )}
+            {upcomingItems.length > 0 && (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={upcomingItems.map((item) => Number(item.id))} strategy={verticalListSortingStrategy}>
+                  {upcomingItems.map((item, index) => (
+                    <SortableQueueItem
+                      key={item.id}
+                      active={false}
+                      index={hasPinnedItem ? pinnedIndex + index + 1 : index}
+                      item={item}
+                      onRemove={(id) => run(onRemove(id))}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            )}
+            {pinnedItem && upcomingItems.length === 0 && (
+              <div style={{ padding: "10px 2px 2px", color: "var(--muted)", fontSize: 12 }}>No upcoming items.</div>
+            )}
+          </>
         ) : (
           <div style={{ padding: 16, color: "var(--muted)", fontSize: 13 }}>Queue is empty.</div>
         )}

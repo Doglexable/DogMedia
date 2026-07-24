@@ -81,45 +81,69 @@ export default function Wrapped() {
   const maxMediaTime = Math.max(...topMedia.map((media) => media.totalTime || 0), 1);
   const busiestDay = [...timeline].sort((a, b) => b.playTime - a.playTime)[0];
   const currentStreak = getCurrentStreak(timeline);
+  const busiestWeekday = getBusiestWeekday(timeline);
+  const listeningDensity = Math.round((activeDays / 30) * 100);
   const activityDays = timeline
     .filter((day) => day.playTime > 0 || day.plays > 0)
     .sort((a, b) => b.date.localeCompare(a.date));
   const isEmpty = totalPlayTime === 0 && totalPlays === 0 && topMedia.length === 0;
+  const leadMedia = topMedia[0];
 
   return (
     <PageShell>
       <section className="wrapped-hero">
-        <div className="min-w-0">
-          <p className="wrapped-eyebrow">Playback activity</p>
-          <h1>Wrapped contribution log</h1>
-          <p className="wrapped-subtitle">{period.label}</p>
+        <div className="wrapped-hero-copy">
+          <p className="wrapped-eyebrow">Last 30 days</p>
+          <h1>Your playback pulse</h1>
+          <p className="wrapped-subtitle">
+            {period.label} / {activeDays ? `${activeDays} active days` : "No active days yet"}
+          </p>
         </div>
         <div className="wrapped-hero-stats">
           <Metric label="Play time" value={fmtTime(totalPlayTime)} />
           <Metric label="Plays" value={formatNumber(totalPlays)} />
-          <Metric label="Active days" value={`${activeDays}/30`} />
+          <Metric label="Density" value={`${listeningDensity}%`} />
           <Metric label="Streak" value={`${currentStreak}d`} />
         </div>
       </section>
 
       {isEmpty ? (
         <section className="wrapped-empty">
+          <div className="wrapped-empty-mark" aria-hidden="true" />
           <h2>No playback activity yet</h2>
-          <p>Play audio or video files and this page will build a contribution-style history from your sessions.</p>
+          <p>Play audio or video files and this page will build a playback report from your sessions.</p>
         </section>
       ) : (
-        <div className="wrapped-grid">
+        <div className="wrapped-dashboard">
+          <section className="wrapped-panel wrapped-panel--story">
+            <div className="wrapped-story-main">
+              <span className="wrapped-story-label">Most played</span>
+              <h2>{leadMedia?.title || "No top media yet"}</h2>
+              <p>
+                {leadMedia
+                  ? `${formatNumber(leadMedia.playCount || 0)} plays / ${fmtTime(leadMedia.totalTime || 0)} tracked`
+                  : "Keep listening to build a ranked history."}
+              </p>
+            </div>
+            <dl className="wrapped-story-side">
+              <SummaryItem label="Daily average" value={fmtTime(Math.floor(totalPlayTime / 30))} />
+              <SummaryItem label="Best weekday" value={busiestWeekday.label} />
+              <SummaryItem label="Peak day" value={busiestDay?.playTime ? formatLongDate(busiestDay.date) : "None"} />
+            </dl>
+          </section>
+
           <section className="wrapped-panel wrapped-panel--main">
             <div className="wrapped-section-heading">
               <div>
-                <h2>{formatNumber(totalPlays)} playback events in the last 30 days</h2>
+                <h2>Playback rhythm</h2>
                 <p>
-                  Peak day: {busiestDay?.playTime ? `${formatLongDate(busiestDay.date)} with ${fmtTime(busiestDay.playTime)}` : "None yet"}
+                  {formatNumber(totalPlays)} events / peak {busiestDay?.playTime ? `${formatLongDate(busiestDay.date)} at ${fmtTime(busiestDay.playTime)}` : "None yet"}
                 </p>
               </div>
               <span>{fmtTime(activeDays ? Math.floor(totalPlayTime / activeDays) : 0)} active-day avg</span>
             </div>
 
+            <DailyPulse timeline={timeline} maxDayTime={maxDayTime} />
             <ActivityHeatmap timeline={timeline} maxDayTime={maxDayTime} />
           </section>
 
@@ -151,15 +175,35 @@ export default function Wrapped() {
               </div>
             </div>
             <dl className="wrapped-summary-list">
-              <SummaryItem label="Daily average" value={fmtTime(Math.floor(totalPlayTime / 30))} />
               <SummaryItem label="Active-day average" value={fmtTime(activeDays ? Math.floor(totalPlayTime / activeDays) : 0)} />
-              <SummaryItem label="Busiest day" value={busiestDay?.playTime ? formatLongDate(busiestDay.date) : "None"} />
               <SummaryItem label="Peak play time" value={fmtTime(busiestDay?.playTime || 0)} />
+              <SummaryItem label="Active days" value={`${activeDays}/30`} />
+              <SummaryItem label="Best weekday time" value={fmtTime(busiestWeekday.playTime)} />
             </dl>
           </aside>
         </div>
       )}
     </PageShell>
+  );
+}
+
+function DailyPulse({ timeline, maxDayTime }) {
+  return (
+    <div className="wrapped-pulse" aria-label="Daily playback time">
+      {timeline.map((day) => {
+        const pct = Math.max((day.playTime / maxDayTime) * 100, day.playTime ? 12 : 0);
+        return (
+          <span
+            key={day.date}
+            className="wrapped-pulse-day"
+            style={{ "--pulse-height": `${pct}%` }}
+            title={`${formatLongDate(day.date)}: ${fmtTime(day.playTime)} across ${formatNumber(day.plays)} plays`}
+          >
+            <span />
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -209,7 +253,10 @@ function ActivityFeed({ days, maxDayTime }) {
         const pct = Math.max((day.playTime / maxDayTime) * 100, 8);
         return (
           <li key={day.date} style={{ "--wrapped-index": index }}>
-            <span className="wrapped-feed-dot" />
+            <time className="wrapped-feed-date" dateTime={day.date}>
+              <span>{day.dayName}</span>
+              <strong>{new Date(day.date).getDate()}</strong>
+            </time>
             <div className="min-w-0 flex-1">
               <div className="wrapped-feed-title">{formatLongDate(day.date)}</div>
               <div className="wrapped-feed-meta">
@@ -237,7 +284,7 @@ function TopMediaList({ media, maxMediaTime }) {
         const pct = Math.max(((item.totalTime || 0) / maxMediaTime) * 100, 3);
         return (
           <li key={item.mediaId || index} style={{ "--wrapped-index": index }}>
-            <span className="wrapped-rank">#{index + 1}</span>
+            <span className="wrapped-rank">{index + 1}</span>
             <div className="min-w-0 flex-1">
               <div className="wrapped-media-title" title={item.title || `Media #${item.mediaId}`}>
                 {item.title || `Media #${item.mediaId}`}
@@ -254,6 +301,16 @@ function TopMediaList({ media, maxMediaTime }) {
       })}
     </ol>
   );
+}
+
+function getBusiestWeekday(timeline) {
+  const totals = WEEKDAYS.map((label) => ({ label, playTime: 0, plays: 0 }));
+  timeline.forEach((day) => {
+    const index = day.dateObject?.getDay?.() || 0;
+    totals[index].playTime += day.playTime || 0;
+    totals[index].plays += day.plays || 0;
+  });
+  return totals.sort((a, b) => b.playTime - a.playTime || b.plays - a.plays)[0] || { label: "None", playTime: 0, plays: 0 };
 }
 
 function PageShell({ children }) {

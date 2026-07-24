@@ -608,7 +608,7 @@ export default async function (fastify) {
 
     const filePath = join(DATA_DIR, rows[0].file_path);
     await unlink(filePath).catch(() => {});
-    
+
     // Attempt to delete any related thumbnail indiscriminately
     const baseDir = dirname(filePath);
     const baseName = rows[0].file_path.split("/")[1].split(".")[0];
@@ -692,7 +692,7 @@ export default async function (fastify) {
     const media = rows[0];
     const categoryDir = join(DATA_DIR, String(media.category_id));
     const baseName = media.file_path.split("/")[1].split(".")[0];
-    
+
     // Probe possible thumb names
     const exts = ["webp", "jpg", "png", "jpeg"];
     for (const xt of exts) {
@@ -706,7 +706,7 @@ export default async function (fastify) {
         // file doesn't exist, try next ext
       }
     }
-    
+
     return reply.code(404).send({ error: "No thumbnail available" });
   });
 }
