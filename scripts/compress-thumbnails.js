@@ -6,7 +6,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_QUALITY = 75;
+const THUMBNAIL_SIZE = 518;
 const THUMBNAIL_PATTERN = /_thumb\.(?:jpe?g|png|webp)$/i;
+const THUMBNAIL_FILTER = `scale='if(gt(iw,ih),min(${THUMBNAIL_SIZE},iw),-2)':'if(gte(iw,ih),-2,min(${THUMBNAIL_SIZE},ih))'`;
 
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -62,31 +64,38 @@ async function askQuality() {
   }
 }
 
-function compressionArgs(inputPath, outputPath, quality) {
+async function detectWebpEncoder() {
+  const { stdout } = await execFileAsync("ffmpeg", ["-hide_banner", "-encoders"]);
+  if (/^\s*V\S*\s+libwebp\s/m.test(stdout)) return "libwebp";
+  if (/^\s*V\S*\s+webp\s/m.test(stdout)) return "webp";
+  throw new Error("ffmpeg does not provide a WebP encoder.");
+}
+
+function compressionArgs(inputPath, outputPath, quality, webpEncoder) {
   const extension = extname(inputPath).toLowerCase();
   const common = ["-y", "-v", "error", "-i", inputPath, "-frames:v", "1", "-map_metadata", "-1"];
 
   if (extension === ".webp") {
-    return [...common, "-c:v", "libwebp", "-quality", String(quality), "-compression_level", "6", outputPath];
+    return [...common, "-vf", THUMBNAIL_FILTER, "-c:v", webpEncoder, "-quality", String(quality), "-compression_level", "6", outputPath];
   }
 
   if (extension === ".png") {
     const maxColors = Math.max(2, Math.round(2 + (quality / 100) * 254));
-    const paletteFilter = `split[source][paletteInput];[paletteInput]palettegen=max_colors=${maxColors}[palette];[source][palette]paletteuse=dither=bayer`;
+    const paletteFilter = `${THUMBNAIL_FILTER},split[source][paletteInput];[paletteInput]palettegen=max_colors=${maxColors}[palette];[source][palette]paletteuse=dither=bayer`;
     return [...common, "-vf", paletteFilter, "-compression_level", "9", outputPath];
   }
 
   const jpegScale = Math.max(2, Math.min(31, Math.round(31 - (quality / 100) * 29)));
-  return [...common, "-q:v", String(jpegScale), outputPath];
+  return [...common, "-vf", THUMBNAIL_FILTER, "-q:v", String(jpegScale), outputPath];
 }
 
-async function compressThumbnail(inputPath, quality, sequence) {
+async function compressThumbnail(inputPath, quality, sequence, webpEncoder) {
   const extension = extname(inputPath);
   const temporaryPath = `${inputPath.slice(0, -extension.length)}.compressing-${process.pid}-${sequence}${extension}`;
   const before = await stat(inputPath);
 
   try {
-    await execFileAsync("ffmpeg", compressionArgs(inputPath, temporaryPath, quality));
+    await execFileAsync("ffmpeg", compressionArgs(inputPath, temporaryPath, quality, webpEncoder));
     const after = await stat(temporaryPath);
 
     if (after.size >= before.size) {
@@ -109,6 +118,7 @@ async function main() {
   await execFileAsync("ffmpeg", ["-version"]).catch(() => {
     throw new Error("ffmpeg is required but was not found in PATH.");
   });
+  const webpEncoder = await detectWebpEncoder();
 
   const thumbnails = await collectThumbnails(mediaRoot);
   if (thumbnails.length === 0) {
@@ -119,6 +129,8 @@ async function main() {
   const backupRoot = join(mediaRoot, ".thumbnail-backups", timestamp());
   console.log(`Found ${thumbnails.length} thumbnail(s).`);
   console.log(`Quality: ${quality}%`);
+  console.log(`Maximum dimensions: ${THUMBNAIL_SIZE}x${THUMBNAIL_SIZE}`);
+  console.log(`WebP encoder: ${webpEncoder}`);
   console.log(`Backing up originals to ${backupRoot}`);
 
   for (const thumbnail of thumbnails) {
@@ -136,7 +148,7 @@ async function main() {
   for (const [index, thumbnail] of thumbnails.entries()) {
     const label = relative(mediaRoot, thumbnail);
     try {
-      const result = await compressThumbnail(thumbnail, quality, index);
+      const result = await compressThumbnail(thumbnail, quality, index, webpEncoder);
       originalBytes += result.before;
       resultBytes += result.after;
       if (result.skipped) {
