@@ -68,7 +68,7 @@ async function detectWebpEncoder() {
   const { stdout } = await execFileAsync("ffmpeg", ["-hide_banner", "-encoders"]);
   if (/^\s*V\S*\s+libwebp\s/m.test(stdout)) return "libwebp";
   if (/^\s*V\S*\s+webp\s/m.test(stdout)) return "webp";
-  throw new Error("ffmpeg does not provide a WebP encoder.");
+  return null;
 }
 
 function compressionArgs(inputPath, outputPath, quality, webpEncoder) {
@@ -76,6 +76,7 @@ function compressionArgs(inputPath, outputPath, quality, webpEncoder) {
   const common = ["-y", "-v", "error", "-i", inputPath, "-frames:v", "1", "-map_metadata", "-1"];
 
   if (extension === ".webp") {
+    if (!webpEncoder) return null;
     return [...common, "-vf", THUMBNAIL_FILTER, "-c:v", webpEncoder, "-quality", String(quality), "-compression_level", "6", outputPath];
   }
 
@@ -95,12 +96,17 @@ async function compressThumbnail(inputPath, quality, sequence, webpEncoder) {
   const before = await stat(inputPath);
 
   try {
-    await execFileAsync("ffmpeg", compressionArgs(inputPath, temporaryPath, quality, webpEncoder));
+    const args = compressionArgs(inputPath, temporaryPath, quality, webpEncoder);
+    if (args === null) {
+      return { before: before.size, after: before.size, skipped: true, reason: "ffmpeg has no WebP encoder" };
+    }
+
+    await execFileAsync("ffmpeg", args);
     const after = await stat(temporaryPath);
 
     if (after.size >= before.size) {
       await unlink(temporaryPath);
-      return { before: before.size, after: before.size, skipped: true };
+      return { before: before.size, after: before.size, skipped: true, reason: "compressed copy was not smaller" };
     }
 
     await rename(temporaryPath, inputPath);
@@ -130,7 +136,7 @@ async function main() {
   console.log(`Found ${thumbnails.length} thumbnail(s).`);
   console.log(`Quality: ${quality}%`);
   console.log(`Maximum dimensions: ${THUMBNAIL_SIZE}x${THUMBNAIL_SIZE}`);
-  console.log(`WebP encoder: ${webpEncoder}`);
+  console.log(`WebP encoder: ${webpEncoder || "not available; .webp thumbnails will be skipped"}`);
   console.log(`Backing up originals to ${backupRoot}`);
 
   for (const thumbnail of thumbnails) {
@@ -153,7 +159,7 @@ async function main() {
       resultBytes += result.after;
       if (result.skipped) {
         skipped += 1;
-        console.log(`skip  ${label} (compressed copy was not smaller)`);
+        console.log(`skip  ${label} (${result.reason || "not compressed"})`);
       } else {
         compressed += 1;
         console.log(`done  ${label}: ${formatBytes(result.before)} -> ${formatBytes(result.after)}`);
