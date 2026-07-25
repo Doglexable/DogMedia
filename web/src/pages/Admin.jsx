@@ -4,6 +4,7 @@ import { ThemeToggle, useAccess } from "../App";
 import { api } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
+import { useGlobalPlayer } from "../components/GlobalPlayer";
 
 const FALLBACK_CHUNK_SIZE = 512 * 1024;
 
@@ -56,6 +57,9 @@ const styles = {
     padding: "28px 20px 40px",
     display: "grid",
     gap: 18,
+  },
+  mainWithPlayer: {
+    paddingBottom: "calc(var(--player-height) + 38px)",
   },
   notice: (type) => ({
     padding: "12px 14px",
@@ -797,6 +801,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
 export default function Admin() {
   const { tier } = useAccess();
   const { refreshCategories: refreshGlobalCategories } = useLibrary();
+  const player = useGlobalPlayer();
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [message, setMessage] = useState(null);
@@ -1251,7 +1256,7 @@ export default function Admin() {
           </div>
         </header>
 
-        <main className="app-main" style={styles.main}>
+        <main className="app-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
           {message && (
             <div style={styles.notice(message.type)}>
               <span>{message.type === "error" ? "⚠️" : "✅"}</span>

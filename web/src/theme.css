@@ -566,6 +566,10 @@ body {
   box-sizing: border-box;
 }
 
+.app-main--with-player {
+  padding-bottom: calc(var(--player-height) + 38px) !important;
+}
+
 .glass-surface {
   border-color: var(--card-border) !important;
   border-radius: 20px !important;

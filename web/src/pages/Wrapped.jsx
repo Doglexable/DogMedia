@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { useGlobalPlayer } from "../components/GlobalPlayer";
 
 const DAY_MS = 86400000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -314,6 +315,8 @@ function getBusiestWeekday(timeline) {
 }
 
 function PageShell({ children }) {
+  const player = useGlobalPlayer();
+
   return (
     <div className="premium-app-shell min-h-screen bg-surface text-content">
       <header className="app-header sticky top-0 z-[100] flex min-h-[var(--app-header-height)] flex-wrap items-center gap-3 border-b border-card-border bg-card px-3 py-2 sm:px-6">
@@ -324,7 +327,7 @@ function PageShell({ children }) {
           </div>
         </div>
       </header>
-      <main className="app-main mx-auto max-w-6xl px-4 py-7">
+      <main className={`app-main mx-auto max-w-6xl px-4 py-7${player?.currentMedia ? " app-main--with-player" : ""}`}>
         {children}
       </main>
     </div>
