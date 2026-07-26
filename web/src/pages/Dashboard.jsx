@@ -7,6 +7,7 @@ import { api } from "../api";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
+import { formatDuration } from "../components/global-player/player-utils";
 
 const NOW_PLAYING_POLL_MS = 10000;
 const NOW_PLAYING_TICK_MS = 1000;
