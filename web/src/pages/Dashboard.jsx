@@ -1,13 +1,13 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronRight, faHeart, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
 import { api } from "../api";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
 
-const MediaCard = lazy(() => import("../components/dashboard/media-card"));
-const MEDIA_PAGE_SIZE = 24;
 const NOW_PLAYING_POLL_MS = 10000;
 const NOW_PLAYING_TICK_MS = 1000;
 
@@ -37,6 +37,129 @@ function playbackStateLabels(session) {
   if (session.loopMode === "media") labels.push("loop media");
   if (session.shuffleEnabled) labels.push("shuffle");
   return labels;
+}
+
+function getMimeMeta(mime) {
+  if (!mime) return { icon: "□", label: "File" };
+  if (mime.startsWith("video/")) return { icon: "▶", label: "Video" };
+  if (mime.startsWith("audio/")) return { icon: "♪", label: "Audio" };
+  if (mime.startsWith("image/")) return { icon: "◧", label: "Photo" };
+  return { icon: "□", label: "File" };
+}
+
+function mediaCategory(item) {
+  return item?.category_path || item?.category_name || "Library";
+}
+
+function MediaCover({ circular = false, item, size = "regular" }) {
+  const [failed, setFailed] = useState(false);
+  const meta = getMimeMeta(item?.mime_type);
+
+  return (
+    <span className={`library-cover library-cover--${size}${circular ? " library-cover--circle" : ""}`}>
+      {!failed && item?.id ? (
+        <img
+          src={`/api/media/${item.id}/thumbnail`}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="library-cover-fallback">{meta.icon}</span>
+      )}
+    </span>
+  );
+}
+
+function QuickAccessCard({ active, item, onPlay }) {
+  return (
+    <button type="button" className={`quick-access-card${active ? " quick-access-card--active" : ""}`} onClick={() => onPlay(item)}>
+      <MediaCover item={item} size="small" />
+      <span className="quick-access-copy">
+        <strong title={item.title}>{item.title}</strong>
+        <small>{mediaCategory(item)}</small>
+      </span>
+    </button>
+  );
+}
+
+function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
+  if (!item) return null;
+  const meta = getMimeMeta(item.mime_type);
+
+  return (
+    <section className="library-featured">
+      <div className="library-featured-copy">
+        <p className="library-eyebrow">Featured {meta.label}</p>
+        <h1>{item.title}</h1>
+        <p>{item.description || `${mediaCategory(item)} · ${item.duration ? formatDuration(item.duration) : "Ready to play"}`}</p>
+        <div className="library-featured-meta">
+          <span>{mediaCategory(item)}</span>
+          <span>{item.artists || meta.label}</span>
+          <span>{item.duration ? formatDuration(item.duration) : "No duration"}</span>
+        </div>
+        <div className="library-featured-actions">
+          <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
+            <FontAwesomeIcon icon={faPlay} />
+            Play
+          </button>
+          <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
+            <FontAwesomeIcon icon={faList} />
+            Play next
+          </button>
+          <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
+            <FontAwesomeIcon icon={faPlus} />
+            Queue
+          </button>
+        </div>
+      </div>
+      <div className="library-featured-art">
+        <MediaCover item={item} size="hero" />
+      </div>
+    </section>
+  );
+}
+
+function RowCard({ active, item, onPlay, type }) {
+  const meta = getMimeMeta(item.mime_type);
+  const circular = type === "profile" || type === "radio";
+  return (
+    <button type="button" className={`library-row-card library-row-card--${type}${active ? " library-row-card--active" : ""}`} onClick={() => onPlay(item)}>
+      <MediaCover circular={circular} item={item} size={type === "playlist" ? "wide" : "regular"} />
+      <span className="library-row-card-copy">
+        <strong title={item.title}>{item.title}</strong>
+        <small>{type === "radio" ? "Station" : item.artists || mediaCategory(item) || meta.label}</small>
+      </span>
+    </button>
+  );
+}
+
+function ContentRow({ activeId, items, onPlay, title, type = "square" }) {
+  if (items.length === 0) return null;
+
+  return (
+    <section className="library-content-section">
+      <div className="library-section-header">
+        <h2>{title}</h2>
+        <button type="button">
+          Show All
+          <FontAwesomeIcon icon={faChevronRight} />
+        </button>
+      </div>
+      <div className="library-card-row" tabIndex={0}>
+        {items.map((item) => (
+          <RowCard
+            key={`${title}-${item.id}`}
+            active={Number(activeId) === Number(item.id)}
+            item={item}
+            onPlay={onPlay}
+            type={type}
+          />
+        ))}
+      </div>
+    </section>
+  );
 }
 
 const styles = {
@@ -451,14 +574,12 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
-  const [mediaPage, setMediaPage] = useState(1);
   const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
   const categoryParam = searchParams.get("category");
   const selectedCategory = categoryParam && /^\d+$/.test(categoryParam) ? categoryParam : null;
   const playMediaAction = player?.playMedia;
-  const toggleLikeAction = player?.toggleLike;
   const currentMediaId = player?.currentMedia?.id;
 
   useEffect(() => {
@@ -538,10 +659,6 @@ export default function Dashboard() {
   const selectedCategoryInfo = selectedCategory != null
     ? categoryById.get(String(selectedCategory))
     : null;
-  const visibleCategories = useMemo(
-    () => categories.filter((category) => String(category.parent_id ?? "") === String(selectedCategory ?? "")),
-    [categories, selectedCategory]
-  );
   const mediaTitle = libraryView === "liked"
     ? "Liked Music"
     : selectedCategoryInfo?.path || selectedCategoryInfo?.name || "All Media";
@@ -558,38 +675,23 @@ export default function Dashboard() {
       item.mime_type,
     ].some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedSearch)));
   }, [media, normalizedSearch]);
-  const mediaPageCount = Math.max(1, Math.ceil(visibleMedia.length / MEDIA_PAGE_SIZE));
-  const currentMediaPage = Math.min(mediaPage, mediaPageCount);
-  const pagedMedia = useMemo(() => {
-    const start = (currentMediaPage - 1) * MEDIA_PAGE_SIZE;
-    return visibleMedia.slice(start, start + MEDIA_PAGE_SIZE);
-  }, [currentMediaPage, visibleMedia]);
-  const firstVisibleMedia = visibleMedia.length === 0
-    ? 0
-    : (currentMediaPage - 1) * MEDIA_PAGE_SIZE + 1;
-  const lastVisibleMedia = Math.min(currentMediaPage * MEDIA_PAGE_SIZE, visibleMedia.length);
-
-  useEffect(() => {
-    setMediaPage(1);
-  }, [libraryView, normalizedSearch, selectedCategory]);
-
-  useEffect(() => {
-    setMediaPage((page) => Math.min(page, mediaPageCount));
-  }, [mediaPageCount]);
+  const featuredMedia = visibleMedia[0] || media[0] || null;
+  const quickAccessMedia = visibleMedia.slice(0, 8);
+  const audioMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("audio/"));
+  const videoMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("video/"));
+  const imageMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("image/"));
+  const libraryRows = [
+    { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
+    { title: "Artists and voices", type: "profile", items: audioMedia.slice(0, 14) },
+    { title: "Playlists from this view", type: "playlist", items: visibleMedia.slice(4, 18) },
+    { title: "Podcast-style listens", type: "podcast", items: audioMedia.slice(2, 16) },
+    { title: "Video stations", type: "radio", items: videoMedia.length ? videoMedia.slice(0, 14) : visibleMedia.slice(0, 10) },
+    { title: "Photo shelf", type: "square", items: imageMedia.length ? imageMedia.slice(0, 14) : visibleMedia.slice(8, 20) },
+  ];
 
   const playMedia = useCallback((item) => {
     playMediaAction?.(item, libraryView === "liked" ? null : selectedCategory);
   }, [libraryView, playMediaAction, selectedCategory]);
-
-  const toggleLiked = useCallback((item) => {
-    toggleLikeAction?.(item)
-      .then((liked) => {
-        if (!liked && libraryView === "liked") {
-          setMedia((items) => items.filter((mediaItem) => Number(mediaItem.id) !== Number(item.id)));
-        }
-      })
-      .catch((error) => setNotice(error.message));
-  }, [libraryView, toggleLikeAction]);
 
   const createShare = useCallback(() => {
     api("/api/likes/share", { method: "POST" })
@@ -697,20 +799,27 @@ export default function Dashboard() {
           </div>
         )}
 
-        <section className="hero-surface dashboard-view-ambient" style={styles.toolbar}>
-          <div className="dashboard-view-ambient-content">
-            <div style={styles.toolbarLabel}>Current library view</div>
-            <div style={styles.toolbarValue}>{mediaTitle}</div>
-            <div style={styles.toolbarMeta}>
-              {selectedCategoryInfo
-                ? `${visibleCategories.length} child folder${visibleCategories.length === 1 ? "" : "s"} in this category`
-                : `${categories.length} accessible categor${categories.length === 1 ? "y" : "ies"}`}
-            </div>
+        <nav className="library-top-nav" aria-label="Library filters">
+          <div className="library-filter-pills">
+            <Link className={`library-filter-pill${!selectedCategory && libraryView !== "liked" ? " library-filter-pill--active" : ""}`} to="/">All</Link>
+            <Link className={`library-filter-pill${libraryView === "liked" ? " library-filter-pill--active" : ""}`} to="/?view=liked">
+              <FontAwesomeIcon icon={faHeart} />
+              Liked
+            </Link>
+            {categories.slice(0, 10).map((category) => (
+              <Link
+                key={category.id}
+                className={`library-filter-pill${String(category.id) === String(selectedCategory) ? " library-filter-pill--active" : ""}`}
+                to={`/?category=${category.id}`}
+              >
+                {category.name}
+              </Link>
+            ))}
           </div>
-          <div className="dashboard-view-ambient-content" style={styles.toolbarMeta}>
-            {visibleMedia.length} item{visibleMedia.length !== 1 ? "s" : ""} visible
-          </div>
-        </section>
+          <span className="library-nav-count">
+            {visibleMedia.length} item{visibleMedia.length === 1 ? "" : "s"}
+          </span>
+        </nav>
 
         {libraryView === "liked" && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -725,73 +834,51 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Media Grid */}
-        <section className="glass-surface" style={styles.tableCard}>
-          <div style={styles.tableHeader}>
-            <h2 style={styles.cardTitle}>{mediaTitle}</h2>
-            <p style={styles.cardSubtitle}>
-              {normalizedSearch
-                ? `${visibleMedia.length} of ${media.length} items match your search.`
-                : `${media.length} item${media.length !== 1 ? "s" : ""} available in this view.`}
-            </p>
+        {mediaLoading ? (
+          <MediaGridSkeleton />
+        ) : visibleMedia.length > 0 ? (
+          <div className="library-home">
+            <section className="quick-access-section" aria-label="Quick access">
+              {quickAccessMedia.map((item) => (
+                <QuickAccessCard
+                  key={item.id}
+                  active={Number(currentMediaId) === Number(item.id)}
+                  item={item}
+                  onPlay={playMedia}
+                />
+              ))}
+            </section>
+
+            <FeaturedPanel
+              item={featuredMedia}
+              onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
+              onPlay={playMedia}
+              onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
+            />
+
+            {libraryRows.map((row) => (
+              <ContentRow
+                key={row.title}
+                activeId={currentMediaId}
+                items={row.items}
+                onPlay={playMedia}
+                title={row.title}
+                type={row.type}
+              />
+            ))}
           </div>
-          <div style={styles.cardBodyPanel}>
-            {mediaLoading ? (
-              <MediaGridSkeleton />
-            ) : visibleMedia.length > 0 ? (
-              <div className="media-card-grid">
-                {pagedMedia.map((m) => (
-                  <Suspense key={m.id} fallback={<div className="media-card-skeleton" aria-hidden="true" />}>
-                    <MediaCard
-                      item={m}
-                      isActive={currentMediaId === m.id}
-                      isLiked={player?.isLiked(m.id)}
-                      onAddQueue={player?.addToQueue}
-                      onError={setNotice}
-                      onPlay={playMedia}
-                      onPlayNext={player?.playNext}
-                      onToggleLike={toggleLiked}
-                    />
-                  </Suspense>
-                ))}
-              </div>
-            ) : media.length > 0 && normalizedSearch ? (
-              <div style={styles.emptyState} role="status">
-                <div style={styles.emptyIcon}>🔎</div>
-                <p>No media matches “{mediaSearch.trim()}”.</p>
-                <button type="button" style={styles.navLink} onClick={() => setMediaSearch("")}>Clear search</button>
-              </div>
-            ) : loaded && (
-              <div style={styles.emptyState}>
-                <div style={styles.emptyIcon}>📂</div>
-                <p>No media yet in this category.</p>
-              </div>
-            )}
-            {!mediaLoading && visibleMedia.length > MEDIA_PAGE_SIZE && (
-              <nav style={styles.pagination} aria-label="Media pages">
-                <button
-                  type="button"
-                  style={styles.navLink}
-                  disabled={currentMediaPage === 1}
-                  onClick={() => setMediaPage((page) => Math.max(1, page - 1))}
-                >
-                  Previous
-                </button>
-                <span style={styles.cardSubtitle} aria-live="polite">
-                  {firstVisibleMedia}–{lastVisibleMedia} of {visibleMedia.length}
-                </span>
-                <button
-                  type="button"
-                  style={styles.navLink}
-                  disabled={currentMediaPage === mediaPageCount}
-                  onClick={() => setMediaPage((page) => Math.min(mediaPageCount, page + 1))}
-                >
-                  Next
-                </button>
-              </nav>
-            )}
+        ) : media.length > 0 && normalizedSearch ? (
+          <div style={styles.emptyState} role="status">
+            <div style={styles.emptyIcon}>🔎</div>
+            <p>No media matches “{mediaSearch.trim()}”.</p>
+            <button type="button" style={styles.navLink} onClick={() => setMediaSearch("")}>Clear search</button>
           </div>
-        </section>
+        ) : loaded && (
+          <div style={styles.emptyState}>
+            <div style={styles.emptyIcon}>📂</div>
+            <p>No media yet in this category.</p>
+          </div>
+        )}
 
         {/* Now Playing (Admin) */}
         {tier >= 100 && nowPlaying.length > 0 && (
