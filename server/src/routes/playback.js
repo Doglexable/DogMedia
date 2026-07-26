@@ -379,7 +379,6 @@ function buildDashboardSummary(items, options = {}) {
   const allFallback = fallbackIds(items, () => true, 24);
   const playedIds = hasPlayback ? idsByPlaybackScore(items, () => true, 24) : [];
   const recentIds = hasPlayback ? idsByRecentPlayback(items, () => true, 24) : [];
-  const audioIds = hasPlayback ? idsByPlaybackScore(items, (item) => item.mimeType?.startsWith("audio/"), 14) : [];
 
   const featuredId = withFallback(playedIds, allFallback, 1)[0] || null;
 
@@ -412,18 +411,6 @@ function buildDashboardSummary(items, options = {}) {
         title: hasPlayback ? "Most played" : "Library picks",
         type: "square",
         mediaIds: withFallback(playedIds, allFallback, 14),
-      },
-      {
-        key: "artists-and-voices",
-        title: "Artists and voices",
-        type: "profile",
-        mediaIds: withFallback(audioIds, fallbackIds(items, (item) => item.mimeType?.startsWith("audio/"), 14), 14),
-      },
-      {
-        key: "playlists",
-        title: "Playlists from this view",
-        type: "playlist",
-        mediaIds: withFallback(playedIds.slice(4), allFallback.slice(4), 14),
       },
     ],
   };

@@ -52,25 +52,6 @@ function mediaCategory(item) {
   return item?.category_path || item?.category_name || "Library";
 }
 
-function formatNumber(value) {
-  return new Intl.NumberFormat().format(value || 0);
-}
-
-function formatDashboardTime(value) {
-  if (!value) return "No playback yet";
-  return new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function dashboardSourceLabel(summary) {
-  if (!summary) return "Loading playback";
-  return summary.source === "playback_events" ? "Playback events" : "Library fallback";
-}
-
 function MediaCover({ circular = false, item, size = "regular" }) {
   const [failed, setFailed] = useState(false);
   const meta = getMimeMeta(item?.mime_type);
@@ -104,26 +85,19 @@ function QuickAccessCard({ active, item, onPlay }) {
   );
 }
 
-function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext, summary }) {
+function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
   if (!item) return null;
   const meta = getMimeMeta(item.mime_type);
-  const stats = summary?.stats || {};
 
   return (
     <section className="library-featured">
       <div className="library-featured-copy">
-        <p className="library-eyebrow">Featured {meta.label} · {dashboardSourceLabel(summary)}</p>
         <h1>{item.title}</h1>
         <p>{item.description || `${mediaCategory(item)} · ${item.duration ? formatDuration(item.duration) : "Ready to play"}`}</p>
         <div className="library-featured-meta">
           <span>{mediaCategory(item)}</span>
           <span>{item.artists || meta.label}</span>
           <span>{item.duration ? formatDuration(item.duration) : "No duration"}</span>
-          <span>{formatNumber(stats.totalPlays)} plays</span>
-          <span>{formatDuration(stats.totalPlayTime || 0)} tracked</span>
-          <span>{formatNumber(stats.activeMediaCount)} active media</span>
-          <span>{summary?.cached ? "Redis cached" : "Fresh cache"}</span>
-          <span>Updated {formatDashboardTime(summary?.generatedAt)}</span>
         </div>
         <div className="library-featured-actions">
           <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
@@ -749,16 +723,19 @@ export default function Dashboard() {
   }, [visibleMedia, visibleMediaById]);
   const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || media[0] || null;
   const quickAccessMedia = orderMediaByIds(dashboardSummary?.quickAccessIds, visibleMedia, 8);
-  const audioMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("audio/"));
   const fallbackRows = useMemo(() => [
     { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
-    { title: "Artists and voices", type: "profile", items: audioMedia.slice(0, 14) },
-    { title: "Playlists from this view", type: "playlist", items: visibleMedia.slice(4, 18) },
-  ], [audioMedia, visibleMedia]);
+  ], [visibleMedia]);
   const libraryRows = useMemo(() => {
     if (!Array.isArray(dashboardSummary?.rows) || dashboardSummary.rows.length === 0) return fallbackRows;
 
-    const hiddenRows = new Set(["Podcast-style listens", "Video stations", "Photo shelf"]);
+    const hiddenRows = new Set([
+      "Artists and voices",
+      "Playlists from this view",
+      "Podcast-style listens",
+      "Video stations",
+      "Photo shelf",
+    ]);
     return dashboardSummary.rows
       .filter((row) => !hiddenRows.has(row.title))
       .map((row, index) => ({
@@ -933,7 +910,6 @@ export default function Dashboard() {
               onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
               onPlay={playMedia}
               onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
-              summary={dashboardSummary}
             />
 
             {libraryRows.map((row) => (
