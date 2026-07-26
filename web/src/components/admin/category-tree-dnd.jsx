@@ -43,15 +43,15 @@ function buildTree(categories) {
   return childrenByParent;
 }
 
-function defaultExpandedCategories(childrenByParent, maxOpenDepth = 1) {
+function defaultExpandedCategories(childrenByParent, maxOpenLevel = 2) {
   const expanded = new Set();
-  const walk = (parentId = null, depth = 0) => {
+  const walk = (parentId = null, level = 1) => {
     for (const category of childrenByParent.get(parentId) || []) {
       const categoryId = Number(category.id);
       const children = childrenByParent.get(categoryId) || [];
-      if (children.length > 0 && depth <= maxOpenDepth) {
+      if (children.length > 0 && level <= maxOpenLevel) {
         expanded.add(categoryId);
-        walk(categoryId, depth + 1);
+        walk(categoryId, level + 1);
       }
     }
   };
