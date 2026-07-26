@@ -6,7 +6,7 @@ import {
   faFolder,
   faFolderOpen,
   faGear,
-  faHeart,
+  faBookmark,
   faHouse,
   faNetworkWired,
   faXmark,
@@ -144,7 +144,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 
         <nav className="global-sidebar-nav" aria-label="Main navigation">
           <SidebarLink to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory} onClick={close}>All media</SidebarLink>
-          <SidebarLink to="/?view=liked" icon={faHeart} active={liked} onClick={close}>Liked music</SidebarLink>
+          <SidebarLink to="/?view=liked" icon={faBookmark} active={liked} onClick={close}>Favorites</SidebarLink>
           <SidebarLink to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"} onClick={close}>Wrapped</SidebarLink>
           {tier >= 100 && <SidebarLink to="/admin" icon={faGear} active={location.pathname === "/admin"} onClick={close}>Admin</SidebarLink>}
         </nav>
@@ -183,7 +183,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
       {/* ── Mobile bottom navigation bar (≤640px) ── */}
       <nav className="mobile-nav-bar" aria-label="Mobile navigation">
         <BottomNavTab to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory}>Home</BottomNavTab>
-        <BottomNavTab to="/?view=liked" icon={faHeart} active={liked}>Liked</BottomNavTab>
+        <BottomNavTab to="/?view=liked" icon={faBookmark} active={liked}>Favorites</BottomNavTab>
         <BottomNavTab to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"}>Wrapped</BottomNavTab>
 
         {/* Categories sheet trigger */}

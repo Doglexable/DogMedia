@@ -31,6 +31,18 @@ function formatDate(value) {
   return value.toISOString().slice(0, 10);
 }
 
+function normalizeDateTime(value, fallback) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallback : date;
+}
+
+function subDays(date, days) {
+  const result = new Date(date);
+  result.setDate(result.getDate() - days);
+  return result;
+}
+
 function mapReport(row) {
   return {
     id: row.id,
@@ -149,7 +161,82 @@ async function withTransaction(fastify, fn) {
   }
 }
 
+async function getCurrentIpWrapped(fastify, request, from, to) {
+  const clientIp = request.clientIp || request.ip;
+  const params = [from.toISOString(), to.toISOString(), clientIp];
+  const [{ rows: totalRows }, { rows: topMediaRows }, { rows: timelineRows }] = await Promise.all([
+    fastify.pg.query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS total_play_time,
+         COUNT(*) FILTER (WHERE action = 'play')::int AS total_plays
+       FROM playback_events
+       WHERE occurred_at >= $1
+         AND occurred_at <= $2
+         AND client_ip = $3::inet`,
+      params
+    ),
+    fastify.pg.query(
+      `SELECT
+         pe.media_id,
+         COALESCE(MAX(ma.title), MAX(pe.title), 'Media #' || pe.media_id::text) AS title,
+         COUNT(*) FILTER (WHERE pe.action = 'play')::int AS play_count,
+         COALESCE(SUM(CASE WHEN pe.action IN ('pause', 'end') THEN pe.position ELSE 0 END), 0)::int AS total_time
+       FROM playback_events pe
+       LEFT JOIN media_assets ma ON ma.id = pe.media_id
+       WHERE pe.occurred_at >= $1
+         AND pe.occurred_at <= $2
+         AND pe.client_ip = $3::inet
+         AND pe.media_id IS NOT NULL
+       GROUP BY pe.media_id
+       ORDER BY total_time DESC, play_count DESC, pe.media_id ASC
+       LIMIT 5`,
+      params
+    ),
+    fastify.pg.query(
+      `SELECT
+         occurred_at::date AS activity_date,
+         COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS play_time,
+         COUNT(*) FILTER (WHERE action = 'play')::int AS plays
+       FROM playback_events
+       WHERE occurred_at >= $1
+         AND occurred_at <= $2
+         AND client_ip = $3::inet
+       GROUP BY occurred_at::date
+       ORDER BY occurred_at::date`,
+      params
+    ),
+  ]);
+
+  return {
+    clientIp,
+    periodStart: from.toISOString(),
+    periodEnd: to.toISOString(),
+    totalPlayTime: totalRows[0]?.total_play_time || 0,
+    totalPlays: totalRows[0]?.total_plays || 0,
+    topMedia: topMediaRows.map((row, index) => ({
+      mediaId: row.media_id,
+      title: row.title,
+      playCount: row.play_count,
+      totalTime: row.total_time,
+      rank: index + 1,
+    })),
+    timeline: timelineRows.map((row) => ({
+      date: formatDate(row.activity_date),
+      playTime: row.play_time,
+      plays: row.plays,
+    })),
+  };
+}
+
 export default async function (fastify) {
+  fastify.get("/current", async (request) => {
+    const now = new Date();
+    const from = normalizeDateTime(request.query.from, subDays(now, 30));
+    const to = normalizeDateTime(request.query.to, now);
+
+    return getCurrentIpWrapped(fastify, request, from, to);
+  });
+
   fastify.get("/", async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
 

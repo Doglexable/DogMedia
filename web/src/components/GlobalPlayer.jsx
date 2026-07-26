@@ -498,7 +498,7 @@ export function GlobalPlayerProvider({ children }) {
     return api(`/api/likes/${mediaId}`, { method: liked ? "DELETE" : "PUT" })
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Could not update liked music");
+        if (!response.ok) throw new Error(data.error || "Could not update favorites");
         setLikedIds((current) => {
           const next = new Set(current);
           if (liked) next.delete(mediaId); else next.add(mediaId);

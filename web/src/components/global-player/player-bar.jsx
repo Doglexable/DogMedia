@@ -1,5 +1,5 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faHeart } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons";
 import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
 import { PlayerModeControls, QueueButton, TransportControls, VolumeControl } from "./player-controls";
@@ -52,9 +52,9 @@ export function PlayerBar({
             aria-pressed={liked}
             onClick={onToggleLike}
             className={`player-ghost-button ${liked ? "text-[var(--primary)]" : "text-muted"}`}
-            title={liked ? "Remove from Liked Music" : "Add to Liked Music"}
+            title={liked ? "Remove from favorites" : "Add to favorites"}
           >
-            <FontAwesomeIcon icon={faHeart} className={`transition-transform duration-200 ${liked ? "scale-110" : "scale-100"}`} />
+            <FontAwesomeIcon icon={faBookmark} className={`transition-transform duration-200 ${liked ? "scale-110" : "scale-100"}`} />
           </button>
         )}
         <VolumeControl

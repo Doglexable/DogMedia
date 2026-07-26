@@ -110,6 +110,7 @@ export default async function (fastify) {
          created_at,
          depth,
          (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
+         (SELECT COUNT(*)::int FROM media_assets media WHERE media.category_id = category_tree.id) AS media_count,
          array_to_string(path_parts, ' / ') AS path
        FROM category_tree
        ORDER BY order_parts`,
@@ -132,6 +133,7 @@ export default async function (fastify) {
          created_at,
          depth,
          (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
+         (SELECT COUNT(*)::int FROM media_assets media WHERE media.category_id = category_tree.id) AS media_count,
          array_to_string(path_parts, ' / ') AS path
        FROM category_tree
        WHERE id = $2`,

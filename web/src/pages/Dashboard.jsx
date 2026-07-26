@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronRight, faHeart, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark, faChevronRight, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
 import { api } from "../api";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
@@ -51,6 +51,27 @@ function getMimeMeta(mime) {
 
 function mediaCategory(item) {
   return item?.category_path || item?.category_name || "Library";
+}
+
+function EmptyLibraryMark() {
+  return (
+    <svg className="dashboard-empty-illustration" viewBox="0 0 160 120" role="img" aria-label="Empty folder">
+      <path className="dashboard-empty-illustration-shadow" d="M35 103h90c11 0 20-9 20-20V52c0-11-9-20-20-20H84l-9-12H36c-11 0-20 9-20 20v43c0 11 8 20 19 20Z" />
+      <path className="dashboard-empty-illustration-folder" d="M23 42c0-8 6-14 14-14h34l10 12h42c8 0 14 6 14 14v32c0 8-6 14-14 14H37c-8 0-14-6-14-14V42Z" />
+      <path className="dashboard-empty-illustration-lid" d="M23 46h114v12H23z" />
+      <path className="dashboard-empty-illustration-line" d="M54 73h52M66 84h28" />
+    </svg>
+  );
+}
+
+function EmptySearchMark() {
+  return (
+    <svg className="dashboard-empty-illustration" viewBox="0 0 160 120" role="img" aria-label="No matching media">
+      <circle className="dashboard-empty-illustration-folder" cx="70" cy="58" r="32" />
+      <path className="dashboard-empty-illustration-line" d="M93 82l25 25M58 54h24M70 42v24" />
+      <circle className="dashboard-empty-illustration-dot" cx="116" cy="30" r="8" />
+    </svg>
+  );
 }
 
 function MediaCover({ circular = false, item, size = "regular" }) {
@@ -582,7 +603,6 @@ const styles = {
     padding: "60px 24px",
     color: "var(--muted)",
   },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
   miniPlayer: {
     position: "fixed",
     left: 0,
@@ -705,7 +725,7 @@ export default function Dashboard() {
       api("/api/likes")
         .then((r) => r.json())
         .then((items) => { if (!cancelled) setMedia(items); })
-        .catch(() => { if (!cancelled) setNotice("Could not load liked music."); })
+        .catch(() => { if (!cancelled) setNotice("Could not load favorites."); })
         .finally(() => {
           if (!cancelled) {
             setLoaded(true);
@@ -791,8 +811,12 @@ export default function Dashboard() {
   const selectedCategoryInfo = selectedCategory != null
     ? categoryById.get(String(selectedCategory))
     : null;
+  const mediaCategories = useMemo(
+    () => categories.filter((category) => Number(category.media_count) > 0),
+    [categories]
+  );
   const mediaTitle = libraryView === "liked"
-    ? "Liked Music"
+    ? "Favorites"
     : selectedCategoryInfo?.path || selectedCategoryInfo?.name || "All Media";
   const normalizedSearch = mediaSearch.trim().toLocaleLowerCase();
   const visibleMedia = useMemo(() => {
@@ -970,10 +994,10 @@ export default function Dashboard() {
           <div className="library-filter-pills">
             <Link className={`library-filter-pill${!selectedCategory && libraryView !== "liked" ? " library-filter-pill--active" : ""}`} to="/">All</Link>
             <Link className={`library-filter-pill${libraryView === "liked" ? " library-filter-pill--active" : ""}`} to="/?view=liked">
-              <FontAwesomeIcon icon={faHeart} />
-              Liked
+              <FontAwesomeIcon icon={faBookmark} />
+              Favorites
             </Link>
-            {categories.slice(0, 10).map((category) => (
+            {mediaCategories.slice(0, 10).map((category) => (
               <Link
                 key={category.id}
                 className={`library-filter-pill${String(category.id) === String(selectedCategory) ? " library-filter-pill--active" : ""}`}
@@ -990,7 +1014,7 @@ export default function Dashboard() {
 
         {libraryView === "liked" && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" style={styles.navLink} onClick={createShare}>{shareEnabled ? "Regenerate secret link" : "Share liked music"}</button>
+            <button type="button" style={styles.navLink} onClick={createShare}>{shareEnabled ? "Regenerate secret link" : "Share favorites"}</button>
             {shareEnabled && <button type="button" style={styles.navLink} onClick={revokeShare}>Revoke sharing</button>}
           </div>
         )}
@@ -1042,13 +1066,13 @@ export default function Dashboard() {
           </div>
         ) : media.length > 0 && normalizedSearch ? (
           <div style={styles.emptyState} role="status">
-            <div style={styles.emptyIcon}>🔎</div>
+            <EmptySearchMark />
             <p>No media matches “{mediaSearch.trim()}”.</p>
             <button type="button" style={styles.navLink} onClick={() => setMediaSearch("")}>Clear search</button>
           </div>
         ) : loaded && (
           <div style={styles.emptyState}>
-            <div style={styles.emptyIcon}>📂</div>
+            <EmptyLibraryMark />
             <p>No media yet in this category.</p>
           </div>
         )}

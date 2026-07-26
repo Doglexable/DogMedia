@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faHeart, faMusic } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark, faMusic } from "@fortawesome/free-solid-svg-icons";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 
@@ -25,10 +25,10 @@ export default function SharedLikedMusic() {
         <section className="glass-surface mt-6 overflow-hidden">
           <header className="border-b border-card-border p-6 sm:p-8">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-xl text-white shadow-lg shadow-black/20">
-              <FontAwesomeIcon icon={faHeart} />
+              <FontAwesomeIcon icon={faBookmark} />
             </div>
             <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-primary">Shared collection</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight">Liked Music</h1>
+            <h1 className="mt-2 text-3xl font-black tracking-tight">Favorites</h1>
             <p className="mt-2 text-sm leading-6 text-muted">A read-only collection of titles. Playback and files remain private.</p>
           </header>
 
@@ -39,7 +39,7 @@ export default function SharedLikedMusic() {
           ) : state.error ? (
             <p role="alert" className="m-6 rounded-xl border border-warning-border bg-warning-bg p-4 text-sm text-warning-text">{state.error}</p>
           ) : state.titles.length === 0 ? (
-            <div className="p-10 text-center text-muted"><FontAwesomeIcon icon={faMusic} className="mb-3 text-2xl" /><p>No music is currently shared.</p></div>
+            <div className="p-10 text-center text-muted"><FontAwesomeIcon icon={faMusic} className="mb-3 text-2xl" /><p>No favorites are currently shared.</p></div>
           ) : (
             <ol className="m-0 list-none divide-y divide-card-border p-0">
               {state.titles.map((title, index) => (

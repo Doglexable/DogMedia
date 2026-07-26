@@ -1241,6 +1241,40 @@ body {
   font-weight: 950;
 }
 
+.dashboard-empty-illustration {
+  display: block;
+  width: 132px;
+  height: auto;
+  margin: 0 auto 16px;
+  overflow: visible;
+}
+
+.dashboard-empty-illustration-folder {
+  fill: color-mix(in srgb, var(--primary) 20%, var(--card-bg));
+  stroke: color-mix(in srgb, var(--primary) 58%, var(--card-border));
+  stroke-width: 2;
+}
+
+.dashboard-empty-illustration-lid {
+  fill: color-mix(in srgb, var(--primary) 28%, var(--card-bg));
+}
+
+.dashboard-empty-illustration-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.dashboard-empty-illustration-dot {
+  fill: var(--primary);
+  opacity: 0.7;
+}
+
+.dashboard-empty-illustration-shadow {
+  fill: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
 .media-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));

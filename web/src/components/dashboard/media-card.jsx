@@ -1,7 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faHeart } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons";
 
 function getMimeMeta(mime) {
   if (!mime) return { icon: "📁", label: "File", color: "#888" };
@@ -103,8 +103,8 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
       </button>
 
       {item.mime_type?.startsWith("audio/") && (
-        <button type="button" className={`media-card-like${isLiked ? " media-card-like--active" : ""}`} aria-label={isLiked ? `Unlike ${item.title}` : `Like ${item.title}`} title={isLiked ? "Remove from Liked Music" : "Add to Liked Music"} onClick={() => onToggleLike(item)}>
-          <FontAwesomeIcon icon={faHeart} className={`transition-transform duration-200 ${isLiked ? "scale-110" : "scale-100"}`} />
+        <button type="button" className={`media-card-like${isLiked ? " media-card-like--active" : ""}`} aria-label={isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`} title={isLiked ? "Remove from favorites" : "Add to favorites"} onClick={() => onToggleLike(item)}>
+          <FontAwesomeIcon icon={faBookmark} className={`transition-transform duration-200 ${isLiked ? "scale-110" : "scale-100"}`} />
         </button>
       )}
 
