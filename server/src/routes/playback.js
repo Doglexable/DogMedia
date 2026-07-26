@@ -380,9 +380,6 @@ function buildDashboardSummary(items, options = {}) {
   const playedIds = hasPlayback ? idsByPlaybackScore(items, () => true, 24) : [];
   const recentIds = hasPlayback ? idsByRecentPlayback(items, () => true, 24) : [];
   const audioIds = hasPlayback ? idsByPlaybackScore(items, (item) => item.mimeType?.startsWith("audio/"), 14) : [];
-  const recentAudioIds = hasPlayback ? idsByRecentPlayback(items, (item) => item.mimeType?.startsWith("audio/"), 14) : [];
-  const videoIds = hasPlayback ? idsByPlaybackScore(items, (item) => item.mimeType?.startsWith("video/"), 14) : [];
-  const imageIds = hasPlayback ? idsByRecentPlayback(items, (item) => item.mimeType?.startsWith("image/"), 14) : [];
 
   const featuredId = withFallback(playedIds, allFallback, 1)[0] || null;
 
@@ -427,24 +424,6 @@ function buildDashboardSummary(items, options = {}) {
         title: "Playlists from this view",
         type: "playlist",
         mediaIds: withFallback(playedIds.slice(4), allFallback.slice(4), 14),
-      },
-      {
-        key: "podcasts",
-        title: "Podcast-style listens",
-        type: "podcast",
-        mediaIds: withFallback(recentAudioIds.slice(2), fallbackIds(items, (item) => item.mimeType?.startsWith("audio/"), 14), 14),
-      },
-      {
-        key: "stations",
-        title: "Video stations",
-        type: "radio",
-        mediaIds: withFallback(videoIds, fallbackIds(items, (item) => item.mimeType?.startsWith("video/"), 14), 14),
-      },
-      {
-        key: "photo-shelf",
-        title: "Photo shelf",
-        type: "square",
-        mediaIds: withFallback(imageIds, fallbackIds(items, (item) => item.mimeType?.startsWith("image/"), 14), 14),
       },
     ],
   };

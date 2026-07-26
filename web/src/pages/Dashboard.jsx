@@ -750,24 +750,22 @@ export default function Dashboard() {
   const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || media[0] || null;
   const quickAccessMedia = orderMediaByIds(dashboardSummary?.quickAccessIds, visibleMedia, 8);
   const audioMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("audio/"));
-  const videoMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("video/"));
-  const imageMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("image/"));
   const fallbackRows = useMemo(() => [
     { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
     { title: "Artists and voices", type: "profile", items: audioMedia.slice(0, 14) },
     { title: "Playlists from this view", type: "playlist", items: visibleMedia.slice(4, 18) },
-    { title: "Podcast-style listens", type: "podcast", items: audioMedia.slice(2, 16) },
-    { title: "Video stations", type: "radio", items: videoMedia.length ? videoMedia.slice(0, 14) : visibleMedia.slice(0, 10) },
-    { title: "Photo shelf", type: "square", items: imageMedia.length ? imageMedia.slice(0, 14) : visibleMedia.slice(8, 20) },
-  ], [audioMedia, imageMedia, videoMedia, visibleMedia]);
+  ], [audioMedia, visibleMedia]);
   const libraryRows = useMemo(() => {
     if (!Array.isArray(dashboardSummary?.rows) || dashboardSummary.rows.length === 0) return fallbackRows;
 
-    return dashboardSummary.rows.map((row, index) => ({
-      title: row.title || fallbackRows[index]?.title || "Media",
-      type: row.type || fallbackRows[index]?.type || "square",
-      items: orderMediaByIds(row.mediaIds, fallbackRows[index]?.items || visibleMedia, 14),
-    }));
+    const hiddenRows = new Set(["Podcast-style listens", "Video stations", "Photo shelf"]);
+    return dashboardSummary.rows
+      .filter((row) => !hiddenRows.has(row.title))
+      .map((row, index) => ({
+        title: row.title || fallbackRows[index]?.title || "Media",
+        type: row.type || fallbackRows[index]?.type || "square",
+        items: orderMediaByIds(row.mediaIds, fallbackRows[index]?.items || visibleMedia, 14),
+      }));
   }, [dashboardSummary, fallbackRows, orderMediaByIds, visibleMedia]);
 
   const playMedia = useCallback((item) => {
