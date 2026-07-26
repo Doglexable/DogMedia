@@ -52,6 +52,25 @@ function mediaCategory(item) {
   return item?.category_path || item?.category_name || "Library";
 }
 
+function formatNumber(value) {
+  return new Intl.NumberFormat().format(value || 0);
+}
+
+function formatDashboardTime(value) {
+  if (!value) return "No playback yet";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function dashboardSourceLabel(summary) {
+  if (!summary) return "Loading playback";
+  return summary.source === "playback_events" ? "Playback events" : "Library fallback";
+}
+
 function MediaCover({ circular = false, item, size = "regular" }) {
   const [failed, setFailed] = useState(false);
   const meta = getMimeMeta(item?.mime_type);
@@ -85,20 +104,26 @@ function QuickAccessCard({ active, item, onPlay }) {
   );
 }
 
-function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
+function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext, summary }) {
   if (!item) return null;
   const meta = getMimeMeta(item.mime_type);
+  const stats = summary?.stats || {};
 
   return (
     <section className="library-featured">
       <div className="library-featured-copy">
-        <p className="library-eyebrow">Featured {meta.label}</p>
+        <p className="library-eyebrow">Featured {meta.label} · {dashboardSourceLabel(summary)}</p>
         <h1>{item.title}</h1>
         <p>{item.description || `${mediaCategory(item)} · ${item.duration ? formatDuration(item.duration) : "Ready to play"}`}</p>
         <div className="library-featured-meta">
           <span>{mediaCategory(item)}</span>
           <span>{item.artists || meta.label}</span>
           <span>{item.duration ? formatDuration(item.duration) : "No duration"}</span>
+          <span>{formatNumber(stats.totalPlays)} plays</span>
+          <span>{formatDuration(stats.totalPlayTime || 0)} tracked</span>
+          <span>{formatNumber(stats.activeMediaCount)} active media</span>
+          <span>{summary?.cached ? "Redis cached" : "Fresh cache"}</span>
+          <span>Updated {formatDashboardTime(summary?.generatedAt)}</span>
         </div>
         <div className="library-featured-actions">
           <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
@@ -575,6 +600,7 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
+  const [dashboardSummary, setDashboardSummary] = useState(null);
   const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
@@ -627,6 +653,26 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams({ view: libraryView });
+    if (selectedCategory) params.set("category_id", selectedCategory);
+
+    api(`/api/playback/dashboard?${params.toString()}`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Dashboard summary failed");
+        return response.json();
+      })
+      .then((summary) => {
+        if (!cancelled) setDashboardSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setDashboardSummary(null);
+      });
+
+    return () => { cancelled = true; };
+  }, [libraryView, selectedCategory]);
+
+  useEffect(() => {
     if (tier < 100) return;
     const poll = () => {
       api("/api/playback/now-playing")
@@ -676,19 +722,53 @@ export default function Dashboard() {
       item.mime_type,
     ].some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedSearch)));
   }, [media, normalizedSearch]);
-  const featuredMedia = visibleMedia[0] || media[0] || null;
-  const quickAccessMedia = visibleMedia.slice(0, 8);
+  const visibleMediaById = useMemo(
+    () => new Map(visibleMedia.map((item) => [Number(item.id), item])),
+    [visibleMedia]
+  );
+  const orderMediaByIds = useCallback((ids = [], fallbackItems = visibleMedia, limit = 14) => {
+    const seen = new Set();
+    const ordered = [];
+
+    for (const id of ids) {
+      const item = visibleMediaById.get(Number(id));
+      if (!item || seen.has(Number(item.id))) continue;
+      seen.add(Number(item.id));
+      ordered.push(item);
+      if (ordered.length >= limit) return ordered;
+    }
+
+    for (const item of fallbackItems) {
+      if (!item || seen.has(Number(item.id))) continue;
+      seen.add(Number(item.id));
+      ordered.push(item);
+      if (ordered.length >= limit) return ordered;
+    }
+
+    return ordered;
+  }, [visibleMedia, visibleMediaById]);
+  const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || media[0] || null;
+  const quickAccessMedia = orderMediaByIds(dashboardSummary?.quickAccessIds, visibleMedia, 8);
   const audioMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("audio/"));
   const videoMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("video/"));
   const imageMedia = visibleMedia.filter((item) => item.mime_type?.startsWith("image/"));
-  const libraryRows = [
+  const fallbackRows = useMemo(() => [
     { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
     { title: "Artists and voices", type: "profile", items: audioMedia.slice(0, 14) },
     { title: "Playlists from this view", type: "playlist", items: visibleMedia.slice(4, 18) },
     { title: "Podcast-style listens", type: "podcast", items: audioMedia.slice(2, 16) },
     { title: "Video stations", type: "radio", items: videoMedia.length ? videoMedia.slice(0, 14) : visibleMedia.slice(0, 10) },
     { title: "Photo shelf", type: "square", items: imageMedia.length ? imageMedia.slice(0, 14) : visibleMedia.slice(8, 20) },
-  ];
+  ], [audioMedia, imageMedia, videoMedia, visibleMedia]);
+  const libraryRows = useMemo(() => {
+    if (!Array.isArray(dashboardSummary?.rows) || dashboardSummary.rows.length === 0) return fallbackRows;
+
+    return dashboardSummary.rows.map((row, index) => ({
+      title: row.title || fallbackRows[index]?.title || "Media",
+      type: row.type || fallbackRows[index]?.type || "square",
+      items: orderMediaByIds(row.mediaIds, fallbackRows[index]?.items || visibleMedia, 14),
+    }));
+  }, [dashboardSummary, fallbackRows, orderMediaByIds, visibleMedia]);
 
   const playMedia = useCallback((item) => {
     playMediaAction?.(item, libraryView === "liked" ? null : selectedCategory);
@@ -855,6 +935,7 @@ export default function Dashboard() {
               onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
               onPlay={playMedia}
               onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
+              summary={dashboardSummary}
             />
 
             {libraryRows.map((row) => (

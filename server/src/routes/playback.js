@@ -1,6 +1,8 @@
 import Redis from "ioredis";
 
 const fallbackRedis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
+const DASHBOARD_LOOKBACK_DAYS = 90;
 
 function getRedis(fastify) {
   if (fastify.redis) return fastify.redis;
@@ -38,6 +40,15 @@ function normalizeNonNegativeInt(value, fallback = 0) {
 function normalizeMediaId(value) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizePositiveMediaId(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeDashboardView(value) {
+  return value === "liked" ? "liked" : "all";
 }
 
 function normalizePlaybackAction(value) {
@@ -303,6 +314,254 @@ async function getWrappedFromRedis(fastify, from, to) {
   return { totalPlayTime, totalPlays, topMedia, timeline };
 }
 
+function orderedIds(items, filter = () => true, sorter = null, limit = 14) {
+  const source = items.filter(filter);
+  if (sorter) source.sort(sorter);
+  return source.slice(0, limit).map((item) => item.id);
+}
+
+function idsByPlaybackScore(items, filter = () => true, limit = 14) {
+  return orderedIds(
+    items,
+    filter,
+    (a, b) =>
+      b.playbackScore - a.playbackScore ||
+      b.totalTime - a.totalTime ||
+      b.playCount - a.playCount ||
+      new Date(b.createdAt || 0) - new Date(a.createdAt || 0) ||
+      a.title.localeCompare(b.title),
+    limit
+  );
+}
+
+function idsByRecentPlayback(items, filter = () => true, limit = 14) {
+  return orderedIds(
+    items,
+    (item) => filter(item) && item.lastPlayedAt,
+    (a, b) =>
+      new Date(b.lastPlayedAt || 0) - new Date(a.lastPlayedAt || 0) ||
+      b.playbackScore - a.playbackScore ||
+      a.title.localeCompare(b.title),
+    limit
+  );
+}
+
+function fallbackIds(items, filter = () => true, limit = 14) {
+  return orderedIds(
+    items,
+    filter,
+    (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0) || a.title.localeCompare(b.title),
+    limit
+  );
+}
+
+function withFallback(primaryIds, fallbackIdList, limit = 14) {
+  const seen = new Set();
+  const ids = [];
+
+  for (const id of [...primaryIds, ...fallbackIdList]) {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId) || seen.has(numericId)) continue;
+    seen.add(numericId);
+    ids.push(numericId);
+    if (ids.length >= limit) break;
+  }
+
+  return ids;
+}
+
+function buildDashboardSummary(items, options = {}) {
+  const hasPlayback = items.some((item) => item.playCount > 0 || item.totalTime > 0 || item.lastPlayedAt);
+  const lastPlayedAt = items
+    .map((item) => item.lastPlayedAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
+  const allFallback = fallbackIds(items, () => true, 24);
+  const playedIds = hasPlayback ? idsByPlaybackScore(items, () => true, 24) : [];
+  const recentIds = hasPlayback ? idsByRecentPlayback(items, () => true, 24) : [];
+  const audioIds = hasPlayback ? idsByPlaybackScore(items, (item) => item.mimeType?.startsWith("audio/"), 14) : [];
+  const recentAudioIds = hasPlayback ? idsByRecentPlayback(items, (item) => item.mimeType?.startsWith("audio/"), 14) : [];
+  const videoIds = hasPlayback ? idsByPlaybackScore(items, (item) => item.mimeType?.startsWith("video/"), 14) : [];
+  const imageIds = hasPlayback ? idsByRecentPlayback(items, (item) => item.mimeType?.startsWith("image/"), 14) : [];
+
+  const featuredId = withFallback(playedIds, allFallback, 1)[0] || null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    refreshIntervalSeconds: DASHBOARD_CACHE_TTL_SECONDS,
+    source: hasPlayback ? "playback_events" : "media_assets",
+    filters: {
+      view: options.view || "all",
+      categoryId: options.categoryId || null,
+    },
+    stats: {
+      totalPlayTime: items.reduce((sum, item) => sum + Math.max(0, Number(item.totalTime) || 0), 0),
+      totalPlays: items.reduce((sum, item) => sum + Math.max(0, Number(item.playCount) || 0), 0),
+      activeMediaCount: items.filter((item) => item.playCount > 0 || item.totalTime > 0 || item.lastPlayedAt).length,
+      mediaCount: items.length,
+      lastPlayedAt,
+    },
+    featuredId,
+    quickAccessIds: withFallback(recentIds, withFallback(playedIds, allFallback, 24), 8),
+    rows: [
+      {
+        key: "recently-played",
+        title: hasPlayback ? "Recently played" : "Recently added",
+        type: "square",
+        mediaIds: withFallback(recentIds, allFallback, 14),
+      },
+      {
+        key: "top-media",
+        title: hasPlayback ? "Most played" : "Library picks",
+        type: "square",
+        mediaIds: withFallback(playedIds, allFallback, 14),
+      },
+      {
+        key: "artists-and-voices",
+        title: "Artists and voices",
+        type: "profile",
+        mediaIds: withFallback(audioIds, fallbackIds(items, (item) => item.mimeType?.startsWith("audio/"), 14), 14),
+      },
+      {
+        key: "playlists",
+        title: "Playlists from this view",
+        type: "playlist",
+        mediaIds: withFallback(playedIds.slice(4), allFallback.slice(4), 14),
+      },
+      {
+        key: "podcasts",
+        title: "Podcast-style listens",
+        type: "podcast",
+        mediaIds: withFallback(recentAudioIds.slice(2), fallbackIds(items, (item) => item.mimeType?.startsWith("audio/"), 14), 14),
+      },
+      {
+        key: "stations",
+        title: "Video stations",
+        type: "radio",
+        mediaIds: withFallback(videoIds, fallbackIds(items, (item) => item.mimeType?.startsWith("video/"), 14), 14),
+      },
+      {
+        key: "photo-shelf",
+        title: "Photo shelf",
+        type: "square",
+        mediaIds: withFallback(imageIds, fallbackIds(items, (item) => item.mimeType?.startsWith("image/"), 14), 14),
+      },
+    ],
+  };
+}
+
+async function getDashboardSummaryFromDb(fastify, request, { view, categoryId }) {
+  const params = [request.accessTier, DASHBOARD_LOOKBACK_DAYS];
+  let likedJoin = "";
+  let whereSql = "";
+
+  if (view === "liked") {
+    params.push(request.clientIp || request.ip);
+    likedJoin = `JOIN liked_music lm ON lm.media_id = m.id AND lm.client_ip = $${params.length}::inet`;
+    whereSql += " AND m.mime_type LIKE 'audio/%'";
+  }
+
+  if (categoryId !== null) {
+    params.push(categoryId);
+    whereSql += ` AND m.category_id = $${params.length}`;
+  }
+
+  const { rows } = await fastify.pg.query(
+    `WITH RECURSIVE accessible_categories AS (
+       SELECT
+         c.id,
+         c.parent_id,
+         c.min_access_tier,
+         c.name,
+         ARRAY[c.name::text]::text[] AS path_parts
+       FROM categories c
+       WHERE c.parent_id IS NULL
+         AND c.min_access_tier <= $1
+       UNION ALL
+       SELECT
+         c.id,
+         c.parent_id,
+         c.min_access_tier,
+         c.name,
+         ac.path_parts || c.name::text
+       FROM categories c
+       JOIN accessible_categories ac ON c.parent_id = ac.id
+       WHERE c.min_access_tier <= $1
+     ),
+     playback_stats AS (
+       SELECT
+         pe.media_id,
+         COUNT(*) FILTER (WHERE pe.action = 'play')::int AS play_count,
+         COALESCE(SUM(CASE WHEN pe.action IN ('pause', 'end') THEN pe.position ELSE 0 END), 0)::int AS total_time,
+         MAX(pe.occurred_at) AS last_played_at
+       FROM playback_events pe
+       WHERE pe.media_id IS NOT NULL
+         AND pe.occurred_at >= NOW() - ($2::int * INTERVAL '1 day')
+       GROUP BY pe.media_id
+     )
+     SELECT
+       m.id,
+       m.title,
+       m.mime_type,
+       m.created_at,
+       COALESCE(ps.play_count, 0)::int AS play_count,
+       COALESCE(ps.total_time, 0)::int AS total_time,
+       ps.last_played_at,
+       (
+         COALESCE(ps.total_time, 0) +
+         COALESCE(ps.play_count, 0) * 180 +
+         CASE WHEN ps.last_played_at IS NULL THEN 0 ELSE GREATEST(0, 100000 - EXTRACT(EPOCH FROM (NOW() - ps.last_played_at)) / 60)::int END
+       )::int AS playback_score
+     FROM media_assets m
+     JOIN accessible_categories ac ON ac.id = m.category_id
+     ${likedJoin}
+     LEFT JOIN playback_stats ps ON ps.media_id = m.id
+     WHERE 1 = 1
+     ${whereSql}
+     ORDER BY playback_score DESC, ps.last_played_at DESC NULLS LAST, m.created_at DESC, m.title ASC`,
+    params
+  );
+
+  return buildDashboardSummary(
+    rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title || "",
+      mimeType: row.mime_type || "",
+      createdAt: row.created_at,
+      playCount: row.play_count || 0,
+      totalTime: row.total_time || 0,
+      lastPlayedAt: row.last_played_at,
+      playbackScore: row.playback_score || 0,
+    })),
+    { view, categoryId }
+  );
+}
+
+async function getCachedDashboardSummary(fastify, request) {
+  const redis = getRedis(fastify);
+  const view = normalizeDashboardView(request.query.view);
+  const categoryId = normalizePositiveMediaId(request.query.category_id);
+  const ownerPart = view === "liked" ? `:${request.clientIp || request.ip}` : "";
+  const cacheKey = `playback:dashboard:v1:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
+
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return { ...JSON.parse(cached), cached: true };
+  }
+
+  try {
+    const summary = await getDashboardSummaryFromDb(fastify, request, { view, categoryId });
+    await redis.set(cacheKey, JSON.stringify(summary), "EX", DASHBOARD_CACHE_TTL_SECONDS);
+    return { ...summary, cached: false };
+  } catch (err) {
+    if (err.code !== "42P01") throw err;
+    fastify.log.warn("playback_events table is missing; dashboard summary will use media fallback");
+    const summary = await buildDashboardSummary([], { view, categoryId });
+    await redis.set(cacheKey, JSON.stringify(summary), "EX", DASHBOARD_CACHE_TTL_SECONDS);
+    return { ...summary, cached: false };
+  }
+}
+
 export default async function (fastify) {
   fastify.post("/event", async (request, reply) => {
     const normalizedAction = normalizePlaybackAction(request.body?.action);
@@ -448,5 +707,9 @@ export default async function (fastify) {
       fastify.log.warn("playback_events table is missing; falling back to Redis wrapped data");
       return getWrappedFromRedis(fastify, from, to);
     }
+  });
+
+  fastify.get("/dashboard", async (request) => {
+    return getCachedDashboardSummary(fastify, request);
   });
 }
