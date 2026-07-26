@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronRight, faHeart, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -73,15 +74,94 @@ function MediaCover({ circular = false, item, size = "regular" }) {
   );
 }
 
-function QuickAccessCard({ active, item, onPlay }) {
+function MediaContextMenu({ item, menu, onAddQueue, onClose, onNotice, onPlayNext }) {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = () => onClose();
+    const closeOnEscape = (event) => { if (event.key === "Escape") close(); };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  const playNext = () => {
+    onClose();
+    onPlayNext?.(item)
+      ?.then(() => onNotice?.(`“${item.title}” will play next.`))
+      ?.catch((error) => onNotice?.(error.message));
+  };
+
+  const addToQueue = () => {
+    onClose();
+    onAddQueue?.(item)
+      ?.then(() => onNotice?.(`“${item.title}” is in the queue.`))
+      ?.catch((error) => onNotice?.(error.message));
+  };
+
+  return createPortal(
+    <div
+      role="menu"
+      onClick={(event) => event.stopPropagation()}
+      style={{
+        position: "fixed",
+        left: menu.x,
+        top: menu.y,
+        zIndex: 500,
+        minWidth: 170,
+        padding: 6,
+        border: "1px solid var(--card-border)",
+        borderRadius: 8,
+        background: "var(--card-bg)",
+        boxShadow: "0 12px 32px rgba(0,0,0,.25)",
+      }}
+    >
+      <button type="button" role="menuitem" onClick={playNext} style={styles.contextMenuItem}>Play next</button>
+      <button type="button" role="menuitem" onClick={addToQueue} style={styles.contextMenuItem}>Add to queue</button>
+    </div>,
+    document.body
+  );
+}
+
+function openCardContextMenu(event, setMenu) {
+  event.preventDefault();
+  setMenu({
+    x: Math.min(event.clientX, window.innerWidth - 180),
+    y: Math.min(event.clientY, window.innerHeight - 105),
+  });
+}
+
+function QuickAccessCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNext }) {
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
   return (
-    <button type="button" className={`quick-access-card${active ? " quick-access-card--active" : ""}`} onClick={() => onPlay(item)}>
-      <MediaCover item={item} size="small" />
-      <span className="quick-access-copy">
-        <strong title={item.title}>{item.title}</strong>
-        <small>{mediaCategory(item)}</small>
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        className={`quick-access-card${active ? " quick-access-card--active" : ""}`}
+        onClick={() => onPlay(item)}
+        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
+      >
+        <MediaCover item={item} size="small" />
+        <span className="quick-access-copy">
+          <strong title={item.title}>{item.title}</strong>
+          <small>{mediaCategory(item)}</small>
+        </span>
+      </button>
+      <MediaContextMenu
+        item={item}
+        menu={menu}
+        onAddQueue={onAddQueue}
+        onClose={closeMenu}
+        onNotice={onNotice}
+        onPlayNext={onPlayNext}
+      />
+    </>
   );
 }
 
@@ -121,21 +201,38 @@ function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
   );
 }
 
-function RowCard({ active, item, onPlay, type }) {
+function RowCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNext, type }) {
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const meta = getMimeMeta(item.mime_type);
   const circular = type === "profile" || type === "radio";
   return (
-    <button type="button" className={`library-row-card library-row-card--${type}${active ? " library-row-card--active" : ""}`} onClick={() => onPlay(item)}>
-      <MediaCover circular={circular} item={item} size={type === "playlist" ? "wide" : "regular"} />
-      <span className="library-row-card-copy">
-        <strong title={item.title}>{item.title}</strong>
-        <small>{type === "radio" ? "Station" : item.artists || mediaCategory(item) || meta.label}</small>
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        className={`library-row-card library-row-card--${type}${active ? " library-row-card--active" : ""}`}
+        onClick={() => onPlay(item)}
+        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
+      >
+        <MediaCover circular={circular} item={item} size={type === "playlist" ? "wide" : "regular"} />
+        <span className="library-row-card-copy">
+          <strong title={item.title}>{item.title}</strong>
+          <small>{type === "radio" ? "Station" : item.artists || mediaCategory(item) || meta.label}</small>
+        </span>
+      </button>
+      <MediaContextMenu
+        item={item}
+        menu={menu}
+        onAddQueue={onAddQueue}
+        onClose={closeMenu}
+        onNotice={onNotice}
+        onPlayNext={onPlayNext}
+      />
+    </>
   );
 }
 
-function ContentRow({ activeId, items, onPlay, title, type = "square" }) {
+function ContentRow({ activeId, items, onAddQueue, onNotice, onPlay, onPlayNext, title, type = "square" }) {
   if (items.length === 0) return null;
 
   return (
@@ -153,7 +250,10 @@ function ContentRow({ activeId, items, onPlay, title, type = "square" }) {
             key={`${title}-${item.id}`}
             active={Number(activeId) === Number(item.id)}
             item={item}
+            onAddQueue={onAddQueue}
+            onNotice={onNotice}
             onPlay={onPlay}
+            onPlayNext={onPlayNext}
             type={type}
           />
         ))}
@@ -209,6 +309,17 @@ const styles = {
     cursor: "pointer",
     transition: "opacity 0.15s",
     fontSize: "var(--fs-sm)",
+  },
+  contextMenuItem: {
+    width: "100%",
+    padding: "9px 11px",
+    border: "none",
+    borderRadius: 6,
+    background: "transparent",
+    color: "var(--text)",
+    textAlign: "left",
+    cursor: "pointer",
+    fontWeight: 700,
   },
   tierbadge: {
     fontSize: "var(--fs-xs)",
@@ -900,7 +1011,10 @@ export default function Dashboard() {
                   key={item.id}
                   active={Number(currentMediaId) === Number(item.id)}
                   item={item}
+                  onAddQueue={player?.addToQueue}
+                  onNotice={setNotice}
                   onPlay={playMedia}
+                  onPlayNext={player?.playNext}
                 />
               ))}
             </section>
@@ -917,7 +1031,10 @@ export default function Dashboard() {
                 key={row.title}
                 activeId={currentMediaId}
                 items={row.items}
+                onAddQueue={player?.addToQueue}
+                onNotice={setNotice}
                 onPlay={playMedia}
+                onPlayNext={player?.playNext}
                 title={row.title}
                 type={row.type}
               />
