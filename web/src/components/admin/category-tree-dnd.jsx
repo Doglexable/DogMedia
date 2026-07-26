@@ -43,6 +43,22 @@ function buildTree(categories) {
   return childrenByParent;
 }
 
+function defaultExpandedCategories(childrenByParent, maxOpenDepth = 1) {
+  const expanded = new Set();
+  const walk = (parentId = null, depth = 0) => {
+    for (const category of childrenByParent.get(parentId) || []) {
+      const categoryId = Number(category.id);
+      const children = childrenByParent.get(categoryId) || [];
+      if (children.length > 0 && depth <= maxOpenDepth) {
+        expanded.add(categoryId);
+        walk(categoryId, depth + 1);
+      }
+    }
+  };
+  walk();
+  return expanded;
+}
+
 function DropEdge({ category, edge, activeId }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `${edge}:${category.id}`,
@@ -159,7 +175,7 @@ export function CategoryTreeDnd({ categories, moving, onAddChild, onDelete, onMa
   useEffect(() => {
     if (initialized.current || categories.length === 0) return;
     initialized.current = true;
-    setExpanded(new Set(categories.filter((category) => (childrenByParent.get(Number(category.id)) || []).length > 0).map((category) => Number(category.id))));
+    setExpanded(defaultExpandedCategories(childrenByParent));
   }, [categories, childrenByParent]);
 
   const descendantsOf = (categoryId) => {

@@ -120,42 +120,81 @@ async function storePlaybackEvent(fastify, event) {
   }
 }
 
+function standardUserPlaybackEventsSql(selectSql) {
+  return `
+    WITH standard_user_events AS (
+      SELECT pe.*
+      FROM playback_events pe
+      LEFT JOIN LATERAL (
+        SELECT access_tier
+        FROM ip_whitelist
+        WHERE pe.client_ip <<= cidr_range
+        ORDER BY masklen(cidr_range) DESC
+        LIMIT 1
+      ) access ON true
+      WHERE pe.occurred_at >= $1
+        AND pe.occurred_at <= $2
+        AND access.access_tier < 100
+    )
+    ${selectSql}
+  `;
+}
+
+async function standardUserIps(fastify, ips) {
+  const uniqueIps = [...new Set(ips.filter(Boolean))];
+  if (uniqueIps.length === 0) return new Set();
+
+  const values = uniqueIps.map((_, index) => `($${index + 1}::inet)`).join(", ");
+  const { rows } = await fastify.pg.query(
+    `WITH event_ips(ip) AS (VALUES ${values})
+     SELECT event_ips.ip::text AS ip,
+            access.access_tier::int AS access_tier
+     FROM event_ips
+     LEFT JOIN LATERAL (
+       SELECT access_tier
+       FROM ip_whitelist
+       WHERE event_ips.ip <<= cidr_range
+       ORDER BY masklen(cidr_range) DESC
+       LIMIT 1
+     ) access ON true`,
+    uniqueIps
+  );
+
+  return new Set(rows.filter((row) => Number.isFinite(row.access_tier) && row.access_tier < 100).map((row) => row.ip));
+}
+
 async function getWrappedFromDb(fastify, from, to) {
   const params = [from.toISOString(), to.toISOString()];
   const [{ rows: totalRows }, { rows: topMediaRows }, { rows: timelineRows }] = await Promise.all([
     fastify.pg.query(
-      `SELECT
+      standardUserPlaybackEventsSql(`SELECT
          COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS total_play_time,
          COUNT(*) FILTER (WHERE action = 'play')::int AS total_plays
-       FROM playback_events
-       WHERE occurred_at >= $1 AND occurred_at <= $2`,
+       FROM standard_user_events`),
       params
     ),
     fastify.pg.query(
-      `SELECT
+      standardUserPlaybackEventsSql(`SELECT
          pe.media_id,
          COALESCE(MAX(ma.title), MAX(pe.title), 'Media #' || pe.media_id::text) AS title,
          COUNT(*) FILTER (WHERE pe.action = 'play')::int AS play_count,
          COALESCE(SUM(CASE WHEN pe.action IN ('pause', 'end') THEN pe.position ELSE 0 END), 0)::int AS total_time
-       FROM playback_events pe
+       FROM standard_user_events pe
        LEFT JOIN media_assets ma ON ma.id = pe.media_id
-       WHERE pe.occurred_at >= $1
-         AND pe.occurred_at <= $2
-         AND pe.media_id IS NOT NULL
+       WHERE pe.media_id IS NOT NULL
        GROUP BY pe.media_id
        ORDER BY total_time DESC, play_count DESC, pe.media_id ASC
-       LIMIT 5`,
+       LIMIT 5`),
       params
     ),
     fastify.pg.query(
-      `SELECT
+      standardUserPlaybackEventsSql(`SELECT
          occurred_at::date AS activity_date,
          COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS play_time,
          COUNT(*) FILTER (WHERE action = 'play')::int AS plays
-       FROM playback_events
-       WHERE occurred_at >= $1 AND occurred_at <= $2
+       FROM standard_user_events
        GROUP BY occurred_at::date
-       ORDER BY occurred_at::date`,
+       ORDER BY occurred_at::date`),
       params
     ),
   ]);
@@ -186,7 +225,9 @@ async function getWrappedFromRedis(fastify, from, to) {
     to.getTime()
   );
 
-  const events = raw.map((s) => JSON.parse(s));
+  const allEvents = raw.map((s) => JSON.parse(s));
+  const allowedIps = await standardUserIps(fastify, allEvents.map((event) => event.ip));
+  const events = allEvents.filter((event) => allowedIps.has(event.ip));
   const mediaMap = {};
   const dayBuckets = {};
 

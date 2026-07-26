@@ -402,6 +402,31 @@ const styles = {
     overflowY: "auto",
     marginTop: 10,
   },
+  batchSummary: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 8,
+    marginTop: 10,
+  },
+  batchSummaryItem: {
+    border: "1px solid var(--card-border)",
+    borderRadius: 10,
+    background: "var(--bg)",
+    padding: "10px 12px",
+  },
+  batchSummaryLabel: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: "0.07em",
+    textTransform: "uppercase",
+    color: "var(--muted)",
+  },
+  batchSummaryValue: {
+    marginTop: 4,
+    fontSize: 16,
+    fontWeight: 800,
+    color: "var(--text)",
+  },
   batchItem: {
     display: "grid",
     gridTemplateColumns: "1fr auto",
@@ -461,6 +486,13 @@ const styles = {
     fontSize: 12,
     color: "var(--muted)",
   },
+  editReplacementBox: {
+    border: "1px dashed var(--card-border)",
+    borderRadius: 12,
+    background: "color-mix(in srgb, var(--primary) 5%, var(--bg))",
+    padding: 12,
+    marginBottom: 14,
+  },
   spinner: {
     width: 14,
     height: 14,
@@ -476,6 +508,20 @@ function formatDuration(totalSeconds) {
   const seconds = Number.parseInt(totalSeconds, 10);
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB"];
+  let size = value;
+  let unit = "B";
+  for (const nextUnit of units) {
+    size /= 1024;
+    unit = nextUnit;
+    if (size < 1024) break;
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
 }
 
 function orderCategories(categories) {
@@ -587,11 +633,17 @@ function clearFileInputs() {
   const lyricsInput = document.getElementById("admin-media-lyrics");
   const batchFolderInput = document.getElementById("admin-media-batch-folder");
   const batchFilesInput = document.getElementById("admin-media-batch-files");
+  const editFileInput = document.getElementById("admin-edit-media-file");
+  const editThumbInput = document.getElementById("admin-edit-media-thumb");
+  const editLyricsInput = document.getElementById("admin-edit-media-lyrics");
   if (mediaInput) mediaInput.value = "";
   if (thumbInput) thumbInput.value = "";
   if (lyricsInput) lyricsInput.value = "";
   if (batchFolderInput) batchFolderInput.value = "";
   if (batchFilesInput) batchFilesInput.value = "";
+  if (editFileInput) editFileInput.value = "";
+  if (editThumbInput) editThumbInput.value = "";
+  if (editLyricsInput) editLyricsInput.value = "";
 }
 
 const AUDIO_IMPORT_PRIORITY = ["flac", "wav", "m4a", "mp3", "ogg", "opus", "aac"];
@@ -798,6 +850,68 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
   }
 }
 
+async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = null, thumbnail = null, onProgress }) {
+  const lyrics = lyricsFile ? await readLyricsFile(lyricsFile) : null;
+  const initRes = await api("/api/media/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      replaceMediaId: mediaId,
+      fileName: file?.name || "",
+      fileSize: file?.size || 0,
+      fileType: file?.type || "",
+      thumbnailName: thumbnail?.name || "",
+      thumbnailSize: thumbnail?.size || 0,
+      thumbnailType: thumbnail?.type || "",
+      lyrics,
+    }),
+  });
+
+  if (!initRes.ok) {
+    throw new Error(await readApiError(initRes, `Replacement setup failed (${initRes.status})`));
+  }
+
+  const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
+  const totalBytes = Math.max(1, (file?.size || 0) + (thumbnail?.size || 0));
+  let uploadedBytes = 0;
+
+  try {
+    if (file) {
+      uploadedBytes = await sendFileChunks({
+        uploadId,
+        file,
+        kind: "file",
+        chunkSize,
+        onProgress,
+        uploadedBytes,
+        totalBytes,
+      });
+    }
+
+    if (thumbnail) {
+      uploadedBytes = await sendFileChunks({
+        uploadId,
+        file: thumbnail,
+        kind: "thumbnail",
+        chunkSize,
+        onProgress,
+        uploadedBytes,
+        totalBytes,
+      });
+    }
+
+    const completeRes = await api(`/api/media/uploads/${uploadId}/complete`, { method: "POST" });
+    if (!completeRes.ok) {
+      throw new Error(await readApiError(completeRes, `Replacement finalization failed (${completeRes.status})`));
+    }
+
+    return completeRes.json();
+  } catch (error) {
+    await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    throw error;
+  }
+}
+
 export default function Admin() {
   const { tier } = useAccess();
   const { refreshCategories: refreshGlobalCategories } = useLibrary();
@@ -829,6 +943,16 @@ export default function Admin() {
   const [uploadProgress, setUploadProgress] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
   const [loadingMedia, setLoadingMedia] = useState(false);
+  const [editingMedia, setEditingMedia] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editArtists, setEditArtists] = useState("");
+  const [editDuration, setEditDuration] = useState("");
+  const [editFile, setEditFile] = useState(null);
+  const [editThumb, setEditThumb] = useState(null);
+  const [editLyrics, setEditLyrics] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editProgress, setEditProgress] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -855,14 +979,14 @@ export default function Admin() {
   }, []);
 
   useEffect(() => {
-    if (!categoryModalOpen && mediaModalCategoryId === null) return;
+    if (!categoryModalOpen && mediaModalCategoryId === null && editingMedia === null) return;
 
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, [categoryModalOpen, mediaModalCategoryId]);
+  }, [categoryModalOpen, mediaModalCategoryId, editingMedia]);
 
   useEffect(() => {
     if (mediaModalCategoryId === null) return;
@@ -893,6 +1017,14 @@ export default function Admin() {
   }, [mediaModalCategoryId]);
 
   const batchItems = useMemo(() => buildBatchItems(batchFiles), [batchFiles]);
+  const batchSummary = useMemo(() => ({
+    files: batchFiles.length,
+    tracks: batchItems.length,
+    covers: batchItems.filter((item) => item.thumbnail).length,
+    lyrics: batchItems.filter((item) => item.lyrics).length,
+    skipped: batchItems.reduce((sum, item) => sum + item.skippedCount, 0),
+    bytes: batchItems.reduce((sum, item) => sum + (item.file?.size || 0), 0),
+  }), [batchFiles, batchItems]);
 
   if (tier < 100) return <Navigate to="/" replace />;
 
@@ -934,6 +1066,7 @@ export default function Admin() {
     setMediaLyrics(null);
     setMediaDuration("");
     setBatchFiles([]);
+    setEditingMedia(null);
     clearFileInputs();
     setSelectedCategoryId(String(categoryId));
   };
@@ -951,6 +1084,34 @@ export default function Admin() {
     setMediaDuration("");
     setBatchFiles([]);
     setUploadingBatch(false);
+    setEditingMedia(null);
+    clearFileInputs();
+  };
+
+  const openEditMediaModal = (media) => {
+    setMessage(null);
+    setEditingMedia(media);
+    setEditTitle(media.title || "");
+    setEditDescription(media.description || "");
+    setEditArtists(media.artists || "");
+    setEditDuration(media.duration == null ? "" : String(media.duration));
+    setEditFile(null);
+    setEditThumb(null);
+    setEditLyrics(null);
+    setEditProgress(null);
+    clearFileInputs();
+  };
+
+  const closeEditMediaModal = () => {
+    setEditingMedia(null);
+    setEditTitle("");
+    setEditDescription("");
+    setEditArtists("");
+    setEditDuration("");
+    setEditFile(null);
+    setEditThumb(null);
+    setEditLyrics(null);
+    setEditProgress(null);
     clearFileInputs();
   };
 
@@ -1193,31 +1354,61 @@ export default function Admin() {
     }
   };
 
-  const handleEditMedia = async (media) => {
-    const newTitle = window.prompt("Enter new title", media.title);
-    if (!newTitle) return;
-    const newArtists = window.prompt("Enter artists", media.artists || "");
-    if (newArtists === null) return;
-    const newDescription = window.prompt("Enter new description", media.description || "");
+  const handleSaveMediaEdit = async (event) => {
+    event.preventDefault();
+    if (!editingMedia) return;
+
+    if (!editTitle.trim()) {
+      setMessage({ type: "error", text: "Title is required." });
+      return;
+    }
+
+    if (editDuration) {
+      const parsedDuration = Number.parseFloat(editDuration);
+      if (!Number.isFinite(parsedDuration) || parsedDuration < 0) {
+        setMessage({ type: "error", text: "Duration must be a valid non-negative number." });
+        return;
+      }
+    }
+
+    setSavingEdit(true);
+    setEditProgress(null);
+    setMessage(null);
 
     try {
-      const res = await api(`/api/media/${media.id}`, {
+      const res = await api(`/api/media/${editingMedia.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: newTitle,
-          artists: newArtists.trim() || null,
-          description: newDescription || "",
+          title: editTitle.trim(),
+          artists: editArtists.trim() || null,
+          description: editDescription || "",
+          duration: editDuration ? Math.floor(Number.parseFloat(editDuration)) : null,
         }),
       });
 
-      if (!res.ok) throw new Error("Edit failed");
+      if (!res.ok) throw new Error(await readApiError(res, "Edit failed"));
 
-      const updated = await res.json();
-      setCategoryMedia((prev) => prev.map((item) => (item.id === media.id ? updated : item)));
+      let updated = await res.json();
+      if (editFile || editThumb || editLyrics) {
+        setEditProgress(0);
+        updated = await replaceMediaFilesInChunks({
+          mediaId: editingMedia.id,
+          file: editFile,
+          thumbnail: editThumb,
+          lyricsFile: editLyrics,
+          onProgress: setEditProgress,
+        });
+      }
+
+      setCategoryMedia((prev) => prev.map((item) => (item.id === editingMedia.id ? updated : item)));
       setMessage({ type: "success", text: `Updated "${updated.title}".` });
+      closeEditMediaModal();
     } catch (error) {
       setMessage({ type: "error", text: error.message });
+    } finally {
+      setSavingEdit(false);
+      setEditProgress(null);
     }
   };
 
@@ -1472,7 +1663,7 @@ export default function Admin() {
                             <button
                               type="button"
                               style={styles.button("secondary")}
-                              onClick={() => handleEditMedia(media)}
+                              onClick={() => openEditMediaModal(media)}
                             >
                               Edit
                             </button>
@@ -1635,7 +1826,7 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>
-                        Select an album folder. Matching JSON lyrics and cover/front-cover images are attached automatically.
+                        Select an album folder. This creates new media rows; matching JSON lyrics and cover/front-cover images are attached automatically.
                       </p>
                     </div>
 
@@ -1650,13 +1841,31 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>
-                        Use this when you only have loose files, like a single FLAC/WAV plus an optional cover image.
+                        Use this for loose files. This also creates new media rows in the selected category.
                       </p>
                     </div>
 
                     {batchFiles.length > 0 && (
                       <div style={styles.fieldGroup}>
-                        <label style={styles.label}>Detected Tracks</label>
+                        <label style={styles.label}>Import Preview</label>
+                        <div style={styles.batchSummary}>
+                          <div style={styles.batchSummaryItem}>
+                            <div style={styles.batchSummaryLabel}>Tracks</div>
+                            <div style={styles.batchSummaryValue}>{batchSummary.tracks}</div>
+                          </div>
+                          <div style={styles.batchSummaryItem}>
+                            <div style={styles.batchSummaryLabel}>Covers / lyrics</div>
+                            <div style={styles.batchSummaryValue}>{batchSummary.covers}/{batchSummary.lyrics}</div>
+                          </div>
+                          <div style={styles.batchSummaryItem}>
+                            <div style={styles.batchSummaryLabel}>Audio size</div>
+                            <div style={styles.batchSummaryValue}>{formatBytes(batchSummary.bytes)}</div>
+                          </div>
+                        </div>
+                        <p style={styles.helpText}>
+                          Selected {batchSummary.files} file{batchSummary.files === 1 ? "" : "s"}.
+                          {batchSummary.skipped ? ` ${batchSummary.skipped} duplicate format candidate${batchSummary.skipped === 1 ? "" : "s"} will be ignored.` : ""}
+                        </p>
                         {batchItems.length === 0 ? (
                           <p style={styles.helpText}>No audio files found in that selection.</p>
                         ) : (
@@ -1669,8 +1878,9 @@ export default function Admin() {
                                   </div>
                                   <div style={styles.batchMeta} title={item.file.webkitRelativePath || item.file.name}>
                                     {item.file.webkitRelativePath || item.file.name}
-                                    {item.thumbnail ? ` · cover: ${item.thumbnail.name}` : " · no cover file"}
-                                    {item.lyrics ? ` · lyrics: ${item.lyrics.name}` : " · no lyrics"}
+                                    {` · ${formatBytes(item.file.size)}`}
+                                    {item.thumbnail ? ` · cover ${item.thumbnail.name}` : " · no cover"}
+                                    {item.lyrics ? ` · lyrics ${item.lyrics.name}` : " · no lyrics"}
                                   </div>
                                 </div>
                                 <span style={styles.batchBadge}>
@@ -1698,6 +1908,134 @@ export default function Admin() {
                 </div>
               </section>
             </div>
+          </Modal>
+        )}
+
+        {editingMedia && (
+          <Modal
+            title={`Edit ${editingMedia.title}`}
+            subtitle="Update metadata, or replace the media file, thumbnail, and lyrics."
+            width={820}
+            onClose={savingEdit ? () => {} : closeEditMediaModal}
+          >
+            <form onSubmit={handleSaveMediaEdit}>
+              <div style={styles.modalGrid}>
+                <section style={styles.panel}>
+                  <div style={styles.panelHeader}>
+                    <h3 style={styles.cardTitle}>Metadata</h3>
+                    <p style={styles.cardSubtitle}>These changes update the existing media row.</p>
+                  </div>
+                  <div style={styles.panelBody}>
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Title</label>
+                      <input
+                        style={styles.input}
+                        value={editTitle}
+                        onChange={(event) => setEditTitle(event.target.value)}
+                        placeholder="Media title"
+                      />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Artists</label>
+                      <input
+                        style={styles.input}
+                        value={editArtists}
+                        onChange={(event) => setEditArtists(event.target.value)}
+                        placeholder="Unknown Artist"
+                      />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Description</label>
+                      <textarea
+                        style={styles.textarea}
+                        value={editDescription}
+                        onChange={(event) => setEditDescription(event.target.value)}
+                        placeholder="A short description..."
+                      />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Duration <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(seconds)</span></label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        style={styles.input}
+                        value={editDuration}
+                        onChange={(event) => setEditDuration(event.target.value)}
+                        placeholder="180"
+                      />
+                      <p style={styles.helpText}>Leave blank to clear the stored duration; replacing the file can detect it again.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section style={styles.panel}>
+                  <div style={styles.panelHeader}>
+                    <h3 style={styles.cardTitle}>Replacement files</h3>
+                    <p style={styles.cardSubtitle}>Choose only the assets you want to replace.</p>
+                  </div>
+                  <div style={styles.panelBody}>
+                    <div style={styles.editReplacementBox}>
+                      <div style={{ fontWeight: 800, color: "var(--text)", fontSize: 13 }}>Current file</div>
+                      <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 12 }}>
+                        {editingMedia.mime_type || "Unknown type"} · {editingMedia.duration != null ? formatDuration(editingMedia.duration) : "unknown duration"}
+                      </div>
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Replace media file</label>
+                      <input
+                        id="admin-edit-media-file"
+                        type="file"
+                        accept="video/*,audio/*,image/*"
+                        onChange={(event) => setEditFile(event.target.files[0] || null)}
+                        style={styles.fileInput}
+                      />
+                      <p style={styles.helpText}>Large files upload in chunks. If you replace this, the old media file is removed.</p>
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Replace thumbnail</label>
+                      <input
+                        id="admin-edit-media-thumb"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => setEditThumb(event.target.files[0] || null)}
+                        style={styles.fileInput}
+                      />
+                      <p style={styles.helpText}>If you replace the media file without choosing a thumbnail, the server will try to generate one.</p>
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Replace lyrics</label>
+                      <input
+                        id="admin-edit-media-lyrics"
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={(event) => setEditLyrics(event.target.files[0] || null)}
+                        style={styles.fileInput}
+                      />
+                      <p style={styles.helpText}>Use Whisper JSON. Existing lyrics stay unchanged unless you choose a new file.</p>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div style={{ ...styles.actionRow, justifyContent: "space-between", marginTop: 16 }}>
+                <button type="button" style={styles.button("secondary", savingEdit)} disabled={savingEdit} onClick={closeEditMediaModal}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={savingEdit} style={styles.button("primary", savingEdit)}>
+                  {savingEdit && <span style={styles.spinner} />}
+                  {savingEdit
+                    ? `Saving${editProgress === null ? "..." : ` ${editProgress}%`}`
+                    : "Save Changes"}
+                </button>
+              </div>
+            </form>
           </Modal>
         )}
       </div>

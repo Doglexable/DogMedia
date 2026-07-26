@@ -94,10 +94,10 @@ export default function Wrapped() {
     <PageShell>
       <section className="wrapped-hero">
         <div className="wrapped-hero-copy">
-          <p className="wrapped-eyebrow">Last 30 days</p>
+          <p className="wrapped-eyebrow">Website users</p>
           <h1>Your playback pulse</h1>
           <p className="wrapped-subtitle">
-            {period.label} / {activeDays ? `${activeDays} active days` : "No active days yet"}
+            {period.label} / admin playback excluded / {activeDays ? `${activeDays} active days` : "No active days yet"}
           </p>
         </div>
         <div className="wrapped-hero-stats">
@@ -112,7 +112,7 @@ export default function Wrapped() {
         <section className="wrapped-empty">
           <div className="wrapped-empty-mark" aria-hidden="true" />
           <h2>No playback activity yet</h2>
-          <p>Play audio or video files and this page will build a playback report from your sessions.</p>
+          <p>Play audio or video files from a non-admin device and this page will build a playback report from those sessions.</p>
         </section>
       ) : (
         <div className="wrapped-dashboard">

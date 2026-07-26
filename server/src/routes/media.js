@@ -143,6 +143,11 @@ async function cleanupUploads(...uploads) {
   await Promise.all(uploads.filter(Boolean).map((upload) => unlink(upload.tempPath).catch(() => {})));
 }
 
+async function deleteMediaThumbnails(categoryDir, mediaId) {
+  const exts = ["webp", "jpg", "png", "jpeg"];
+  await Promise.all(exts.map((xt) => unlink(join(categoryDir, `${mediaId}_thumb.${xt}`)).catch(() => {})));
+}
+
 function uploadSessionDir(uploadId) {
   if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
     return null;
@@ -263,6 +268,96 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   }
 
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
+}
+
+async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mainFileUpload = null, thumbUpload = null }) {
+  if (!mainFileUpload && !thumbUpload && lyrics === undefined) {
+    return reply.code(400).send({ error: "Choose a replacement file, thumbnail, or lyrics file" });
+  }
+
+  const { rows } = await fastify.pg.query("SELECT * FROM media_assets WHERE id = $1", [mediaId]);
+  if (rows.length === 0) {
+    await cleanupUploads(mainFileUpload, thumbUpload);
+    return reply.code(404).send({ error: "Not found" });
+  }
+
+  const existing = rows[0];
+  const categoryDir = join(DATA_DIR, String(existing.category_id));
+  await mkdir(categoryDir, { recursive: true });
+
+  let nextFilePath = existing.file_path;
+  let nextMimeType = existing.mime_type;
+  let nextDuration = existing.duration;
+  let nextArtists = existing.artists;
+
+  if (mainFileUpload) {
+    const ext = extFromFilename(mainFileUpload.filename);
+    const storedName = `${mediaId}.${ext}`;
+    const absoluteFilePath = join(categoryDir, storedName);
+    const previousFilePath = join(DATA_DIR, existing.file_path);
+
+    await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(absoluteFilePath));
+    await unlink(mainFileUpload.tempPath).catch(() => {});
+    if (previousFilePath !== absoluteFilePath) await unlink(previousFilePath).catch(() => {});
+
+    nextFilePath = `${existing.category_id}/${storedName}`;
+    nextMimeType = mimeFromExt(absoluteFilePath);
+    nextDuration = await probeDuration(absoluteFilePath, request.log);
+    if (!normalizeOptionalText(nextArtists)) {
+      const detectedTags = await probeMediaTags(absoluteFilePath, request.log);
+      nextArtists = detectedTags.artists || null;
+    }
+  }
+
+  if (mainFileUpload || thumbUpload) {
+    await deleteMediaThumbnails(categoryDir, mediaId);
+  }
+
+  if (thumbUpload) {
+    const thumbExt = extFromFilename(thumbUpload.filename, "jpg");
+    await pipeline(createReadStream(thumbUpload.tempPath), createWriteStream(join(categoryDir, `${mediaId}_thumb.${thumbExt}`)));
+    await unlink(thumbUpload.tempPath).catch(() => {});
+  } else if (mainFileUpload) {
+    try {
+      await generateAutoThumbnail({
+        filePath: join(DATA_DIR, nextFilePath),
+        outputPath: join(categoryDir, `${mediaId}_thumb.webp`),
+        mimeType: nextMimeType,
+        log: request.log,
+      });
+    } catch (err) {
+      request.log.error(err, "ffmpeg thumbnail generation failed");
+    }
+  }
+
+  if (lyrics !== undefined) {
+    if (lyrics === null) {
+      await fastify.pg.query("DELETE FROM media_lyrics WHERE media_id = $1", [mediaId]);
+    } else {
+      await fastify.pg.query(
+        `INSERT INTO media_lyrics (media_id, language, segments)
+         VALUES ($1, $2, $3::jsonb)
+         ON CONFLICT (media_id) DO UPDATE
+         SET language = EXCLUDED.language,
+             segments = EXCLUDED.segments,
+             updated_at = NOW()`,
+        [mediaId, lyrics.language, JSON.stringify(lyrics.segments)]
+      );
+    }
+  }
+
+  const { rows: updatedRows } = await fastify.pg.query(
+    `UPDATE media_assets
+     SET file_path = $1,
+         mime_type = $2,
+         duration = COALESCE($3, duration),
+         artists = $4
+     WHERE id = $5
+     RETURNING *`,
+    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), mediaId]
+  );
+
+  return reply.send({ ...updatedRows[0], has_lyrics: lyrics === undefined ? undefined : lyrics !== null });
 }
 
 async function generateAutoThumbnail({ filePath, outputPath, mimeType, log }) {
@@ -419,13 +514,21 @@ export default async function (fastify) {
       thumbnailSize = 0,
       thumbnailType = "",
       lyrics: rawLyrics = null,
+      replaceMediaId = null,
     } = request.body || {};
 
-    if (!category_id || !title || !fileName) {
+    const replacementId = replaceMediaId === null ? null : Number.parseInt(replaceMediaId, 10);
+    const isReplacement = Number.isInteger(replacementId);
+
+    if (!isReplacement && (!category_id || !title || !fileName)) {
       return reply.code(400).send({ error: "Category, title, and file name are required" });
     }
 
-    let lyrics = null;
+    if (isReplacement && !fileName && !thumbnailName && rawLyrics === null) {
+      return reply.code(400).send({ error: "Choose a replacement file, thumbnail, or lyrics file" });
+    }
+
+    let lyrics = undefined;
     if (rawLyrics !== null) {
       try {
         lyrics = normalizeWhisperLyrics(rawLyrics);
@@ -448,12 +551,14 @@ export default async function (fastify) {
         artists,
         duration,
       },
-      file: {
-        name: fileName,
-        size: Number(fileSize) || 0,
-        type: fileType,
-        totalChunks: Math.max(1, Math.ceil((Number(fileSize) || 0) / CHUNK_SIZE)),
-      },
+      file: fileName
+        ? {
+            name: fileName,
+            size: Number(fileSize) || 0,
+            type: fileType,
+            totalChunks: Math.max(1, Math.ceil((Number(fileSize) || 0) / CHUNK_SIZE)),
+          }
+        : null,
       thumbnail: thumbnailName
         ? {
             name: thumbnailName,
@@ -463,6 +568,7 @@ export default async function (fastify) {
           }
         : null,
       lyrics,
+      replaceMediaId: isReplacement ? replacementId : null,
     });
 
     return reply.code(201).send({ uploadId, chunkSize: CHUNK_SIZE });
@@ -530,12 +636,14 @@ export default async function (fastify) {
     }
 
     try {
-      const mainFileUpload = await assembleChunks({
-        uploadDir,
-        kind: "file",
-        filename: manifest.file.name,
-        totalChunks: manifest.file.totalChunks,
-      });
+      const mainFileUpload = manifest.file
+        ? await assembleChunks({
+            uploadDir,
+            kind: "file",
+            filename: manifest.file.name,
+            totalChunks: manifest.file.totalChunks,
+          })
+        : null;
 
       const thumbUpload = manifest.thumbnail
         ? await assembleChunks({
@@ -545,6 +653,18 @@ export default async function (fastify) {
             totalChunks: manifest.thumbnail.totalChunks,
           })
         : null;
+
+      if (manifest.replaceMediaId) {
+        return await replaceMediaFiles({
+          fastify,
+          request,
+          reply,
+          mediaId: manifest.replaceMediaId,
+          lyrics: manifest.lyrics,
+          mainFileUpload,
+          thumbUpload,
+        });
+      }
 
       return await persistMediaUpload({
         fastify,
@@ -586,10 +706,13 @@ export default async function (fastify) {
     const { id } = request.params;
     const { title, description, duration, artists } = request.body;
     const hasArtists = Object.hasOwn(request.body || {}, "artists");
+    const hasDuration = Object.hasOwn(request.body || {}, "duration");
     const normalizedArtists = hasArtists ? normalizeOptionalText(artists) : null;
+    const parsedDuration = Number.parseInt(duration, 10);
+    const normalizedDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0 ? parsedDuration : null;
     const { rows } = await fastify.pg.query(
-      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = COALESCE($3, duration), artists = CASE WHEN $4 THEN $5 ELSE artists END WHERE id = $6 RETURNING *",
-      [title, description, duration, hasArtists, normalizedArtists, id]
+      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END WHERE id = $7 RETURNING *",
+      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, id]
     );
     if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
     return rows[0];
