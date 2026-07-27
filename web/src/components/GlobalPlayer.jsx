@@ -121,6 +121,12 @@ export function GlobalPlayerProvider({ children }) {
   const canGoNext = hasLinearNext || (loopMode === "queue" && queueIds.length > 1);
   const canGoPrev = hasLinearPrev || (loopMode === "queue" && queueIds.length > 1);
 
+  const visibleQueueItems = useCallback((items) => (
+    Array.isArray(items)
+      ? items.filter((item) => !hiddenQueueIds.has(Number(item.id)))
+      : null
+  ), [hiddenQueueIds]);
+
   useEffect(() => {
     document.title = getDocumentTitle(currentMedia, isAudio);
 
@@ -152,17 +158,24 @@ export function GlobalPlayerProvider({ children }) {
       return;
     }
 
-    const idx = queue.indexOf(Number(mediaId));
-    setQueueIds(queue.map(Number));
+    const normalizedQueue = queue.map(Number);
+    const idx = normalizedQueue.indexOf(Number(mediaId));
+    setQueueIds((current) => (
+      current.length === normalizedQueue.length && current.every((id, index) => id === normalizedQueue[index])
+        ? current
+        : normalizedQueue
+    ));
     setQueueIndex(idx > -1 ? idx : 0);
     setHasPrev(idx > 0);
-    setHasNext(idx > -1 && idx < queue.length - 1);
+    setHasNext(idx > -1 && idx < normalizedQueue.length - 1);
   }, []);
 
   const applyQueueResponse = useCallback((data, fallbackMediaId = currentMedia?.id) => {
     refreshQueueState(data?.queue, fallbackMediaId);
+    const items = visibleQueueItems(data?.items);
+    if (items) setQueueItems(items);
     return data;
-  }, [currentMedia?.id, refreshQueueState]);
+  }, [currentMedia?.id, refreshQueueState, visibleQueueItems]);
 
   const refreshQueue = useCallback(() => {
     return api("/api/queue")
@@ -336,17 +349,7 @@ export function GlobalPlayerProvider({ children }) {
     );
   }, [loopMode, shuffleEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadQueueItems = useCallback(() => {
-    const seq = queueLoadSeqRef.current + 1;
-    queueLoadSeqRef.current = seq;
-    const visibleQueueIds = queueIds.filter((id) => !hiddenQueueIds.has(Number(id)));
-    if (visibleQueueIds.length === 0) {
-      setQueueItems([]);
-      setQueueLoading(false);
-      return;
-    }
-
-    setQueueLoading(true);
+  const loadQueueItemsFallback = useCallback((visibleQueueIds, seq) => {
     Promise.all(
       visibleQueueIds.map((id) =>
         api(`/api/media/${id}`)
@@ -360,7 +363,32 @@ export function GlobalPlayerProvider({ children }) {
       .finally(() => {
         if (queueLoadSeqRef.current === seq) setQueueLoading(false);
       });
-  }, [hiddenQueueIds, queueIds]);
+  }, []);
+
+  const loadQueueItems = useCallback(() => {
+    const seq = queueLoadSeqRef.current + 1;
+    queueLoadSeqRef.current = seq;
+    const visibleQueueIds = queueIds.filter((id) => !hiddenQueueIds.has(Number(id)));
+    if (visibleQueueIds.length === 0) {
+      setQueueItems([]);
+      setQueueLoading(false);
+      return;
+    }
+
+    setQueueLoading(true);
+    api("/api/queue")
+      .then((response) => response.json())
+      .then((data) => {
+        if (queueLoadSeqRef.current !== seq) return;
+        applyQueueResponse(data);
+        if (!Array.isArray(data?.items)) {
+          loadQueueItemsFallback(visibleQueueIds, seq);
+          return;
+        }
+        setQueueLoading(false);
+      })
+      .catch(() => loadQueueItemsFallback(visibleQueueIds, seq));
+  }, [applyQueueResponse, hiddenQueueIds, loadQueueItemsFallback, queueIds]);
 
   useEffect(() => {
     if (!queueOpen) return;

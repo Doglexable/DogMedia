@@ -11,7 +11,7 @@ export function MediaSearch({ onChange, onClear, placeholder, value }) {
       />
       <input
         id="media-search"
-        type="search"
+        type="text"
         value={value}
         placeholder={placeholder}
         autoComplete="off"

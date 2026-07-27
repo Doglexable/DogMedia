@@ -13,7 +13,6 @@ function QueueListSkeleton({ count }) {
       {Array.from({ length: count }, (_, index) => (
         <div key={index} className="queue-item-skeleton" aria-hidden="true">
           <span className="skeleton-shimmer h-7 w-7 rounded-md" />
-          <span className="skeleton-shimmer h-3 w-4 rounded" />
           <span className="grid gap-2">
             <span className="skeleton-shimmer h-3 w-3/4 rounded" />
             <span className="skeleton-shimmer h-2.5 w-1/2 rounded" />
@@ -26,7 +25,7 @@ function QueueListSkeleton({ count }) {
   );
 }
 
-function SortableQueueItem({ active, index, item, onRemove, onSelect }) {
+function SortableQueueItem({ active, item, onRemove, onSelect }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: Number(item.id),
     disabled: { draggable: active },
@@ -37,7 +36,7 @@ function SortableQueueItem({ active, index, item, onRemove, onSelect }) {
       ref={setNodeRef}
       style={{
         ...styles.queueItem(active),
-        gridTemplateColumns: "32px 26px minmax(0, 1fr) auto auto",
+        gridTemplateColumns: "32px minmax(0, 1fr) auto auto",
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.65 : active ? 0.82 : 1,
@@ -56,9 +55,6 @@ function SortableQueueItem({ active, index, item, onRemove, onSelect }) {
       >
         <FontAwesomeIcon icon={faGripVertical} />
       </button>
-      <span style={{ color: active ? "var(--primary)" : "var(--muted)", fontSize: 12, fontWeight: 800 }}>
-        {index + 1}
-      </span>
       <button type="button" style={styles.queueSelectButton} onClick={() => onSelect(item)} title={item.title}>
         <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 700 }}>
           {item.title}
@@ -80,13 +76,13 @@ function SortableQueueItem({ active, index, item, onRemove, onSelect }) {
   );
 }
 
-function PinnedQueueItem({ index, item, onRemove, onSelect }) {
+function PinnedQueueItem({ item, onRemove, onSelect }) {
   const meta = getMediaMeta(item.mime_type || "");
   return (
     <div
       style={{
         ...styles.queueItem(true),
-        gridTemplateColumns: "32px 26px minmax(0, 1fr) auto auto",
+        gridTemplateColumns: "32px minmax(0, 1fr) auto auto",
         opacity: 0.92,
       }}
     >
@@ -99,9 +95,6 @@ function PinnedQueueItem({ index, item, onRemove, onSelect }) {
       >
         <FontAwesomeIcon icon={faGripVertical} />
       </button>
-      <span style={{ color: "var(--primary)", fontSize: 12, fontWeight: 800 }}>
-        {index + 1}
-      </span>
       <button type="button" style={styles.queueSelectButton} onClick={() => onSelect(item)} title={item.title}>
         <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 700 }}>
           {item.title}
@@ -193,7 +186,6 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
           <>
             {pinnedItem && (
               <PinnedQueueItem
-                index={pinnedIndex}
                 item={pinnedItem}
                 onRemove={(id) => run(onRemove(id))}
                 onSelect={onSelect}
@@ -206,7 +198,6 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
                     <SortableQueueItem
                       key={item.id}
                       active={false}
-                      index={hasPinnedItem ? pinnedIndex + index + 1 : index}
                       item={item}
                       onRemove={(id) => run(onRemove(id))}
                       onSelect={onSelect}

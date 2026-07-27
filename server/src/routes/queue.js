@@ -3,7 +3,9 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
     SELECT
       c.id,
       c.parent_id,
-      c.min_access_tier
+      c.min_access_tier,
+      c.name,
+      ARRAY[c.name::text]::text[] AS path_parts
     FROM categories c
     WHERE c.parent_id IS NULL
       AND c.min_access_tier <= $1
@@ -11,7 +13,9 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
     SELECT
       c.id,
       c.parent_id,
-      c.min_access_tier
+      c.min_access_tier,
+      c.name,
+      ac.path_parts || c.name::text
     FROM categories c
     JOIN accessible_categories ac ON c.parent_id = ac.id
     WHERE c.min_access_tier <= $1
@@ -50,6 +54,24 @@ async function accessibleMediaIds(fastify, accessTier, ids) {
   return rows.map((row) => Number(row.id));
 }
 
+async function hydrateQueueItems(fastify, accessTier, ids) {
+  if (ids.length === 0) return [];
+
+  const { rows } = await fastify.pg.query(
+    `${ACCESSIBLE_CATEGORY_TREE_SQL}
+     SELECT
+       m.*,
+       ac.name AS category_name,
+       array_to_string(ac.path_parts, ' / ') AS category_path
+     FROM unnest($2::int[]) WITH ORDINALITY AS queue_item(id, position)
+     JOIN media_assets m ON m.id = queue_item.id
+     JOIN accessible_categories ac ON ac.id = m.category_id
+     ORDER BY queue_item.position`,
+    [accessTier, ids]
+  );
+  return rows;
+}
+
 async function readQueueState(redis, key, idxKey) {
   const [storedQueue, storedIndex] = await Promise.all([
     redis.lrange(key, 0, -1),
@@ -63,8 +85,13 @@ async function readQueueState(redis, key, idxKey) {
   return { queue, currentIndex, currentMediaId: queue[currentIndex] ?? null };
 }
 
-function mutationResult(queue, currentIndex, activeRemoved = false) {
-  return { queue, currentIndex, activeRemoved };
+async function queueResult(fastify, request, queue, currentIndex, activeRemoved = false) {
+  return {
+    queue,
+    currentIndex,
+    activeRemoved,
+    items: await hydrateQueueItems(fastify, request.accessTier, queue),
+  };
 }
 
 async function replaceQueue(redis, key, idxKey, ids, startId) {
@@ -102,7 +129,7 @@ export default async function (fastify) {
     const { key, idxKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     if (state.currentMediaId === mediaId) {
-      return mutationResult(state.queue, state.currentIndex);
+      return queueResult(fastify, request, state.queue, state.currentIndex);
     }
 
     const nextQueue = state.queue.filter((id) => id !== mediaId);
@@ -118,7 +145,7 @@ export default async function (fastify) {
       nextQueue,
       state.currentMediaId
     );
-    return mutationResult(nextQueue, nextIndex);
+    return queueResult(fastify, request, nextQueue, nextIndex);
   });
 
   fastify.post("/items", async (request, reply) => {
@@ -144,7 +171,12 @@ export default async function (fastify) {
       String(mediaId)
     );
     const storedIndex = Number.parseInt((await fastify.redis.get(idxKey)) || "0", 10);
-    return mutationResult(queue.map(Number), Number.isInteger(storedIndex) ? storedIndex : 0);
+    return queueResult(
+      fastify,
+      request,
+      queue.map(Number),
+      Number.isInteger(storedIndex) ? storedIndex : 0
+    );
   });
 
   fastify.put("/order", async (request, reply) => {
@@ -166,7 +198,7 @@ export default async function (fastify) {
 
     const nextIndex = state.currentMediaId === null ? 0 : mediaIds.indexOf(state.currentMediaId);
     await replaceQueue(fastify.redis, key, idxKey, mediaIds, state.currentMediaId);
-    return mutationResult(mediaIds, Math.max(nextIndex, 0));
+    return queueResult(fastify, request, mediaIds, Math.max(nextIndex, 0));
   });
 
   fastify.delete("/items/:mediaId", async (request, reply) => {
@@ -176,7 +208,7 @@ export default async function (fastify) {
     const { key, idxKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     const removeIndex = state.queue.indexOf(mediaId);
-    if (removeIndex < 0) return mutationResult(state.queue, state.currentIndex);
+    if (removeIndex < 0) return queueResult(fastify, request, state.queue, state.currentIndex);
 
     const activeRemoved = state.currentMediaId === mediaId;
     const nextQueue = state.queue.filter((id) => id !== mediaId);
@@ -192,14 +224,14 @@ export default async function (fastify) {
       multi.set(idxKey, nextIndex);
     }
     await multi.exec();
-    return mutationResult(nextQueue, nextIndex, activeRemoved);
+    return queueResult(fastify, request, nextQueue, nextIndex, activeRemoved);
   });
 
   fastify.delete("/", async (request) => {
     const { key, idxKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     await fastify.redis.del(key, idxKey);
-    return mutationResult([], 0, state.currentMediaId !== null);
+    return queueResult(fastify, request, [], 0, state.currentMediaId !== null);
   });
 
   fastify.post("/auto/:categoryId", async (request, reply) => {
@@ -230,7 +262,7 @@ export default async function (fastify) {
     const { key, idxKey } = queueKeys(request);
     const currentIndex = await replaceQueue(fastify.redis, key, idxKey, ids, startId);
 
-    return { queue: ids, currentIndex };
+    return queueResult(fastify, request, ids, currentIndex);
   });
 
   fastify.post("/auto", async (request, reply) => {
@@ -251,7 +283,7 @@ export default async function (fastify) {
     const { key, idxKey } = queueKeys(request);
     const currentIndex = await replaceQueue(fastify.redis, key, idxKey, ids, startId);
 
-    return { queue: ids, currentIndex };
+    return queueResult(fastify, request, ids, currentIndex);
   });
 
   fastify.post("/next", async (request, reply) => {
@@ -296,7 +328,10 @@ export default async function (fastify) {
     }
 
     await fastify.redis.set(idxKey, idx);
-    return { mediaId: selectedId, currentIndex: idx, queue };
+    return {
+      mediaId: selectedId,
+      ...(await queueResult(fastify, request, queue, idx)),
+    };
   });
 
   fastify.post("/shuffle", async (request) => {
@@ -308,7 +343,7 @@ export default async function (fastify) {
     const queue = (storedQueue || []).map(Number);
 
     if (queue.length <= 1) {
-      return { queue, currentIndex: 0 };
+      return queueResult(fastify, request, queue, 0);
     }
 
     const parsedIndex = Number.parseInt(storedIndex || "0", 10);
@@ -322,12 +357,12 @@ export default async function (fastify) {
     ];
 
     await replaceQueue(fastify.redis, key, idxKey, nextQueue, currentMediaId);
-    return { queue: nextQueue, currentIndex: 0 };
+    return queueResult(fastify, request, nextQueue, 0);
   });
 
   fastify.get("/", async (request) => {
     const { key, idxKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
-    return { queue: state.queue, currentIndex: state.currentIndex };
+    return queueResult(fastify, request, state.queue, state.currentIndex);
   });
 }
