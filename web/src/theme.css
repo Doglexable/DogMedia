@@ -38,6 +38,10 @@
   --player-progress-columns: 42px minmax(90px, 1fr) 42px;
   --app-header-height: 58px;
   --global-sidebar-width: 252px;
+  --scrollbar-size: 10px;
+  --scrollbar-thumb: color-mix(in srgb, var(--muted) 42%, transparent);
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--primary) 56%, var(--muted));
+  --scrollbar-track: transparent;
 }
 
 .global-app-shell {
@@ -537,7 +541,34 @@ body {
 }
 
 * {
-  scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .premium-app-shell {

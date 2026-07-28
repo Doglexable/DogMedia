@@ -92,6 +92,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const liked = location.pathname === "/" && params.get("view") === "liked";
   const close = () => setOpen(false);
   const closeCategories = () => setCategoriesOpen(false);
+  const mediaCategories = categories.filter((category) => Number(category.media_count) > 0);
 
   // Close sidebar and sheet on navigation
   useEffect(() => {
@@ -154,8 +155,8 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           <nav className="global-sidebar-categories" aria-label="Media categories">
             {categoriesLoading ? (
               Array.from({ length: 5 }, (_, index) => <span key={index} className="global-sidebar-category-skeleton skeleton-shimmer" />)
-            ) : categories.length > 0 ? (
-              categories.map((category) => (
+            ) : mediaCategories.length > 0 ? (
+              mediaCategories.map((category) => (
                 <SidebarLink
                   key={category.id}
                   to={`/?category=${category.id}`}
@@ -168,7 +169,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
                 </SidebarLink>
               ))
             ) : (
-              <p className="global-sidebar-empty">No categories available.</p>
+              <p className="global-sidebar-empty">No media categories available.</p>
             )}
           </nav>
         </div>
@@ -226,8 +227,8 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
             Array.from({ length: 6 }, (_, index) => (
               <span key={index} className="global-sidebar-category-skeleton skeleton-shimmer" style={{ margin: "4px 0", borderRadius: 10, height: 40 }} />
             ))
-          ) : categories.length > 0 ? (
-            categories.map((category) => (
+          ) : mediaCategories.length > 0 ? (
+            mediaCategories.map((category) => (
               <SidebarLink
                 key={category.id}
                 to={`/?category=${category.id}`}
@@ -240,7 +241,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
               </SidebarLink>
             ))
           ) : (
-            <p className="global-sidebar-empty">No categories available.</p>
+            <p className="global-sidebar-empty">No media categories available.</p>
           )}
         </nav>
       </div>
