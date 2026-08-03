@@ -20,6 +20,7 @@ const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
 const DEFAULT_VOLUME = 0.85;
 const NOW_PLAYING_PAUSE_DEBOUNCE_MS = 1500;
+const SLEEP_TIMER_MAX_MINUTES = 60;
 
 export function useGlobalPlayer() {
   return useContext(PlayerContext);
@@ -102,6 +103,8 @@ export function GlobalPlayerProvider({ children }) {
   const [likedIds, setLikedIds] = useState(new Set());
   const [volume, setVolume] = useState(readStoredVolume);
   const [muted, setMuted] = useState(readStoredMuted);
+  const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
+  const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -412,6 +415,43 @@ export function GlobalPlayerProvider({ children }) {
     setResumePos(null);
     if (isFullPlayer) navigate("/");
   }, [isFullPlayer, navigate]);
+
+  const setSleepTimer = useCallback((minutes) => {
+    const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
+    if (nextMinutes <= 0) {
+      setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
+      return;
+    }
+
+    const nextRemaining = nextMinutes * 60;
+    setSleepTimerEndsAt(Date.now() + nextRemaining * 1000);
+    setSleepTimerRemaining(nextRemaining);
+  }, []);
+
+  useEffect(() => {
+    if (!sleepTimerEndsAt) return undefined;
+
+    const updateSleepTimer = () => {
+      const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
+      setSleepTimerRemaining(nextRemaining);
+      if (nextRemaining > 0) return;
+
+      setSleepTimerEndsAt(null);
+      stopPlayback();
+    };
+
+    updateSleepTimer();
+    const timerId = window.setInterval(updateSleepTimer, 1000);
+    return () => window.clearInterval(timerId);
+  }, [sleepTimerEndsAt, stopPlayback]);
+
+  useEffect(() => {
+    if (!currentMedia && sleepTimerEndsAt) {
+      setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
+    }
+  }, [currentMedia, sleepTimerEndsAt]);
 
   const addToQueue = useCallback((mediaItemOrId) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
@@ -1118,6 +1158,7 @@ export function GlobalPlayerProvider({ children }) {
               position={position}
               queueOpen={queueOpen}
               shuffleEnabled={shuffleEnabled}
+              sleepTimerRemaining={sleepTimerRemaining}
               streamSrc={streamSrc}
               thumbSrc={thumbSrc}
               volume={volume}
@@ -1130,6 +1171,7 @@ export function GlobalPlayerProvider({ children }) {
               onToggleMute={toggleMute}
               onToggleShuffle={toggleShuffle}
               onToggle={togglePlayback}
+              onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
             />

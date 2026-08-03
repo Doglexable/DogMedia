@@ -2,7 +2,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons";
 import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
-import { PlayerModeControls, QueueButton, TransportControls, VolumeControl } from "./player-controls";
+import { PlayerModeControls, QueueButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
 import { TrackInfo } from "./track-info";
 import { getMediaFolderName, getMediaMeta } from "./player-utils";
 
@@ -10,7 +10,7 @@ export function PlayerBar({
   currentMedia, duration, hasNext, hasPrev, isImage, liked, loopMode, onAdvance,
   muted, onChangeVolume, onOpenFull, onOpenQueue, onSeek, onToggle, onToggleLike,
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
-  shuffleEnabled, streamSrc, thumbSrc, volume,
+  shuffleEnabled, sleepTimerRemaining, streamSrc, thumbSrc, volume, onSetSleepTimer,
 }) {
   const isAudio = currentMedia.mime_type?.startsWith("audio/");
   const artSrc = isImage ? streamSrc : thumbSrc;
@@ -70,6 +70,7 @@ export function PlayerBar({
           onToggleLoop={onToggleLoop}
           onToggleShuffle={onToggleShuffle}
         />
+        <SleepTimerControl remainingSeconds={sleepTimerRemaining} onSetSleepTimer={onSetSleepTimer} />
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
       </div>
     </section>

@@ -1,7 +1,9 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
+  faAlarmClock,
   faBackwardStep,
   faForwardStep,
+  faInfinity,
   faList,
   faPause,
   faPlay,
@@ -11,15 +13,22 @@ import {
   faVolumeHigh,
   faVolumeLow,
   faVolumeXmark,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { getLoopButtonTitle } from "./player-utils";
 
+const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
+
 function LoopIcon({ mode }) {
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="player-loop-icon">
       <FontAwesomeIcon icon={faRepeat} />
-      {mode === "queue" && <span className="text-[10px] font-black">Q</span>}
-      {mode === "media" && <span className="text-[10px] font-black">1</span>}
+      {mode === "queue" && (
+        <span className="player-loop-badge" aria-hidden="true">
+          <FontAwesomeIcon icon={faInfinity} />
+        </span>
+      )}
+      {mode === "media" && <span className="player-loop-badge" aria-hidden="true">1</span>}
     </span>
   );
 }
@@ -47,6 +56,59 @@ export function QueueButton({ active, onClick }) {
     <button type="button" className={`player-ghost-button ${active ? "text-[var(--primary)]" : "text-muted"}`} aria-label="Queue" aria-pressed={active} onClick={onClick} title="Queue">
       <FontAwesomeIcon icon={faList} />
     </button>
+  );
+}
+
+function formatSleepTimer(seconds) {
+  if (!seconds) return "Sleep timer";
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0
+    ? `${minutes}:${String(remainingSeconds).padStart(2, "0")}`
+    : `0:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer }) {
+  const active = remainingSeconds > 0;
+  const label = active ? `Sleep timer ${formatSleepTimer(remainingSeconds)} remaining` : "Sleep timer";
+
+  return (
+    <div className={active ? "player-sleep-control player-sleep-control--active" : "player-sleep-control"}>
+      <button
+        type="button"
+        className="player-ghost-button"
+        aria-label={label}
+        aria-pressed={active}
+        title={label}
+      >
+        <FontAwesomeIcon icon={faAlarmClock} />
+        {active && <span className="player-sleep-badge">{formatSleepTimer(remainingSeconds)}</span>}
+      </button>
+      <div className="player-sleep-popover" aria-label="Sleep timer options">
+        <div className="player-sleep-presets">
+          {SLEEP_TIMER_PRESETS.map((minutes) => (
+            <button
+              type="button"
+              key={minutes}
+              className="player-sleep-preset"
+              onClick={() => onSetSleepTimer(minutes)}
+            >
+              {minutes}m
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="player-sleep-clear"
+          onClick={() => onSetSleepTimer(0)}
+          disabled={!active}
+          title="Clear sleep timer"
+          aria-label="Clear sleep timer"
+        >
+          <FontAwesomeIcon icon={faXmark} />
+        </button>
+      </div>
+    </div>
   );
 }
 
