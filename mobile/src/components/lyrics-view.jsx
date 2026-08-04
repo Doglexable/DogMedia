@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../api";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 import { findActiveLyricsIndex } from "../utils/lyrics";
 
-export function LyricsView({ mediaId, position, onSeek }) {
+export function LyricsView({ contentContainerStyle, mediaId, onSeek, position, scrollComponent: ScrollComponent = ScrollView, style }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lyrics, setLyrics] = useState(null);
   const scrollRef = useRef(null);
 
@@ -32,14 +34,19 @@ export function LyricsView({ mediaId, position, onSeek }) {
 
   if (!lyrics?.segments?.length) {
     return (
-      <View style={styles.empty}>
+      <View style={[styles.empty, style]}>
         <Text style={styles.emptyText}>Lyrics will appear here when available.</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView ref={scrollRef} style={styles.shell} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollComponent
+      ref={scrollRef}
+      style={[styles.shell, style]}
+      contentContainerStyle={[styles.content, contentContainerStyle]}
+      showsVerticalScrollIndicator={false}
+    >
       {lyrics.segments.map((segment, index) => {
         const active = index === activeIndex;
         const distance = Math.abs(index - displayIndex);
@@ -49,14 +56,14 @@ export function LyricsView({ mediaId, position, onSeek }) {
           </Pressable>
         );
       })}
-    </ScrollView>
+    </ScrollComponent>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   shell: {
     flex: 1,
-    minHeight: 260,
+    minHeight: 0,
   },
   content: {
     paddingVertical: 150,

@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import { colors, spacing } from "../theme";
+import { alpha, spacing, useTheme } from "../theme";
 
 export function PlayerIconButton({
   accessibilityLabel,
@@ -13,6 +14,9 @@ export function PlayerIconButton({
   stopPropagation = false,
   style,
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   const handlePress = (event) => {
     if (stopPropagation) event.stopPropagation();
     onPress?.(event);
@@ -43,6 +47,9 @@ export function PlayerTransportControls({
   transportButtonStyle,
   transportIconSize = 22,
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={[styles.transportControls, style]}>
       <PlayerIconButton
@@ -76,7 +83,7 @@ export function PlayerTransportControls({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   iconButton: {
     width: 42,
     height: 42,
@@ -86,7 +93,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
   },
   iconButtonActive: {
-    backgroundColor: "rgba(109,141,255,0.18)",
+    backgroundColor: alpha(colors.primary, 0.18),
   },
   disabled: {
     opacity: 0.28,

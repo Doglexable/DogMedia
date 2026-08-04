@@ -1,8 +1,12 @@
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { API_BASE } from "../api";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 
 export function AccessDeniedScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={styles.screen}>
       <Text style={styles.title}>Access denied</Text>
@@ -12,7 +16,7 @@ export function AccessDeniedScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
     justifyContent: "center",

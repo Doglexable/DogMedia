@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson, mediaThumbnailUrl } from "../api";
@@ -6,7 +7,7 @@ import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
 import { MiniPlayer } from "../components/mini-player";
 import { usePlayer } from "../context/player-context";
-import { colors, radii, shadow, spacing } from "../theme";
+import { radii, shadow, spacing, useTheme } from "../theme";
 import { getArtistLabel } from "../utils/media";
 
 function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
@@ -31,24 +32,31 @@ function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
   return ordered;
 }
 
-function Featured({ item, onPlay }) {
+function Featured({ colors, item, onPlay, styles }) {
   if (!item) return null;
   const description = item.description?.trim();
 
   return (
-    <Pressable style={styles.featured} onPress={() => onPlay(item)}>
+    <Pressable
+      accessibilityLabel="Play featured media"
+      accessibilityRole="button"
+      style={styles.featured}
+      onPress={() => onPlay(item)}
+    >
       <View style={styles.featuredCopy}>
         <Text style={styles.featuredLabel}>Featured</Text>
         <Text style={styles.featuredTitle} numberOfLines={3}>{item.title}</Text>
         {description && <Text style={styles.featuredDescription} numberOfLines={3}>{description}</Text>}
-        <Text style={styles.featuredAction}>Play</Text>
+        <View style={styles.featuredAction}>
+          <Ionicons name="play" size={20} color={colors.white} />
+        </View>
       </View>
       <Image source={{ uri: mediaThumbnailUrl(item.id) }} style={styles.featuredImage} />
     </Pressable>
   );
 }
 
-function Row({ items, likedIds, onPlay, onQueue, onToggleLike, title }) {
+function Row({ items, likedIds, onPlay, onPlayNext, onQueue, onToggleLike, styles, title }) {
   if (!items.length) return null;
   return (
     <View style={styles.rowSection}>
@@ -61,6 +69,7 @@ function Row({ items, likedIds, onPlay, onQueue, onToggleLike, title }) {
             item={item}
             liked={likedIds.has(Number(item.id))}
             onPress={onPlay}
+            onPlayNext={onPlayNext}
             onQueue={onQueue}
             onToggleLike={onToggleLike}
           />
@@ -72,7 +81,9 @@ function Row({ items, likedIds, onPlay, onQueue, onToggleLike, title }) {
 
 export function DashboardScreen({ navigation }) {
   const player = usePlayer();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [categories, setCategories] = useState([]);
   const [media, setMedia] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -166,7 +177,7 @@ export function DashboardScreen({ navigation }) {
         <CategoryChips categories={categories} selectedId={selectedCategory} onSelect={setSelectedCategory} />
         {notice && <Text style={styles.notice}>{notice}</Text>}
 
-        <Featured item={featured} onPlay={play} />
+        <Featured colors={colors} item={featured} onPlay={play} styles={styles} />
 
         <View style={styles.quickHeader}>
           <Text style={styles.sectionTitle}>Quick access</Text>
@@ -180,6 +191,7 @@ export function DashboardScreen({ navigation }) {
               item={item}
               liked={player.isLiked(item.id)}
               onPress={play}
+              onPlayNext={player.playNext}
               onQueue={player.addToQueue}
               onToggleLike={toggleLike}
             />
@@ -193,8 +205,10 @@ export function DashboardScreen({ navigation }) {
             items={row.items}
             likedIds={player.likedIds}
             onPlay={play}
+            onPlayNext={player.playNext}
             onQueue={player.addToQueue}
             onToggleLike={toggleLike}
+            styles={styles}
           />
         ))}
       </ScrollView>
@@ -203,7 +217,7 @@ export function DashboardScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -282,15 +296,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   featuredAction: {
+    width: 42,
+    height: 42,
     alignSelf: "flex-start",
+    alignItems: "center",
+    justifyContent: "center",
     marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
     overflow: "hidden",
-    borderRadius: radii.sm,
+    borderRadius: 21,
     backgroundColor: colors.primary,
-    color: colors.white,
-    fontWeight: "900",
   },
   featuredImage: {
     width: 118,

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "../api";
 import { MediaCard } from "../components/media-card";
 import { MiniPlayer } from "../components/mini-player";
 import { usePlayer } from "../context/player-context";
-import { colors, spacing } from "../theme";
+import { spacing, useTheme } from "../theme";
 
 export function FavoritesScreen({ navigation }) {
   const player = usePlayer();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [items, setItems] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -46,6 +48,7 @@ export function FavoritesScreen({ navigation }) {
             item={item}
             liked={player.isLiked(item.id)}
             onPress={play}
+            onPlayNext={player.playNext}
             onQueue={player.addToQueue}
             onToggleLike={(media) => player.toggleLike(media).then(load)}
           />
@@ -56,7 +59,7 @@ export function FavoritesScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,

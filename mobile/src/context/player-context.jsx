@@ -38,6 +38,18 @@ export function PlayerProvider({ children }) {
     sound.remove();
   }, []);
 
+  const stopCurrentPlayback = useCallback(async () => {
+    const sound = soundRef.current;
+    if (sound?.pause) {
+      try {
+        sound.pause();
+      } catch {
+        // The player is being replaced; removal below is the important cleanup.
+      }
+    }
+    await unloadSound();
+  }, [unloadSound]);
+
   const refreshLikes = useCallback(() => {
     return apiJson("/api/likes")
       .then((items) => setLikedIds(new Set(items.map((item) => Number(item.id)))))
@@ -55,9 +67,7 @@ export function PlayerProvider({ children }) {
   }, [currentMedia?.id]);
 
   const refreshQueue = useCallback(() => {
-    return apiJson("/api/queue")
-      .then((data) => applyQueue(data))
-      .catch(() => {});
+    return apiJson("/api/queue").then((data) => applyQueue(data));
   }, [applyQueue]);
 
   useEffect(() => {
@@ -67,7 +77,7 @@ export function PlayerProvider({ children }) {
       shouldRouteThroughEarpiece: false,
     }).catch(() => {});
     refreshLikes();
-    refreshQueue();
+    refreshQueue().catch(() => {});
 
     return () => {
       unloadSound();
@@ -75,7 +85,6 @@ export function PlayerProvider({ children }) {
   }, [refreshLikes, refreshQueue, unloadSound]);
 
   const loadAudio = useCallback(async (media, autoplay = true) => {
-    await unloadSound();
     const sound = createAudioPlayer({ uri: mediaStreamUrl(media.id) }, { updateInterval: 500 });
     sound.volume = muted ? 0 : volume;
     sound.loop = loopMode === "media";
@@ -87,21 +96,26 @@ export function PlayerProvider({ children }) {
       setPaused(!status.playing);
     });
     if (autoplay) sound.play();
-  }, [loopMode, muted, unloadSound, volume]);
+  }, [loopMode, muted, volume]);
 
-  const playMedia = useCallback(async (media, categoryId = null) => {
+  const startMedia = useCallback(async (media, autoplay = true) => {
     if (!media) return;
+    await stopCurrentPlayback();
     setCurrentMedia(media);
     setPosition(0);
     setDuration(media.duration || 0);
-    setPaused(false);
+    setPaused(!autoplay);
 
     if (getMediaKind(media.mime_type) === "audio") {
-      await loadAudio(media, true);
+      await loadAudio(media, autoplay);
     } else {
-      await unloadSound();
       setPaused(true);
     }
+  }, [loadAudio, stopCurrentPlayback]);
+
+  const playMedia = useCallback(async (media, categoryId = null) => {
+    if (!media) return;
+    await startMedia(media, true);
 
     const endpoint = categoryId
       ? `/api/queue/auto/${categoryId}?start=${media.id}`
@@ -110,14 +124,24 @@ export function PlayerProvider({ children }) {
       .then((response) => response.json())
       .then((data) => applyQueue(data, media.id))
       .catch(() => {});
-  }, [applyQueue, loadAudio, unloadSound]);
+  }, [applyQueue, startMedia]);
+
+  const selectQueueItem = useCallback((media) => {
+    return apiJson("/api/queue/select", {
+      method: "POST",
+      body: JSON.stringify({ mediaId: Number(media.id) }),
+    }).then(async (data) => {
+      applyQueue(data, media.id);
+      await startMedia(media, true);
+      return data;
+    });
+  }, [applyQueue, startMedia]);
 
   const playQueueIndex = useCallback(async (index) => {
     const item = queueItems[index];
     if (!item) return;
-    setQueueIndex(index);
-    await playMedia(item);
-  }, [playMedia, queueItems]);
+    await selectQueueItem(item);
+  }, [queueItems, selectQueueItem]);
 
   const advance = useCallback(async (direction) => {
     const delta = direction === "prev" ? -1 : 1;
@@ -164,11 +188,34 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const addToQueue = useCallback((media) => {
-    return apiJson(`/api/queue/items/${media.id}`, { method: "POST" }).then((data) => applyQueue(data, currentMedia?.id));
+    return apiJson("/api/queue/items", {
+      method: "POST",
+      body: JSON.stringify({ mediaId: media.id }),
+    }).then((data) => applyQueue(data, currentMedia?.id));
   }, [applyQueue, currentMedia?.id]);
 
   const playNext = useCallback((media) => {
-    return apiJson(`/api/queue/next/${media.id}`, { method: "POST" }).then((data) => applyQueue(data, currentMedia?.id));
+    return apiJson("/api/queue/items/next", {
+      method: "POST",
+      body: JSON.stringify({ mediaId: media.id }),
+    }).then((data) => applyQueue(data, currentMedia?.id));
+  }, [applyQueue, currentMedia?.id]);
+
+  const removeFromQueue = useCallback((mediaId) => {
+    return apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
+      .then((data) => applyQueue(data, currentMedia?.id));
+  }, [applyQueue, currentMedia?.id]);
+
+  const clearQueue = useCallback(() => {
+    return apiJson("/api/queue", { method: "DELETE" })
+      .then((data) => applyQueue(data, null));
+  }, [applyQueue]);
+
+  const reorderQueue = useCallback((mediaIds) => {
+    return apiJson("/api/queue/order", {
+      method: "PUT",
+      body: JSON.stringify({ mediaIds: mediaIds.map(Number) }),
+    }).then((data) => applyQueue(data, currentMedia?.id));
   }, [applyQueue, currentMedia?.id]);
 
   const toggleLike = useCallback((media) => {
@@ -188,6 +235,7 @@ export function PlayerProvider({ children }) {
     addToQueue,
     advance,
     changeVolume,
+    clearQueue,
     currentKind,
     currentMedia,
     duration,
@@ -201,10 +249,15 @@ export function PlayerProvider({ children }) {
     playMedia,
     playNext,
     position,
+    queueIndex,
     queueItems,
     queueIds,
+    refreshQueue,
+    removeFromQueue,
+    reorderQueue,
     refreshLikes,
     seek,
+    selectQueueItem,
     setShuffleEnabled,
     shuffleEnabled,
     toggleLike,
@@ -213,9 +266,10 @@ export function PlayerProvider({ children }) {
     togglePlayback,
     volume,
   }), [
-    addToQueue, advance, changeVolume, currentKind, currentMedia, duration, hasNext, hasPrev,
-    likedIds, loopMode, muted, paused, playMedia, playNext, position, queueItems, queueIds,
-    refreshLikes, seek, shuffleEnabled, toggleLike, toggleLoop, toggleMute, togglePlayback, volume,
+    addToQueue, advance, changeVolume, clearQueue, currentKind, currentMedia, duration, hasNext, hasPrev,
+    likedIds, loopMode, muted, paused, playMedia, playNext, position, queueIndex, queueItems, queueIds,
+    refreshLikes, refreshQueue, removeFromQueue, reorderQueue, seek, selectQueueItem, shuffleEnabled,
+    toggleLike, toggleLoop, toggleMute, togglePlayback, volume,
   ]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

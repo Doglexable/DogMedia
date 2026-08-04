@@ -1,10 +1,12 @@
-import { NavigationContainer, DarkTheme } from "@react-navigation/native";
+import { NavigationContainer, DarkTheme, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { StatusBar } from "expo-status-bar";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
 import { PlayerProvider } from "./context/player-context";
@@ -13,7 +15,7 @@ import { DashboardScreen } from "./screens/dashboard-screen";
 import { FavoritesScreen } from "./screens/favorites-screen";
 import { PlayerScreen } from "./screens/player-screen";
 import { WrappedScreen } from "./screens/wrapped-screen";
-import { colors } from "./theme";
+import { ThemeProvider, ThemeToggle, useTheme } from "./theme";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -28,6 +30,9 @@ export function useAccess() {
 }
 
 function LoadingScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={styles.loading}>
       <ActivityIndicator color={colors.primary} size="large" />
@@ -62,10 +67,12 @@ function AccessGuard({ children }) {
 }
 
 function Tabs() {
+  const { colors, mode, toggleMode } = useTheme();
   const insets = useSafeAreaInsets();
   const [wrappedAvailable, setWrappedAvailable] = useState(true);
   const [currentTab, setCurrentTab] = useState("Home");
   const showWrapped = wrappedAvailable || currentTab === "Wrapped";
+  const themeIcon = mode === "light" ? "sunny" : mode === "dark" ? "moon" : "contrast";
 
   const loadWrappedAccess = useCallback(() => {
     return apiJson("/api/wrapped/access")
@@ -127,27 +134,44 @@ function Tabs() {
           {(props) => <WrappedScreen {...props} onAccessChanged={loadWrappedAccess} />}
         </Tab.Screen>
       )}
+      <Tab.Screen
+        name="Theme"
+        component={ThemeToggle}
+        listeners={{
+          tabPress: (event) => {
+            event.preventDefault();
+            toggleMode();
+          },
+        }}
+        options={{
+          tabBarIcon: (props) => <TabIcon {...props} name={themeIcon} outlineName={themeIcon} />,
+        }}
+      />
     </Tab.Navigator>
   );
 }
 
-const navigationTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: colors.bg,
-    card: colors.surface,
-    text: colors.text,
-    primary: colors.primary,
-    border: "transparent",
-  },
-};
+function AppShell() {
+  const { colors, resolvedMode } = useTheme();
+  const navigationTheme = useMemo(() => {
+    const baseTheme = resolvedMode === "dark" ? DarkTheme : DefaultTheme;
+    return {
+      ...baseTheme,
+      colors: {
+        ...baseTheme.colors,
+        background: colors.bg,
+        card: colors.surface,
+        text: colors.text,
+        primary: colors.primary,
+        border: "transparent",
+      },
+    };
+  }, [colors, resolvedMode]);
 
-export default function App() {
   return (
-    <SafeAreaProvider>
-      <NavigationContainer theme={navigationTheme}>
-        <StatusBar style="light" />
+    <NavigationContainer theme={navigationTheme}>
+      <StatusBar style={resolvedMode === "dark" ? "light" : "dark"} />
+      <BottomSheetModalProvider>
         <AccessGuard>
           <PlayerProvider>
             <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -156,12 +180,24 @@ export default function App() {
             </Stack.Navigator>
           </PlayerProvider>
         </AccessGuard>
-      </NavigationContainer>
-    </SafeAreaProvider>
+      </BottomSheetModalProvider>
+    </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
+export default function App() {
+  return (
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AppShell />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const makeStyles = (colors) => StyleSheet.create({
   loading: {
     flex: 1,
     alignItems: "center",
@@ -174,5 +210,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     textTransform: "uppercase",
+  },
+});
+
+const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
   },
 });

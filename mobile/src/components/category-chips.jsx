@@ -1,7 +1,11 @@
+import { useMemo } from "react";
 import { ScrollView, Pressable, StyleSheet, Text } from "react-native";
-import { colors, radii, spacing } from "../theme";
+import { radii, spacing, useTheme } from "../theme";
 
 export function CategoryChips({ categories, selectedId, onSelect }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
       <Pressable style={[styles.chip, !selectedId && styles.active]} onPress={() => onSelect(null)}>
@@ -19,7 +23,7 @@ export function CategoryChips({ categories, selectedId, onSelect }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   row: {
     gap: spacing.sm,
     paddingRight: spacing.lg,

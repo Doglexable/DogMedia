@@ -1,14 +1,17 @@
+import { useMemo } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mediaThumbnailUrl } from "../api";
-import { colors, radii, shadow, spacing } from "../theme";
+import { radii, shadow, spacing, useTheme } from "../theme";
 import { formatDuration, getArtistLabel } from "../utils/media";
 import { usePlayer } from "../context/player-context";
 import { PlayerTransportControls } from "./player-controls";
 
 export function MiniPlayer({ navigation }) {
   const player = usePlayer();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const media = player?.currentMedia;
   if (!media) return null;
 
@@ -34,7 +37,7 @@ export function MiniPlayer({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   bar: {
     position: "absolute",
     left: spacing.lg,
@@ -44,7 +47,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.sm,
     borderRadius: radii.lg,
-    backgroundColor: "rgba(25,25,34,0.96)",
+    backgroundColor: colors.card,
     ...shadow.soft,
   },
   cover: {
@@ -78,7 +81,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    backgroundColor: colors.cardSoft,
   },
   play: {
     width: 42,

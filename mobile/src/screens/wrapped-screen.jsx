@@ -2,10 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../api";
-import { colors, radii, shadow, spacing } from "../theme";
+import { alpha, radii, shadow, spacing, useTheme } from "../theme";
 
 const DAY_MS = 86400000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function useWrappedTheme() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return { colors, styles };
+}
 
 function formatDate(value) {
   if (!value) return "";
@@ -93,6 +99,7 @@ function getBusiestWeekday(timeline) {
 }
 
 function Metric({ label, value }) {
+  const { styles } = useWrappedTheme();
   return (
     <View style={styles.metric}>
       <Text style={styles.metricLabel}>{label}</Text>
@@ -102,6 +109,7 @@ function Metric({ label, value }) {
 }
 
 function SummaryItem({ label, value }) {
+  const { styles } = useWrappedTheme();
   return (
     <View style={styles.summaryItem}>
       <Text style={styles.summaryLabel}>{label}</Text>
@@ -111,6 +119,7 @@ function SummaryItem({ label, value }) {
 }
 
 function SectionHeading({ detail, title, value }) {
+  const { styles } = useWrappedTheme();
   return (
     <View style={styles.sectionHeading}>
       <View style={styles.sectionCopy}>
@@ -123,6 +132,7 @@ function SectionHeading({ detail, title, value }) {
 }
 
 function EmptyState({ copy, title }) {
+  const { styles } = useWrappedTheme();
   return (
     <View style={styles.emptyState}>
       <View style={styles.emptyMark} />
@@ -133,6 +143,7 @@ function EmptyState({ copy, title }) {
 }
 
 function LoadingState() {
+  const { styles } = useWrappedTheme();
   return (
     <>
       <View style={styles.skeletonHero} />
@@ -145,6 +156,7 @@ function LoadingState() {
 }
 
 function DailyPulse({ maxDayTime, timeline }) {
+  const { styles } = useWrappedTheme();
   return (
     <View accessibilityLabel="Daily playback time" style={styles.pulse}>
       {timeline.map((day) => {
@@ -160,6 +172,7 @@ function DailyPulse({ maxDayTime, timeline }) {
 }
 
 function ActivityHeatmap({ maxDayTime, timeline }) {
+  const { styles } = useWrappedTheme();
   const cells = buildHeatmapCells(timeline, maxDayTime);
 
   return (
@@ -191,6 +204,7 @@ function ActivityHeatmap({ maxDayTime, timeline }) {
 }
 
 function ActivityFeed({ days, maxDayTime }) {
+  const { styles } = useWrappedTheme();
   if (days.length === 0) {
     return <Text style={styles.emptyNote}>Activity will appear after playback events are recorded.</Text>;
   }
@@ -220,6 +234,7 @@ function ActivityFeed({ days, maxDayTime }) {
 }
 
 function TopMediaList({ maxMediaTime, media }) {
+  const { styles } = useWrappedTheme();
   if (media.length === 0) {
     return <Text style={styles.emptyNote}>Top media will appear after playback events are recorded.</Text>;
   }
@@ -246,6 +261,7 @@ function TopMediaList({ maxMediaTime, media }) {
 }
 
 export function WrappedScreen({ onAccessChanged }) {
+  const { colors, styles } = useWrappedTheme();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState(null);
   const [locked, setLocked] = useState(null);
@@ -415,7 +431,7 @@ export function WrappedScreen({ onAccessChanged }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -491,7 +507,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radii.sm,
     overflow: "hidden",
-    backgroundColor: "rgba(109,141,255,0.18)",
+    backgroundColor: alpha(colors.primary, 0.18),
     color: colors.primary,
     fontSize: 11,
     fontWeight: "900",
@@ -594,13 +610,13 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
   heatmapLevel1: {
-    backgroundColor: "rgba(109,141,255,0.25)",
+    backgroundColor: alpha(colors.primary, 0.25),
   },
   heatmapLevel2: {
-    backgroundColor: "rgba(109,141,255,0.45)",
+    backgroundColor: alpha(colors.primary, 0.45),
   },
   heatmapLevel3: {
-    backgroundColor: "rgba(109,141,255,0.68)",
+    backgroundColor: alpha(colors.primary, 0.68),
   },
   heatmapLevel4: {
     backgroundColor: colors.primary,
@@ -741,7 +757,7 @@ const styles = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "rgba(109,141,255,0.22)",
+    backgroundColor: alpha(colors.primary, 0.22),
   },
   emptyTitle: {
     color: colors.text,

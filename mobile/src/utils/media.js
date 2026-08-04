@@ -6,9 +6,10 @@ export function formatDuration(seconds) {
 }
 
 export function getMediaKind(mime = "") {
-  if (mime.startsWith("audio/")) return "audio";
-  if (mime.startsWith("video/")) return "video";
-  if (mime.startsWith("image/")) return "image";
+  const value = typeof mime === "string" ? mime : "";
+  if (value.startsWith("audio/")) return "audio";
+  if (value.startsWith("video/")) return "video";
+  if (value.startsWith("image/")) return "image";
   return "file";
 }
 
