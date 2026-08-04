@@ -87,9 +87,11 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const tier = access?.tier ?? 0;
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [wrappedAvailable, setWrappedAvailable] = useState(true);
   const params = new URLSearchParams(location.search);
   const selectedCategory = params.get("category");
   const liked = location.pathname === "/" && params.get("view") === "liked";
+  const showWrapped = wrappedAvailable || location.pathname === "/wrapped";
   const close = () => setOpen(false);
   const closeCategories = () => setCategoriesOpen(false);
   const mediaCategories = categories.filter((category) => Number(category.media_count) > 0);
@@ -99,6 +101,22 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
     setOpen(false);
     setCategoriesOpen(false);
   }, [location.pathname, location.search]);
+
+  const loadWrappedAccess = useCallback(() => {
+    return api("/api/wrapped/access")
+      .then((response) => {
+        if (!response.ok) throw new Error("Wrapped access request failed");
+        return response.json();
+      })
+      .then((status) => setWrappedAvailable(status?.available !== false))
+      .catch(() => setWrappedAvailable(true));
+  }, []);
+
+  useEffect(() => {
+    loadWrappedAccess();
+    window.addEventListener("wrapped-access-changed", loadWrappedAccess);
+    return () => window.removeEventListener("wrapped-access-changed", loadWrappedAccess);
+  }, [loadWrappedAccess]);
 
   return (
     <>
@@ -146,7 +164,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         <nav className="global-sidebar-nav" aria-label="Main navigation">
           <SidebarLink to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory} onClick={close}>All media</SidebarLink>
           <SidebarLink to="/?view=liked" icon={faBookmark} active={liked} onClick={close}>Favorites</SidebarLink>
-          <SidebarLink to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"} onClick={close}>Wrapped</SidebarLink>
+          {showWrapped && <SidebarLink to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"} onClick={close}>Wrapped</SidebarLink>}
           {tier >= 100 && <SidebarLink to="/admin" icon={faGear} active={location.pathname === "/admin"} onClick={close}>Admin</SidebarLink>}
         </nav>
 
@@ -185,7 +203,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
       <nav className="mobile-nav-bar" aria-label="Mobile navigation">
         <BottomNavTab to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory}>Home</BottomNavTab>
         <BottomNavTab to="/?view=liked" icon={faBookmark} active={liked}>Favorites</BottomNavTab>
-        <BottomNavTab to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"}>Wrapped</BottomNavTab>
+        {showWrapped && <BottomNavTab to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"}>Wrapped</BottomNavTab>}
 
         {/* Categories sheet trigger */}
         <BottomNavTab
@@ -250,8 +268,10 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 }
 
 export function LibraryShell({ access, children }) {
+  const location = useLocation();
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const isFullPlayerRoute = /^\/media\/[^/]+$/.test(location.pathname);
 
   const loadCategories = useCallback(() => {
     setCategoriesLoading(true);
@@ -268,8 +288,8 @@ export function LibraryShell({ access, children }) {
 
   return (
     <LibraryContext.Provider value={{ categories, categoriesLoading, refreshCategories: loadCategories }}>
-      <div className="global-app-shell">
-        <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />
+      <div className={isFullPlayerRoute ? "global-app-shell global-app-shell--fullscreen-player" : "global-app-shell"}>
+        {!isFullPlayerRoute && <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />}
         <div className="global-app-content">{children}</div>
       </div>
     </LibraryContext.Provider>

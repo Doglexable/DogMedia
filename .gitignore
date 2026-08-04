@@ -37,7 +37,8 @@ logs/
 Thumbs.db
 
 # Local planning and agent context
-PLAN.md
+*PLAN*.*
+*CONTEXT*.*
 AGENTS.md
 .codex/
 .agents/

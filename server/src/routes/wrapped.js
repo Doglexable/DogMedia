@@ -43,6 +43,39 @@ function subDays(date, days) {
   return result;
 }
 
+function mapWrappedAccessLock(row) {
+  return {
+    allowed: row.allowed,
+    lastOpenedAt: row.last_opened_at,
+    nextOpenAt: row.next_open_at,
+  };
+}
+
+function getRetryAfterSeconds(nextOpenAt, now = new Date()) {
+  const nextOpen = new Date(nextOpenAt);
+  if (Number.isNaN(nextOpen.getTime())) return 0;
+  return Math.max(Math.ceil((nextOpen.getTime() - now.getTime()) / 1000), 0);
+}
+
+function mapWrappedAccessStatus(row) {
+  if (!row) {
+    return {
+      available: true,
+      lastOpenedAt: null,
+      nextOpenAt: null,
+      retryAfterSeconds: 0,
+    };
+  }
+
+  const retryAfterSeconds = row.available ? 0 : normalizeNonNegativeInt(row.retry_after_seconds);
+  return {
+    available: row.available,
+    lastOpenedAt: row.last_opened_at,
+    nextOpenAt: row.next_open_at,
+    retryAfterSeconds,
+  };
+}
+
 function mapReport(row) {
   return {
     id: row.id,
@@ -161,6 +194,47 @@ async function withTransaction(fastify, fn) {
   }
 }
 
+export async function acquireWrappedAccessLock(client, clientIp) {
+  const { rows } = await client.query(
+    `WITH upsert AS (
+       INSERT INTO wrapped_access_locks
+         (client_ip, last_opened_at, next_open_at, updated_at)
+       VALUES ($1::inet, NOW(), NOW() + INTERVAL '30 days', NOW())
+       ON CONFLICT (client_ip) DO UPDATE
+       SET last_opened_at = NOW(),
+           next_open_at = NOW() + INTERVAL '30 days',
+           updated_at = NOW()
+       WHERE wrapped_access_locks.next_open_at <= NOW()
+       RETURNING TRUE AS allowed, last_opened_at, next_open_at
+     )
+     SELECT allowed, last_opened_at, next_open_at FROM upsert
+     UNION ALL
+     SELECT FALSE AS allowed, last_opened_at, next_open_at
+     FROM wrapped_access_locks
+     WHERE client_ip = $1::inet
+       AND NOT EXISTS (SELECT 1 FROM upsert)
+     LIMIT 1`,
+    [clientIp]
+  );
+
+  return rows[0] ? mapWrappedAccessLock(rows[0]) : null;
+}
+
+export async function getWrappedAccessStatus(client, clientIp) {
+  const { rows } = await client.query(
+    `SELECT
+       last_opened_at,
+       next_open_at,
+       next_open_at <= NOW() AS available,
+       GREATEST(CEIL(EXTRACT(EPOCH FROM (next_open_at - NOW()))), 0)::int AS retry_after_seconds
+     FROM wrapped_access_locks
+     WHERE client_ip = $1::inet`,
+    [clientIp]
+  );
+
+  return mapWrappedAccessStatus(rows[0]);
+}
+
 async function getCurrentIpWrapped(fastify, request, from, to) {
   const clientIp = request.clientIp || request.ip;
   const params = [from.toISOString(), to.toISOString(), clientIp];
@@ -229,12 +303,40 @@ async function getCurrentIpWrapped(fastify, request, from, to) {
 }
 
 export default async function (fastify) {
-  fastify.get("/current", async (request) => {
+  fastify.get("/access", async (request) => {
+    return getWrappedAccessStatus(fastify.pg, request.clientIp || request.ip);
+  });
+
+  fastify.get("/current", async (request, reply) => {
     const now = new Date();
     const from = normalizeDateTime(request.query.from, subDays(now, 30));
     const to = normalizeDateTime(request.query.to, now);
 
-    return getCurrentIpWrapped(fastify, request, from, to);
+    const clientIp = request.clientIp || request.ip;
+    const access = await acquireWrappedAccessLock(fastify.pg, clientIp);
+
+    if (!access?.allowed) {
+      const retryAfterSeconds = getRetryAfterSeconds(access?.nextOpenAt, now);
+      return reply
+        .code(429)
+        .header("Retry-After", String(retryAfterSeconds))
+        .send({
+          error: "Wrapped is locked",
+          code: "WRAPPED_LOCKED",
+          lastOpenedAt: access?.lastOpenedAt || null,
+          nextOpenAt: access?.nextOpenAt || null,
+          retryAfterSeconds,
+        });
+    }
+
+    const wrapped = await getCurrentIpWrapped(fastify, request, from, to);
+    return {
+      ...wrapped,
+      access: {
+        lastOpenedAt: access.lastOpenedAt,
+        nextOpenAt: access.nextOpenAt,
+      },
+    };
   });
 
   fastify.get("/", async (request, reply) => {

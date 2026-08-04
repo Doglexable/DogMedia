@@ -6,10 +6,8 @@ export function findActiveLyricsIndex(segments, position) {
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
 }
 
-export function LyricsPanel({ mediaId, onSeek, position }) {
+function useSynchronizedLyrics(mediaId) {
   const [lyrics, setLyrics] = useState(null);
-  const listRef = useRef(null);
-  const lineRefs = useRef([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -28,6 +26,14 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
 
     return () => controller.abort();
   }, [mediaId]);
+
+  return lyrics;
+}
+
+export function LyricsPanel({ mediaId, onSeek, position }) {
+  const lyrics = useSynchronizedLyrics(mediaId);
+  const listRef = useRef(null);
+  const lineRefs = useRef([]);
 
   const activeIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
@@ -69,3 +75,55 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
   );
 }
 
+export function FullscreenLyrics({ mediaId, onSeek, position }) {
+  const lyrics = useSynchronizedLyrics(mediaId);
+  const listRef = useRef(null);
+  const lineRefs = useRef([]);
+
+  const activeIndex = useMemo(
+    () => findActiveLyricsIndex(lyrics?.segments, position),
+    [lyrics?.segments, position]
+  );
+  const displayActiveIndex = activeIndex >= 0 ? activeIndex : 0;
+
+  useEffect(() => {
+    const list = listRef.current;
+    const activeLine = lineRefs.current[displayActiveIndex];
+    if (!list || !activeLine) return;
+
+    const top = activeLine.offsetTop - list.clientHeight / 2 + activeLine.offsetHeight / 2;
+    list.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, [displayActiveIndex]);
+
+  if (!lyrics?.segments?.length) {
+    return (
+      <section className="fullscreen-lyrics fullscreen-lyrics--empty" aria-label="Synchronized lyrics">
+        <p>Lyrics will appear here when they are available for this track.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
+      <div ref={listRef} className="fullscreen-lyrics-list">
+        {lyrics.segments.map((segment, index) => {
+          const distance = Math.max(Math.min(index - displayActiveIndex, 4), -4);
+          const active = index === activeIndex;
+          return (
+            <button
+              key={`${segment.start}-${index}`}
+              ref={(node) => { lineRefs.current[index] = node; }}
+              type="button"
+              className={active ? "fullscreen-lyrics-line fullscreen-lyrics-line--active" : "fullscreen-lyrics-line"}
+              style={{ "--lyric-distance": distance }}
+              aria-current={active ? "true" : undefined}
+              onClick={() => onSeek(segment.start)}
+            >
+              {segment.text}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

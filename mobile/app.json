@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "DogMedia",
+    "slug": "dogmedia-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "dogmedia",
+    "userInterfaceStyle": "automatic",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0b0f"
+      }
+    },
+    "extra": {
+      "apiUrlNote": "Set EXPO_PUBLIC_API_URL, e.g. http://10.0.2.2:3001 or http://<lan-ip>:3001"
+    }
+  }
+}

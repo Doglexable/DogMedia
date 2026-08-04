@@ -95,7 +95,7 @@ function MediaCover({ circular = false, item, size = "regular" }) {
   );
 }
 
-function MediaContextMenu({ item, menu, onAddQueue, onClose, onNotice, onPlayNext }) {
+function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, onPlayNext, onToggleLike }) {
   useEffect(() => {
     if (!menu) return undefined;
     const close = () => onClose();
@@ -124,6 +124,13 @@ function MediaContextMenu({ item, menu, onAddQueue, onClose, onNotice, onPlayNex
       ?.catch((error) => onNotice?.(error.message));
   };
 
+  const toggleFavorite = () => {
+    onClose();
+    onToggleLike?.(item)
+      ?.then((liked) => onNotice?.(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
+      ?.catch((error) => onNotice?.(error.message));
+  };
+
   return createPortal(
     <div
       role="menu"
@@ -143,6 +150,11 @@ function MediaContextMenu({ item, menu, onAddQueue, onClose, onNotice, onPlayNex
     >
       <button type="button" role="menuitem" onClick={playNext} style={styles.contextMenuItem}>Play next</button>
       <button type="button" role="menuitem" onClick={addToQueue} style={styles.contextMenuItem}>Add to queue</button>
+      {item.mime_type?.startsWith("audio/") && (
+        <button type="button" role="menuitem" onClick={toggleFavorite} style={styles.contextMenuItem}>
+          {isLiked ? "Remove from favorites" : "Add to favorites"}
+        </button>
+      )}
     </div>,
     document.body
   );
@@ -152,11 +164,11 @@ function openCardContextMenu(event, setMenu) {
   event.preventDefault();
   setMenu({
     x: Math.min(event.clientX, window.innerWidth - 180),
-    y: Math.min(event.clientY, window.innerHeight - 105),
+    y: Math.min(event.clientY, window.innerHeight - 145),
   });
 }
 
-function QuickAccessCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNext }) {
+function QuickAccessCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -175,12 +187,14 @@ function QuickAccessCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNex
         </span>
       </button>
       <MediaContextMenu
+        isLiked={isLiked}
         item={item}
         menu={menu}
         onAddQueue={onAddQueue}
         onClose={closeMenu}
         onNotice={onNotice}
         onPlayNext={onPlayNext}
+        onToggleLike={onToggleLike}
       />
     </>
   );
@@ -188,18 +202,13 @@ function QuickAccessCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNex
 
 function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
   if (!item) return null;
-  const meta = getMimeMeta(item.mime_type);
+  const description = item.description?.trim();
 
   return (
     <section className="library-featured">
       <div className="library-featured-copy">
         <h1>{item.title}</h1>
-        <p>{item.description || `${mediaCategory(item)} · ${item.duration ? formatDuration(item.duration) : "Ready to play"}`}</p>
-        <div className="library-featured-meta">
-          <span>{mediaCategory(item)}</span>
-          <span>{item.artists || meta.label}</span>
-          <span>{item.duration ? formatDuration(item.duration) : "No duration"}</span>
-        </div>
+        {description && <p>{description}</p>}
         <div className="library-featured-actions">
           <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
             <FontAwesomeIcon icon={faPlay} />
@@ -222,7 +231,7 @@ function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
   );
 }
 
-function RowCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNext, type }) {
+function RowCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike, type }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const meta = getMimeMeta(item.mime_type);
@@ -242,18 +251,20 @@ function RowCard({ active, item, onAddQueue, onNotice, onPlay, onPlayNext, type 
         </span>
       </button>
       <MediaContextMenu
+        isLiked={isLiked}
         item={item}
         menu={menu}
         onAddQueue={onAddQueue}
         onClose={closeMenu}
         onNotice={onNotice}
         onPlayNext={onPlayNext}
+        onToggleLike={onToggleLike}
       />
     </>
   );
 }
 
-function ContentRow({ activeId, items, onAddQueue, onNotice, onPlay, onPlayNext, title, type = "square" }) {
+function ContentRow({ activeId, isLiked, items, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike, title, type = "square" }) {
   if (items.length === 0) return null;
 
   return (
@@ -270,11 +281,13 @@ function ContentRow({ activeId, items, onAddQueue, onNotice, onPlay, onPlayNext,
           <RowCard
             key={`${title}-${item.id}`}
             active={Number(activeId) === Number(item.id)}
+            isLiked={isLiked?.(item.id) || false}
             item={item}
             onAddQueue={onAddQueue}
             onNotice={onNotice}
             onPlay={onPlay}
             onPlayNext={onPlayNext}
+            onToggleLike={onToggleLike}
             type={type}
           />
         ))}
@@ -1034,11 +1047,13 @@ export default function Dashboard() {
                 <QuickAccessCard
                   key={item.id}
                   active={Number(currentMediaId) === Number(item.id)}
+                  isLiked={player?.isLiked?.(item.id) || false}
                   item={item}
                   onAddQueue={player?.addToQueue}
                   onNotice={setNotice}
                   onPlay={playMedia}
                   onPlayNext={player?.playNext}
+                  onToggleLike={player?.toggleLike}
                 />
               ))}
             </section>
@@ -1054,11 +1069,13 @@ export default function Dashboard() {
               <ContentRow
                 key={row.title}
                 activeId={currentMediaId}
+                isLiked={player?.isLiked}
                 items={row.items}
                 onAddQueue={player?.addToQueue}
                 onNotice={setNotice}
                 onPlay={playMedia}
                 onPlayNext={player?.playNext}
+                onToggleLike={player?.toggleLike}
                 title={row.title}
                 type={row.type}
               />

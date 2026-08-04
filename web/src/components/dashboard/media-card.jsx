@@ -49,6 +49,13 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
       .catch((error) => onError(error.message));
   };
 
+  const toggleFavorite = () => {
+    setMenu(null);
+    onToggleLike(item)
+      .then((liked) => onError(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
+      .catch((error) => onError(error.message));
+  };
+
   return (
     <article
       className={`media-card${isActive ? " media-card--active" : ""}`}
@@ -60,7 +67,7 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
       onMouseLeave={() => setHovered(false)}
       onContextMenu={(event) => {
         event.preventDefault();
-        setMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 105) });
+        setMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 145) });
       }}
     >
       {!imgFailed && (
@@ -112,6 +119,11 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
         <div role="menu" onClick={(event) => event.stopPropagation()} style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 500, minWidth: 170, padding: 6, border: "1px solid var(--card-border)", borderRadius: 8, background: "var(--card-bg)", boxShadow: "0 12px 32px rgba(0,0,0,.25)" }}>
           <button type="button" role="menuitem" onClick={playNext} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Play next</button>
           <button type="button" role="menuitem" onClick={addToQueue} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Add to queue</button>
+          {item.mime_type?.startsWith("audio/") && (
+            <button type="button" role="menuitem" onClick={toggleFavorite} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>
+              {isLiked ? "Remove from favorites" : "Add to favorites"}
+            </button>
+          )}
         </div>,
         document.body
       )}

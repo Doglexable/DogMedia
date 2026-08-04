@@ -8,6 +8,7 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 export default function Wrapped() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [locked, setLocked] = useState(null);
 
   const period = useMemo(() => {
     const to = new Date();
@@ -22,12 +23,26 @@ export default function Wrapped() {
   }, []);
 
   useEffect(() => {
+    setData(null);
+    setError("");
+    setLocked(null);
     api(`/api/wrapped/current?from=${period.fromIso}&to=${period.toIso}`)
-      .then((r) => {
+      .then(async (r) => {
+        const payload = await r.json().catch(() => null);
+        if (r.status === 429 && payload?.code === "WRAPPED_LOCKED") {
+          setLocked(payload);
+          window.dispatchEvent(new Event("wrapped-access-changed"));
+          return null;
+        }
         if (!r.ok) throw new Error(`Wrapped request failed (${r.status})`);
-        return r.json();
+        return payload;
       })
-      .then(setData)
+      .then((payload) => {
+        if (payload) {
+          setData(payload);
+          window.dispatchEvent(new Event("wrapped-access-changed"));
+        }
+      })
       .catch(() => setError("Could not load wrapped data."));
   }, [period]);
 
@@ -54,6 +69,20 @@ export default function Wrapped() {
           <h1 className="text-xl font-bold">Wrapped unavailable</h1>
           <p className="mt-2 text-sm">{error}</p>
         </div>
+      </PageShell>
+    );
+  }
+
+  if (locked) {
+    return (
+      <PageShell>
+        <section className="wrapped-empty">
+          <div className="wrapped-empty-mark" aria-hidden="true" />
+          <h2>Wrapped locked</h2>
+          <p>
+            This playback report can only be opened once every 30 days. {formatUnlockMessage(locked)}
+          </p>
+        </section>
       </PageShell>
     );
   }
@@ -407,6 +436,20 @@ function formatDate(value) {
 function formatLongDate(value) {
   if (!value) return "";
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short" });
+}
+
+function formatUnlockMessage(locked) {
+  const nextOpenDate = formatLongDate(locked?.nextOpenAt);
+  if (!nextOpenDate) return "Check back later.";
+  if (!locked?.retryAfterSeconds) return `Come back ${nextOpenDate}.`;
+  return `Come back ${nextOpenDate}, in about ${formatDaysRemaining(locked.retryAfterSeconds)}.`;
+}
+
+function formatDaysRemaining(seconds) {
+  const days = Math.max(Math.ceil(((seconds || 0) * 1000) / DAY_MS), 0);
+  if (days <= 0) return "less than a day";
+  if (days === 1) return "1 day";
+  return `${days} days`;
 }
 
 function formatNumber(value) {

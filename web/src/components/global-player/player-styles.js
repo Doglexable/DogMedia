@@ -110,7 +110,7 @@ export const playerStyles = {
     transform: "translateX(-50%)", zIndex: 210,
   },
   queuePanel: {
-    position: "fixed", right: 12, bottom: "calc(var(--player-height) + 14px)", zIndex: 220,
+    position: "fixed", right: 12, bottom: "calc(var(--player-height) + 14px)", zIndex: 320,
     width: "min(420px, calc(100vw - 24px))",
     maxHeight: "min(520px, calc(100dvh - var(--player-height) - 40px))", display: "flex", flexDirection: "column",
     overflow: "hidden", border: "1px solid var(--card-border)", borderRadius: 8,

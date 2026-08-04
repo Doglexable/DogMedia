@@ -684,6 +684,10 @@ export function GlobalPlayerProvider({ children }) {
     navigate(`/media/${currentMedia.id}${categoryQuery(categoryId)}`);
   }, [categoryId, currentMedia, navigate]);
 
+  const closeFullPlayer = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
+
   const togglePlayback = useCallback(() => {
     if (isImage) {
       openFullPlayer();
@@ -1125,6 +1129,7 @@ export function GlobalPlayerProvider({ children }) {
                   mediaRef.current.currentTime = position;
                 }
               }}
+              onCloseFull={closeFullPlayer}
               onOpenQueue={() => setQueueOpen((open) => !open)}
               onPause={handlePause}
               onPlay={handlePlay}
