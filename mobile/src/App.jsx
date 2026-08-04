@@ -1,8 +1,10 @@
 import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
 import { PlayerProvider, usePlayer } from "./context/player-context";
 import { AccessDeniedScreen } from "./screens/access-denied-screen";
@@ -14,6 +16,10 @@ import { colors } from "./theme";
 
 const Tab = createBottomTabNavigator();
 const AccessContext = createContext(null);
+
+function TabIcon({ color, focused, name, outlineName, size }) {
+  return <Ionicons name={focused ? name : outlineName} size={size} color={color} />;
+}
 
 export function useAccess() {
   return useContext(AccessContext);
@@ -55,6 +61,7 @@ function AccessGuard({ children }) {
 
 function Tabs() {
   const player = usePlayer();
+  const insets = useSafeAreaInsets();
   const [wrappedAvailable, setWrappedAvailable] = useState(true);
 
   const loadWrappedAccess = useCallback(() => {
@@ -76,19 +83,37 @@ function Tabs() {
         tabBarStyle: {
           borderTopWidth: 0,
           backgroundColor: colors.surface,
-          minHeight: 72,
+          minHeight: 72 + insets.bottom,
           paddingTop: 8,
-          paddingBottom: 12,
+          paddingBottom: Math.max(insets.bottom, 12),
         },
         tabBarLabelStyle: {
           fontWeight: "900",
+          marginTop: 2,
         },
       }}
     >
-      <Tab.Screen name="Home" component={DashboardScreen} />
-      <Tab.Screen name="Favorites" component={FavoritesScreen} />
+      <Tab.Screen
+        name="Home"
+        component={DashboardScreen}
+        options={{
+          tabBarIcon: (props) => <TabIcon {...props} name="home" outlineName="home-outline" />,
+        }}
+      />
+      <Tab.Screen
+        name="Favorites"
+        component={FavoritesScreen}
+        options={{
+          tabBarIcon: (props) => <TabIcon {...props} name="bookmark" outlineName="bookmark-outline" />,
+        }}
+      />
       {wrappedAvailable && (
-        <Tab.Screen name="Wrapped">
+        <Tab.Screen
+          name="Wrapped"
+          options={{
+            tabBarIcon: (props) => <TabIcon {...props} name="stats-chart" outlineName="stats-chart-outline" />,
+          }}
+        >
           {(props) => <WrappedScreen {...props} onAccessChanged={loadWrappedAccess} />}
         </Tab.Screen>
       )}
@@ -97,6 +122,7 @@ function Tabs() {
         component={PlayerScreen}
         options={{
           tabBarButton: player.currentMedia ? undefined : () => null,
+          tabBarIcon: (props) => <TabIcon {...props} name="play-circle" outlineName="play-circle-outline" />,
         }}
       />
     </Tab.Navigator>
@@ -117,14 +143,16 @@ const navigationTheme = {
 
 export default function App() {
   return (
-    <NavigationContainer theme={navigationTheme}>
-      <StatusBar style="light" />
-      <AccessGuard>
-        <PlayerProvider>
-          <Tabs />
-        </PlayerProvider>
-      </AccessGuard>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer theme={navigationTheme}>
+        <StatusBar style="light" />
+        <AccessGuard>
+          <PlayerProvider>
+            <Tabs />
+          </PlayerProvider>
+        </AccessGuard>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 

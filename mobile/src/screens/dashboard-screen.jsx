@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson, mediaThumbnailUrl } from "../api";
 import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
@@ -71,6 +72,7 @@ function Row({ items, likedIds, onPlay, onQueue, onToggleLike, title }) {
 
 export function DashboardScreen({ navigation }) {
   const player = usePlayer();
+  const insets = useSafeAreaInsets();
   const [categories, setCategories] = useState([]);
   const [media, setMedia] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -143,7 +145,10 @@ export function DashboardScreen({ navigation }) {
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: 160 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <Text style={styles.kicker}>DogMedia</Text>
           <Text style={styles.heading}>Private library</Text>
@@ -206,7 +211,7 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 58,
     paddingHorizontal: spacing.lg,
-    paddingBottom: 190,
+    paddingBottom: 160,
     gap: spacing.lg,
   },
   header: {

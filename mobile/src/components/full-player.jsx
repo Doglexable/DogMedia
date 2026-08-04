@@ -1,11 +1,50 @@
-import { Video, ResizeMode } from "expo-av";
-import { useState } from "react";
+import { useVideoPlayer, VideoView } from "expo-video";
+import { useEffect, useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { mediaStreamUrl, mediaThumbnailUrl } from "../api";
 import { colors, radii, shadow, spacing } from "../theme";
-import { formatDuration, getArtistLabel, getMediaFolderName } from "../utils/media";
+import { formatDuration, getArtistLabel } from "../utils/media";
 import { usePlayer } from "../context/player-context";
 import { LyricsView } from "./lyrics-view";
+import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
+
+function VideoSurface({ mediaId, shouldPlay }) {
+  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId) }, (videoPlayer) => {
+    videoPlayer.play();
+  });
+
+  useEffect(() => {
+    if (shouldPlay) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [player, shouldPlay]);
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.video}
+      nativeControls
+      contentFit="contain"
+      fullscreenOptions={{ enable: true }}
+    />
+  );
+}
+
+function getLoopIcon(loopMode) {
+  if (loopMode === "queue") return "sync";
+  return loopMode === "media" ? "repeat-outline" : "repeat";
+}
+
+function getLastFolderName(media) {
+  const folder = media?.category_path || media?.category_name;
+  const parts = String(folder || "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.at(-1) || "Library";
+}
 
 export function FullPlayer({ navigation }) {
   const player = usePlayer();
@@ -24,21 +63,20 @@ export function FullPlayer({ navigation }) {
   const isVideo = media.mime_type?.startsWith("video/");
   const isImage = media.mime_type?.startsWith("image/");
   const remaining = Math.max((player.duration || media.duration || 0) - player.position, 0);
+  const isLiked = player.isLiked(media.id);
+  const muted = player.muted || player.volume <= 0;
 
   if (!isAudio) {
     return (
       <View style={styles.visualShell}>
-        <Pressable style={styles.close} onPress={() => navigation.navigate("Home")}>
-          <Text style={styles.closeText}>×</Text>
-        </Pressable>
+        <PlayerIconButton
+          accessibilityLabel="Close player"
+          icon="chevron-down"
+          onPress={() => navigation.navigate("Home")}
+          style={styles.close}
+        />
         {isVideo && (
-          <Video
-            source={{ uri: mediaStreamUrl(media.id) }}
-            style={styles.video}
-            useNativeControls
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay={!player.paused}
-          />
+          <VideoSurface key={media.id} mediaId={media.id} shouldPlay={!player.paused} />
         )}
         {isImage && <Image source={{ uri: mediaStreamUrl(media.id) }} style={styles.image} resizeMode="contain" />}
       </View>
@@ -49,13 +87,16 @@ export function FullPlayer({ navigation }) {
     <View style={styles.shell}>
       <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={styles.bg} blurRadius={34} />
       <View style={styles.dim} />
-      <Pressable style={styles.close} onPress={() => navigation.navigate("Home")}>
-        <Text style={styles.closeText}>×</Text>
-      </Pressable>
+      <PlayerIconButton
+        accessibilityLabel="Close player"
+        icon="chevron-down"
+        onPress={() => navigation.navigate("Home")}
+        style={styles.close}
+      />
 
       <View style={styles.top}>
         <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={styles.cover} />
-        <Text style={styles.album} numberOfLines={1}>{getMediaFolderName(media)}</Text>
+        <Text style={styles.album} numberOfLines={1}>{getLastFolderName(media)}</Text>
         <Text style={styles.title} numberOfLines={2}>{media.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{getArtistLabel(media.artists)}</Text>
       </View>
@@ -74,17 +115,45 @@ export function FullPlayer({ navigation }) {
       </View>
 
       <View style={styles.controls}>
-        <Pressable onPress={() => player.setShuffleEnabled((value) => !value)}><Text style={[styles.control, player.shuffleEnabled && styles.active]}>Shuffle</Text></Pressable>
-        <Pressable disabled={!player.hasPrev} onPress={() => player.advance("prev")}><Text style={[styles.transport, !player.hasPrev && styles.disabled]}>Prev</Text></Pressable>
-        <Pressable style={styles.play} onPress={player.togglePlayback}><Text style={styles.playText}>{player.paused ? "Play" : "Pause"}</Text></Pressable>
-        <Pressable disabled={!player.hasNext} onPress={() => player.advance("next")}><Text style={[styles.transport, !player.hasNext && styles.disabled]}>Next</Text></Pressable>
-        <Pressable onPress={player.toggleLoop}><Text style={[styles.control, player.loopMode !== "none" && styles.active]}>{player.loopMode === "none" ? "Repeat" : player.loopMode}</Text></Pressable>
+        <PlayerIconButton
+          accessibilityLabel={player.shuffleEnabled ? "Disable shuffle" : "Enable shuffle"}
+          active={player.shuffleEnabled}
+          icon="shuffle"
+          onPress={() => player.setShuffleEnabled((value) => !value)}
+        />
+        <PlayerTransportControls
+          player={player}
+          playButtonStyle={styles.play}
+          playIconColor={colors.black}
+          playIconSize={30}
+          style={styles.transportControls}
+          transportIconSize={24}
+        />
+        <PlayerIconButton
+          accessibilityLabel={player.loopMode === "none" ? "Enable repeat" : `Repeat ${player.loopMode} enabled`}
+          active={player.loopMode !== "none"}
+          icon={getLoopIcon(player.loopMode)}
+          onPress={player.toggleLoop}
+        />
       </View>
 
       <View style={styles.actionRow}>
-        <Pressable onPress={() => player.toggleLike(media)}><Text style={[styles.action, player.isLiked(media.id) && styles.active]}>Favorite</Text></Pressable>
-        <Pressable onPress={() => player.addToQueue(media)}><Text style={styles.action}>Queue</Text></Pressable>
-        <Pressable onPress={player.toggleMute}><Text style={styles.action}>{player.muted ? "Unmute" : "Mute"}</Text></Pressable>
+        <PlayerIconButton
+          accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
+          active={isLiked}
+          icon={isLiked ? "bookmark" : "bookmark-outline"}
+          onPress={() => player.toggleLike(media)}
+        />
+        <PlayerIconButton
+          accessibilityLabel="Add to queue"
+          icon="list"
+          onPress={() => player.addToQueue(media)}
+        />
+        <PlayerIconButton
+          accessibilityLabel={muted ? "Unmute" : "Mute"}
+          icon={muted ? "volume-mute" : "volume-high"}
+          onPress={player.toggleMute}
+        />
       </View>
 
       <LyricsView mediaId={media.id} position={player.position} onSeek={player.seek} />
@@ -111,17 +180,6 @@ const styles = StyleSheet.create({
     top: 52,
     left: spacing.lg,
     zIndex: 10,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  closeText: {
-    color: colors.white,
-    fontSize: 26,
-    lineHeight: 28,
   },
   top: {
     alignItems: "center",
@@ -177,45 +235,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.md,
+    gap: spacing.sm,
     marginTop: spacing.lg,
   },
-  control: {
-    color: "rgba(255,255,255,0.68)",
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  transport: {
-    color: colors.white,
-    fontWeight: "900",
-  },
-  disabled: {
-    opacity: 0.28,
-  },
-  active: {
-    color: colors.primary,
-  },
   play: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: 999,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: colors.white,
   },
-  playText: {
-    color: colors.black,
-    fontWeight: "900",
+  transportControls: {
+    gap: spacing.sm,
   },
   actionRow: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: spacing.lg,
+    gap: spacing.md,
     marginTop: spacing.md,
     marginBottom: spacing.lg,
-  },
-  action: {
-    color: "rgba(255,255,255,0.72)",
-    fontWeight: "900",
-    fontSize: 12,
   },
   visualShell: {
     flex: 1,

@@ -1,4 +1,4 @@
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiJson, mediaStreamUrl } from "../api";
 import { getMediaKind, nextLoopMode } from "../utils/media";
@@ -11,6 +11,7 @@ export function usePlayer() {
 
 export function PlayerProvider({ children }) {
   const soundRef = useRef(null);
+  const soundSubscriptionRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   const [paused, setPaused] = useState(true);
   const [position, setPosition] = useState(0);
@@ -32,7 +33,9 @@ export function PlayerProvider({ children }) {
     if (!soundRef.current) return;
     const sound = soundRef.current;
     soundRef.current = null;
-    await sound.unloadAsync().catch(() => {});
+    soundSubscriptionRef.current?.remove?.();
+    soundSubscriptionRef.current = null;
+    sound.remove();
   }, []);
 
   const refreshLikes = useCallback(() => {
@@ -58,10 +61,10 @@ export function PlayerProvider({ children }) {
   }, [applyQueue]);
 
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false,
     }).catch(() => {});
     refreshLikes();
     refreshQueue();
@@ -73,22 +76,17 @@ export function PlayerProvider({ children }) {
 
   const loadAudio = useCallback(async (media, autoplay = true) => {
     await unloadSound();
-    const { sound } = await Audio.Sound.createAsync(
-      { uri: mediaStreamUrl(media.id) },
-      {
-        shouldPlay: autoplay,
-        volume: muted ? 0 : volume,
-        isLooping: loopMode === "media",
-        progressUpdateIntervalMillis: 500,
-      }
-    );
+    const sound = createAudioPlayer({ uri: mediaStreamUrl(media.id) }, { updateInterval: 500 });
+    sound.volume = muted ? 0 : volume;
+    sound.loop = loopMode === "media";
     soundRef.current = sound;
-    sound.setOnPlaybackStatusUpdate((status) => {
+    soundSubscriptionRef.current = sound.addListener("playbackStatusUpdate", (status) => {
       if (!status.isLoaded) return;
-      setPosition(Math.floor((status.positionMillis || 0) / 1000));
-      setDuration(Math.floor((status.durationMillis || media.duration * 1000 || 0) / 1000));
-      setPaused(!status.isPlaying);
+      setPosition(Math.floor(status.currentTime || 0));
+      setDuration(Math.floor(status.duration || media.duration || 0));
+      setPaused(!status.playing);
     });
+    if (autoplay) sound.play();
   }, [loopMode, muted, unloadSound, volume]);
 
   const playMedia = useCallback(async (media, categoryId = null) => {
@@ -132,35 +130,35 @@ export function PlayerProvider({ children }) {
   const togglePlayback = useCallback(async () => {
     if (currentKind !== "audio" || !soundRef.current) return;
     if (paused) {
-      await soundRef.current.playAsync();
+      soundRef.current.play();
     } else {
-      await soundRef.current.pauseAsync();
+      soundRef.current.pause();
     }
   }, [currentKind, paused]);
 
   const seek = useCallback(async (seconds) => {
     const nextPosition = Math.max(0, Number(seconds) || 0);
     setPosition(nextPosition);
-    if (soundRef.current) await soundRef.current.setPositionAsync(nextPosition * 1000);
+    if (soundRef.current) await soundRef.current.seekTo(nextPosition);
   }, []);
 
   const changeVolume = useCallback(async (nextVolume) => {
     const normalized = Math.min(Math.max(Number(nextVolume) || 0, 0), 1);
     setVolume(normalized);
     setMuted(normalized <= 0);
-    if (soundRef.current) await soundRef.current.setVolumeAsync(normalized);
+    if (soundRef.current) soundRef.current.volume = normalized;
   }, []);
 
   const toggleMute = useCallback(async () => {
     const nextMuted = !muted;
     setMuted(nextMuted);
-    if (soundRef.current) await soundRef.current.setVolumeAsync(nextMuted ? 0 : volume);
+    if (soundRef.current) soundRef.current.volume = nextMuted ? 0 : volume;
   }, [muted, volume]);
 
   const toggleLoop = useCallback(async () => {
     setLoopMode((mode) => {
       const next = nextLoopMode(mode);
-      if (soundRef.current) soundRef.current.setIsLoopingAsync(next === "media").catch(() => {});
+      if (soundRef.current) soundRef.current.loop = next === "media";
       return next;
     });
   }, []);

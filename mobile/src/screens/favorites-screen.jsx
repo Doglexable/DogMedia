@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "../api";
 import { MediaCard } from "../components/media-card";
 import { MiniPlayer } from "../components/mini-player";
@@ -8,6 +9,7 @@ import { colors, spacing } from "../theme";
 
 export function FavoritesScreen({ navigation }) {
   const player = usePlayer();
+  const insets = useSafeAreaInsets();
   const [items, setItems] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -36,7 +38,7 @@ export function FavoritesScreen({ navigation }) {
         keyExtractor={(item) => String(item.id)}
         numColumns={2}
         columnWrapperStyle={styles.columns}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: 150 + insets.bottom }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
         ListEmptyComponent={<Text style={styles.empty}>Saved audio will appear here.</Text>}
         renderItem={({ item }) => (
@@ -69,7 +71,7 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: spacing.lg,
-    paddingBottom: 180,
+    paddingBottom: 150,
   },
   columns: {
     gap: spacing.md,
