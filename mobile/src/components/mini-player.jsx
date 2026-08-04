@@ -12,8 +12,10 @@ export function MiniPlayer({ navigation }) {
   const media = player?.currentMedia;
   if (!media) return null;
 
+  const openPlayer = () => (navigation.getParent?.() || navigation).navigate("Player");
+
   return (
-    <Pressable style={[styles.bar, { bottom: 72 + insets.bottom }]} onPress={() => navigation.navigate("Player")}>
+    <Pressable style={[styles.bar, { bottom: 72 + insets.bottom }]} onPress={openPlayer}>
       <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={styles.cover} />
       <View style={styles.copy}>
         <Text style={styles.title} numberOfLines={1}>{media.title}</Text>

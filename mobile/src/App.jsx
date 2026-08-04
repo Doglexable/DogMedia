@@ -1,12 +1,13 @@
 import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { StatusBar } from "expo-status-bar";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
-import { PlayerProvider, usePlayer } from "./context/player-context";
+import { PlayerProvider } from "./context/player-context";
 import { AccessDeniedScreen } from "./screens/access-denied-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
 import { FavoritesScreen } from "./screens/favorites-screen";
@@ -15,6 +16,7 @@ import { WrappedScreen } from "./screens/wrapped-screen";
 import { colors } from "./theme";
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 const AccessContext = createContext(null);
 
 function TabIcon({ color, focused, name, outlineName, size }) {
@@ -60,9 +62,10 @@ function AccessGuard({ children }) {
 }
 
 function Tabs() {
-  const player = usePlayer();
   const insets = useSafeAreaInsets();
   const [wrappedAvailable, setWrappedAvailable] = useState(true);
+  const [currentTab, setCurrentTab] = useState("Home");
+  const showWrapped = wrappedAvailable || currentTab === "Wrapped";
 
   const loadWrappedAccess = useCallback(() => {
     return apiJson("/api/wrapped/access")
@@ -76,6 +79,13 @@ function Tabs() {
 
   return (
     <Tab.Navigator
+      screenListeners={{
+        state: (event) => {
+          const state = event.data.state;
+          const route = state.routes[state.index];
+          setCurrentTab(route?.name || "Home");
+        },
+      }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
@@ -107,7 +117,7 @@ function Tabs() {
           tabBarIcon: (props) => <TabIcon {...props} name="bookmark" outlineName="bookmark-outline" />,
         }}
       />
-      {wrappedAvailable && (
+      {showWrapped && (
         <Tab.Screen
           name="Wrapped"
           options={{
@@ -117,14 +127,6 @@ function Tabs() {
           {(props) => <WrappedScreen {...props} onAccessChanged={loadWrappedAccess} />}
         </Tab.Screen>
       )}
-      <Tab.Screen
-        name="Player"
-        component={PlayerScreen}
-        options={{
-          tabBarButton: player.currentMedia ? undefined : () => null,
-          tabBarIcon: (props) => <TabIcon {...props} name="play-circle" outlineName="play-circle-outline" />,
-        }}
-      />
     </Tab.Navigator>
   );
 }
@@ -148,7 +150,10 @@ export default function App() {
         <StatusBar style="light" />
         <AccessGuard>
           <PlayerProvider>
-            <Tabs />
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="Tabs" component={Tabs} />
+              <Stack.Screen name="Player" component={PlayerScreen} />
+            </Stack.Navigator>
           </PlayerProvider>
         </AccessGuard>
       </NavigationContainer>

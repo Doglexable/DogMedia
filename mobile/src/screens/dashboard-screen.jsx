@@ -138,7 +138,7 @@ export function DashboardScreen({ navigation }) {
 
   const play = (item) => {
     player.playMedia(item, selectedCategory);
-    navigation.navigate("Player");
+    (navigation.getParent?.() || navigation).navigate("Player");
   };
 
   const toggleLike = (item) => player.toggleLike(item).catch(() => setNotice("Could not update favorites."));

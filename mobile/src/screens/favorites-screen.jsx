@@ -27,7 +27,7 @@ export function FavoritesScreen({ navigation }) {
 
   const play = (item) => {
     player.playMedia(item);
-    navigation.navigate("Player");
+    (navigation.getParent?.() || navigation).navigate("Player");
   };
 
   return (

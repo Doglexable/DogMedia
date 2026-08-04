@@ -51,6 +51,14 @@ export function FullPlayer({ navigation }) {
   const [progressWidth, setProgressWidth] = useState(1);
   const media = player.currentMedia;
 
+  const closePlayer = () => {
+    if (navigation.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate("Tabs", { screen: "Home" });
+  };
+
   if (!media) {
     return (
       <View style={styles.empty}>
@@ -72,7 +80,7 @@ export function FullPlayer({ navigation }) {
         <PlayerIconButton
           accessibilityLabel="Close player"
           icon="chevron-down"
-          onPress={() => navigation.navigate("Home")}
+          onPress={closePlayer}
           style={styles.close}
         />
         {isVideo && (
@@ -90,7 +98,7 @@ export function FullPlayer({ navigation }) {
       <PlayerIconButton
         accessibilityLabel="Close player"
         icon="chevron-down"
-        onPress={() => navigation.navigate("Home")}
+        onPress={closePlayer}
         style={styles.close}
       />
 
