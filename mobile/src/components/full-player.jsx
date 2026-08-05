@@ -13,6 +13,8 @@ import { usePlayer } from "../context/player-context";
 import { LyricsView } from "./lyrics-view";
 import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 
+const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
+
 function VideoSurface({ mediaId, playerState, shouldPlay, styles }) {
   const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId) });
 
@@ -78,6 +80,63 @@ function ResumePrompt({ onResume, position, style, styles }) {
 function getLoopIcon(loopMode) {
   if (loopMode === "queue") return "sync";
   return loopMode === "media" ? "repeat-outline" : "repeat";
+}
+
+function formatSleepTimer(seconds) {
+  if (!seconds) return "Sleep timer";
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0
+    ? `${minutes}:${String(remainingSeconds).padStart(2, "0")}`
+    : `0:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function SleepTimerButton({ colors, onPress, remainingSeconds, styles }) {
+  const active = remainingSeconds > 0;
+  return (
+    <Pressable
+      accessibilityLabel={active ? `Sleep timer ${formatSleepTimer(remainingSeconds)} remaining` : "Sleep timer"}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      hitSlop={10}
+      onPress={onPress}
+      style={[styles.sleepButton, active && styles.sleepButtonActive]}
+    >
+      <Ionicons name="alarm" size={21} color={active ? colors.primary : colors.white} />
+      {active && <Text style={styles.sleepBadge}>{formatSleepTimer(remainingSeconds)}</Text>}
+    </Pressable>
+  );
+}
+
+function SleepTimerOptions({ colors, onClose, onSetSleepTimer, styles }) {
+  const chooseTimer = (minutes) => {
+    onSetSleepTimer(minutes);
+    onClose();
+  };
+
+  return (
+    <View style={styles.sleepOptions}>
+      {SLEEP_TIMER_PRESETS.map((minutes) => (
+        <Pressable
+          accessibilityLabel={`Set sleep timer for ${minutes} minutes`}
+          accessibilityRole="button"
+          key={minutes}
+          onPress={() => chooseTimer(minutes)}
+          style={styles.sleepPreset}
+        >
+          <Text style={styles.sleepPresetText}>{minutes}m</Text>
+        </Pressable>
+      ))}
+      <Pressable
+        accessibilityLabel="Clear sleep timer"
+        accessibilityRole="button"
+        onPress={() => chooseTimer(0)}
+        style={styles.sleepClear}
+      >
+        <Ionicons name="close" size={16} color={colors.white} />
+      </Pressable>
+    </View>
+  );
 }
 
 function getLastFolderName(media) {
@@ -392,6 +451,7 @@ export function FullPlayer({ navigation }) {
   const [sheetTab, setSheetTab] = useState("lyrics");
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState("");
+  const [sleepOpen, setSleepOpen] = useState(false);
   const media = player.currentMedia;
 
   const closePlayer = () => {
@@ -476,6 +536,24 @@ export function FullPlayer({ navigation }) {
             />
           )}
         </View>
+        {isVideo && (
+          <View style={styles.visualSleepControls}>
+            {sleepOpen && (
+              <SleepTimerOptions
+                colors={colors}
+                onClose={() => setSleepOpen(false)}
+                onSetSleepTimer={player.setSleepTimer}
+                styles={styles}
+              />
+            )}
+            <SleepTimerButton
+              colors={colors}
+              onPress={() => setSleepOpen((open) => !open)}
+              remainingSeconds={player.sleepTimerRemaining}
+              styles={styles}
+            />
+          </View>
+        )}
       </View>
     );
   }
@@ -541,12 +619,27 @@ export function FullPlayer({ navigation }) {
           />
         </View>
 
+        {sleepOpen && (
+          <SleepTimerOptions
+            colors={colors}
+            onClose={() => setSleepOpen(false)}
+            onSetSleepTimer={player.setSleepTimer}
+            styles={styles}
+          />
+        )}
+
         <View style={styles.actionRow}>
           <PlayerIconButton
             accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
             active={isLiked}
             icon={isLiked ? "bookmark" : "bookmark-outline"}
             onPress={() => player.toggleLike(media)}
+          />
+          <SleepTimerButton
+            colors={colors}
+            onPress={() => setSleepOpen((open) => !open)}
+            remainingSeconds={player.sleepTimerRemaining}
+            styles={styles}
           />
           <PlayerIconButton
             accessibilityLabel="Open queue"
@@ -698,6 +791,62 @@ const makeStyles = (colors) => StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     gap: spacing.md,
+  },
+  sleepButton: {
+    minWidth: 42,
+    height: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  sleepButtonActive: {
+    backgroundColor: alpha(colors.primary, 0.18),
+  },
+  sleepBadge: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  sleepOptions: {
+    alignSelf: "center",
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    padding: spacing.xs,
+    borderRadius: radii.md,
+    backgroundColor: "rgba(0,0,0,0.58)",
+  },
+  sleepPreset: {
+    minWidth: 42,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.sm,
+    backgroundColor: alpha(colors.white, 0.12),
+  },
+  sleepPresetText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  sleepClear: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: alpha(colors.white, 0.12),
+  },
+  visualSleepControls: {
+    alignItems: "center",
+    gap: spacing.sm,
   },
   controlZone: {
     gap: spacing.md,

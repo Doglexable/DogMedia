@@ -417,6 +417,21 @@ export function GlobalPlayerProvider({ children }) {
     if (isFullPlayer) navigate("/");
   }, [isFullPlayer, navigate]);
 
+  const pausePlaybackForSleepTimer = useCallback(() => {
+    setShouldAutoPlay(false);
+    if (!currentMedia || isImage) {
+      setPaused(true);
+      return;
+    }
+
+    if (mediaRef.current && !mediaRef.current.paused) {
+      mediaRef.current.pause();
+      return;
+    }
+
+    setPaused(true);
+  }, [currentMedia, isImage]);
+
   const setSleepTimer = useCallback((minutes) => {
     const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
     if (nextMinutes <= 0) {
@@ -439,13 +454,13 @@ export function GlobalPlayerProvider({ children }) {
       if (nextRemaining > 0) return;
 
       setSleepTimerEndsAt(null);
-      stopPlayback();
+      pausePlaybackForSleepTimer();
     };
 
     updateSleepTimer();
     const timerId = window.setInterval(updateSleepTimer, 1000);
     return () => window.clearInterval(timerId);
-  }, [sleepTimerEndsAt, stopPlayback]);
+  }, [pausePlaybackForSleepTimer, sleepTimerEndsAt]);
 
   useEffect(() => {
     if (!currentMedia && sleepTimerEndsAt) {
@@ -1118,6 +1133,7 @@ export function GlobalPlayerProvider({ children }) {
               queueOpen={queueOpen}
               resumePos={resumePos}
               shuffleEnabled={shuffleEnabled}
+              sleepTimerRemaining={sleepTimerRemaining}
               streamSrc={streamSrc}
               thumbFailed={thumbFailed}
               thumbSrc={thumbSrc}
@@ -1148,6 +1164,7 @@ export function GlobalPlayerProvider({ children }) {
               onToggleMute={toggleMute}
               onToggleShuffle={toggleShuffle}
               onToggle={togglePlayback}
+              onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
             />

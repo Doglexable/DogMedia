@@ -11,6 +11,7 @@ import {
 
 const PlayerContext = createContext(null);
 const PROGRESS_SYNC_SECONDS = 10;
+const SLEEP_TIMER_MAX_MINUTES = 60;
 
 export function usePlayer() {
   return useContext(PlayerContext);
@@ -54,6 +55,8 @@ export function PlayerProvider({ children }) {
   const [queueItems, setQueueItems] = useState([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [likedIds, setLikedIds] = useState(new Set());
+  const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
+  const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
   const navigation = getQueueNavigation(queueIds, queueIndex, loopMode);
@@ -297,6 +300,59 @@ export function PlayerProvider({ children }) {
     setPaused(true);
     setResumePosition(null);
   }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
+
+  const pausePlaybackForSleepTimer = useCallback(() => {
+    const media = currentMediaRef.current;
+    awaitingAutoplayRef.current = null;
+    if (!media || getMediaKind(media.mime_type) === "image") {
+      pausedRef.current = true;
+      setPaused(true);
+      return;
+    }
+
+    reportPlayingRef.current(false);
+    if (soundRef.current) soundRef.current.pause();
+    else videoControllerRef.current?.pause?.();
+    pausedRef.current = true;
+    setPaused(true);
+  }, []);
+
+  const setSleepTimer = useCallback((minutes) => {
+    const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
+    if (nextMinutes <= 0) {
+      setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
+      return;
+    }
+
+    const nextRemaining = nextMinutes * 60;
+    setSleepTimerEndsAt(Date.now() + nextRemaining * 1000);
+    setSleepTimerRemaining(nextRemaining);
+  }, []);
+
+  useEffect(() => {
+    if (!sleepTimerEndsAt) return undefined;
+
+    const updateSleepTimer = () => {
+      const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
+      setSleepTimerRemaining(nextRemaining);
+      if (nextRemaining > 0) return;
+
+      setSleepTimerEndsAt(null);
+      pausePlaybackForSleepTimer();
+    };
+
+    updateSleepTimer();
+    const timerId = setInterval(updateSleepTimer, 1000);
+    return () => clearInterval(timerId);
+  }, [pausePlaybackForSleepTimer, sleepTimerEndsAt]);
+
+  useEffect(() => {
+    if (!currentMedia && sleepTimerEndsAt) {
+      setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
+    }
+  }, [currentMedia, sleepTimerEndsAt]);
 
   const recordCurrentSkip = useCallback(() => {
     const media = currentMediaRef.current;
@@ -652,6 +708,8 @@ export function PlayerProvider({ children }) {
     seek,
     selectQueueItem,
     shuffleEnabled,
+    sleepTimerRemaining,
+    setSleepTimer,
     stopPlayback,
     toggleLike,
     toggleLoop,
@@ -664,8 +722,8 @@ export function PlayerProvider({ children }) {
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia,
     playNext, position, queueIds, queueIndex, queueItems, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
-    reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, stopPlayback,
-    toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
+    reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
+    setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

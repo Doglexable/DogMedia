@@ -17,6 +17,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { AmbientArtwork } from "./ambient-artwork";
 import { PlayerBar } from "./player-bar";
+import { SleepTimerControl } from "./player-controls";
 import { NowPlayingSidebar } from "./now-playing-sidebar";
 import { getArtistLabel } from "./media-artists";
 import { FullscreenLyrics } from "./lyrics-panel";
@@ -41,10 +42,11 @@ function RepeatIcon({ mode }) {
 export function FullPlayer({
   autoPlay, currentMedia, duration, hasNext, hasPrev, isAudio, isImage, isVideo,
   loopMode, mediaRef, meta, muted, paused, position, queueOpen, resumePos,
-  shuffleEnabled, streamSrc, thumbFailed, thumbSrc, volume, onAdvance,
+  shuffleEnabled, sleepTimerRemaining, streamSrc, thumbFailed, thumbSrc, volume, onAdvance,
   onChangeVolume, onEnded, onLoadedMetadata, onOpenQueue, onPause, onPlay,
   onPreventMenu, onResume, onSeek, onThumbError, onTimeUpdate, onToggleLoop,
   onToggleMute, onToggleShuffle, onToggle, liked, onToggleLike, onCloseFull,
+  onSetSleepTimer,
 }) {
   if (isAudio) {
     const album = getMediaFolderName(currentMedia) || "Library";
@@ -114,6 +116,7 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faBookmark} />
               </button>
+              <SleepTimerControl remainingSeconds={sleepTimerRemaining} onSetSleepTimer={onSetSleepTimer} />
               <button
                 type="button"
                 className={queueOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -337,9 +340,11 @@ export function FullPlayer({
         position={position}
         queueOpen={queueOpen}
         shuffleEnabled={shuffleEnabled}
+        sleepTimerRemaining={sleepTimerRemaining}
         streamSrc={streamSrc}
         thumbSrc={thumbSrc}
         volume={volume}
+        onSetSleepTimer={onSetSleepTimer}
       />
     </div>
   );
