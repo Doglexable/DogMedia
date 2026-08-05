@@ -173,7 +173,7 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "800",
   },
   activeLine: {
-    color: colors.text,
+    color: colors.primary,
     fontSize: 34,
     lineHeight: 39,
     fontWeight: "900",

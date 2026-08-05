@@ -3437,7 +3437,7 @@ body {
 }
 
 .fullscreen-lyrics-line--active {
-  color: var(--text);
+  color: color-mix(in srgb, var(--primary) 68%, var(--text));
   filter: blur(0);
   font-size: 3.15rem;
   font-weight: 950;
