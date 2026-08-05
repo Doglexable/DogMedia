@@ -3,6 +3,7 @@ import {
   acquireWrappedAccessLock,
   aggregateWrappedEvents,
   deriveWrappedPersona,
+  getAnnualWrappedAvailability,
   getWrappedAccessStatus,
 } from "./wrapped.js";
 
@@ -132,6 +133,52 @@ describe("getWrappedAccessStatus", () => {
   });
 });
 
+describe("getAnnualWrappedAvailability", () => {
+  it("does not replace monthly Wrapped outside December", () => {
+    expect(getAnnualWrappedAvailability(new Date("2026-11-30T23:59:59.000Z"))).toBeNull();
+    expect(getAnnualWrappedAvailability(new Date("2027-01-01T00:00:00.000Z"))).toBeNull();
+  });
+
+  it("locks December 1 through 14 until December 15 of the same year", () => {
+    const status = getAnnualWrappedAvailability(new Date("2026-12-14T12:00:00.000Z"));
+
+    expect(status).toMatchObject({
+      available: false,
+      wrappedKind: "annual",
+      nextOpenAt: "2026-12-15T00:00:00.000Z",
+      period: { kind: "annual-year" },
+    });
+    expect(status.retryAfterSeconds).toBe(43200);
+  });
+
+  it("opens annual Wrapped only on December 15 with a one-year period", () => {
+    const status = getAnnualWrappedAvailability(new Date("2026-12-15T12:00:00.000Z"));
+
+    expect(status).toMatchObject({
+      available: true,
+      wrappedKind: "annual",
+      nextOpenAt: null,
+      period: {
+        kind: "annual-year",
+        days: 366,
+        start: "2025-12-15T00:00:00.000Z",
+        end: "2026-12-15T23:59:59.999Z",
+      },
+    });
+  });
+
+  it("locks December 16 through 31 until December 15 of the next year", () => {
+    const status = getAnnualWrappedAvailability(new Date("2026-12-16T00:00:00.000Z"));
+
+    expect(status).toMatchObject({
+      available: false,
+      wrappedKind: "annual",
+      nextOpenAt: "2027-12-15T00:00:00.000Z",
+      period: { kind: "annual-year" },
+    });
+  });
+});
+
 function playbackEvent(id, action, position, occurredAt, overrides = {}) {
   return {
     id,
@@ -200,6 +247,22 @@ describe("aggregateWrappedEvents", () => {
     expect(report.rhythm.peakHour).toBe(0);
     expect(report.timeline[0].date).toBe("2026-07-11");
     expect(report.period.timezoneOffset).toBe(-420);
+  });
+
+  it("can describe an annual Wrapped period", () => {
+    const report = aggregateWrappedEvents(
+      [],
+      new Date("2025-12-15T00:00:00.000Z"),
+      new Date("2026-12-15T23:59:59.999Z"),
+      { periodKind: "annual-year", periodDays: 366 }
+    );
+
+    expect(report.period).toMatchObject({
+      kind: "annual-year",
+      days: 366,
+      start: "2025-12-15T00:00:00.000Z",
+      end: "2026-12-15T23:59:59.999Z",
+    });
   });
 
   it("returns a complete empty report", () => {

@@ -31,6 +31,19 @@ function formatDate(value) {
   return value.toISOString().slice(0, 10);
 }
 
+function getUtcDateParts(value) {
+  const date = new Date(value);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth(),
+    day: date.getUTCDate(),
+  };
+}
+
+function utcDate(year, month, day, endOfDay = false) {
+  return new Date(Date.UTC(year, month, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+}
+
 function normalizeDateTime(value, fallback) {
   if (!value) return fallback;
   const date = new Date(value);
@@ -41,6 +54,44 @@ function subDays(date, days) {
   const result = new Date(date);
   result.setDate(result.getDate() - days);
   return result;
+}
+
+export function getAnnualWrappedAvailability(now = new Date()) {
+  const { year, month, day } = getUtcDateParts(now);
+  if (month !== 11) return null;
+
+  const openAt = utcDate(year, 11, 15);
+  if (day === 15) {
+    return {
+      available: true,
+      wrappedKind: "annual",
+      period: {
+        kind: "annual-year",
+        days: getCalendarDaySpan(utcDate(year - 1, 11, 15), openAt),
+        start: utcDate(year - 1, 11, 15).toISOString(),
+        end: utcDate(year, 11, 15, true).toISOString(),
+      },
+      lastOpenedAt: null,
+      nextOpenAt: null,
+      retryAfterSeconds: 0,
+    };
+  }
+
+  const nextOpen = day < 15 ? openAt : utcDate(year + 1, 11, 15);
+  return {
+    available: false,
+    wrappedKind: "annual",
+    period: { kind: "annual-year" },
+    lastOpenedAt: null,
+    nextOpenAt: nextOpen.toISOString(),
+    retryAfterSeconds: getRetryAfterSeconds(nextOpen, now),
+  };
+}
+
+function getCalendarDaySpan(from, to) {
+  const fromDay = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate());
+  const toDay = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+  return Math.max(Math.floor((toDay - fromDay) / 86400000) + 1, 1);
 }
 
 const PERSONA_PALETTES = {
@@ -236,8 +287,8 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
 
   return {
     period: {
-      kind: "rolling-30-day",
-      days: 30,
+      kind: options.periodKind || "rolling-30-day",
+      days: Number.isFinite(Number(options.periodDays)) ? Number(options.periodDays) : 30,
       start: from.toISOString(),
       end: to.toISOString(),
       timezoneOffset,
@@ -452,7 +503,7 @@ export async function getWrappedAccessStatus(client, clientIp) {
   return mapWrappedAccessStatus(rows[0]);
 }
 
-async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 0) {
+async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 0, options = {}) {
   const clientIp = request.clientIp || request.ip;
   const params = [from.toISOString(), to.toISOString(), clientIp];
   const { rows } = await fastify.pg.query(
@@ -476,23 +527,61 @@ async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 
      ORDER BY pe.occurred_at, pe.id`,
     params
   );
-  const wrapped = aggregateWrappedEvents(rows, from, to, { timezoneOffset });
+  const wrapped = aggregateWrappedEvents(rows, from, to, { timezoneOffset, ...options });
 
   return {
     clientIp,
     periodStart: wrapped.period.start,
     periodEnd: wrapped.period.end,
+    wrappedKind: options.wrappedKind || "monthly",
     ...wrapped,
   };
 }
 
 export default async function (fastify) {
   fastify.get("/access", async (request) => {
+    const annual = getAnnualWrappedAvailability(new Date());
+    if (annual) return annual;
     return getWrappedAccessStatus(fastify.pg, request.clientIp || request.ip);
   });
 
   fastify.get("/current", async (request, reply) => {
     const now = new Date();
+    const annual = getAnnualWrappedAvailability(now);
+    const timezoneOffset = Math.min(Math.max(Number.parseInt(request.query.timezoneOffset, 10) || 0, -840), 840);
+
+    if (annual && !annual.available) {
+      return reply
+        .code(429)
+        .header("Retry-After", String(annual.retryAfterSeconds))
+        .send({
+          error: "Annual Wrapped opens December 15",
+          code: "WRAPPED_LOCKED",
+          wrappedKind: annual.wrappedKind,
+          period: annual.period,
+          lastOpenedAt: null,
+          nextOpenAt: annual.nextOpenAt,
+          retryAfterSeconds: annual.retryAfterSeconds,
+        });
+    }
+
+    if (annual?.available) {
+      const from = new Date(annual.period.start);
+      const to = new Date(annual.period.end);
+      const wrapped = await getCurrentIpWrapped(fastify, request, from, to, timezoneOffset, {
+        periodKind: annual.period.kind,
+        periodDays: annual.period.days,
+        wrappedKind: annual.wrappedKind,
+      });
+      return {
+        ...wrapped,
+        access: {
+          lastOpenedAt: null,
+          nextOpenAt: null,
+        },
+      };
+    }
+
     const from = normalizeDateTime(request.query.from, subDays(now, 30));
     const to = normalizeDateTime(request.query.to, now);
 
@@ -507,13 +596,14 @@ export default async function (fastify) {
         .send({
           error: "Wrapped is locked",
           code: "WRAPPED_LOCKED",
+          wrappedKind: "monthly",
+          period: { kind: "rolling-30-day", days: 30 },
           lastOpenedAt: access?.lastOpenedAt || null,
           nextOpenAt: access?.nextOpenAt || null,
           retryAfterSeconds,
         });
     }
 
-    const timezoneOffset = Math.min(Math.max(Number.parseInt(request.query.timezoneOffset, 10) || 0, -840), 840);
     const wrapped = await getCurrentIpWrapped(fastify, request, from, to, timezoneOffset);
     return {
       ...wrapped,

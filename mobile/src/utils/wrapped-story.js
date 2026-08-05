@@ -27,14 +27,19 @@ export function isWrappedEmpty(data) {
 }
 
 export function buildWrappedTimeline(data, periodStart, days = 30) {
+  const periodDays = getWrappedPeriodDays(data, days);
+  const useUtcDates = getWrappedPeriodKind(data) === "annual";
   const byDate = new Map((data?.timeline || []).map((day) => [day.date, day]));
   const start = new Date(periodStart);
-  return Array.from({ length: days }, (_, index) => {
+  return Array.from({ length: periodDays }, (_, index) => {
     const date = new Date(start.getTime() + index * DAY_MS);
+    const year = useUtcDates ? date.getUTCFullYear() : date.getFullYear();
+    const month = useUtcDates ? date.getUTCMonth() : date.getMonth();
+    const dayOfMonth = useUtcDates ? date.getUTCDate() : date.getDate();
     const key = [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
+      year,
+      String(month + 1).padStart(2, "0"),
+      String(dayOfMonth).padStart(2, "0"),
     ].join("-");
     const day = byDate.get(key);
     return {
@@ -45,6 +50,36 @@ export function buildWrappedTimeline(data, periodStart, days = 30) {
       plays: Number(day?.plays || 0),
     };
   });
+}
+
+export function getWrappedPeriodKind(data) {
+  return data?.wrappedKind === "annual" || data?.period?.kind === "annual-year" ? "annual" : "monthly";
+}
+
+export function getWrappedPeriodDays(data, fallback = 30) {
+  const days = Number(data?.period?.days);
+  if (Number.isFinite(days) && days > 0) return Math.floor(days);
+  if (data?.periodStart && data?.periodEnd) {
+    const start = new Date(data.periodStart);
+    const end = new Date(data.periodEnd);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      const startDay = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+      const endDay = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
+      return Math.max(Math.floor((endDay - startDay) / DAY_MS) + 1, 1);
+    }
+  }
+  return fallback;
+}
+
+export function getWrappedCopy(data) {
+  const annual = getWrappedPeriodKind(data) === "annual";
+  return {
+    recapLabel: annual ? "1-year recap" : "30-day recap",
+    replayTitle: annual ? "Your 1-year replay" : "Your 30-day replay",
+    storyDescription: annual ? "A detailed view of the same 1-year story." : "A detailed view of the same 30-day story.",
+    activityLabel: annual ? "One-year playback activity" : "Thirty-day playback activity",
+    rhythmDetail: annual ? "A year of tracked sessions" : "Thirty days of tracked sessions",
+  };
 }
 
 export function buildRibbonBars(timeline) {

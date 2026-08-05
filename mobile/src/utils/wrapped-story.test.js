@@ -3,6 +3,8 @@ import {
   buildRibbonBars,
   buildWrappedSlides,
   buildWrappedTimeline,
+  getWrappedCopy,
+  getWrappedPeriodDays,
   getWrappedStoryCardSize,
   getWrappedMediaTitle,
   isWrappedEmpty,
@@ -33,6 +35,21 @@ describe("mobile wrapped story model", () => {
 
   it("maps playback activity into bounded ribbon bars", () => {
     expect(buildRibbonBars([{ playTime: 0 }, { playTime: 5 }, { playTime: 10 }])).toEqual([0.02, 0.5, 1]);
+  });
+
+  it("supports annual story copy and timeline sizing", () => {
+    const data = {
+      wrappedKind: "annual",
+      periodStart: "2025-12-15T00:00:00.000Z",
+      periodEnd: "2026-12-15T23:59:59.999Z",
+      period: { kind: "annual-year", days: 366 },
+      timeline: [{ date: "2025-12-15", playTime: 90, plays: 1 }],
+    };
+
+    expect(getWrappedCopy(data).recapLabel).toBe("1-year recap");
+    expect(getWrappedPeriodDays(data)).toBe(366);
+    expect(buildWrappedTimeline(data, data.periodStart)).toHaveLength(366);
+    expect(buildWrappedTimeline(data, data.periodStart)[0]).toMatchObject({ date: "2025-12-15", playTime: 90, plays: 1 });
   });
 
   it("keeps story cards within compact phone and tablet bounds", () => {

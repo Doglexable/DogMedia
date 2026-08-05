@@ -15,6 +15,7 @@ import {
   buildWrappedSlides,
   buildWrappedTimeline,
   collectWrappedSlideExports,
+  getWrappedCopy,
   getWrappedSlideFilename,
   getWrappedMediaTitle,
   getWrappedThumbnailUrl,
@@ -77,6 +78,10 @@ export default function Wrapped() {
     [data, period.fromIso]
   );
   const slides = useMemo(() => buildWrappedSlides(data, timeline), [data, timeline]);
+  const wrappedCopy = useMemo(() => getWrappedCopy(data), [data]);
+  const serverPeriodLabel = data?.periodStart && data?.periodEnd
+    ? `${formatDateUtc(data.periodStart)} - ${formatDateUtc(data.periodEnd)}`
+    : period.label;
 
   useEffect(() => {
     if (player?.currentMedia) player.stopPlayback?.();
@@ -148,7 +153,7 @@ export default function Wrapped() {
       <PageShell fullscreen>
         <EmptyState
           title="Wrapped locked"
-          copy={`This playback report can only be opened once every 30 days. ${formatUnlockMessage(locked)}`}
+          copy={getLockedCopy(locked)}
         />
       </PageShell>
     );
@@ -178,42 +183,27 @@ export default function Wrapped() {
             <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>Summary</button>
           </div>
         </div>
-        <span>{period.label} · 30-day recap</span>
+        <span>{serverPeriodLabel} · {wrappedCopy.recapLabel}</span>
       </div>
 
       {view === "story" ? (
         <>
           <StoryViewer
             data={data}
+            exportAllSlides={exportAllSlides}
+            exportCurrentSlide={exportCurrentSlide}
+            exportError={exportError}
+            exportState={exportState}
             index={storyIndex}
             onIndexChange={setStoryIndex}
-            periodLabel={period.label}
+            periodLabel={serverPeriodLabel}
             slides={slides}
             timeline={timeline}
+            wrappedCopy={wrappedCopy}
           />
-          <div className="wrapped-download-tools">
-            <div className="wrapped-download-actions">
-              {storyIndex === slides.length - 1 && (
-                <button type="button" disabled={Boolean(exportState)} onClick={exportAllSlides}>
-                  <FontAwesomeIcon icon={faDownload} />
-                  Download all
-                </button>
-              )}
-              <button type="button" disabled={Boolean(exportState)} onClick={exportCurrentSlide}>
-                <FontAwesomeIcon icon={faDownload} />
-                Download slide
-              </button>
-            </div>
-            {exportState && (
-              <p className="wrapped-export-status" role="status" aria-live="polite">
-                Rendering {exportState.current} of {exportState.total}
-              </p>
-            )}
-            {exportError && <p role="alert">{exportError}</p>}
-          </div>
         </>
       ) : (
-        <SummaryDashboard data={data} periodLabel={period.label} timeline={timeline} />
+        <SummaryDashboard data={data} periodLabel={serverPeriodLabel} timeline={timeline} wrappedCopy={wrappedCopy} />
       )}
 
       <div className="wrapped-export-root" aria-hidden="true">
@@ -227,7 +217,7 @@ export default function Wrapped() {
               "--recap-secondary": data.persona?.palette?.secondary || "#2DC7C9",
             }}
           >
-            <StorySlide data={data} periodLabel={period.label} slide={slide} timeline={timeline} />
+            <StorySlide data={data} periodLabel={serverPeriodLabel} slide={slide} timeline={timeline} wrappedCopy={wrappedCopy} />
           </div>
         ))}
       </div>
@@ -235,7 +225,19 @@ export default function Wrapped() {
   );
 }
 
-function StoryViewer({ data, index, onIndexChange, periodLabel, slides, timeline }) {
+function StoryViewer({
+  data,
+  exportAllSlides,
+  exportCurrentSlide,
+  exportError,
+  exportState,
+  index,
+  onIndexChange,
+  periodLabel,
+  slides,
+  timeline,
+  wrappedCopy,
+}) {
   const pointerStart = useRef(null);
   const lastIndex = slides.length - 1;
   const goTo = useCallback((nextIndex) => {
@@ -281,7 +283,7 @@ function StoryViewer({ data, index, onIndexChange, periodLabel, slides, timeline
           ))}
         </div>
         <div key={slides[index].id} className="wrapped-story-frame">
-          <StorySlide data={data} periodLabel={periodLabel} slide={slides[index]} timeline={timeline} />
+          <StorySlide data={data} periodLabel={periodLabel} slide={slides[index]} timeline={timeline} wrappedCopy={wrappedCopy} />
         </div>
         <span className="wrapped-story-count">{String(index + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</span>
       </div>
@@ -290,7 +292,26 @@ function StoryViewer({ data, index, onIndexChange, periodLabel, slides, timeline
         <button type="button" aria-label="Previous slide" disabled={index === 0} onClick={() => goTo(index - 1)}>
           <FontAwesomeIcon icon={faChevronLeft} />
         </button>
-        <p>{storyChapter(slides[index].id)}</p>
+        <div className="wrapped-download-tools">
+          <div className="wrapped-download-actions">
+            {index === lastIndex && (
+              <button type="button" aria-label="Download all slides" title="Download all" disabled={Boolean(exportState)} onClick={exportAllSlides}>
+                <FontAwesomeIcon icon={faDownload} />
+                <span>All</span>
+              </button>
+            )}
+            <button type="button" aria-label="Download slide" title="Download slide" disabled={Boolean(exportState)} onClick={exportCurrentSlide}>
+              <FontAwesomeIcon icon={faDownload} />
+              <span>Slide</span>
+            </button>
+          </div>
+          {exportState && (
+            <p className="wrapped-export-status" role="status" aria-live="polite">
+              Rendering {exportState.current} of {exportState.total}
+            </p>
+          )}
+          {exportError && <p role="alert">{exportError}</p>}
+        </div>
         <button type="button" aria-label="Next slide" disabled={index === lastIndex} onClick={() => goTo(index + 1)}>
           <FontAwesomeIcon icon={faChevronRight} />
         </button>
@@ -299,7 +320,7 @@ function StoryViewer({ data, index, onIndexChange, periodLabel, slides, timeline
   );
 }
 
-function StorySlide({ data, periodLabel, slide, timeline }) {
+function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrappedCopy(data) }) {
   const totals = data.totals || {};
   const rhythm = data.rhythm || {};
   const persona = data.persona || slide.persona;
@@ -312,7 +333,7 @@ function StorySlide({ data, periodLabel, slide, timeline }) {
         <div className="wrapped-slide-shade" />
         <div className="wrapped-slide-copy">
           <span className="wrapped-slide-kicker">DogMedia · {periodLabel}</span>
-          <h1>Your 30-day replay</h1>
+          <h1>{wrappedCopy.replayTitle}</h1>
           <p>{lead ? `${getWrappedMediaTitle(lead)} set the tone.` : "Your library found its rhythm."}</p>
         </div>
       </article>
@@ -325,7 +346,7 @@ function StorySlide({ data, periodLabel, slide, timeline }) {
         <span className="wrapped-slide-kicker">Time in motion</span>
         <div className="wrapped-big-number">{fmtTime(data.totalPlayTime)}</div>
         <p className="wrapped-slide-lede">tracked across {formatNumber(data.totalPlays)} starts</p>
-        <ActivityRibbon timeline={timeline} />
+        <ActivityRibbon label={wrappedCopy.activityLabel} timeline={timeline} />
         <dl className="wrapped-slide-stats">
           <SummaryItem label="Active days" value={formatNumber(totals.activeDays)} />
           <SummaryItem label="Media explored" value={formatNumber(totals.distinctMedia)} />
@@ -385,7 +406,7 @@ function StorySlide({ data, periodLabel, slide, timeline }) {
   return (
     <article className="wrapped-slide wrapped-slide--final">
       <div className="wrapped-final-art"><Artwork media={lead} /></div>
-      <span className="wrapped-slide-kicker">DogMedia · 30-day recap</span>
+      <span className="wrapped-slide-kicker">DogMedia · {wrappedCopy.recapLabel}</span>
       <h2>{persona?.title || "Steady Signal"}</h2>
       <div className="wrapped-final-stats">
         <div><strong>{fmtTime(data.totalPlayTime)}</strong><span>play time</span></div>
@@ -396,9 +417,9 @@ function StorySlide({ data, periodLabel, slide, timeline }) {
   );
 }
 
-function ActivityRibbon({ timeline }) {
+function ActivityRibbon({ label, timeline }) {
   return (
-    <svg className="wrapped-ribbon" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label="Thirty-day playback activity">
+    <svg className="wrapped-ribbon" viewBox="0 0 100 40" preserveAspectRatio="none" role="img" aria-label={label}>
       <line x1="0" y1="39" x2="100" y2="39" />
       <polyline points={buildWaveformPoints(timeline)} />
     </svg>
@@ -414,7 +435,7 @@ function Artwork({ className = "", media }) {
   return <img className={className} src={src} alt="" onError={() => setFailed(true)} />;
 }
 
-function SummaryDashboard({ data, periodLabel, timeline }) {
+function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappedCopy(data) }) {
   const topMedia = data.topMedia || [];
   const totalPlayTime = data.totalPlayTime || 0;
   const totalPlays = data.totalPlays || 0;
@@ -429,7 +450,7 @@ function SummaryDashboard({ data, periodLabel, timeline }) {
         <div className="wrapped-hero-copy">
           <p className="wrapped-eyebrow">This device · {periodLabel}</p>
           <h1>Your playback pulse</h1>
-          <p className="wrapped-subtitle">A detailed view of the same 30-day story.</p>
+          <p className="wrapped-subtitle">{wrappedCopy.storyDescription}</p>
         </div>
         <div className="wrapped-hero-stats">
           <Metric label="Play time" value={fmtTime(totalPlayTime)} />
@@ -454,7 +475,7 @@ function SummaryDashboard({ data, periodLabel, timeline }) {
         </section>
 
         <section className="wrapped-panel wrapped-panel--main">
-          <div className="wrapped-section-heading"><div><h2>Playback rhythm</h2><p>Thirty days of tracked sessions</p></div><span>{fmtTime(data.totals?.averageSession)} average session</span></div>
+          <div className="wrapped-section-heading"><div><h2>Playback rhythm</h2><p>{wrappedCopy.rhythmDetail}</p></div><span>{fmtTime(data.totals?.averageSession)} average session</span></div>
           <DailyPulse timeline={timeline} maxDayTime={maxDayTime} />
           <ActivityHeatmap timeline={timeline} maxDayTime={maxDayTime} />
         </section>
@@ -526,10 +547,6 @@ function getActivityLevel(value, maxValue) {
   return 1;
 }
 
-function storyChapter(id) {
-  return ({ opening: "Opening", time: "Time in motion", "top-media": "Your rotation", rhythm: "Listening clock", persona: "Playback character", share: "Final recap" })[id] || "Recap";
-}
-
 function fmtTime(seconds) {
   const value = Math.max(Math.floor(Number(seconds) || 0), 0);
   if (!value) return "0m";
@@ -553,6 +570,10 @@ function formatDate(value) {
   return value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
 }
 
+function formatDateUtc(value) {
+  return value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" }) : "";
+}
+
 function formatLongDate(value) {
   return value ? new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", weekday: "short" }) : "";
 }
@@ -562,6 +583,13 @@ function formatUnlockMessage(locked) {
   if (!nextOpenDate) return "Check back later.";
   const days = Math.max(Math.ceil(((locked.retryAfterSeconds || 0) * 1000) / DAY_MS), 0);
   return days > 0 ? `Come back ${nextOpenDate}, in about ${days === 1 ? "1 day" : `${days} days`}.` : `Come back ${nextOpenDate}.`;
+}
+
+function getLockedCopy(locked) {
+  if (locked?.wrappedKind === "annual" || locked?.period?.kind === "annual-year") {
+    return `Annual Wrapped opens December 15. ${formatUnlockMessage(locked)}`;
+  }
+  return `This playback report can only be opened once every 30 days. ${formatUnlockMessage(locked)}`;
 }
 
 function formatNumber(value) {

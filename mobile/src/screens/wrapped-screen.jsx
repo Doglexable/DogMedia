@@ -19,6 +19,7 @@ import {
   buildWrappedSlides,
   buildWrappedTimeline,
   getWrappedMediaTitle,
+  getWrappedCopy,
   getWrappedStoryCardSize,
   isWrappedEmpty,
   WRAPPED_COLORS,
@@ -38,6 +39,11 @@ function useWrappedTheme() {
 function formatDate(value) {
   if (!value) return "";
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatDateUtc(value) {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 function formatLongDate(value) {
@@ -184,9 +190,9 @@ function StoryStat({ label, value, styles }) {
   );
 }
 
-function Ribbon({ bars, styles }) {
+function Ribbon({ accessibilityLabel, bars, styles }) {
   return (
-    <View accessibilityLabel="Thirty-day playback activity" style={styles.ribbon}>
+    <View accessibilityLabel={accessibilityLabel} style={styles.ribbon}>
       {bars.map((height, index) => (
         <View key={index} style={[styles.ribbonBar, { height: `${height * 100}%` }]} />
       ))}
@@ -211,7 +217,7 @@ function MediaTile({ lead = false, media, styles }) {
   );
 }
 
-function StorySlide({ cardHeight, cardWidth, current, data, slide, total }) {
+function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappedCopy }) {
   const { styles } = useWrappedTheme();
   const scale = Math.min(cardWidth / 430, 1);
   const lead = data.topMedia?.[0] || slide.lead;
@@ -228,8 +234,8 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total }) {
         <Artwork media={lead} style={StyleSheet.absoluteFillObject} fallbackStyle={styles.storyArtworkFallback} fallbackTextStyle={styles.openingFallbackText} />
         <View style={styles.openingShade} />
         <View style={[styles.openingCopy, { padding: 26 * scale }]}>
-          <Text style={styles.lightKicker}>DogMedia / 30-day recap</Text>
-          <Text style={[styles.openingTitle, { fontSize: 54 * scale, lineHeight: 50 * scale }]}>Your 30-day replay</Text>
+          <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+          <Text style={[styles.openingTitle, { fontSize: 54 * scale, lineHeight: 50 * scale }]}>{wrappedCopy.replayTitle}</Text>
           <Text style={styles.openingText}>{getWrappedMediaTitle(lead)} set the tone.</Text>
         </View>
       </View>
@@ -240,7 +246,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total }) {
         <Text style={styles.darkKicker}>Time in motion</Text>
         <Text style={[styles.bigNumber, { fontSize: 70 * scale, lineHeight: 64 * scale }]} numberOfLines={2} adjustsFontSizeToFit>{fmtTime(data.totalPlayTime)}</Text>
         <Text style={styles.darkLede}>tracked across {formatNumber(data.totalPlays)} starts</Text>
-        <Ribbon bars={slide.bars || []} styles={styles} />
+        <Ribbon accessibilityLabel={wrappedCopy.activityLabel} bars={slide.bars || []} styles={styles} />
         <View style={styles.storyStatsRow}>
           <StoryStat label="Active days" value={formatNumber(totals.activeDays)} styles={styles} />
           <StoryStat label="Media explored" value={formatNumber(totals.distinctMedia)} styles={styles} />
@@ -297,7 +303,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total }) {
         <View style={styles.finalArtworkFrame}>
           <Artwork media={lead} style={styles.finalArtwork} fallbackStyle={styles.storyArtworkFallback} fallbackTextStyle={styles.storyArtworkFallbackText} />
         </View>
-        <Text style={styles.lightKicker}>DogMedia / 30-day recap</Text>
+        <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
         <Text style={[styles.finalTitle, { fontSize: 48 * scale, lineHeight: 44 * scale, color: persona.palette?.accent || WRAPPED_COLORS.coral }]}>{persona.title || "Steady Signal"}</Text>
         <View style={styles.finalStats}>
           <FinalStat label="Play time" value={fmtTime(data.totalPlayTime)} color={persona.palette?.secondary} styles={styles} />
@@ -346,7 +352,7 @@ function storyChapter(id) {
   })[id] || "Recap";
 }
 
-function StoryViewer({ data, slides }) {
+function StoryViewer({ data, slides, wrappedCopy }) {
   const { colors, styles } = useWrappedTheme();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const listRef = useRef(null);
@@ -385,6 +391,7 @@ function StoryViewer({ data, slides }) {
               data={data}
               slide={item}
               total={slides.length}
+              wrappedCopy={wrappedCopy}
             />
           </View>
         )}
@@ -538,7 +545,7 @@ function CategoryList({ categories }) {
   );
 }
 
-function SummaryDashboard({ data, insets, periodLabel, timeline }) {
+function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) {
   const { styles } = useWrappedTheme();
   const topMedia = data.topMedia || [];
   const totalPlayTime = data.totalPlayTime || 0;
@@ -556,7 +563,7 @@ function SummaryDashboard({ data, insets, periodLabel, timeline }) {
       <View style={styles.summaryHero}>
         <Text style={styles.summaryEyebrow}>This device / {periodLabel}</Text>
         <Text style={styles.summaryHeroTitle}>Your playback pulse</Text>
-        <Text style={styles.summaryHeroSubtitle}>A detailed view of the same 30-day story.</Text>
+        <Text style={styles.summaryHeroSubtitle}>{wrappedCopy.storyDescription}</Text>
         <View style={styles.metrics}>
           <Metric label="Play time" value={fmtTime(totalPlayTime)} />
           <Metric label="Plays" value={formatNumber(totalPlays)} />
@@ -577,7 +584,7 @@ function SummaryDashboard({ data, insets, periodLabel, timeline }) {
       </View>
 
       <View style={styles.panel}>
-        <SectionHeading title="Playback rhythm" detail="Thirty days of tracked sessions" value={`${fmtTime(data.totals?.averageSession)} average`} />
+        <SectionHeading title="Playback rhythm" detail={wrappedCopy.rhythmDetail} value={`${fmtTime(data.totals?.averageSession)} average`} />
         <DailyPulse timeline={timeline} maxDayTime={maxDayTime} />
         <ActivityHeatmap timeline={timeline} maxDayTime={maxDayTime} />
       </View>
@@ -672,12 +679,16 @@ export function WrappedScreen({ onAccessChanged }) {
     [data, period.fromIso]
   );
   const slides = useMemo(() => buildWrappedSlides(data, timeline), [data, timeline]);
+  const wrappedCopy = useMemo(() => getWrappedCopy(data), [data]);
+  const serverPeriodLabel = data?.periodStart && data?.periodEnd
+    ? `${formatDateUtc(data.periodStart)} - ${formatDateUtc(data.periodEnd)}`
+    : period.label;
   const empty = data ? isWrappedEmpty(data) : false;
   const showSwitch = Boolean(data && !empty);
 
   return (
     <View style={styles.screen}>
-      <Header periodLabel={period.label} setView={setView} showSwitch={showSwitch} view={view} />
+      <Header periodLabel={serverPeriodLabel} setView={setView} showSwitch={showSwitch} view={view} />
       {error ? (
         <StateScreen>
           <View style={styles.warning}>
@@ -687,7 +698,7 @@ export function WrappedScreen({ onAccessChanged }) {
         </StateScreen>
       ) : locked ? (
         <StateScreen>
-          <EmptyState title="Wrapped locked" copy={`This playback report can only be opened once every 30 days. ${formatUnlockMessage(locked)}`} />
+          <EmptyState title="Wrapped locked" copy={getLockedCopy(locked)} />
         </StateScreen>
       ) : !data ? (
         <View style={styles.loadingState}>
@@ -699,9 +710,9 @@ export function WrappedScreen({ onAccessChanged }) {
           <EmptyState title="Your recap needs a first play" copy="Play audio or video from this device. Your next recap will turn those sessions into a playback story." />
         </StateScreen>
       ) : view === "story" ? (
-        <StoryViewer data={data} slides={slides} />
+        <StoryViewer data={data} slides={slides} wrappedCopy={wrappedCopy} />
       ) : (
-        <SummaryDashboard data={data} insets={insets} periodLabel={period.label} timeline={timeline} />
+        <SummaryDashboard data={data} insets={insets} periodLabel={serverPeriodLabel} timeline={timeline} wrappedCopy={wrappedCopy} />
       )}
     </View>
   );
@@ -859,3 +870,10 @@ const makeStyles = (colors) => StyleSheet.create({
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { color: colors.muted, fontSize: 12, fontWeight: "800" },
 });
+
+function getLockedCopy(locked) {
+  if (locked?.wrappedKind === "annual" || locked?.period?.kind === "annual-year") {
+    return `Annual Wrapped opens December 15. ${formatUnlockMessage(locked)}`;
+  }
+  return `This playback report can only be opened once every 30 days. ${formatUnlockMessage(locked)}`;
+}

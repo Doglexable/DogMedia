@@ -1093,10 +1093,11 @@
 
 .wrapped-story-navigation {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: 42px minmax(142px, auto) 42px;
   width: min(100%, 430px);
   align-items: center;
   gap: 10px;
+  justify-content: center;
 }
 
 .wrapped-page--fullscreen .wrapped-story-navigation {
@@ -1122,7 +1123,7 @@
   backdrop-filter: blur(16px) saturate(130%);
 }
 
-.wrapped-page--fullscreen .wrapped-story-navigation p {
+.wrapped-page--fullscreen .wrapped-story-navigation > p {
   color: rgba(245, 247, 244, 0.72);
 }
 
@@ -1131,7 +1132,7 @@
   cursor: default;
 }
 
-.wrapped-story-navigation p {
+.wrapped-story-navigation > p {
   margin: 0;
   overflow: hidden;
   color: var(--muted);
@@ -1146,8 +1147,9 @@
 .wrapped-download-tools {
   display: grid;
   justify-items: center;
-  gap: 10px;
-  margin-top: 22px;
+  gap: 5px;
+  margin: 0;
+  min-width: 0;
 }
 
 .wrapped-page--fullscreen .wrapped-download-tools {
@@ -1155,26 +1157,36 @@
 }
 
 .wrapped-download-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(68px, max-content);
   justify-content: center;
-  gap: 8px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .wrapped-download-actions button {
   display: inline-flex;
-  min-height: 42px;
+  width: auto;
+  min-width: 68px;
+  height: 34px;
+  min-height: 34px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 0 10px;
   border: 1px solid var(--card-border);
   border-radius: 8px;
   background: var(--card-bg);
   color: var(--text);
-  font-size: var(--fs-xs);
+  font-size: 0.7rem;
   font-weight: 900;
+  line-height: 1;
   cursor: pointer;
+}
+
+.wrapped-download-actions button svg {
+  font-size: 0.78rem;
 }
 
 .wrapped-download-actions button:first-child {
@@ -1206,6 +1218,7 @@
   color: var(--warning-text);
   font-size: var(--fs-xs);
   font-weight: 800;
+  text-align: center;
 }
 
 .wrapped-download-tools > .wrapped-export-status {
@@ -1325,10 +1338,6 @@
   .wrapped-slide--persona h2 { font-size: 3.35rem; }
   .wrapped-final-art { margin-bottom: 18px; }
   .wrapped-slide--final h2 { font-size: 2.9rem; }
-
-  .wrapped-download-tools {
-    margin-bottom: 8px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

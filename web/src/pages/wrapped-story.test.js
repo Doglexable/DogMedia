@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildWaveformPoints,
   buildWrappedSlides,
+  buildWrappedTimeline,
   collectWrappedSlideExports,
+  getWrappedCopy,
+  getWrappedPeriodDays,
   getWrappedSlideFilename,
   getWrappedMediaTitle,
   getWrappedThumbnailUrl,
@@ -31,6 +34,33 @@ describe("waveform and media fallbacks", () => {
     expect(getWrappedThumbnailUrl({ mediaId: 12 })).toBe("/api/media/12/thumbnail");
     expect(getWrappedThumbnailUrl({ mediaId: null })).toBeNull();
     expect(getWrappedMediaTitle({ mediaId: 12, title: "" })).toBe("Media #12");
+  });
+});
+
+describe("period-aware story helpers", () => {
+  it("keeps monthly copy as the default", () => {
+    expect(getWrappedCopy({ period: { kind: "rolling-30-day" } })).toMatchObject({
+      recapLabel: "30-day recap",
+      replayTitle: "Your 30-day replay",
+    });
+  });
+
+  it("renders annual copy and a server-sized timeline for annual reports", () => {
+    const data = {
+      wrappedKind: "annual",
+      periodStart: "2025-12-15T00:00:00.000Z",
+      periodEnd: "2026-12-15T23:59:59.999Z",
+      period: { kind: "annual-year", days: 366 },
+      timeline: [{ date: "2025-12-15", playTime: 90, plays: 1 }],
+    };
+
+    expect(getWrappedCopy(data)).toMatchObject({
+      recapLabel: "1-year recap",
+      replayTitle: "Your 1-year replay",
+    });
+    expect(getWrappedPeriodDays(data)).toBe(366);
+    expect(buildWrappedTimeline(data, data.periodStart)).toHaveLength(366);
+    expect(buildWrappedTimeline(data, data.periodStart)[0]).toMatchObject({ date: "2025-12-15", playTime: 90, plays: 1 });
   });
 });
 
