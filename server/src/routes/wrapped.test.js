@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { acquireWrappedAccessLock, getWrappedAccessStatus } from "./wrapped.js";
+import {
+  acquireWrappedAccessLock,
+  aggregateWrappedEvents,
+  deriveWrappedPersona,
+  getWrappedAccessStatus,
+} from "./wrapped.js";
 
 const DAY_MS = 86400000;
 const LOCK_MS = 30 * DAY_MS;
@@ -124,5 +129,110 @@ describe("getWrappedAccessStatus", () => {
       nextOpenAt: "2026-09-03T00:00:00.000Z",
       retryAfterSeconds: 2592000,
     });
+  });
+});
+
+function playbackEvent(id, action, position, occurredAt, overrides = {}) {
+  return {
+    id,
+    media_id: overrides.mediaId ?? 7,
+    media_title: overrides.title ?? "Long Play",
+    category_id: overrides.categoryId ?? 2,
+    category_name: overrides.categoryName ?? "Albums",
+    action,
+    position,
+    duration: overrides.duration ?? 3600,
+    occurred_at: occurredAt,
+  };
+}
+
+describe("aggregateWrappedEvents", () => {
+  const from = new Date("2026-07-01T00:00:00.000Z");
+  const to = new Date("2026-07-30T23:59:59.000Z");
+
+  it("counts repeated play-pause segments without summing absolute positions", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z"),
+      playbackEvent(2, "pause", 60, "2026-07-10T10:01:00.000Z"),
+      playbackEvent(3, "play", 60, "2026-07-10T10:02:00.000Z"),
+      playbackEvent(4, "pause", 120, "2026-07-10T10:03:00.000Z"),
+    ], from, to);
+
+    expect(report.totalPlayTime).toBe(120);
+    expect(report.totalPlays).toBe(2);
+    expect(report.topMedia[0]).toMatchObject({ playCount: 2, totalTime: 120 });
+    expect(report.timeline[0]).toMatchObject({ plays: 2, playTime: 120 });
+  });
+
+  it("accepts skip and end terminals and caps forward seeks by elapsed time", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 10, "2026-07-10T22:00:00.000Z"),
+      playbackEvent(2, "skip", 1000, "2026-07-10T22:00:20.000Z"),
+      playbackEvent(3, "play", 0, "2026-07-11T22:00:00.000Z", { mediaId: 8 }),
+      playbackEvent(4, "end", 30, "2026-07-11T22:00:30.000Z", { mediaId: 8 }),
+    ], from, to);
+
+    expect(report.totalPlayTime).toBe(50);
+    expect(report.rhythm.peakHour).toBe(22);
+    expect(report.rhythm.nightShare).toBe(1);
+    expect(report.rhythm.longestStreak).toBe(2);
+  });
+
+  it("ranks categories by tracked time and keeps plays without terminals", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { categoryId: 2, categoryName: "Albums" }),
+      playbackEvent(2, "pause", 50, "2026-07-10T10:00:50.000Z", { categoryId: 2, categoryName: "Albums" }),
+      playbackEvent(3, "play", 0, "2026-07-12T10:00:00.000Z", { mediaId: 9, categoryId: 3, categoryName: "Films" }),
+    ], from, to);
+
+    expect(report.topCategories[0]).toMatchObject({ name: "Albums", totalTime: 50 });
+    expect(report.totalPlays).toBe(2);
+    expect(report.totals.activeDays).toBe(2);
+    expect(report.milestones.firstPlayAt).toBe("2026-07-10T10:00:00.000Z");
+  });
+
+  it("groups rhythm using the browser timezone offset", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 0, "2026-07-10T17:00:00.000Z"),
+      playbackEvent(2, "pause", 60, "2026-07-10T17:01:00.000Z"),
+    ], from, to, { timezoneOffset: -420 });
+
+    expect(report.rhythm.peakHour).toBe(0);
+    expect(report.timeline[0].date).toBe("2026-07-11");
+    expect(report.period.timezoneOffset).toBe(-420);
+  });
+
+  it("returns a complete empty report", () => {
+    const report = aggregateWrappedEvents([], from, to);
+    expect(report).toMatchObject({
+      totalPlayTime: 0,
+      totalPlays: 0,
+      topMedia: [],
+      timeline: [],
+      topCategories: [],
+      rhythm: { peakHour: null, longestStreak: 0 },
+      milestones: { firstPlayAt: null, biggestDay: null },
+    });
+  });
+});
+
+describe("deriveWrappedPersona", () => {
+  const baseline = { totalPlayTime: 3600, averageSession: 600, distinctMedia: 4, leadShare: 0.25, nightShare: 0.1 };
+
+  it.each([
+    ["night-listener", { ...baseline, nightShare: 0.5 }],
+    ["loyalist", { ...baseline, leadShare: 0.5 }],
+    ["explorer", { ...baseline, distinctMedia: 8, leadShare: 0.2 }],
+    ["deep-diver", { ...baseline, averageSession: 1200 }],
+    ["steady-signal", baseline],
+    ["steady-signal", { ...baseline, totalPlayTime: 1799, nightShare: 1 }],
+  ])("returns %s for the matching threshold", (expected, metrics) => {
+    expect(deriveWrappedPersona(metrics).key).toBe(expected);
+  });
+
+  it("applies the minimum listening time and persona priority at their boundaries", () => {
+    expect(deriveWrappedPersona({ ...baseline, totalPlayTime: 1800, nightShare: 0.5 }).key).toBe("night-listener");
+    expect(deriveWrappedPersona({ ...baseline, nightShare: 0.5, leadShare: 0.8, averageSession: 1800 }).key).toBe("night-listener");
+    expect(deriveWrappedPersona({ ...baseline, leadShare: 0.5, distinctMedia: 12, averageSession: 1800 }).key).toBe("loyalist");
   });
 });

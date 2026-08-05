@@ -5,7 +5,7 @@ import { pipeline } from "stream/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
-import { LyricsValidationError, normalizeWhisperLyrics } from "../lyrics.js";
+import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
@@ -256,15 +256,7 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   );
 
   if (lyrics) {
-    await fastify.pg.query(
-      `INSERT INTO media_lyrics (media_id, language, segments)
-       VALUES ($1, $2, $3::jsonb)
-       ON CONFLICT (media_id) DO UPDATE
-       SET language = EXCLUDED.language,
-           segments = EXCLUDED.segments,
-           updated_at = NOW()`,
-      [mediaId, lyrics.language, JSON.stringify(lyrics.segments)]
-    );
+    await upsertUploadedLyrics(fastify.pg, mediaId, lyrics);
   }
 
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
@@ -334,15 +326,7 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
     if (lyrics === null) {
       await fastify.pg.query("DELETE FROM media_lyrics WHERE media_id = $1", [mediaId]);
     } else {
-      await fastify.pg.query(
-        `INSERT INTO media_lyrics (media_id, language, segments)
-         VALUES ($1, $2, $3::jsonb)
-         ON CONFLICT (media_id) DO UPDATE
-         SET language = EXCLUDED.language,
-             segments = EXCLUDED.segments,
-             updated_at = NOW()`,
-        [mediaId, lyrics.language, JSON.stringify(lyrics.segments)]
-      );
+      await upsertUploadedLyrics(fastify.pg, mediaId, lyrics);
     }
   }
 

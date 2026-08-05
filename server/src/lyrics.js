@@ -51,3 +51,19 @@ export function normalizeWhisperLyrics(payload) {
   return { language: language || null, segments };
 }
 
+export async function upsertUploadedLyrics(pg, mediaId, lyrics) {
+  const { rows } = await pg.query(
+    `INSERT INTO media_lyrics (media_id, language, segments, source, lookup_title, lookup_artists)
+     VALUES ($1, $2, $3::jsonb, 'uploaded', NULL, NULL)
+     ON CONFLICT (media_id) DO UPDATE
+     SET language = EXCLUDED.language,
+         segments = EXCLUDED.segments,
+         source = 'uploaded',
+         lookup_title = NULL,
+         lookup_artists = NULL,
+         updated_at = NOW()
+     RETURNING media_id, language, segments, updated_at`,
+    [mediaId, lyrics.language, JSON.stringify(lyrics.segments)]
+  );
+  return rows[0];
+}

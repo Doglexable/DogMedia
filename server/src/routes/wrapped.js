@@ -43,6 +43,223 @@ function subDays(date, days) {
   return result;
 }
 
+const PERSONA_PALETTES = {
+  "night-listener": { accent: "#2DC7C9", secondary: "#FF5A5F" },
+  loyalist: { accent: "#FF5A5F", secondary: "#FFD166" },
+  explorer: { accent: "#FFD166", secondary: "#2DC7C9" },
+  "deep-diver": { accent: "#2DC7C9", secondary: "#FFD166" },
+  "steady-signal": { accent: "#FF5A5F", secondary: "#2DC7C9" },
+};
+
+function eventValue(event, camelKey, snakeKey = camelKey) {
+  return event[camelKey] ?? event[snakeKey];
+}
+
+function startOfUtcDay(value) {
+  const date = new Date(value);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function longestDateStreak(days) {
+  let longest = 0;
+  let current = 0;
+  let previous = null;
+  for (const day of days) {
+    const timestamp = startOfUtcDay(day.date);
+    current = previous !== null && timestamp - previous === 86400000 ? current + 1 : 1;
+    longest = Math.max(longest, current);
+    previous = timestamp;
+  }
+  return longest;
+}
+
+export function deriveWrappedPersona({ averageSession = 0, distinctMedia = 0, leadShare = 0, nightShare = 0, totalPlayTime = 0 }) {
+  let key = "steady-signal";
+  let title = "Steady Signal";
+  let description = "You kept a measured rhythm and returned when the moment was right.";
+
+  if (totalPlayTime >= 1800) {
+    if (nightShare >= 0.5) {
+      key = "night-listener";
+      title = "Night Listener";
+      description = "Your library came alive after dark.";
+    } else if (leadShare >= 0.5) {
+      key = "loyalist";
+      title = "The Loyalist";
+      description = "One favorite held the center of your rotation.";
+    } else if (distinctMedia >= 8 && leadShare < 0.35) {
+      key = "explorer";
+      title = "The Explorer";
+      description = "You kept moving and gave the whole library a chance.";
+    } else if (averageSession >= 1200) {
+      key = "deep-diver";
+      title = "The Deep Diver";
+      description = "When you pressed play, you stayed with it.";
+    }
+  }
+
+  return { key, title, description, palette: PERSONA_PALETTES[key] };
+}
+
+function shiftedDateParts(date, timezoneOffset) {
+  const shifted = new Date(date.getTime() - timezoneOffset * 60000);
+  return {
+    date: shifted.toISOString().slice(0, 10),
+    dayIndex: shifted.getUTCDay(),
+    hour: shifted.getUTCHours(),
+  };
+}
+
+export function aggregateWrappedEvents(events = [], from = new Date(0), to = new Date(), options = {}) {
+  const timezoneOffset = Number.isFinite(Number(options.timezoneOffset))
+    ? Math.min(Math.max(Number(options.timezoneOffset), -840), 840)
+    : 0;
+  const sortedEvents = [...events].sort((a, b) => {
+    const timeDiff = new Date(eventValue(a, "occurredAt", "occurred_at")) - new Date(eventValue(b, "occurredAt", "occurred_at"));
+    return timeDiff || Number(eventValue(a, "id")) - Number(eventValue(b, "id"));
+  });
+  const openByMedia = new Map();
+  const mediaStats = new Map();
+  const categoryStats = new Map();
+  const dayStats = new Map();
+  const hourTime = Array.from({ length: 24 }, () => 0);
+  let totalPlays = 0;
+  let totalPlayTime = 0;
+  let segmentCount = 0;
+  let nightTime = 0;
+  let firstPlayAt = null;
+
+  const ensureMedia = (event) => {
+    const mediaId = Number(eventValue(event, "mediaId", "media_id"));
+    if (!Number.isFinite(mediaId)) return null;
+    if (!mediaStats.has(mediaId)) {
+      mediaStats.set(mediaId, {
+        mediaId,
+        title: eventValue(event, "mediaTitle", "media_title") || eventValue(event, "title") || `Media #${mediaId}`,
+        playCount: 0,
+        totalTime: 0,
+      });
+    }
+    return mediaStats.get(mediaId);
+  };
+
+  for (const event of sortedEvents) {
+    const action = eventValue(event, "action");
+    const media = ensureMedia(event);
+    if (!media) continue;
+    const mediaId = media.mediaId;
+    const occurredAt = new Date(eventValue(event, "occurredAt", "occurred_at"));
+    if (Number.isNaN(occurredAt.getTime())) continue;
+
+    if (action === "play") {
+      totalPlays += 1;
+      media.playCount += 1;
+      if (!firstPlayAt) firstPlayAt = occurredAt.toISOString();
+      const date = shiftedDateParts(occurredAt, timezoneOffset).date;
+      const day = dayStats.get(date) || { date, playTime: 0, plays: 0 };
+      day.plays += 1;
+      dayStats.set(date, day);
+      const categoryId = normalizeNullableInt(eventValue(event, "categoryId", "category_id"));
+      const categoryKey = categoryId ?? "unsorted";
+      const category = categoryStats.get(categoryKey) || {
+        categoryId,
+        name: eventValue(event, "categoryName", "category_name") || "Unsorted",
+        playCount: 0,
+        totalTime: 0,
+      };
+      category.playCount += 1;
+      categoryStats.set(categoryKey, category);
+      openByMedia.set(mediaId, {
+        occurredAt,
+        position: normalizeNonNegativeInt(eventValue(event, "position")),
+        duration: normalizeNonNegativeInt(eventValue(event, "duration")),
+        categoryKey,
+      });
+      continue;
+    }
+
+    if (!["pause", "end", "skip"].includes(action)) continue;
+    const start = openByMedia.get(mediaId);
+    if (!start) continue;
+    openByMedia.delete(mediaId);
+
+    const endPosition = normalizeNonNegativeInt(eventValue(event, "position"));
+    const positionDelta = Math.max(endPosition - start.position, 0);
+    const elapsed = Math.max(Math.floor((occurredAt - start.occurredAt) / 1000), 0);
+    const remaining = start.duration > 0 ? Math.max(start.duration - start.position, 0) : positionDelta;
+    const listened = Math.max(Math.min(positionDelta, elapsed, remaining), 0);
+    if (listened <= 0) continue;
+
+    totalPlayTime += listened;
+    segmentCount += 1;
+    media.totalTime += listened;
+    const startParts = shiftedDateParts(start.occurredAt, timezoneOffset);
+    const hour = startParts.hour;
+    hourTime[hour] += listened;
+    if (hour >= 21 || hour < 5) nightTime += listened;
+
+    const date = startParts.date;
+    const day = dayStats.get(date) || { date, playTime: 0, plays: 0 };
+    day.playTime += listened;
+    dayStats.set(date, day);
+
+    const category = categoryStats.get(start.categoryKey);
+    category.totalTime += listened;
+    categoryStats.set(start.categoryKey, category);
+  }
+
+  const topMedia = [...mediaStats.values()]
+    .sort((a, b) => b.totalTime - a.totalTime || b.playCount - a.playCount || a.mediaId - b.mediaId)
+    .slice(0, 5)
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+  const timeline = [...dayStats.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const topCategories = [...categoryStats.values()]
+    .sort((a, b) => b.totalTime - a.totalTime || b.playCount - a.playCount)
+    .slice(0, 3)
+    .map((item, index) => ({ ...item, rank: index + 1 }));
+  const weekdayTotals = Array.from({ length: 7 }, (_, dayIndex) => ({ dayIndex, playTime: 0, plays: 0 }));
+  for (const day of timeline) {
+    const weekday = new Date(`${day.date}T00:00:00.000Z`).getUTCDay();
+    weekdayTotals[weekday].playTime += day.playTime;
+    weekdayTotals[weekday].plays += day.plays;
+  }
+  const busiestDay = [...timeline].sort((a, b) => b.playTime - a.playTime || b.plays - a.plays)[0] || null;
+  const busiestWeekday = weekdayTotals.sort((a, b) => b.playTime - a.playTime || b.plays - a.plays)[0];
+  const peakHourTime = Math.max(...hourTime);
+  const peakHour = peakHourTime > 0 ? hourTime.indexOf(peakHourTime) : null;
+  const distinctMedia = [...mediaStats.values()].filter((item) => item.playCount > 0).length;
+  const averageSession = segmentCount ? Math.floor(totalPlayTime / segmentCount) : 0;
+  const leadShare = totalPlayTime ? (topMedia[0]?.totalTime || 0) / totalPlayTime : 0;
+  const nightShare = totalPlayTime ? nightTime / totalPlayTime : 0;
+  const activeDays = timeline.length;
+  const persona = deriveWrappedPersona({ averageSession, distinctMedia, leadShare, nightShare, totalPlayTime });
+
+  return {
+    period: {
+      kind: "rolling-30-day",
+      days: 30,
+      start: from.toISOString(),
+      end: to.toISOString(),
+      timezoneOffset,
+    },
+    totalPlayTime,
+    totalPlays,
+    topMedia,
+    timeline,
+    totals: { playTime: totalPlayTime, plays: totalPlays, activeDays, distinctMedia, averageSession },
+    rhythm: {
+      peakHour,
+      nightShare,
+      busiestDay,
+      busiestWeekday,
+      longestStreak: longestDateStreak(timeline),
+    },
+    milestones: { firstPlayAt, biggestDay: busiestDay },
+    topCategories,
+    persona,
+  };
+}
+
 function mapWrappedAccessLock(row) {
   return {
     allowed: row.allowed,
@@ -235,70 +452,37 @@ export async function getWrappedAccessStatus(client, clientIp) {
   return mapWrappedAccessStatus(rows[0]);
 }
 
-async function getCurrentIpWrapped(fastify, request, from, to) {
+async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 0) {
   const clientIp = request.clientIp || request.ip;
   const params = [from.toISOString(), to.toISOString(), clientIp];
-  const [{ rows: totalRows }, { rows: topMediaRows }, { rows: timelineRows }] = await Promise.all([
-    fastify.pg.query(
-      `SELECT
-         COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS total_play_time,
-         COUNT(*) FILTER (WHERE action = 'play')::int AS total_plays
-       FROM playback_events
-       WHERE occurred_at >= $1
-         AND occurred_at <= $2
-         AND client_ip = $3::inet`,
-      params
-    ),
-    fastify.pg.query(
-      `SELECT
-         pe.media_id,
-         COALESCE(MAX(ma.title), MAX(pe.title), 'Media #' || pe.media_id::text) AS title,
-         COUNT(*) FILTER (WHERE pe.action = 'play')::int AS play_count,
-         COALESCE(SUM(CASE WHEN pe.action IN ('pause', 'end') THEN pe.position ELSE 0 END), 0)::int AS total_time
-       FROM playback_events pe
-       LEFT JOIN media_assets ma ON ma.id = pe.media_id
-       WHERE pe.occurred_at >= $1
-         AND pe.occurred_at <= $2
-         AND pe.client_ip = $3::inet
-         AND pe.media_id IS NOT NULL
-       GROUP BY pe.media_id
-       ORDER BY total_time DESC, play_count DESC, pe.media_id ASC
-       LIMIT 5`,
-      params
-    ),
-    fastify.pg.query(
-      `SELECT
-         occurred_at::date AS activity_date,
-         COALESCE(SUM(CASE WHEN action IN ('pause', 'end') THEN position ELSE 0 END), 0)::int AS play_time,
-         COUNT(*) FILTER (WHERE action = 'play')::int AS plays
-       FROM playback_events
-       WHERE occurred_at >= $1
-         AND occurred_at <= $2
-         AND client_ip = $3::inet
-       GROUP BY occurred_at::date
-       ORDER BY occurred_at::date`,
-      params
-    ),
-  ]);
+  const { rows } = await fastify.pg.query(
+    `SELECT
+       pe.id,
+       pe.media_id,
+       pe.action,
+       pe.position,
+       pe.duration,
+       pe.title,
+       pe.occurred_at,
+       ma.title AS media_title,
+       ma.category_id,
+       c.name AS category_name
+     FROM playback_events pe
+     LEFT JOIN media_assets ma ON ma.id = pe.media_id
+     LEFT JOIN categories c ON c.id = ma.category_id
+     WHERE pe.occurred_at >= $1
+       AND pe.occurred_at <= $2
+       AND pe.client_ip = $3::inet
+     ORDER BY pe.occurred_at, pe.id`,
+    params
+  );
+  const wrapped = aggregateWrappedEvents(rows, from, to, { timezoneOffset });
 
   return {
     clientIp,
-    periodStart: from.toISOString(),
-    periodEnd: to.toISOString(),
-    totalPlayTime: totalRows[0]?.total_play_time || 0,
-    totalPlays: totalRows[0]?.total_plays || 0,
-    topMedia: topMediaRows.map((row, index) => ({
-      mediaId: row.media_id,
-      title: row.title,
-      playCount: row.play_count,
-      totalTime: row.total_time,
-      rank: index + 1,
-    })),
-    timeline: timelineRows.map((row) => ({
-      date: formatDate(row.activity_date),
-      playTime: row.play_time,
-      plays: row.plays,
-    })),
+    periodStart: wrapped.period.start,
+    periodEnd: wrapped.period.end,
+    ...wrapped,
   };
 }
 
@@ -329,7 +513,8 @@ export default async function (fastify) {
         });
     }
 
-    const wrapped = await getCurrentIpWrapped(fastify, request, from, to);
+    const timezoneOffset = Math.min(Math.max(Number.parseInt(request.query.timezoneOffset, 10) || 0, -840), 840);
+    const wrapped = await getCurrentIpWrapped(fastify, request, from, to, timezoneOffset);
     return {
       ...wrapped,
       access: {

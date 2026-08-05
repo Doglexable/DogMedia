@@ -6,6 +6,17 @@ export function findActiveLyricsIndex(segments, position) {
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
 }
 
+export function getLyricsScrollBehavior(prefersReducedMotion) {
+  return prefersReducedMotion ? "auto" : "smooth";
+}
+
+function scrollActiveLineIntoView(list, activeLine) {
+  if (!list || !activeLine) return;
+  const top = activeLine.offsetTop - list.clientHeight / 2 + activeLine.offsetHeight / 2;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  list.scrollTo({ top: Math.max(0, top), behavior: getLyricsScrollBehavior(reducedMotion) });
+}
+
 function useSynchronizedLyrics(mediaId) {
   const [lyrics, setLyrics] = useState(null);
 
@@ -43,10 +54,7 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
   useEffect(() => {
     const list = listRef.current;
     const activeLine = lineRefs.current[activeIndex];
-    if (!list || !activeLine) return;
-
-    const top = activeLine.offsetTop - list.clientHeight / 2 + activeLine.offsetHeight / 2;
-    list.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    scrollActiveLineIntoView(list, activeLine);
   }, [activeIndex]);
 
   if (!lyrics?.segments?.length) return null;
@@ -89,10 +97,7 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
   useEffect(() => {
     const list = listRef.current;
     const activeLine = lineRefs.current[displayActiveIndex];
-    if (!list || !activeLine) return;
-
-    const top = activeLine.offsetTop - list.clientHeight / 2 + activeLine.offsetHeight / 2;
-    list.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    scrollActiveLineIntoView(list, activeLine);
   }, [displayActiveIndex]);
 
   if (!lyrics?.segments?.length) {
