@@ -1,9 +1,16 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { api, apiJson, mediaStreamUrl } from "../api";
+import { apiJson, mediaStreamUrl } from "../api";
 import { getMediaKind, nextLoopMode } from "../utils/media";
+import {
+  getCompletionAction,
+  getQueueNavigation,
+  isValidResumePosition,
+  normalizeQueueState,
+} from "../utils/player-state";
 
 const PlayerContext = createContext(null);
+const PROGRESS_SYNC_SECONDS = 10;
 
 export function usePlayer() {
   return useContext(PlayerContext);
@@ -12,6 +19,28 @@ export function usePlayer() {
 export function PlayerProvider({ children }) {
   const soundRef = useRef(null);
   const soundSubscriptionRef = useRef(null);
+  const videoControllerRef = useRef(null);
+  const currentMediaRef = useRef(null);
+  const positionRef = useRef(0);
+  const durationRef = useRef(0);
+  const pausedRef = useRef(true);
+  const volumeRef = useRef(0.85);
+  const mutedRef = useRef(false);
+  const loopModeRef = useRef("none");
+  const shuffleEnabledRef = useRef(false);
+  const queueIdsRef = useRef([]);
+  const queueIndexRef = useRef(0);
+  const pendingStartPositionRef = useRef(null);
+  const awaitingAutoplayRef = useRef(null);
+  const completedMediaRef = useRef(null);
+  const lastResumeSaveRef = useRef(0);
+  const lastActiveUpdateRef = useRef(0);
+  const resumeLoadSequenceRef = useRef(0);
+  const activeRestoreStartedRef = useRef(false);
+  const handleEndedRef = useRef(() => {});
+  const reportPlayingRef = useRef(() => {});
+  const reportProgressRef = useRef(() => {});
+
   const [currentMedia, setCurrentMedia] = useState(null);
   const [paused, setPaused] = useState(true);
   const [position, setPosition] = useState(0);
@@ -20,203 +49,511 @@ export function PlayerProvider({ children }) {
   const [muted, setMuted] = useState(false);
   const [loopMode, setLoopMode] = useState("none");
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
+  const [resumePosition, setResumePosition] = useState(null);
   const [queueIds, setQueueIds] = useState([]);
   const [queueItems, setQueueItems] = useState([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [likedIds, setLikedIds] = useState(new Set());
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
-  const hasPrev = queueIndex > 0;
-  const hasNext = queueIndex > -1 && queueIndex < queueIds.length - 1;
+  const navigation = getQueueNavigation(queueIds, queueIndex, loopMode);
+
+  const applyQueue = useCallback((data, mediaId = currentMediaRef.current?.id) => {
+    const normalized = normalizeQueueState(data, mediaId);
+    if (!normalized) return data;
+
+    queueIdsRef.current = normalized.queueIds;
+    queueIndexRef.current = normalized.queueIndex;
+    setQueueIds(normalized.queueIds);
+    setQueueItems(normalized.queueItems);
+    setQueueIndex(normalized.queueIndex);
+    return data;
+  }, []);
+
+  const refreshQueue = useCallback(() => (
+    apiJson("/api/queue").then((data) => applyQueue(data))
+  ), [applyQueue]);
+
+  const refreshLikes = useCallback(() => (
+    apiJson("/api/likes")
+      .then((items) => setLikedIds(new Set(items.map((item) => Number(item.id)))))
+      .catch(() => {})
+  ), []);
+
+  const playbackPayload = useCallback((media, action, nextPosition, nextDuration) => ({
+    mediaId: Number(media.id),
+    title: media.title,
+    action,
+    position: Math.floor(nextPosition || 0),
+    duration: Math.floor(nextDuration || media.duration || 0),
+    loopMode: loopModeRef.current,
+    shuffleEnabled: shuffleEnabledRef.current,
+  }), []);
+
+  const sendPlaybackEvent = useCallback((media, action, nextPosition = 0, nextDuration = 0) => {
+    if (!media) return Promise.resolve();
+    return apiJson("/api/playback/event", {
+      method: "POST",
+      body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
+    }).catch(() => {});
+  }, [playbackPayload]);
+
+  const sendActiveSession = useCallback((media, action, nextPosition = 0, nextDuration = 0) => {
+    if (!media) return Promise.resolve();
+    return apiJson("/api/playback/active", {
+      method: "POST",
+      body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
+    }).catch(() => {});
+  }, [playbackPayload]);
+
+  const saveResumePositionFor = useCallback((media, nextPosition, nextDuration) => {
+    if (!media || getMediaKind(media.mime_type) === "image") return Promise.resolve();
+    if (!isValidResumePosition(nextPosition, nextDuration)) return Promise.resolve();
+
+    return apiJson(`/api/playback/resume/${Number(media.id)}`, {
+      method: "POST",
+      body: JSON.stringify({
+        position: Math.floor(nextPosition || 0),
+        duration: Math.floor(nextDuration || media.duration || 0),
+      }),
+    }).catch(() => {});
+  }, []);
+
+  const loadResumePosition = useCallback((media) => {
+    if (!media || getMediaKind(media.mime_type) === "image") return;
+    const sequence = resumeLoadSequenceRef.current + 1;
+    resumeLoadSequenceRef.current = sequence;
+
+    apiJson(`/api/playback/resume/${Number(media.id)}`)
+      .then((data) => {
+        if (resumeLoadSequenceRef.current !== sequence) return;
+        const nextDuration = data.duration || media.duration || durationRef.current;
+        setResumePosition(isValidResumePosition(data.position, nextDuration) ? Math.floor(data.position) : null);
+      })
+      .catch(() => {});
+  }, []);
 
   const unloadSound = useCallback(async () => {
-    if (!soundRef.current) return;
     const sound = soundRef.current;
     soundRef.current = null;
     soundSubscriptionRef.current?.remove?.();
     soundSubscriptionRef.current = null;
+    if (!sound) return;
+    try {
+      sound.pause();
+    } catch {
+      // The player can already be detached while its native resource is removed.
+    }
     sound.remove();
   }, []);
 
-  const stopCurrentPlayback = useCallback(async () => {
-    const sound = soundRef.current;
-    if (sound?.pause) {
-      try {
-        sound.pause();
-      } catch {
-        // The player is being replaced; removal below is the important cleanup.
-      }
+  const reportProgress = useCallback((nextPosition, nextDuration = durationRef.current) => {
+    const media = currentMediaRef.current;
+    if (!media) return;
+
+    const normalizedPosition = Math.max(0, Math.floor(Number(nextPosition) || 0));
+    const normalizedDuration = Math.max(0, Math.floor(Number(nextDuration) || media.duration || 0));
+    positionRef.current = normalizedPosition;
+    durationRef.current = normalizedDuration;
+    setPosition(normalizedPosition);
+    setDuration(normalizedDuration);
+
+    if (pausedRef.current || getMediaKind(media.mime_type) === "image") return;
+    if (normalizedPosition - lastResumeSaveRef.current >= PROGRESS_SYNC_SECONDS) {
+      lastResumeSaveRef.current = normalizedPosition;
+      saveResumePositionFor(media, normalizedPosition, normalizedDuration);
     }
-    await unloadSound();
-  }, [unloadSound]);
+    if (normalizedPosition - lastActiveUpdateRef.current >= PROGRESS_SYNC_SECONDS) {
+      lastActiveUpdateRef.current = normalizedPosition;
+      sendActiveSession(media, "play", normalizedPosition, normalizedDuration);
+    }
+  }, [saveResumePositionFor, sendActiveSession]);
+  reportProgressRef.current = reportProgress;
 
-  const refreshLikes = useCallback(() => {
-    return apiJson("/api/likes")
-      .then((items) => setLikedIds(new Set(items.map((item) => Number(item.id)))))
-      .catch(() => {});
-  }, []);
+  const reportPlaying = useCallback((isPlaying) => {
+    const media = currentMediaRef.current;
+    if (!media) return;
 
-  const applyQueue = useCallback((data, mediaId = currentMedia?.id) => {
-    if (!Array.isArray(data?.queue)) return data;
-    const ids = data.queue.map(Number);
-    const index = ids.indexOf(Number(mediaId));
-    setQueueIds(ids);
-    setQueueItems(Array.isArray(data.items) ? data.items : []);
-    setQueueIndex(index > -1 ? index : 0);
-    return data;
-  }, [currentMedia?.id]);
+    if (!isPlaying && completedMediaRef.current === Number(media.id)) {
+      completedMediaRef.current = null;
+      pausedRef.current = true;
+      setPaused(true);
+      return;
+    }
+    if (!isPlaying && awaitingAutoplayRef.current === Number(media.id)) return;
+    if (isPlaying) awaitingAutoplayRef.current = null;
 
-  const refreshQueue = useCallback(() => {
-    return apiJson("/api/queue").then((data) => applyQueue(data));
-  }, [applyQueue]);
+    const nextPaused = !isPlaying;
+    if (pausedRef.current === nextPaused) return;
+    pausedRef.current = nextPaused;
+    setPaused(nextPaused);
 
-  useEffect(() => {
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      shouldPlayInBackground: false,
-      shouldRouteThroughEarpiece: false,
-    }).catch(() => {});
-    refreshLikes();
-    refreshQueue().catch(() => {});
+    const nextPosition = positionRef.current;
+    const nextDuration = durationRef.current || media.duration || 0;
+    const action = isPlaying ? "play" : "pause";
+    if (!isPlaying) saveResumePositionFor(media, nextPosition, nextDuration);
+    sendPlaybackEvent(media, action, nextPosition, nextDuration);
+    sendActiveSession(media, action, nextPosition, nextDuration);
+  }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent]);
+  reportPlayingRef.current = reportPlaying;
 
-    return () => {
-      unloadSound();
-    };
-  }, [refreshLikes, refreshQueue, unloadSound]);
-
-  const loadAudio = useCallback(async (media, autoplay = true) => {
+  const loadAudio = useCallback(async (media, autoplay, startPosition) => {
     const sound = createAudioPlayer({ uri: mediaStreamUrl(media.id) }, { updateInterval: 500 });
-    sound.volume = muted ? 0 : volume;
-    sound.loop = loopMode === "media";
+    sound.volume = mutedRef.current ? 0 : volumeRef.current;
+    sound.loop = false;
     soundRef.current = sound;
     soundSubscriptionRef.current = sound.addListener("playbackStatusUpdate", (status) => {
-      if (!status.isLoaded) return;
-      setPosition(Math.floor(status.currentTime || 0));
-      setDuration(Math.floor(status.duration || media.duration || 0));
-      setPaused(!status.playing);
+      if (!status.isLoaded || Number(currentMediaRef.current?.id) !== Number(media.id)) return;
+      reportProgressRef.current(status.currentTime, status.duration || media.duration || 0);
+      if (status.didJustFinish) {
+        if (awaitingAutoplayRef.current !== Number(media.id)) handleEndedRef.current();
+        return;
+      }
+      reportPlayingRef.current(Boolean(status.playing));
     });
+
+    if (startPosition > 0) await sound.seekTo(startPosition);
     if (autoplay) sound.play();
-  }, [loopMode, muted, volume]);
+  }, []);
 
-  const startMedia = useCallback(async (media, autoplay = true) => {
+  const startMedia = useCallback(async (media, options = {}) => {
     if (!media) return;
-    await stopCurrentPlayback();
-    setCurrentMedia(media);
-    setPosition(0);
-    setDuration(media.duration || 0);
-    setPaused(!autoplay);
+    const {
+      autoplay = true,
+      loadResume = true,
+      replacementAction = "skip",
+      startPosition = 0,
+    } = options;
+    const previousMedia = currentMediaRef.current;
+    const previousPosition = positionRef.current;
+    const previousDuration = durationRef.current || previousMedia?.duration || 0;
 
-    if (getMediaKind(media.mime_type) === "audio") {
-      await loadAudio(media, autoplay);
-    } else {
-      setPaused(true);
+    if (previousMedia && Number(previousMedia.id) !== Number(media.id)) {
+      saveResumePositionFor(previousMedia, previousPosition, previousDuration);
+      if (replacementAction) {
+        sendPlaybackEvent(previousMedia, replacementAction, previousPosition, previousDuration);
+        sendActiveSession(previousMedia, replacementAction, previousPosition, previousDuration);
+      }
     }
-  }, [loadAudio, stopCurrentPlayback]);
 
-  const playMedia = useCallback(async (media, categoryId = null) => {
+    await unloadSound();
+    videoControllerRef.current = null;
+    resumeLoadSequenceRef.current += 1;
+    setResumePosition(null);
+
+    const normalizedStart = Math.max(0, Math.floor(Number(startPosition) || 0));
+    currentMediaRef.current = media;
+    positionRef.current = normalizedStart;
+    durationRef.current = Math.floor(media.duration || 0);
+    pausedRef.current = getMediaKind(media.mime_type) === "image" ? true : !autoplay;
+    pendingStartPositionRef.current = normalizedStart > 0 ? normalizedStart : null;
+    awaitingAutoplayRef.current = autoplay ? Number(media.id) : null;
+    completedMediaRef.current = null;
+    lastResumeSaveRef.current = normalizedStart;
+    lastActiveUpdateRef.current = normalizedStart;
+    setCurrentMedia(media);
+    setPosition(normalizedStart);
+    setDuration(Math.floor(media.duration || 0));
+    setPaused(pausedRef.current);
+
+    const kind = getMediaKind(media.mime_type);
+    if (kind === "audio") {
+      pendingStartPositionRef.current = null;
+      await loadAudio(media, autoplay, normalizedStart);
+    } else if (kind === "image" && autoplay) {
+      sendActiveSession(media, "play", 0, media.duration || 0);
+    }
+
+    if (autoplay && kind !== "image") {
+      sendPlaybackEvent(media, "play", normalizedStart, media.duration || 0);
+      sendActiveSession(media, "play", normalizedStart, media.duration || 0);
+    }
+    if (loadResume) loadResumePosition(media);
+  }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
+
+  const stopPlayback = useCallback(async () => {
+    const media = currentMediaRef.current;
+    const nextPosition = positionRef.current;
+    const nextDuration = durationRef.current || media?.duration || 0;
+    if (media) {
+      saveResumePositionFor(media, nextPosition, nextDuration);
+      sendPlaybackEvent(media, "pause", nextPosition, nextDuration);
+      sendActiveSession(media, "pause", nextPosition, nextDuration);
+    }
+
+    pausedRef.current = true;
+    videoControllerRef.current?.pause?.();
+    videoControllerRef.current = null;
+    await unloadSound();
+    resumeLoadSequenceRef.current += 1;
+    currentMediaRef.current = null;
+    positionRef.current = 0;
+    durationRef.current = 0;
+    awaitingAutoplayRef.current = null;
+    pendingStartPositionRef.current = null;
+    setCurrentMedia(null);
+    setPosition(0);
+    setDuration(0);
+    setPaused(true);
+    setResumePosition(null);
+  }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
+
+  const recordCurrentSkip = useCallback(() => {
+    const media = currentMediaRef.current;
     if (!media) return;
-    await startMedia(media, true);
+    const nextPosition = positionRef.current;
+    const nextDuration = durationRef.current || media.duration || 0;
+    saveResumePositionFor(media, nextPosition, nextDuration);
+    sendPlaybackEvent(media, "skip", nextPosition, nextDuration);
+    sendActiveSession(media, "skip", nextPosition, nextDuration);
+  }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent]);
 
-    const endpoint = categoryId
-      ? `/api/queue/auto/${categoryId}?start=${media.id}`
-      : `/api/queue/auto?start=${media.id}`;
-    api(endpoint, { method: "POST" })
-      .then((response) => response.json())
-      .then((data) => applyQueue(data, media.id))
-      .catch(() => {});
-  }, [applyQueue, startMedia]);
-
-  const selectQueueItem = useCallback((media) => {
+  const selectQueueItem = useCallback((media, options = {}) => {
+    const { skipCurrent = true } = options;
+    if (!media) return Promise.resolve(null);
     return apiJson("/api/queue/select", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
     }).then(async (data) => {
+      if (skipCurrent && Number(currentMediaRef.current?.id) !== Number(media.id)) recordCurrentSkip();
       applyQueue(data, media.id);
-      await startMedia(media, true);
+      await startMedia(media, { replacementAction: null });
       return data;
     });
+  }, [applyQueue, recordCurrentSkip, startMedia]);
+
+  const playQueueId = useCallback(async (mediaId, options = {}) => {
+    const media = await apiJson(`/api/media/${Number(mediaId)}`);
+    return selectQueueItem(media, options);
+  }, [selectQueueItem]);
+
+  const advance = useCallback(async (direction, options = {}) => {
+    const { skipCurrent = true } = options;
+    const ids = queueIdsRef.current;
+    const index = queueIndexRef.current;
+    const state = getQueueNavigation(ids, index, loopModeRef.current);
+    const isNext = direction !== "prev";
+    const hasLinearTarget = isNext ? state.hasLinearNext : state.hasLinearPrev;
+
+    if (!hasLinearTarget) {
+      if (loopModeRef.current !== "queue" || ids.length <= 1) return null;
+      const wrapId = isNext ? ids[0] : ids[ids.length - 1];
+      return playQueueId(wrapId, { skipCurrent });
+    }
+
+    const data = await apiJson(isNext ? "/api/queue/next" : "/api/queue/prev", { method: "POST" });
+    if (!data.mediaId) return null;
+    if (skipCurrent) recordCurrentSkip();
+    const media = await apiJson(`/api/media/${Number(data.mediaId)}`);
+    await startMedia(media, { replacementAction: null });
+    await refreshQueue().catch(() => {});
+    return media;
+  }, [playQueueId, recordCurrentSkip, refreshQueue, startMedia]);
+
+  const handleEnded = useCallback(async () => {
+    const media = currentMediaRef.current;
+    if (!media || completedMediaRef.current === Number(media.id)) return;
+    completedMediaRef.current = Number(media.id);
+    const nextPosition = positionRef.current || durationRef.current || media.duration || 0;
+    const nextDuration = durationRef.current || media.duration || 0;
+    sendPlaybackEvent(media, "end", nextPosition, nextDuration);
+    sendActiveSession(media, "end", nextPosition, nextDuration);
+
+    const queueState = getQueueNavigation(
+      queueIdsRef.current,
+      queueIndexRef.current,
+      loopModeRef.current
+    );
+    const action = getCompletionAction({
+      hasLinearNext: queueState.hasLinearNext,
+      loopMode: loopModeRef.current,
+      queueLength: queueIdsRef.current.length,
+    });
+
+    if (action === "repeat") {
+      completedMediaRef.current = null;
+      positionRef.current = 0;
+      setPosition(0);
+      awaitingAutoplayRef.current = Number(media.id);
+      pausedRef.current = false;
+      setPaused(false);
+      if (soundRef.current) await soundRef.current.seekTo(0);
+      else videoControllerRef.current?.seek?.(0);
+      sendPlaybackEvent(media, "play", 0, nextDuration);
+      sendActiveSession(media, "play", 0, nextDuration);
+      if (soundRef.current) soundRef.current.play();
+      else videoControllerRef.current?.play?.();
+      return;
+    }
+
+    if (action === "advance") {
+      await advance("next", { skipCurrent: false });
+      return;
+    }
+    if (action === "wrap") {
+      await playQueueId(queueIdsRef.current[0], { skipCurrent: false });
+      return;
+    }
+
+    pausedRef.current = true;
+    setPaused(true);
+  }, [advance, playQueueId, sendActiveSession, sendPlaybackEvent]);
+  handleEndedRef.current = handleEnded;
+
+  const playMedia = useCallback(async (media, categoryId = null) => {
+    if (!media) return;
+    await startMedia(media, { autoplay: true, replacementAction: "skip" });
+    const endpoint = categoryId
+      ? `/api/queue/auto/${categoryId}?start=${media.id}`
+      : `/api/queue/auto?start=${media.id}`;
+    apiJson(endpoint, { method: "POST" })
+      .then((data) => applyQueue(data, media.id))
+      .catch(() => {});
   }, [applyQueue, startMedia]);
 
-  const playQueueIndex = useCallback(async (index) => {
-    const item = queueItems[index];
-    if (!item) return;
-    await selectQueueItem(item);
-  }, [queueItems, selectQueueItem]);
-
-  const advance = useCallback(async (direction) => {
-    const delta = direction === "prev" ? -1 : 1;
-    const nextIndex = queueIndex + delta;
-    if (nextIndex >= 0 && nextIndex < queueItems.length) {
-      await playQueueIndex(nextIndex);
-    }
-  }, [playQueueIndex, queueIndex, queueItems.length]);
-
-  const togglePlayback = useCallback(async () => {
-    if (currentKind !== "audio" || !soundRef.current) return;
-    if (paused) {
-      soundRef.current.play();
+  const togglePlayback = useCallback(() => {
+    if (!currentMediaRef.current || getMediaKind(currentMediaRef.current.mime_type) === "image") return;
+    if (pausedRef.current) {
+      reportPlayingRef.current(true);
+      if (soundRef.current) soundRef.current.play();
+      else videoControllerRef.current?.play?.();
     } else {
-      soundRef.current.pause();
+      awaitingAutoplayRef.current = null;
+      reportPlayingRef.current(false);
+      if (soundRef.current) soundRef.current.pause();
+      else videoControllerRef.current?.pause?.();
     }
-  }, [currentKind, paused]);
-
-  const seek = useCallback(async (seconds) => {
-    const nextPosition = Math.max(0, Number(seconds) || 0);
-    setPosition(nextPosition);
-    if (soundRef.current) await soundRef.current.seekTo(nextPosition);
   }, []);
 
-  const changeVolume = useCallback(async (nextVolume) => {
+  const seek = useCallback(async (seconds) => {
+    const nextDuration = durationRef.current || currentMediaRef.current?.duration || 0;
+    const nextPosition = Math.min(Math.max(0, Number(seconds) || 0), nextDuration || Infinity);
+    positionRef.current = nextPosition;
+    setPosition(nextPosition);
+    if (soundRef.current) await soundRef.current.seekTo(nextPosition);
+    else videoControllerRef.current?.seek?.(nextPosition);
+  }, []);
+
+  const applyResumePosition = useCallback(async () => {
+    const nextPosition = resumePosition;
+    const nextDuration = durationRef.current || currentMediaRef.current?.duration || 0;
+    setResumePosition(null);
+    if (!isValidResumePosition(nextPosition, nextDuration)) return;
+    await seek(nextPosition);
+    lastResumeSaveRef.current = nextPosition;
+    lastActiveUpdateRef.current = nextPosition;
+  }, [resumePosition, seek]);
+
+  const registerVideoController = useCallback((controller) => {
+    videoControllerRef.current = controller;
+    if (!controller) return () => {};
+    controller.setVolume?.(mutedRef.current ? 0 : volumeRef.current);
+    controller.setLoop?.(false);
+    if (pendingStartPositionRef.current != null) {
+      controller.seek?.(pendingStartPositionRef.current);
+      pendingStartPositionRef.current = null;
+    }
+    return () => {
+      if (videoControllerRef.current === controller) videoControllerRef.current = null;
+    };
+  }, []);
+
+  const reportVideoProgress = useCallback((nextPosition, nextDuration) => {
+    reportProgress(nextPosition, nextDuration);
+  }, [reportProgress]);
+
+  const reportVideoPlaying = useCallback((isPlaying) => {
+    reportPlaying(isPlaying);
+  }, [reportPlaying]);
+
+  const reportVideoEnded = useCallback(() => {
+    handleEnded();
+  }, [handleEnded]);
+
+  const changeVolume = useCallback((nextVolume) => {
     const normalized = Math.min(Math.max(Number(nextVolume) || 0, 0), 1);
+    volumeRef.current = normalized;
+    mutedRef.current = normalized <= 0;
     setVolume(normalized);
     setMuted(normalized <= 0);
     if (soundRef.current) soundRef.current.volume = normalized;
+    videoControllerRef.current?.setVolume?.(normalized);
   }, []);
 
-  const toggleMute = useCallback(async () => {
-    const nextMuted = !muted;
+  const toggleMute = useCallback(() => {
+    const nextMuted = !mutedRef.current;
+    mutedRef.current = nextMuted;
     setMuted(nextMuted);
-    if (soundRef.current) soundRef.current.volume = nextMuted ? 0 : volume;
-  }, [muted, volume]);
-
-  const toggleLoop = useCallback(async () => {
-    setLoopMode((mode) => {
-      const next = nextLoopMode(mode);
-      if (soundRef.current) soundRef.current.loop = next === "media";
-      return next;
-    });
+    const nextVolume = nextMuted ? 0 : volumeRef.current;
+    if (soundRef.current) soundRef.current.volume = nextVolume;
+    videoControllerRef.current?.setVolume?.(nextVolume);
   }, []);
 
-  const addToQueue = useCallback((media) => {
-    return apiJson("/api/queue/items", {
+  const toggleLoop = useCallback(() => {
+    const next = nextLoopMode(loopModeRef.current);
+    loopModeRef.current = next;
+    setLoopMode(next);
+    const media = currentMediaRef.current;
+    if (media) sendActiveSession(media, pausedRef.current ? "pause" : "play", positionRef.current, durationRef.current);
+  }, [sendActiveSession]);
+
+  const toggleShuffle = useCallback(() => {
+    if (shuffleEnabledRef.current) {
+      shuffleEnabledRef.current = false;
+      setShuffleEnabled(false);
+      const media = currentMediaRef.current;
+      if (media) sendActiveSession(media, pausedRef.current ? "pause" : "play", positionRef.current, durationRef.current);
+      return Promise.resolve(false);
+    }
+
+    return apiJson("/api/queue/shuffle", { method: "POST" }).then((data) => {
+      applyQueue(data, currentMediaRef.current?.id);
+      shuffleEnabledRef.current = true;
+      setShuffleEnabled(true);
+      const media = currentMediaRef.current;
+      if (media) sendActiveSession(media, pausedRef.current ? "pause" : "play", positionRef.current, durationRef.current);
+      return true;
+    });
+  }, [applyQueue, sendActiveSession]);
+
+  const addToQueue = useCallback((media) => (
+    apiJson("/api/queue/items", {
       method: "POST",
-      body: JSON.stringify({ mediaId: media.id }),
-    }).then((data) => applyQueue(data, currentMedia?.id));
-  }, [applyQueue, currentMedia?.id]);
+      body: JSON.stringify({ mediaId: Number(media.id) }),
+    }).then((data) => applyQueue(data))
+  ), [applyQueue]);
 
-  const playNext = useCallback((media) => {
-    return apiJson("/api/queue/items/next", {
+  const playNext = useCallback((media) => (
+    apiJson("/api/queue/items/next", {
       method: "POST",
-      body: JSON.stringify({ mediaId: media.id }),
-    }).then((data) => applyQueue(data, currentMedia?.id));
-  }, [applyQueue, currentMedia?.id]);
+      body: JSON.stringify({ mediaId: Number(media.id) }),
+    }).then((data) => applyQueue(data))
+  ), [applyQueue]);
 
-  const removeFromQueue = useCallback((mediaId) => {
-    return apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
-      .then((data) => applyQueue(data, currentMedia?.id));
-  }, [applyQueue, currentMedia?.id]);
+  const removeFromQueue = useCallback((mediaId) => (
+    apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
+      .then(async (data) => {
+        applyQueue(data);
+        if (data.activeRemoved) await stopPlayback();
+        return data;
+      })
+  ), [applyQueue, stopPlayback]);
 
-  const clearQueue = useCallback(() => {
-    return apiJson("/api/queue", { method: "DELETE" })
-      .then((data) => applyQueue(data, null));
-  }, [applyQueue]);
+  const clearQueue = useCallback(() => (
+    apiJson("/api/queue", { method: "DELETE" })
+      .then(async (data) => {
+        applyQueue(data, null);
+        if (data.activeRemoved) await stopPlayback();
+        return data;
+      })
+  ), [applyQueue, stopPlayback]);
 
-  const reorderQueue = useCallback((mediaIds) => {
-    return apiJson("/api/queue/order", {
+  const reorderQueue = useCallback((mediaIds) => (
+    apiJson("/api/queue/order", {
       method: "PUT",
       body: JSON.stringify({ mediaIds: mediaIds.map(Number) }),
-    }).then((data) => applyQueue(data, currentMedia?.id));
-  }, [applyQueue, currentMedia?.id]);
+    }).then((data) => applyQueue(data))
+  ), [applyQueue]);
 
   const toggleLike = useCallback((media) => {
     const mediaId = Number(media?.id ?? media);
@@ -231,16 +568,67 @@ export function PlayerProvider({ children }) {
     });
   }, [likedIds]);
 
+  useEffect(() => {
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false,
+    }).catch(() => {});
+    refreshLikes();
+    refreshQueue().catch(() => {});
+  }, [refreshLikes, refreshQueue]);
+
+  useEffect(() => {
+    if (activeRestoreStartedRef.current) return;
+    activeRestoreStartedRef.current = true;
+    let cancelled = false;
+
+    apiJson("/api/playback/active")
+      .then(async ({ active }) => {
+        if (cancelled || !active?.mediaId || !["play", "pause"].includes(active.action)) return;
+        const media = await apiJson(`/api/media/${Number(active.mediaId)}`);
+        if (cancelled || currentMediaRef.current) return;
+        const restoredLoop = ["none", "queue", "media"].includes(active.loopMode) ? active.loopMode : "none";
+        loopModeRef.current = restoredLoop;
+        shuffleEnabledRef.current = Boolean(active.shuffleEnabled);
+        setLoopMode(restoredLoop);
+        setShuffleEnabled(Boolean(active.shuffleEnabled));
+        await startMedia(media, {
+          autoplay: false,
+          loadResume: false,
+          replacementAction: null,
+          startPosition: Math.floor(active.position || 0),
+        });
+        sendActiveSession(media, "pause", active.position || 0, active.duration || media.duration || 0);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sendActiveSession, startMedia]);
+
+  useEffect(() => () => {
+    const media = currentMediaRef.current;
+    if (media) {
+      saveResumePositionFor(media, positionRef.current, durationRef.current || media.duration || 0);
+      sendActiveSession(media, "pause", positionRef.current, durationRef.current || media.duration || 0);
+    }
+    videoControllerRef.current?.pause?.();
+    unloadSound();
+  }, [saveResumePositionFor, sendActiveSession, unloadSound]);
+
   const value = useMemo(() => ({
     addToQueue,
     advance,
+    applyResumePosition,
     changeVolume,
     clearQueue,
     currentKind,
     currentMedia,
     duration,
-    hasNext,
-    hasPrev,
+    hasNext: navigation.hasNext,
+    hasPrev: navigation.hasPrev,
     isLiked: (mediaId) => likedIds.has(Number(mediaId)),
     likedIds,
     loopMode,
@@ -252,24 +640,32 @@ export function PlayerProvider({ children }) {
     queueIndex,
     queueItems,
     queueIds,
+    refreshLikes,
     refreshQueue,
+    registerVideoController,
     removeFromQueue,
     reorderQueue,
-    refreshLikes,
+    reportVideoEnded,
+    reportVideoPlaying,
+    reportVideoProgress,
+    resumePosition,
     seek,
     selectQueueItem,
-    setShuffleEnabled,
     shuffleEnabled,
+    stopPlayback,
     toggleLike,
     toggleLoop,
     toggleMute,
     togglePlayback,
+    toggleShuffle,
     volume,
   }), [
-    addToQueue, advance, changeVolume, clearQueue, currentKind, currentMedia, duration, hasNext, hasPrev,
-    likedIds, loopMode, muted, paused, playMedia, playNext, position, queueIndex, queueItems, queueIds,
-    refreshLikes, refreshQueue, removeFromQueue, reorderQueue, seek, selectQueueItem, shuffleEnabled,
-    toggleLike, toggleLoop, toggleMute, togglePlayback, volume,
+    addToQueue, advance, applyResumePosition, changeVolume, clearQueue, currentKind, currentMedia,
+    duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia,
+    playNext, position, queueIds, queueIndex, queueItems, refreshLikes, refreshQueue,
+    registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
+    reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, stopPlayback,
+    toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;

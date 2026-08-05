@@ -1,4 +1,5 @@
 import { useVideoPlayer, VideoView } from "expo-video";
+import { useEventListener } from "expo";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, BottomSheetView } from "@gorhom/bottom-sheet";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
@@ -12,10 +13,38 @@ import { usePlayer } from "../context/player-context";
 import { LyricsView } from "./lyrics-view";
 import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 
-function VideoSurface({ mediaId, shouldPlay, styles }) {
-  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId) }, (videoPlayer) => {
-    videoPlayer.play();
+function VideoSurface({ mediaId, playerState, shouldPlay, styles }) {
+  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId) });
+
+  useEventListener(player, "playingChange", ({ isPlaying }) => {
+    playerState.reportVideoPlaying(isPlaying);
   });
+  useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    playerState.reportVideoProgress(currentTime, player.duration);
+  });
+  useEventListener(player, "sourceLoad", ({ duration }) => {
+    playerState.reportVideoProgress(player.currentTime, duration);
+  });
+  useEventListener(player, "playToEnd", () => {
+    playerState.reportVideoEnded();
+  });
+
+  useEffect(() => {
+    player.timeUpdateEventInterval = 0.5;
+    return playerState.registerVideoController({
+      pause: () => player.pause(),
+      play: () => player.play(),
+      seek: (seconds) => {
+        player.currentTime = seconds;
+      },
+      setLoop: (enabled) => {
+        player.loop = enabled;
+      },
+      setVolume: (nextVolume) => {
+        player.volume = nextVolume;
+      },
+    });
+  }, [player, playerState.registerVideoController]);
 
   useEffect(() => {
     if (shouldPlay) {
@@ -33,6 +62,16 @@ function VideoSurface({ mediaId, shouldPlay, styles }) {
       contentFit="contain"
       fullscreenOptions={{ enable: true }}
     />
+  );
+}
+
+function ResumePrompt({ onResume, position, style, styles }) {
+  if (position == null) return null;
+  return (
+    <Pressable accessibilityRole="button" onPress={onResume} style={[styles.resumePrompt, style]}>
+      <Ionicons name="play-circle" size={18} color="#fff" />
+      <Text style={styles.resumeText}>Resume from {formatDuration(position)}</Text>
+    </Pressable>
   );
 }
 
@@ -419,9 +458,23 @@ export function FullPlayer({ navigation }) {
         />
         <View style={styles.visualStage}>
           {isVideo && (
-            <VideoSurface key={media.id} mediaId={media.id} shouldPlay={!player.paused} styles={styles} />
+            <VideoSurface
+              key={media.id}
+              mediaId={media.id}
+              playerState={player}
+              shouldPlay={!player.paused}
+              styles={styles}
+            />
           )}
           {isImage && <Image source={{ uri: mediaStreamUrl(media.id) }} style={styles.image} resizeMode="contain" />}
+          {isVideo && (
+            <ResumePrompt
+              onResume={player.applyResumePosition}
+              position={player.resumePosition}
+              style={styles.visualResumePrompt}
+              styles={styles}
+            />
+          )}
         </View>
       </View>
     );
@@ -447,6 +500,11 @@ export function FullPlayer({ navigation }) {
       </View>
 
       <View style={styles.controlZone}>
+        <ResumePrompt
+          onResume={player.applyResumePosition}
+          position={player.resumePosition}
+          styles={styles}
+        />
         <View style={styles.progressBlock}>
           <Pressable style={styles.progressTrack} onLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPress={(event) => {
             const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / Math.max(progressWidth, 1)));
@@ -465,7 +523,7 @@ export function FullPlayer({ navigation }) {
             accessibilityLabel={player.shuffleEnabled ? "Disable shuffle" : "Enable shuffle"}
             active={player.shuffleEnabled}
             icon="shuffle"
-            onPress={() => player.setShuffleEnabled((value) => !value)}
+            onPress={player.toggleShuffle}
           />
           <PlayerTransportControls
             player={player}
@@ -585,6 +643,22 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   progressBlock: {
     gap: spacing.sm,
+  },
+  resumePrompt: {
+    alignSelf: "center",
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.sm,
+    backgroundColor: "rgba(0,0,0,0.72)",
+  },
+  resumeText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
   progressTrack: {
     height: 5,
@@ -893,6 +967,12 @@ const makeStyles = (colors) => StyleSheet.create({
   visualStage: {
     flex: 1,
     justifyContent: "center",
+  },
+  visualResumePrompt: {
+    position: "absolute",
+    bottom: spacing.lg,
+    left: spacing.lg,
+    right: spacing.lg,
   },
   video: {
     width: "100%",
