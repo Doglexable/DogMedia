@@ -3,9 +3,11 @@ import {
   faChevronLeft,
   faChevronRight,
   faDownload,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { toBlob } from "html-to-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
 import {
@@ -24,6 +26,7 @@ const DAY_MS = 86400000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function Wrapped() {
+  const player = useGlobalPlayer();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [locked, setLocked] = useState(null);
@@ -74,6 +77,10 @@ export default function Wrapped() {
     [data, period.fromIso]
   );
   const slides = useMemo(() => buildWrappedSlides(data, timeline), [data, timeline]);
+
+  useEffect(() => {
+    if (player?.currentMedia) player.stopPlayback?.();
+  }, [player?.currentMedia?.id, player?.stopPlayback]);
 
   const captureSlide = useCallback(async (index) => {
     const node = exportRefs.current[index];
@@ -127,8 +134,8 @@ export default function Wrapped() {
 
   if (error) {
     return (
-      <PageShell>
-        <div className="rounded-lg border border-warning-border bg-warning-bg p-5 text-warning-text">
+      <PageShell fullscreen>
+        <div className="wrapped-error rounded-lg border border-warning-border bg-warning-bg p-5 text-warning-text">
           <h1 className="text-xl font-bold">Wrapped unavailable</h1>
           <p className="mt-2 text-sm">{error}</p>
         </div>
@@ -138,7 +145,7 @@ export default function Wrapped() {
 
   if (locked) {
     return (
-      <PageShell>
+      <PageShell fullscreen>
         <EmptyState
           title="Wrapped locked"
           copy={`This playback report can only be opened once every 30 days. ${formatUnlockMessage(locked)}`}
@@ -147,10 +154,10 @@ export default function Wrapped() {
     );
   }
 
-  if (!data) return <PageShell><LoadingState /></PageShell>;
+  if (!data) return <PageShell fullscreen><LoadingState /></PageShell>;
   if (isWrappedEmpty(data)) {
     return (
-      <PageShell>
+      <PageShell fullscreen>
         <EmptyState
           title="Your recap needs a first play"
           copy="Play audio or video from this device. Your next recap will turn those sessions into a playback story."
@@ -160,11 +167,16 @@ export default function Wrapped() {
   }
 
   return (
-    <PageShell wide={view === "summary"}>
+    <PageShell fullscreen={view === "story"} wide={view === "summary"}>
       <div className="wrapped-viewbar">
-        <div className="wrapped-view-switch" aria-label="Wrapped view">
-          <button type="button" aria-pressed={view === "story"} onClick={() => setView("story")}>Story</button>
-          <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>Summary</button>
+        <div className="wrapped-viewbar-main">
+          <Link className="wrapped-exit" to="/" aria-label="Close Wrapped" title="Close">
+            <FontAwesomeIcon icon={faXmark} />
+          </Link>
+          <div className="wrapped-view-switch" aria-label="Wrapped view">
+            <button type="button" aria-pressed={view === "story"} onClick={() => setView("story")}>Story</button>
+            <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>Summary</button>
+          </div>
         </div>
         <span>{period.label} · 30-day recap</span>
       </div>
@@ -473,12 +485,10 @@ function CategoryList({ categories }) {
   return <ol className="wrapped-category-list">{categories.map((category) => <li key={category.categoryId ?? category.name}><span>{category.rank}</span><div><strong>{category.name}</strong><small>{fmtTime(category.totalTime)} · {formatNumber(category.playCount)} plays</small></div></li>)}</ol>;
 }
 
-function PageShell({ children, wide = false }) {
-  const player = useGlobalPlayer();
+function PageShell({ children, fullscreen = false, wide = false }) {
   return (
-    <div className="premium-app-shell min-h-screen bg-surface text-content">
-      <header className="app-header sticky top-0 z-[100] flex min-h-[var(--app-header-height)] flex-wrap items-center gap-3 border-b border-card-border bg-card px-3 py-2 sm:px-6"><div className="min-w-0"><div className="truncate text-[var(--fs-md)] font-extrabold tracking-normal text-content">Wrapped</div><div className="truncate text-xs text-muted">Your private playback recap</div></div></header>
-      <main className={`app-main wrapped-page mx-auto px-4 py-5${wide ? " wrapped-page--wide" : ""}${player?.currentMedia ? " app-main--with-player" : ""}`}>{children}</main>
+    <div className={fullscreen ? "premium-app-shell wrapped-shell wrapped-shell--fullscreen" : "premium-app-shell wrapped-shell"}>
+      <main className={`app-main wrapped-page${fullscreen ? " wrapped-page--fullscreen" : ""}${wide ? " wrapped-page--wide" : ""}`}>{children}</main>
     </div>
   );
 }

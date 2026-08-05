@@ -272,6 +272,7 @@ export function LibraryShell({ access, children }) {
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const isFullPlayerRoute = /^\/media\/[^/]+$/.test(location.pathname);
+  const isImmersiveRoute = isFullPlayerRoute || location.pathname === "/wrapped";
 
   const loadCategories = useCallback(() => {
     setCategoriesLoading(true);
@@ -288,8 +289,8 @@ export function LibraryShell({ access, children }) {
 
   return (
     <LibraryContext.Provider value={{ categories, categoriesLoading, refreshCategories: loadCategories }}>
-      <div className={isFullPlayerRoute ? "global-app-shell global-app-shell--fullscreen-player" : "global-app-shell"}>
-        {!isFullPlayerRoute && <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />}
+      <div className={isImmersiveRoute ? "global-app-shell global-app-shell--fullscreen-player" : "global-app-shell"}>
+        {!isImmersiveRoute && <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />}
         <div className="global-app-content">{children}</div>
       </div>
     </LibraryContext.Provider>

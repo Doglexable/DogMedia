@@ -413,6 +413,7 @@ export function GlobalPlayerProvider({ children }) {
     setHasNext(false);
     setHasPrev(false);
     setResumePos(null);
+    setQueueOpen(false);
     if (isFullPlayer) navigate("/");
   }, [isFullPlayer, navigate]);
 
@@ -1049,9 +1050,10 @@ export function GlobalPlayerProvider({ children }) {
     reorderQueue,
     duration,
     seek,
+    stopPlayback,
     togglePlayback,
     toggleLike,
-  }), [addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueIds, removeFromQueue, reorderQueue, seek, toggleLike, togglePlayback]);
+  }), [addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueIds, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
 
   return (
     <PlayerContext.Provider value={contextValue}>
