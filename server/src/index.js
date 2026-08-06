@@ -15,6 +15,9 @@ import wrappedRoutes from "./routes/wrapped.js";
 import likesRoutes from "./routes/likes.js";
 import publicLikedMusicRoutes from "./routes/public-liked-music.js";
 import lyricsRoutes from "./routes/lyrics.js";
+import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
+
+const DATA_DIR = process.env.DATA_DIR || "data";
 
 const app = Fastify({
   logger: true,
@@ -30,6 +33,11 @@ await app.register(multipart, {
 await app.register(postgres, {
   connectionString:
     process.env.DATABASE_URL || "postgres://pfs:pfs_secret@localhost:5432/pfs",
+});
+startOrphanMediaCleanupScheduler({
+  dataDir: DATA_DIR,
+  log: app.log,
+  pg: app.pg,
 });
 
 await redisPlugin(app);
