@@ -149,6 +149,7 @@ function resolveCurrentIndex(items, currentIndex, currentMedia) {
 
 export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, total, onClear, onClose, onRemove, onReorder, onSelect }) {
   const [error, setError] = useState("");
+  const [snap, setSnap] = useState(0.88);
   const mobile = useMobileDrawer();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -268,6 +269,10 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
     <Drawer.Root
       open
       onOpenChange={(open) => { if (!open) onClose(); }}
+      snapPoints={[0.5, 0.88]}
+      activeSnapPoint={snap}
+      setActiveSnapPoint={setSnap}
+      fadeFromIndex={0}
       autoFocus
       handleOnly
       shouldScaleBackground={false}

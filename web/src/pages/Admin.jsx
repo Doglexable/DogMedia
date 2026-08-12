@@ -303,7 +303,6 @@ const styles = {
   },
   modalGrid: {
     display: "grid",
-    gridTemplateColumns: "1.05fr 0.95fr",
     gap: 16,
     alignItems: "start",
   },
@@ -404,7 +403,6 @@ const styles = {
   },
   batchSummary: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 8,
     marginTop: 10,
   },
@@ -606,13 +604,13 @@ function Modal({ title, subtitle, children, onClose, width = 960 }) {
   }, [onClose]);
 
   return (
-    <div className="premium-modal-overlay" style={styles.modalOverlay} onClick={onClose}>
+    <div className="admin-modal-overlay premium-modal-overlay" style={styles.modalOverlay} onClick={onClose}>
       <div
-        className="premium-modal"
+        className="admin-modal premium-modal"
         style={{ ...styles.modal, maxWidth: width }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div style={styles.modalHeader}>
+        <div className="admin-modal-header" style={styles.modalHeader}>
           <div>
             <h2 style={styles.modalTitle}>{title}</h2>
             {subtitle && <p style={styles.modalSubtitle}>{subtitle}</p>}
@@ -621,7 +619,7 @@ function Modal({ title, subtitle, children, onClose, width = 960 }) {
             Close
           </button>
         </div>
-        <div style={styles.modalBody}>{children}</div>
+        <div className="admin-modal-body" style={styles.modalBody}>{children}</div>
       </div>
     </div>
   );
@@ -1622,7 +1620,7 @@ export default function Admin() {
             width={1120}
             onClose={closeMediaModal}
           >
-            <div style={styles.modalGrid}>
+            <div className="admin-modal-grid" style={styles.modalGrid}>
               <section style={styles.panel}>
                 <div style={styles.panelHeader}>
                   <h3 style={styles.cardTitle}>Existing Media</h3>
@@ -1647,7 +1645,7 @@ export default function Admin() {
                   ) : (
                     <div style={styles.mediaList}>
                       {categoryMedia.map((media) => (
-                        <div key={media.id} style={styles.mediaItem}>
+                        <div key={media.id} className="admin-media-item" style={styles.mediaItem}>
                           <div style={{ minWidth: 0 }}>
                             <div style={styles.mediaTitle} title={media.title}>
                               {media.title}
@@ -1659,7 +1657,7 @@ export default function Admin() {
                               {media.mime_type || "Unknown type"}
                             </div>
                           </div>
-                          <div style={styles.rowActions}>
+                          <div className="admin-media-actions" style={styles.rowActions}>
                             <button
                               type="button"
                               style={styles.button("secondary")}
@@ -1848,7 +1846,7 @@ export default function Admin() {
                     {batchFiles.length > 0 && (
                       <div style={styles.fieldGroup}>
                         <label style={styles.label}>Import Preview</label>
-                        <div style={styles.batchSummary}>
+                        <div className="admin-batch-summary" style={styles.batchSummary}>
                           <div style={styles.batchSummaryItem}>
                             <div style={styles.batchSummaryLabel}>Tracks</div>
                             <div style={styles.batchSummaryValue}>{batchSummary.tracks}</div>
@@ -1919,7 +1917,7 @@ export default function Admin() {
             onClose={savingEdit ? () => {} : closeEditMediaModal}
           >
             <form onSubmit={handleSaveMediaEdit}>
-              <div style={styles.modalGrid}>
+              <div className="admin-modal-grid" style={styles.modalGrid}>
                 <section style={styles.panel}>
                   <div style={styles.panelHeader}>
                     <h3 style={styles.cardTitle}>Metadata</h3>

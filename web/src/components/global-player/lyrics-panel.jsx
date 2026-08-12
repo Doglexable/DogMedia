@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faQuoteRight } from "@fortawesome/free-solid-svg-icons";
 import { Drawer } from "vaul";
 import { api } from "../../api";
 
@@ -72,6 +74,7 @@ function useSynchronizedLyrics(mediaId) {
 export function LyricsPanel({ mediaId, onSeek, position }) {
   const lyrics = useSynchronizedLyrics(mediaId);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [snap, setSnap] = useState(0.88);
   const inlineListRef = useRef(null);
   const drawerListRef = useRef(null);
   const inlineLineRefs = useRef([]);
@@ -83,9 +86,14 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
   );
 
   useEffect(() => {
-    scrollActiveLineIntoView(inlineListRef.current, inlineLineRefs.current[activeIndex]);
-    if (drawerOpen) {
-      scrollActiveLineIntoView(drawerListRef.current, drawerLineRefs.current[activeIndex]);
+    const activeLine = activeIndex >= 0 ? activeIndex : 0;
+    if (drawerOpen && drawerListRef.current) {
+      requestAnimationFrame(() => {
+        scrollActiveLineIntoView(drawerListRef.current, drawerLineRefs.current[activeLine]);
+      });
+    }
+    if (inlineListRef.current) {
+      scrollActiveLineIntoView(inlineListRef.current, inlineLineRefs.current[activeLine]);
     }
   }, [activeIndex, drawerOpen]);
 
@@ -110,26 +118,47 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
       <Drawer.Root
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        snapPoints={[0.45, 0.88]}
+        activeSnapPoint={snap}
+        setActiveSnapPoint={setSnap}
+        fadeFromIndex={0}
         autoFocus
         handleOnly
         shouldScaleBackground={false}
         setBackgroundColorOnScale={false}
       >
         <Drawer.Trigger asChild>
-          <button type="button" className="now-playing-lyrics-mobile-trigger">
-            <span className="now-playing-lyrics-mobile-kicker">
-              <span aria-hidden="true" />
-              Live lyrics
-            </span>
-            <strong>{getLyricsPreview(lyrics.segments, activeIndex)}</strong>
-            <small>Open full lyrics</small>
+          <button
+            type="button"
+            className="lyrics-icon-button"
+            aria-label="Open lyrics"
+            title="Open lyrics"
+          >
+            <FontAwesomeIcon icon={faQuoteRight} />
           </button>
         </Drawer.Trigger>
         <Drawer.Portal>
           <Drawer.Overlay className="mobile-player-drawer-overlay" />
           <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
             <Drawer.Handle className="mobile-player-drawer-handle" />
-            <Drawer.Title className="mobile-player-drawer-description">Lyrics</Drawer.Title>
+            <div className="mobile-player-drawer-header">
+              <div>
+                <span>Synchronized Lyrics</span>
+                <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                <button
+                  type="button"
+                  className="mobile-categories-sheet-close"
+                  onClick={() => setDrawerOpen(false)}
+                  title="Close lyrics"
+                  aria-label="Close lyrics"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
             <Drawer.Description className="mobile-player-drawer-description">
               Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
             </Drawer.Description>
@@ -149,8 +178,29 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
   );
 }
 
+const MOBILE_DRAWER_QUERY = "(max-width: 640px)";
+
+function useMobileDrawer() {
+  const [mobile, setMobile] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia(MOBILE_DRAWER_QUERY).matches
+  ));
+
+  useEffect(() => {
+    const query = window.matchMedia(MOBILE_DRAWER_QUERY);
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return mobile;
+}
+
 export function FullscreenLyrics({ mediaId, onSeek, position }) {
   const lyrics = useSynchronizedLyrics(mediaId);
+  const mobile = useMobileDrawer();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [snap, setSnap] = useState(0.88);
   const listRef = useRef(null);
   const lineRefs = useRef([]);
 
@@ -161,10 +211,79 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
   const displayActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   useEffect(() => {
-    const list = listRef.current;
-    const activeLine = lineRefs.current[displayActiveIndex];
-    scrollActiveLineIntoView(list, activeLine);
-  }, [displayActiveIndex]);
+    if (listRef.current && (!mobile || drawerOpen)) {
+      requestAnimationFrame(() => {
+        const list = listRef.current;
+        const activeLine = lineRefs.current[displayActiveIndex];
+        scrollActiveLineIntoView(list, activeLine);
+      });
+    }
+  }, [displayActiveIndex, drawerOpen, mobile]);
+
+  if (mobile) {
+    if (!lyrics?.segments?.length) return null;
+    return (
+      <Drawer.Root
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        snapPoints={[0.45, 0.88]}
+        activeSnapPoint={snap}
+        setActiveSnapPoint={setSnap}
+        fadeFromIndex={0}
+        autoFocus
+        handleOnly
+        shouldScaleBackground={false}
+        setBackgroundColorOnScale={false}
+      >
+        <Drawer.Trigger asChild>
+          <button
+            type="button"
+            className="lyrics-icon-button"
+            aria-label="Open lyrics"
+            title="Open lyrics"
+          >
+            <FontAwesomeIcon icon={faQuoteRight} />
+          </button>
+        </Drawer.Trigger>
+        <Drawer.Portal>
+          <Drawer.Overlay className="mobile-player-drawer-overlay" />
+          <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
+            <Drawer.Handle className="mobile-player-drawer-handle" />
+            <div className="mobile-player-drawer-header">
+              <div>
+                <span>Synchronized Lyrics</span>
+                <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                <button
+                  type="button"
+                  className="mobile-categories-sheet-close"
+                  onClick={() => setDrawerOpen(false)}
+                  title="Close lyrics"
+                  aria-label="Close lyrics"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <Drawer.Description className="mobile-player-drawer-description">
+              Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
+            </Drawer.Description>
+            <div ref={listRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
+              <LyricsLines
+                activeIndex={activeIndex}
+                lineRefs={lineRefs}
+                onSeek={onSeek}
+                segments={lyrics.segments}
+                variant="mobile-lyrics-drawer"
+              />
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+    );
+  }
 
   if (!lyrics?.segments?.length) {
     return (
