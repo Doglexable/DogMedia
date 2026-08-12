@@ -4,18 +4,23 @@ import { api } from "../api";
 import { FullPlayer } from "./global-player/full-player";
 import { MiniPlayer } from "./global-player/mini-player";
 import { QueuePanel } from "./global-player/queue-panel";
+import { SleepTimerCompleteDialog } from "./global-player/sleep-timer-complete-dialog";
+import {
+  cleanMediaText,
+  getAudioArtist,
+  getMediaSessionMetadata,
+  registerMediaSessionActionHandlers,
+} from "./global-player/media-session";
 import { hiddenMediaStyle, playerStyles as styles } from "./global-player/player-styles";
 import {
   LOOP_MODES,
   getCategoryQuery as categoryQuery,
-  getMediaFolder as mediaFolder,
   getMediaMeta as mediaMeta,
   getNextLoopMode as nextLoopMode,
 } from "./global-player/player-utils";
 
 const PlayerContext = createContext(null);
 const DEFAULT_DOCUMENT_TITLE = "DogMedia";
-const UNKNOWN_ARTIST_LABELS = new Set(["unknown", "unknown artist"]);
 const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
 const DEFAULT_VOLUME = 0.85;
@@ -24,15 +29,6 @@ const SLEEP_TIMER_MAX_MINUTES = 60;
 
 export function useGlobalPlayer() {
   return useContext(PlayerContext);
-}
-
-function cleanMediaText(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function getAudioArtist(artists) {
-  const value = cleanMediaText(artists);
-  return UNKNOWN_ARTIST_LABELS.has(value.toLowerCase()) ? "" : value;
 }
 
 function getDocumentTitle(media, isAudioMedia) {
@@ -81,6 +77,7 @@ export function GlobalPlayerProvider({ children }) {
   const activeRestoreStartedRef = useRef(false);
   const nowPlayingPauseTimerRef = useRef(null);
   const nowPlayingPauseControllerRef = useRef(null);
+  const mediaSessionActionsRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   const [categoryId, setCategoryId] = useState(null);
   const [paused, setPaused] = useState(true);
@@ -105,6 +102,7 @@ export function GlobalPlayerProvider({ children }) {
   const [muted, setMuted] = useState(readStoredMuted);
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
+  const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -434,6 +432,7 @@ export function GlobalPlayerProvider({ children }) {
 
   const setSleepTimer = useCallback((minutes) => {
     const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
+    setSleepTimerCompleted(false);
     if (nextMinutes <= 0) {
       setSleepTimerEndsAt(null);
       setSleepTimerRemaining(0);
@@ -445,6 +444,16 @@ export function GlobalPlayerProvider({ children }) {
     setSleepTimerRemaining(nextRemaining);
   }, []);
 
+  const dismissSleepTimerNotification = useCallback(() => {
+    setSleepTimerCompleted(false);
+  }, []);
+
+  const resumeAfterSleepTimer = useCallback(() => {
+    setSleepTimerCompleted(false);
+    setShouldAutoPlay(true);
+    mediaRef.current?.play?.().catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!sleepTimerEndsAt) return undefined;
 
@@ -454,7 +463,9 @@ export function GlobalPlayerProvider({ children }) {
       if (nextRemaining > 0) return;
 
       setSleepTimerEndsAt(null);
+      setQueueOpen(false);
       pausePlaybackForSleepTimer();
+      setSleepTimerCompleted(true);
     };
 
     updateSleepTimer();
@@ -468,6 +479,10 @@ export function GlobalPlayerProvider({ children }) {
       setSleepTimerRemaining(0);
     }
   }, [currentMedia, sleepTimerEndsAt]);
+
+  useEffect(() => {
+    if (!currentMedia) setSleepTimerCompleted(false);
+  }, [currentMedia]);
 
   const addToQueue = useCallback((mediaItemOrId) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
@@ -949,14 +964,11 @@ export function GlobalPlayerProvider({ children }) {
     if (!currentMedia || !("mediaSession" in navigator) || !("MediaMetadata" in window)) return undefined;
 
     const { mediaSession } = navigator;
-    const title = cleanMediaText(currentMedia.title) || "Untitled";
-    const artist = isAudio ? getAudioArtist(currentMedia.artists) : meta.label;
-
-    mediaSession.metadata = new window.MediaMetadata({
-      title,
-      artist,
-      album: mediaFolder(currentMedia) || "Library",
-    });
+    mediaSession.metadata = new window.MediaMetadata(getMediaSessionMetadata(currentMedia, {
+      isAudio,
+      mediaLabel: meta.label,
+      origin: window.location.origin,
+    }));
 
     return () => {
       if ("metadata" in mediaSession) mediaSession.metadata = null;
@@ -964,64 +976,50 @@ export function GlobalPlayerProvider({ children }) {
   }, [currentMedia, isAudio, meta.label]);
 
   useEffect(() => {
+    mediaSessionActionsRef.current = {
+      play: () => {
+        if (isImage) {
+          openFullPlayer();
+          return;
+        }
+        mediaRef.current?.play?.().catch(() => {});
+      },
+      pause: () => {
+        if (!isImage) mediaRef.current?.pause?.();
+      },
+      stop: stopPlayback,
+      seekbackward: (details) => {
+        const offset = Number(details.seekOffset || 10);
+        seek(Math.max((mediaRef.current?.currentTime ?? 0) - offset, 0));
+      },
+      seekforward: (details) => {
+        const offset = Number(details.seekOffset || 10);
+        const nextDuration = mediaRef.current?.duration || currentMedia?.duration || 0;
+        const nextPosition = (mediaRef.current?.currentTime ?? 0) + offset;
+        seek(nextDuration > 0 ? Math.min(nextPosition, nextDuration) : nextPosition);
+      },
+      seekto: (details) => {
+        if (!Number.isFinite(details.seekTime)) return;
+        if (details.fastSeek && typeof mediaRef.current?.fastSeek === "function") {
+          mediaRef.current.fastSeek(details.seekTime);
+          setPosition(details.seekTime);
+          return;
+        }
+        seek(details.seekTime);
+      },
+      previoustrack: () => advance("prev"),
+      nexttrack: () => advance("next"),
+    };
+  });
+
+  useEffect(() => {
     if (!currentMedia || !("mediaSession" in navigator)) return undefined;
 
-    const { mediaSession } = navigator;
-    const setActionHandler = (action, handler) => {
-      try {
-        mediaSession.setActionHandler(action, handler);
-      } catch {
-        // Some browsers expose Media Session but not every action.
-      }
-    };
-    const actions = [
-      "play",
-      "pause",
-      "stop",
-      "seekbackward",
-      "seekforward",
-      "seekto",
-      "previoustrack",
-      "nexttrack",
-    ];
-
-    setActionHandler("play", () => {
-      if (isImage) {
-        openFullPlayer();
-        return;
-      }
-      mediaRef.current?.play?.().catch(() => {});
+    return registerMediaSessionActionHandlers(navigator.mediaSession, mediaSessionActionsRef, {
+      canGoPrev,
+      canGoNext,
     });
-    setActionHandler("pause", () => {
-      if (!isImage) mediaRef.current?.pause?.();
-    });
-    setActionHandler("stop", stopPlayback);
-    setActionHandler("seekbackward", (details) => {
-      const offset = Number(details.seekOffset || 10);
-      seek(Math.max((mediaRef.current?.currentTime ?? 0) - offset, 0));
-    });
-    setActionHandler("seekforward", (details) => {
-      const offset = Number(details.seekOffset || 10);
-      const nextDuration = mediaRef.current?.duration || currentMedia.duration || 0;
-      const nextPosition = (mediaRef.current?.currentTime ?? 0) + offset;
-      seek(nextDuration > 0 ? Math.min(nextPosition, nextDuration) : nextPosition);
-    });
-    setActionHandler("seekto", (details) => {
-      if (!Number.isFinite(details.seekTime)) return;
-      if (details.fastSeek && typeof mediaRef.current?.fastSeek === "function") {
-        mediaRef.current.fastSeek(details.seekTime);
-        setPosition(details.seekTime);
-        return;
-      }
-      seek(details.seekTime);
-    });
-    setActionHandler("previoustrack", canGoPrev ? () => advance("prev") : null);
-    setActionHandler("nexttrack", canGoNext ? () => advance("next") : null);
-
-    return () => {
-      actions.forEach((action) => setActionHandler(action, null));
-    };
-  }, [advance, canGoNext, canGoPrev, currentMedia, isImage, openFullPlayer, seek, stopPlayback]);
+  }, [canGoNext, canGoPrev, currentMedia?.id]);
 
   useEffect(() => {
     if (!currentMedia || !("mediaSession" in navigator)) return;
@@ -1214,6 +1212,14 @@ export function GlobalPlayerProvider({ children }) {
           onRemove={removeFromQueue}
           onReorder={reorderQueue}
           onSelect={playQueueMedia}
+        />
+      )}
+      {sleepTimerCompleted && (
+        <SleepTimerCompleteDialog
+          canResume={Boolean(currentMedia) && !isImage}
+          mediaTitle={currentMedia?.title}
+          onDismiss={dismissSleepTimerNotification}
+          onResume={resumeAfterSleepTimer}
         />
       )}
     </PlayerContext.Provider>

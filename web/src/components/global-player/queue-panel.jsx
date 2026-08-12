@@ -1,11 +1,30 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faTrash, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { Drawer } from "vaul";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getMediaMeta } from "./player-utils";
+
+const MOBILE_DRAWER_QUERY = "(max-width: 640px)";
+
+function useMobileDrawer() {
+  const [mobile, setMobile] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia(MOBILE_DRAWER_QUERY).matches
+  ));
+
+  useEffect(() => {
+    const query = window.matchMedia(MOBILE_DRAWER_QUERY);
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return mobile;
+}
 
 function QueueListSkeleton({ count }) {
   return (
@@ -130,6 +149,7 @@ function resolveCurrentIndex(items, currentIndex, currentMedia) {
 
 export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, total, onClear, onClose, onRemove, onReorder, onSelect }) {
   const [error, setError] = useState("");
+  const mobile = useMobileDrawer();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
@@ -161,25 +181,50 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
     run(onReorder(nextItems.map((item) => Number(item.id))));
   };
 
-  return (
-    <div className="premium-queue-panel" style={styles.queuePanel}>
+  const panel = (
+    <div
+      className={mobile ? "premium-queue-panel premium-queue-panel--drawer" : "premium-queue-panel"}
+      style={mobile ? {
+        ...styles.queuePanel,
+        position: "static",
+        width: "100%",
+        maxHeight: "none",
+        flex: "1 1 auto",
+        border: 0,
+        borderRadius: 0,
+        background: "transparent",
+        boxShadow: "none",
+      } : styles.queuePanel}
+    >
       <div style={styles.queueHeader}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>Queue</div>
-          <div style={{ marginTop: 2, fontSize: 12, color: "var(--muted)" }}>
-            {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
-          </div>
+          {mobile ? (
+            <>
+              <span className="mobile-queue-drawer-kicker">Up next</span>
+              <Drawer.Title className="mobile-queue-drawer-title">Queue</Drawer.Title>
+              <Drawer.Description className="mobile-queue-drawer-description">
+                {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
+              </Drawer.Description>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>Queue</div>
+              <div style={{ marginTop: 2, fontSize: 12, color: "var(--muted)" }}>
+                {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
+              </div>
+            </>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {total > 0 && <button type="button" style={styles.queueClearButton} onClick={() => run(onClear())}>Clear</button>}
-          <button type="button" style={styles.iconButton()} onClick={onClose} title="Close queue">
+          <button type="button" aria-label="Close queue" style={styles.iconButton()} onClick={onClose} title="Close queue">
             <FontAwesomeIcon icon={faXmark} />
           </button>
         </div>
       </div>
 
       {error && <div role="alert" style={{ padding: "8px 14px", color: "var(--warning-text)", background: "var(--warning-bg)", fontSize: 12 }}>{error}</div>}
-      <div style={styles.queueList}>
+      <div className="queue-panel-list" style={styles.queueList}>
         {loading ? (
           <QueueListSkeleton count={Math.min(Math.max(total, 3), 6)} />
         ) : items.length > 0 ? (
@@ -215,5 +260,26 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
         )}
       </div>
     </div>
+  );
+
+  if (!mobile) return panel;
+
+  return (
+    <Drawer.Root
+      open
+      onOpenChange={(open) => { if (!open) onClose(); }}
+      autoFocus
+      handleOnly
+      shouldScaleBackground={false}
+      setBackgroundColorOnScale={false}
+    >
+      <Drawer.Portal>
+        <Drawer.Overlay className="mobile-player-drawer-overlay" />
+        <Drawer.Content className="mobile-player-drawer mobile-queue-drawer">
+          <Drawer.Handle className="mobile-player-drawer-handle" />
+          {panel}
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }

@@ -91,8 +91,9 @@ export default function Wrapped() {
     const node = exportRefs.current[index];
     if (!node) throw new Error("Slide export is not ready");
     await waitForExportAssets(node);
+    const rootBg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#111318";
     const blob = await toBlob(node, {
-      backgroundColor: "#111318",
+      backgroundColor: rootBg,
       cacheBust: true,
       height: WRAPPED_STORY_EXPORT.cssHeight,
       pixelRatio: WRAPPED_STORY_EXPORT.pixelRatio,

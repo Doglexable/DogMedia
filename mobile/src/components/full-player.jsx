@@ -67,12 +67,12 @@ function VideoSurface({ mediaId, playerState, shouldPlay, styles }) {
   );
 }
 
-function ResumePrompt({ onResume, position, style, styles }) {
+function ResumePrompt({ darkSurface = false, iconColor, onResume, position, style, styles }) {
   if (position == null) return null;
   return (
-    <Pressable accessibilityRole="button" onPress={onResume} style={[styles.resumePrompt, style]}>
-      <Ionicons name="play-circle" size={18} color="#fff" />
-      <Text style={styles.resumeText}>Resume from {formatDuration(position)}</Text>
+    <Pressable accessibilityRole="button" onPress={onResume} style={[styles.resumePrompt, darkSurface && styles.resumePromptDark, style]}>
+      <Ionicons name="play-circle" size={18} color={iconColor} />
+      <Text style={[styles.resumeText, darkSurface && styles.resumeTextDark]}>Resume from {formatDuration(position)}</Text>
     </Pressable>
   );
 }
@@ -91,7 +91,7 @@ function formatSleepTimer(seconds) {
     : `0:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
-function SleepTimerButton({ colors, onPress, remainingSeconds, styles }) {
+function SleepTimerButton({ colors, darkSurface = false, onPress, remainingSeconds, styles }) {
   const active = remainingSeconds > 0;
   return (
     <Pressable
@@ -100,40 +100,40 @@ function SleepTimerButton({ colors, onPress, remainingSeconds, styles }) {
       accessibilityState={{ selected: active }}
       hitSlop={10}
       onPress={onPress}
-      style={[styles.sleepButton, active && styles.sleepButtonActive]}
+      style={[styles.sleepButton, darkSurface && styles.sleepButtonDark, active && styles.sleepButtonActive]}
     >
-      <Ionicons name="alarm" size={21} color={active ? colors.primary : colors.white} />
+      <Ionicons name="alarm" size={21} color={active ? colors.primary : darkSurface ? colors.white : colors.text} />
       {active && <Text style={styles.sleepBadge}>{formatSleepTimer(remainingSeconds)}</Text>}
     </Pressable>
   );
 }
 
-function SleepTimerOptions({ colors, onClose, onSetSleepTimer, styles }) {
+function SleepTimerOptions({ colors, darkSurface = false, onClose, onSetSleepTimer, styles }) {
   const chooseTimer = (minutes) => {
     onSetSleepTimer(minutes);
     onClose();
   };
 
   return (
-    <View style={styles.sleepOptions}>
+    <View style={[styles.sleepOptions, darkSurface && styles.sleepOptionsDark]}>
       {SLEEP_TIMER_PRESETS.map((minutes) => (
         <Pressable
           accessibilityLabel={`Set sleep timer for ${minutes} minutes`}
           accessibilityRole="button"
           key={minutes}
           onPress={() => chooseTimer(minutes)}
-          style={styles.sleepPreset}
+          style={[styles.sleepPreset, darkSurface && styles.sleepPresetDark]}
         >
-          <Text style={styles.sleepPresetText}>{minutes}m</Text>
+          <Text style={[styles.sleepPresetText, darkSurface && styles.sleepPresetTextDark]}>{minutes}m</Text>
         </Pressable>
       ))}
       <Pressable
         accessibilityLabel="Clear sleep timer"
         accessibilityRole="button"
         onPress={() => chooseTimer(0)}
-        style={styles.sleepClear}
+        style={[styles.sleepClear, darkSurface && styles.sleepClearDark]}
       >
-        <Ionicons name="close" size={16} color={colors.white} />
+        <Ionicons name="close" size={16} color={darkSurface ? colors.white : colors.text} />
       </Pressable>
     </View>
   );
@@ -442,10 +442,10 @@ function PlayerBottomSheet({
 
 export function FullPlayer({ navigation }) {
   const player = usePlayer();
-  const { colors } = useTheme();
+  const { colors, resolvedMode } = useTheme();
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, resolvedMode), [colors, resolvedMode]);
   const [progressWidth, setProgressWidth] = useState(1);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetTab, setSheetTab] = useState("lyrics");
@@ -529,6 +529,8 @@ export function FullPlayer({ navigation }) {
           {isImage && <Image source={{ uri: mediaStreamUrl(media.id) }} style={styles.image} resizeMode="contain" />}
           {isVideo && (
             <ResumePrompt
+              darkSurface
+              iconColor={colors.white}
               onResume={player.applyResumePosition}
               position={player.resumePosition}
               style={styles.visualResumePrompt}
@@ -541,6 +543,7 @@ export function FullPlayer({ navigation }) {
             {sleepOpen && (
               <SleepTimerOptions
                 colors={colors}
+                darkSurface
                 onClose={() => setSleepOpen(false)}
                 onSetSleepTimer={player.setSleepTimer}
                 styles={styles}
@@ -548,6 +551,7 @@ export function FullPlayer({ navigation }) {
             )}
             <SleepTimerButton
               colors={colors}
+              darkSurface
               onPress={() => setSleepOpen((open) => !open)}
               remainingSeconds={player.sleepTimerRemaining}
               styles={styles}
@@ -566,6 +570,7 @@ export function FullPlayer({ navigation }) {
         <PlayerIconButton
           accessibilityLabel="Close player"
           icon="chevron-down"
+          iconColor={colors.text}
           onPress={closePlayer}
         />
       </View>
@@ -579,6 +584,7 @@ export function FullPlayer({ navigation }) {
 
       <View style={styles.controlZone}>
         <ResumePrompt
+          iconColor={colors.text}
           onResume={player.applyResumePosition}
           position={player.resumePosition}
           styles={styles}
@@ -601,20 +607,23 @@ export function FullPlayer({ navigation }) {
             accessibilityLabel={player.shuffleEnabled ? "Disable shuffle" : "Enable shuffle"}
             active={player.shuffleEnabled}
             icon="shuffle"
+            iconColor={player.shuffleEnabled ? colors.primary : colors.text}
             onPress={player.toggleShuffle}
           />
           <PlayerTransportControls
             player={player}
             playButtonStyle={styles.play}
-            playIconColor={colors.black}
+            playIconColor={colors.bg}
             playIconSize={30}
             style={styles.transportControls}
+            transportIconColor={colors.text}
             transportIconSize={24}
           />
           <PlayerIconButton
             accessibilityLabel={player.loopMode === "none" ? "Enable repeat" : `Repeat ${player.loopMode} enabled`}
             active={player.loopMode !== "none"}
             icon={getLoopIcon(player.loopMode)}
+            iconColor={player.loopMode !== "none" ? colors.primary : colors.text}
             onPress={player.toggleLoop}
           />
         </View>
@@ -633,6 +642,7 @@ export function FullPlayer({ navigation }) {
             accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
             active={isLiked}
             icon={isLiked ? "bookmark" : "bookmark-outline"}
+            iconColor={isLiked ? colors.primary : colors.text}
             onPress={() => player.toggleLike(media)}
           />
           <SleepTimerButton
@@ -645,17 +655,20 @@ export function FullPlayer({ navigation }) {
             accessibilityLabel="Open queue"
             active={sheetOpen && sheetTab === "queue"}
             icon="list"
+            iconColor={sheetOpen && sheetTab === "queue" ? colors.primary : colors.text}
             onPress={() => openSheet("queue")}
           />
           <PlayerIconButton
             accessibilityLabel="Open lyrics"
             active={sheetOpen && sheetTab === "lyrics"}
             icon="reader"
+            iconColor={sheetOpen && sheetTab === "lyrics" ? colors.primary : colors.text}
             onPress={() => openSheet("lyrics")}
           />
           <PlayerIconButton
             accessibilityLabel={muted ? "Unmute" : "Mute"}
             icon={muted ? "volume-mute" : "volume-high"}
+            iconColor={colors.text}
             onPress={player.toggleMute}
           />
         </View>
@@ -689,20 +702,23 @@ export function FullPlayer({ navigation }) {
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, resolvedMode) => {
+  const isLight = resolvedMode === "light";
+
+  return StyleSheet.create({
   shell: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: colors.bg,
     paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
   bg: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.52,
+    opacity: isLight ? 0.22 : 0.52,
   },
   dim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.58)",
+    backgroundColor: isLight ? alpha(colors.bg, 0.78) : "rgba(0,0,0,0.58)",
   },
   header: {
     minHeight: 44,
@@ -720,18 +736,18 @@ const makeStyles = (colors) => StyleSheet.create({
     ...shadow.soft,
   },
   album: {
-    color: "rgba(255,255,255,0.64)",
+    color: colors.muted,
     fontWeight: "800",
   },
   title: {
-    color: colors.white,
+    color: colors.text,
     textAlign: "center",
     fontSize: 27,
     lineHeight: 31,
     fontWeight: "900",
   },
   artist: {
-    color: "rgba(255,255,255,0.7)",
+    color: colors.muted,
     fontWeight: "800",
   },
   progressBlock: {
@@ -746,29 +762,35 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.md,
     borderRadius: radii.sm,
-    backgroundColor: "rgba(0,0,0,0.72)",
+    backgroundColor: alpha(colors.text, 0.1),
   },
   resumeText: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 13,
     fontWeight: "700",
+  },
+  resumePromptDark: {
+    backgroundColor: "rgba(0,0,0,0.72)",
+  },
+  resumeTextDark: {
+    color: colors.white,
   },
   progressTrack: {
     height: 5,
     borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.24)",
+    backgroundColor: alpha(colors.text, isLight ? 0.14 : 0.24),
   },
   progressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: colors.white,
+    backgroundColor: isLight ? colors.primary : colors.white,
   },
   timeRow: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
   time: {
-    color: "rgba(255,255,255,0.62)",
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "800",
   },
@@ -782,7 +804,7 @@ const makeStyles = (colors) => StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: colors.white,
+    backgroundColor: colors.text,
   },
   transportControls: {
     gap: spacing.sm,
@@ -801,6 +823,9 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: 5,
     paddingHorizontal: spacing.sm,
     borderRadius: 21,
+    backgroundColor: alpha(colors.text, 0.1),
+  },
+  sleepButtonDark: {
     backgroundColor: "rgba(255,255,255,0.12)",
   },
   sleepButtonActive: {
@@ -820,7 +845,13 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: spacing.xs,
     padding: spacing.xs,
     borderRadius: radii.md,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: alpha(colors.text, 0.08),
+  },
+  sleepOptionsDark: {
     backgroundColor: "rgba(0,0,0,0.58)",
+    borderColor: "rgba(255,255,255,0.08)",
   },
   sleepPreset: {
     minWidth: 42,
@@ -829,12 +860,18 @@ const makeStyles = (colors) => StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.sm,
     borderRadius: radii.sm,
+    backgroundColor: colors.cardSoft,
+  },
+  sleepPresetDark: {
     backgroundColor: alpha(colors.white, 0.12),
   },
   sleepPresetText: {
-    color: colors.white,
+    color: colors.text,
     fontSize: 12,
     fontWeight: "900",
+  },
+  sleepPresetTextDark: {
+    color: colors.white,
   },
   sleepClear: {
     width: 32,
@@ -842,6 +879,9 @@ const makeStyles = (colors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
+    backgroundColor: colors.cardSoft,
+  },
+  sleepClearDark: {
     backgroundColor: alpha(colors.white, 0.12),
   },
   visualSleepControls: {
@@ -876,7 +916,7 @@ const makeStyles = (colors) => StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: alpha(colors.text, 0.08),
   },
   sheetTabs: {
     flex: 1,
@@ -932,7 +972,7 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: spacing.md,
     padding: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: alpha(colors.text, 0.08),
   },
   queueTitle: {
     color: colors.text,
@@ -1064,7 +1104,7 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: spacing.xs,
     padding: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
+    borderTopColor: alpha(colors.text, 0.08),
   },
   queueRefreshText: {
     color: colors.primary,
@@ -1143,4 +1183,5 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
-});
+  });
+};

@@ -45,6 +45,7 @@ export function PlayerTransportControls({
   stopPropagation = false,
   style,
   transportButtonStyle,
+  transportIconColor,
   transportIconSize = 22,
 }) {
   const { colors } = useTheme();
@@ -56,6 +57,7 @@ export function PlayerTransportControls({
         accessibilityLabel="Previous"
         disabled={!player.hasPrev}
         icon="play-skip-back"
+        iconColor={transportIconColor}
         onPress={() => player.advance("prev")}
         size={transportIconSize}
         stopPropagation={stopPropagation}
@@ -74,6 +76,7 @@ export function PlayerTransportControls({
         accessibilityLabel="Next"
         disabled={!player.hasNext}
         icon="play-skip-forward"
+        iconColor={transportIconColor}
         onPress={() => player.advance("next")}
         size={transportIconSize}
         stopPropagation={stopPropagation}
@@ -90,7 +93,7 @@ const makeStyles = (colors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: alpha(colors.text, 0.1),
   },
   iconButtonActive: {
     backgroundColor: alpha(colors.primary, 0.18),

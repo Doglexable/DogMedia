@@ -1,6 +1,7 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, mediaStreamUrl } from "../api";
+import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { getMediaKind, nextLoopMode } from "../utils/media";
 import {
   getCompletionAction,
@@ -57,6 +58,7 @@ export function PlayerProvider({ children }) {
   const [likedIds, setLikedIds] = useState(new Set());
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
+  const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
   const navigation = getQueueNavigation(queueIds, queueIndex, loopMode);
@@ -319,6 +321,7 @@ export function PlayerProvider({ children }) {
 
   const setSleepTimer = useCallback((minutes) => {
     const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
+    setSleepTimerCompleted(false);
     if (nextMinutes <= 0) {
       setSleepTimerEndsAt(null);
       setSleepTimerRemaining(0);
@@ -328,6 +331,20 @@ export function PlayerProvider({ children }) {
     const nextRemaining = nextMinutes * 60;
     setSleepTimerEndsAt(Date.now() + nextRemaining * 1000);
     setSleepTimerRemaining(nextRemaining);
+  }, []);
+
+  const dismissSleepTimerNotification = useCallback(() => {
+    setSleepTimerCompleted(false);
+  }, []);
+
+  const resumeAfterSleepTimer = useCallback(() => {
+    const media = currentMediaRef.current;
+    setSleepTimerCompleted(false);
+    if (!media || getMediaKind(media.mime_type) === "image") return;
+
+    reportPlayingRef.current(true);
+    if (soundRef.current) soundRef.current.play();
+    else videoControllerRef.current?.play?.();
   }, []);
 
   useEffect(() => {
@@ -340,6 +357,7 @@ export function PlayerProvider({ children }) {
 
       setSleepTimerEndsAt(null);
       pausePlaybackForSleepTimer();
+      setSleepTimerCompleted(true);
     };
 
     updateSleepTimer();
@@ -353,6 +371,10 @@ export function PlayerProvider({ children }) {
       setSleepTimerRemaining(0);
     }
   }, [currentMedia, sleepTimerEndsAt]);
+
+  useEffect(() => {
+    if (!currentMedia) setSleepTimerCompleted(false);
+  }, [currentMedia]);
 
   const recordCurrentSkip = useCallback(() => {
     const media = currentMediaRef.current;
@@ -726,5 +748,16 @@ export function PlayerProvider({ children }) {
     setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
-  return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
+  return (
+    <PlayerContext.Provider value={value}>
+      {children}
+      <SleepTimerCompleteModal
+        canResume={Boolean(currentMedia) && currentKind !== "image"}
+        mediaTitle={currentMedia?.title}
+        onDismiss={dismissSleepTimerNotification}
+        onResume={resumeAfterSleepTimer}
+        visible={sleepTimerCompleted}
+      />
+    </PlayerContext.Provider>
+  );
 }

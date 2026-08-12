@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findActiveLyricsIndex, getLyricsScrollBehavior } from "./lyrics-panel";
+import { findActiveLyricsIndex, getLyricsPreview, getLyricsScrollBehavior } from "./lyrics-panel";
 
 const segments = [
   { start: 2, end: 4, text: "First" },
@@ -29,5 +29,13 @@ describe("getLyricsScrollBehavior", () => {
   it("disables smooth scrolling when reduced motion is requested", () => {
     expect(getLyricsScrollBehavior(true)).toBe("auto");
     expect(getLyricsScrollBehavior(false)).toBe("smooth");
+  });
+});
+
+describe("getLyricsPreview", () => {
+  it("shows the active line and falls back to the opening line", () => {
+    expect(getLyricsPreview(segments, 1)).toBe("Second");
+    expect(getLyricsPreview(segments, -1)).toBe("First");
+    expect(getLyricsPreview([], 0)).toBe("");
   });
 });

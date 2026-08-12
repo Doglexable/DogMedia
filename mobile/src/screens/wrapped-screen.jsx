@@ -22,7 +22,6 @@ import {
   getWrappedCopy,
   getWrappedStoryCardSize,
   isWrappedEmpty,
-  WRAPPED_COLORS,
 } from "../utils/wrapped-story";
 
 const DAY_MS = 86400000;
@@ -286,7 +285,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
     );
   } else if (slide.id === "persona") {
     content = (
-      <View style={[cardStyle, styles.personaSlide, { padding: 26 * scale, backgroundColor: persona.palette?.accent || WRAPPED_COLORS.coral }]}>
+      <View style={[cardStyle, styles.personaSlide, { padding: 26 * scale, backgroundColor: persona.palette?.accent || colors.primary }]}>
         <Text style={styles.darkKicker}>Your playback character</Text>
         <View style={[styles.personaMark, { width: 142 * scale, height: 142 * scale, borderRadius: 71 * scale }]}>
           <Text style={[styles.personaInitial, { fontSize: 76 * scale }]}>{persona.title?.slice(0, 1) || "S"}</Text>
@@ -304,7 +303,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
           <Artwork media={lead} style={styles.finalArtwork} fallbackStyle={styles.storyArtworkFallback} fallbackTextStyle={styles.storyArtworkFallbackText} />
         </View>
         <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
-        <Text style={[styles.finalTitle, { fontSize: 48 * scale, lineHeight: 44 * scale, color: persona.palette?.accent || WRAPPED_COLORS.coral }]}>{persona.title || "Steady Signal"}</Text>
+        <Text style={[styles.finalTitle, { fontSize: 48 * scale, lineHeight: 44 * scale, color: persona.palette?.accent || colors.primary }]}>{persona.title || "Steady Signal"}</Text>
         <View style={styles.finalStats}>
           <FinalStat label="Play time" value={fmtTime(data.totalPlayTime)} color={persona.palette?.secondary} styles={styles} />
           <FinalStat label="Plays" value={formatNumber(data.totalPlays)} color={persona.palette?.secondary} styles={styles} />
@@ -333,8 +332,9 @@ function RhythmCell({ label, styles, value }) {
 }
 
 function FinalStat({ color, label, styles, value }) {
+  const { colors } = useWrappedTheme();
   return (
-    <View style={[styles.finalStat, { borderTopColor: color || WRAPPED_COLORS.cyan }]}>
+    <View style={[styles.finalStat, { borderTopColor: color || colors.primary }]}>
       <Text style={styles.finalStatValue}>{value}</Text>
       <Text style={styles.finalStatLabel}>{label}</Text>
     </View>
@@ -734,65 +734,65 @@ const makeStyles = (colors) => StyleSheet.create({
   viewSwitchTextActive: { color: colors.bg },
   storyViewer: { flex: 1, justifyContent: "center", paddingVertical: 10 },
   storyPage: { alignItems: "center", justifyContent: "center" },
-  storyCard: { position: "relative", overflow: "hidden", borderRadius: 8, backgroundColor: WRAPPED_COLORS.ink },
-  storyProgress: { position: "absolute", zIndex: 10, top: 13, right: 13, left: 13, height: 16, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 3, borderRadius: 4, backgroundColor: "rgba(17,19,24,0.34)" },
-  storyProgressTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "rgba(245,247,244,0.34)" },
-  storyProgressTrackDark: { backgroundColor: "rgba(17,19,24,0.22)" },
-  storyProgressActive: { backgroundColor: WRAPPED_COLORS.white },
-  storyProgressActiveDark: { backgroundColor: WRAPPED_COLORS.ink },
-  storyCount: { position: "absolute", zIndex: 10, right: 16, bottom: 12, color: "rgba(245,247,244,0.7)", fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
-  storyCountDark: { color: "rgba(17,19,24,0.62)" },
-  openingSlide: { justifyContent: "flex-end", backgroundColor: WRAPPED_COLORS.ink },
-  openingShade: { ...StyleSheet.absoluteFillObject, top: "38%", backgroundColor: "rgba(17,19,24,0.86)" },
+  storyCard: { position: "relative", overflow: "hidden", borderRadius: 8, backgroundColor: colors.bg },
+  storyProgress: { position: "absolute", zIndex: 10, top: 13, right: 13, left: 13, height: 16, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 3, borderRadius: 4, backgroundColor: alpha(colors.text, 0.34) },
+  storyProgressTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: alpha(colors.bg, 0.34) },
+  storyProgressTrackDark: { backgroundColor: alpha(colors.text, 0.22) },
+  storyProgressActive: { backgroundColor: colors.bg },
+  storyProgressActiveDark: { backgroundColor: colors.text },
+  storyCount: { position: "absolute", zIndex: 10, right: 16, bottom: 12, color: alpha(colors.bg, 0.7), fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
+  storyCountDark: { color: alpha(colors.text, 0.62) },
+  openingSlide: { justifyContent: "flex-end", backgroundColor: colors.bg },
+  openingShade: { ...StyleSheet.absoluteFillObject, top: "38%", backgroundColor: alpha(colors.text, 0.86) },
   openingCopy: { zIndex: 2, paddingBottom: 56 },
-  lightKicker: { color: WRAPPED_COLORS.white, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
-  openingTitle: { maxWidth: 350, marginTop: 12, color: WRAPPED_COLORS.white, fontFamily: DISPLAY_FONT, fontWeight: "900" },
-  openingText: { maxWidth: 310, marginTop: 15, color: "rgba(245,247,244,0.76)", fontSize: 13, lineHeight: 19, fontWeight: "700" },
-  storyArtworkFallback: { alignItems: "center", justifyContent: "center", backgroundColor: WRAPPED_COLORS.cyan },
-  storyArtworkFallbackText: { color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontSize: 58, fontWeight: "900" },
-  openingFallbackText: { color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontSize: 110, fontWeight: "900" },
-  timeSlide: { backgroundColor: WRAPPED_COLORS.yellow },
-  darkKicker: { color: WRAPPED_COLORS.ink, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
-  bigNumber: { marginTop: "18%", color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontWeight: "900" },
-  darkLede: { marginTop: 8, color: WRAPPED_COLORS.ink, fontSize: 13, fontWeight: "800" },
-  ribbon: { height: 112, flexDirection: "row", alignItems: "flex-end", gap: 2, marginTop: "auto", paddingTop: 12, borderBottomWidth: 1, borderBottomColor: "rgba(17,19,24,0.28)" },
-  ribbonBar: { flex: 1, minHeight: 2, backgroundColor: WRAPPED_COLORS.ink, transform: [{ skewX: "-8deg" }] },
-  storyStatsRow: { flexDirection: "row", marginTop: 18, marginBottom: 24, borderTopWidth: 1, borderTopColor: "rgba(17,19,24,0.32)" },
+  lightKicker: { color: colors.bg, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  openingTitle: { maxWidth: 350, marginTop: 12, color: colors.bg, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  openingText: { maxWidth: 310, marginTop: 15, color: alpha(colors.bg, 0.76), fontSize: 13, lineHeight: 19, fontWeight: "700" },
+  storyArtworkFallback: { alignItems: "center", justifyContent: "center", backgroundColor: alpha(colors.primary, 0.35) },
+  storyArtworkFallbackText: { color: colors.text, fontFamily: DISPLAY_FONT, fontSize: 58, fontWeight: "900" },
+  openingFallbackText: { color: colors.text, fontFamily: DISPLAY_FONT, fontSize: 110, fontWeight: "900" },
+  timeSlide: { backgroundColor: alpha(colors.primary, 0.22) },
+  darkKicker: { color: colors.text, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  bigNumber: { marginTop: "18%", color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  darkLede: { marginTop: 8, color: colors.text, fontSize: 13, fontWeight: "800" },
+  ribbon: { height: 112, flexDirection: "row", alignItems: "flex-end", gap: 2, marginTop: "auto", paddingTop: 12, borderBottomWidth: 1, borderBottomColor: alpha(colors.text, 0.28) },
+  ribbonBar: { flex: 1, minHeight: 2, backgroundColor: colors.text, transform: [{ skewX: "-8deg" }] },
+  storyStatsRow: { flexDirection: "row", marginTop: 18, marginBottom: 24, borderTopWidth: 1, borderTopColor: alpha(colors.text, 0.32) },
   storyStat: { flex: 1, minWidth: 0, paddingTop: 10, paddingRight: 5 },
-  storyStatLabel: { minHeight: 27, color: WRAPPED_COLORS.ink, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  storyStatValue: { marginTop: 4, color: WRAPPED_COLORS.ink, fontFamily: MONO_FONT, fontSize: 11, fontWeight: "900" },
-  topSlide: { backgroundColor: WRAPPED_COLORS.cyan },
-  storyHeadline: { maxWidth: 330, marginTop: 14, marginBottom: 16, color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  storyStatLabel: { minHeight: 27, color: colors.text, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  storyStatValue: { marginTop: 4, color: colors.text, fontFamily: MONO_FONT, fontSize: 11, fontWeight: "900" },
+  topSlide: { backgroundColor: alpha(colors.primary, 0.35) },
+  storyHeadline: { maxWidth: 330, marginTop: 14, marginBottom: 16, color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
   contactSheet: { flex: 1, gap: 6 },
   contactRow: { flex: 1, flexDirection: "row", gap: 6 },
-  mediaTile: { flex: 1, position: "relative", minWidth: 0, overflow: "hidden", borderWidth: 2, borderColor: WRAPPED_COLORS.ink, backgroundColor: WRAPPED_COLORS.white },
+  mediaTile: { flex: 1, position: "relative", minWidth: 0, overflow: "hidden", borderWidth: 2, borderColor: colors.text, backgroundColor: colors.bg },
   mediaTileLead: { flex: 1.3 },
   mediaTileArtwork: { width: "100%", height: "100%" },
-  mediaTileRank: { position: "absolute", top: 7, left: 7, minWidth: 24, height: 24, paddingHorizontal: 6, overflow: "hidden", backgroundColor: WRAPPED_COLORS.yellow, color: WRAPPED_COLORS.ink, fontFamily: MONO_FONT, fontSize: 10, lineHeight: 24, fontWeight: "900", textAlign: "center" },
-  mediaTileTitleShade: { position: "absolute", right: 0, bottom: 0, left: 0, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: "rgba(17,19,24,0.86)" },
-  mediaTileTitle: { color: WRAPPED_COLORS.white, fontSize: 9, fontWeight: "900" },
-  rhythmSlide: { backgroundColor: WRAPPED_COLORS.coral },
-  clockValue: { maxWidth: "100%", marginTop: "22%", color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontWeight: "900" },
-  rhythmGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: "auto", marginBottom: 26, borderTopWidth: 1, borderLeftWidth: 1, borderColor: "rgba(17,19,24,0.62)" },
-  rhythmCell: { width: "50%", minHeight: 92, justifyContent: "space-between", padding: 12, borderRightWidth: 1, borderBottomWidth: 1, borderColor: "rgba(17,19,24,0.62)" },
-  rhythmLabel: { color: WRAPPED_COLORS.ink, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  rhythmValue: { color: WRAPPED_COLORS.ink, fontSize: 15, lineHeight: 17, fontWeight: "900" },
-  personaSlide: { backgroundColor: WRAPPED_COLORS.coral },
-  personaMark: { alignItems: "center", justifyContent: "center", marginTop: "14%", marginBottom: 20, borderWidth: 3, borderColor: WRAPPED_COLORS.ink },
-  personaInitial: { color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontWeight: "900" },
-  personaTitle: { color: WRAPPED_COLORS.ink, fontFamily: DISPLAY_FONT, fontWeight: "900" },
-  personaCopy: { maxWidth: 330, marginTop: 16, color: WRAPPED_COLORS.ink, fontSize: 14, lineHeight: 20, fontWeight: "800" },
-  personaRule: { height: 2, marginTop: "auto", backgroundColor: WRAPPED_COLORS.ink },
-  personaFoot: { marginTop: 11, marginBottom: 24, color: WRAPPED_COLORS.ink, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
-  finalSlide: { backgroundColor: WRAPPED_COLORS.ink },
-  finalArtworkFrame: { width: "100%", aspectRatio: 1, overflow: "hidden", marginBottom: 18, borderWidth: 2, borderColor: WRAPPED_COLORS.white },
+  mediaTileRank: { position: "absolute", top: 7, left: 7, minWidth: 24, height: 24, paddingHorizontal: 6, overflow: "hidden", backgroundColor: alpha(colors.primary, 0.22), color: colors.text, fontFamily: MONO_FONT, fontSize: 10, lineHeight: 24, fontWeight: "900", textAlign: "center" },
+  mediaTileTitleShade: { position: "absolute", right: 0, bottom: 0, left: 0, paddingHorizontal: 8, paddingVertical: 7, backgroundColor: alpha(colors.text, 0.86) },
+  mediaTileTitle: { color: colors.bg, fontSize: 9, fontWeight: "900" },
+  rhythmSlide: { backgroundColor: colors.primary },
+  clockValue: { maxWidth: "100%", marginTop: "22%", color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  rhythmGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: "auto", marginBottom: 26, borderTopWidth: 1, borderLeftWidth: 1, borderColor: alpha(colors.text, 0.62) },
+  rhythmCell: { width: "50%", minHeight: 92, justifyContent: "space-between", padding: 12, borderRightWidth: 1, borderBottomWidth: 1, borderColor: alpha(colors.text, 0.62) },
+  rhythmLabel: { color: colors.text, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  rhythmValue: { color: colors.text, fontSize: 15, lineHeight: 17, fontWeight: "900" },
+  personaSlide: { backgroundColor: colors.primary },
+  personaMark: { alignItems: "center", justifyContent: "center", marginTop: "14%", marginBottom: 20, borderWidth: 3, borderColor: colors.text },
+  personaInitial: { color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  personaTitle: { color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  personaCopy: { maxWidth: 330, marginTop: 16, color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: "800" },
+  personaRule: { height: 2, marginTop: "auto", backgroundColor: colors.text },
+  personaFoot: { marginTop: 11, marginBottom: 24, color: colors.text, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
+  finalSlide: { backgroundColor: colors.bg },
+  finalArtworkFrame: { width: "100%", aspectRatio: 1, overflow: "hidden", marginBottom: 18, borderWidth: 2, borderColor: colors.text },
   finalArtwork: { width: "100%", height: "100%" },
   finalTitle: { marginTop: 11, fontFamily: DISPLAY_FONT, fontWeight: "900" },
   finalStats: { flexDirection: "row", gap: 10, marginTop: 22 },
   finalStat: { flex: 1, gap: 3, paddingTop: 8, borderTopWidth: 2 },
-  finalStatValue: { color: WRAPPED_COLORS.white, fontFamily: MONO_FONT, fontSize: 16, fontWeight: "900" },
-  finalStatLabel: { color: "rgba(245,247,244,0.62)", fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  finalTop: { marginTop: 16, color: "rgba(245,247,244,0.62)", fontSize: 9, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
+  finalStatValue: { color: colors.text, fontFamily: MONO_FONT, fontSize: 16, fontWeight: "900" },
+  finalStatLabel: { color: alpha(colors.text, 0.62), fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  finalTop: { marginTop: 16, color: alpha(colors.text, 0.62), fontSize: 9, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
   storyNavigation: { width: "100%", maxWidth: 430, flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "center", gap: 10, paddingHorizontal: 14, paddingTop: 10 },
   storyNavButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.cardSoft, borderRadius: 22, backgroundColor: colors.surface },
   storyNavButtonDisabled: { opacity: 0.28 },
@@ -861,7 +861,7 @@ const makeStyles = (colors) => StyleSheet.create({
   emptyNote: { color: colors.muted, fontSize: 12, lineHeight: 18, fontWeight: "700" },
   stateContent: { flexGrow: 1, justifyContent: "center", padding: spacing.lg },
   emptyState: { alignItems: "center", gap: 12, padding: 28, borderWidth: 1, borderColor: colors.cardSoft, borderRadius: 8, backgroundColor: colors.card },
-  emptyMark: { width: 52, height: 52, borderRadius: 26, backgroundColor: WRAPPED_COLORS.coral },
+  emptyMark: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary },
   emptyTitle: { color: colors.text, fontSize: 23, fontWeight: "900", textAlign: "center" },
   emptyCopy: { color: colors.muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center" },
   warning: { gap: 8, padding: 16, borderWidth: 1, borderColor: colors.warningBorder, borderRadius: 8, backgroundColor: colors.warningBg },
