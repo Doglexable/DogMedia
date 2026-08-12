@@ -40,7 +40,7 @@ export function FavoritesScreen({ navigation }) {
         keyExtractor={(item) => String(item.id)}
         numColumns={2}
         columnWrapperStyle={styles.columns}
-        contentContainerStyle={[styles.list, { paddingBottom: 150 + insets.bottom }]}
+        contentContainerStyle={[styles.list, { paddingBottom: 140 + insets.bottom }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
         ListEmptyComponent={<Text style={styles.empty}>Saved audio will appear here.</Text>}
         renderItem={({ item }) => (
@@ -74,7 +74,7 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   list: {
     gap: spacing.lg,
-    paddingBottom: 150,
+    paddingBottom: 140,
   },
   columns: {
     gap: spacing.md,

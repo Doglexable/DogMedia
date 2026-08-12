@@ -9,7 +9,9 @@ export const WRAPPED_COLORS = {
 };
 
 export function getWrappedStoryCardSize(windowWidth, windowHeight) {
-  const height = Math.max(300, Math.min(764, windowHeight - 248, ((windowWidth - 28) * 16) / 9));
+  const availableWidth = Math.max(windowWidth - 76, 0);
+  const availableHeight = Math.max(windowHeight - 190, 0);
+  const height = Math.min(764, availableHeight, (availableWidth * 16) / 9);
   return { width: height * 9 / 16, height };
 }
 

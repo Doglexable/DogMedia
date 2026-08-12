@@ -157,7 +157,7 @@ export function DashboardScreen({ navigation }) {
   return (
     <View style={styles.screen}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: 160 + insets.bottom }]}
+        contentContainerStyle={[styles.content, { paddingBottom: 140 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
@@ -225,7 +225,7 @@ const makeStyles = (colors) => StyleSheet.create({
   content: {
     paddingTop: 58,
     paddingHorizontal: spacing.lg,
-    paddingBottom: 160,
+    paddingBottom: 140,
     gap: spacing.lg,
   },
   header: {

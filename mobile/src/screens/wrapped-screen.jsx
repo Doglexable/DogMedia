@@ -111,39 +111,43 @@ function getBusiestWeekday(timeline) {
   return totals.sort((a, b) => b.playTime - a.playTime || b.plays - a.plays)[0];
 }
 
-function Header({ periodLabel, setView, showSwitch, view }) {
+function Header({ onClose, periodLabel, setView, showSwitch, view }) {
   const insets = useSafeAreaInsets();
-  const { styles } = useWrappedTheme();
+  const { colors, styles } = useWrappedTheme();
   return (
     <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-      <View style={styles.headerTitleRow}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Wrapped</Text>
-          <Text style={styles.headerSubtitle}>Your private playback recap</Text>
-        </View>
-        {showSwitch && <Text style={styles.headerPeriod}>{periodLabel}</Text>}
+      <View style={styles.headerControls}>
+        <Pressable
+          accessibilityLabel="Close Wrapped"
+          accessibilityRole="button"
+          onPress={onClose}
+          style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+        >
+          <Ionicons color={colors.text} name="close" size={22} />
+        </Pressable>
+        {showSwitch && (
+          <View accessibilityRole="tablist" style={styles.viewSwitch}>
+            {[
+              ["story", "Story"],
+              ["summary", "Summary"],
+            ].map(([value, label]) => {
+              const selected = view === value;
+              return (
+                <Pressable
+                  key={value}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  onPress={() => setView(value)}
+                  style={({ pressed }) => [styles.viewSwitchButton, selected && styles.viewSwitchButtonActive, pressed && styles.pressed]}
+                >
+                  <Text style={[styles.viewSwitchText, selected && styles.viewSwitchTextActive]}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
       </View>
-      {showSwitch && (
-        <View accessibilityRole="tablist" style={styles.viewSwitch}>
-          {[
-            ["story", "Story"],
-            ["summary", "Summary"],
-          ].map(([value, label]) => {
-            const selected = view === value;
-            return (
-              <Pressable
-                key={value}
-                accessibilityRole="tab"
-                accessibilityState={{ selected }}
-                onPress={() => setView(value)}
-                style={({ pressed }) => [styles.viewSwitchButton, selected && styles.viewSwitchButtonActive, pressed && styles.pressed]}
-              >
-                <Text style={[styles.viewSwitchText, selected && styles.viewSwitchTextActive]}>{label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+      <Text style={styles.headerPeriod} numberOfLines={2}>{periodLabel}</Text>
     </View>
   );
 }
@@ -355,6 +359,7 @@ function storyChapter(id) {
 function StoryViewer({ data, slides, wrappedCopy }) {
   const { colors, styles } = useWrappedTheme();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const listRef = useRef(null);
   const [index, setIndex] = useState(0);
   const { height: cardHeight, width: cardWidth } = getWrappedStoryCardSize(windowWidth, windowHeight);
@@ -384,19 +389,21 @@ function StoryViewer({ data, slides, wrappedCopy }) {
         onMomentumScrollEnd={(event) => setIndex(Math.round(event.nativeEvent.contentOffset.x / windowWidth))}
         renderItem={({ item, index: slideIndex }) => (
           <View style={[styles.storyPage, { width: windowWidth }]}>
-            <StorySlide
-              cardHeight={cardHeight}
-              cardWidth={cardWidth}
-              current={slideIndex}
-              data={data}
-              slide={item}
-              total={slides.length}
-              wrappedCopy={wrappedCopy}
-            />
+            <View style={[styles.storyFrame, { width: cardWidth, height: cardHeight }]}>
+              <StorySlide
+                cardHeight={cardHeight}
+                cardWidth={cardWidth}
+                current={slideIndex}
+                data={data}
+                slide={item}
+                total={slides.length}
+                wrappedCopy={wrappedCopy}
+              />
+            </View>
           </View>
         )}
       />
-      <View style={styles.storyNavigation}>
+      <View style={[styles.storyNavigation, { paddingBottom: Math.max(insets.bottom, 6) }]}>
         <Pressable
           accessibilityLabel="Previous slide"
           disabled={index === 0}
@@ -634,7 +641,7 @@ function StateScreen({ children }) {
   return <ScrollView contentContainerStyle={[styles.stateContent, { paddingBottom: 32 + insets.bottom }]}>{children}</ScrollView>;
 }
 
-export function WrappedScreen({ onAccessChanged }) {
+export function WrappedScreen({ navigation, onAccessChanged }) {
   const { colors, styles } = useWrappedTheme();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState(null);
@@ -679,16 +686,23 @@ export function WrappedScreen({ onAccessChanged }) {
     [data, period.fromIso]
   );
   const slides = useMemo(() => buildWrappedSlides(data, timeline), [data, timeline]);
-  const wrappedCopy = useMemo(() => getWrappedCopy(data), [data]);
+  const wrappedCopy = useMemo(() => getWrappedCopy(data || locked), [data, locked]);
   const serverPeriodLabel = data?.periodStart && data?.periodEnd
     ? `${formatDateUtc(data.periodStart)} - ${formatDateUtc(data.periodEnd)}`
     : period.label;
   const empty = data ? isWrappedEmpty(data) : false;
   const showSwitch = Boolean(data && !empty);
+  const headerPeriodLabel = `${serverPeriodLabel} · ${wrappedCopy.recapLabel}`;
 
   return (
     <View style={styles.screen}>
-      <Header periodLabel={serverPeriodLabel} setView={setView} showSwitch={showSwitch} view={view} />
+      <Header
+        onClose={() => navigation.navigate("Home")}
+        periodLabel={headerPeriodLabel}
+        setView={setView}
+        showSwitch={showSwitch}
+        view={view}
+      />
       {error ? (
         <StateScreen>
           <View style={styles.warning}>
@@ -721,20 +735,19 @@ export function WrappedScreen({ onAccessChanged }) {
 const makeStyles = (colors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   pressed: { opacity: 0.72 },
-  header: { gap: 10, paddingHorizontal: spacing.lg, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.cardSoft, backgroundColor: colors.surface },
-  headerTitleRow: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  headerCopy: { flex: 1, minWidth: 0 },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "900" },
-  headerSubtitle: { marginTop: 2, color: colors.muted, fontSize: 11, fontWeight: "700" },
-  headerPeriod: { maxWidth: "48%", color: colors.muted, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "800", textAlign: "right" },
-  viewSwitch: { width: 168, minHeight: 38, flexDirection: "row", padding: 3, borderWidth: 1, borderColor: colors.cardSoft, borderRadius: 8, backgroundColor: colors.bg },
-  viewSwitchButton: { flex: 1, minHeight: 30, alignItems: "center", justifyContent: "center", borderRadius: 6 },
+  header: { minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 14, paddingBottom: 10, backgroundColor: colors.bg },
+  headerControls: { flexDirection: "row", alignItems: "center", flexShrink: 0, gap: 10 },
+  closeButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: alpha(colors.text, 0.18), borderRadius: 21, backgroundColor: alpha(colors.text, 0.08) },
+  headerPeriod: { flex: 1, minWidth: 0, color: alpha(colors.text, 0.72), fontSize: 10, lineHeight: 14, fontWeight: "900", textAlign: "right" },
+  viewSwitch: { width: 136, minHeight: 42, flexDirection: "row", padding: 3, borderWidth: 1, borderColor: alpha(colors.text, 0.18), borderRadius: 9, backgroundColor: alpha(colors.text, 0.08) },
+  viewSwitchButton: { flex: 1, minHeight: 34, alignItems: "center", justifyContent: "center", borderRadius: 7 },
   viewSwitchButtonActive: { backgroundColor: colors.text },
-  viewSwitchText: { color: colors.muted, fontSize: 11, fontWeight: "900" },
+  viewSwitchText: { color: alpha(colors.text, 0.72), fontSize: 11, fontWeight: "900" },
   viewSwitchTextActive: { color: colors.bg },
-  storyViewer: { flex: 1, justifyContent: "center", paddingVertical: 10 },
+  storyViewer: { flex: 1, justifyContent: "center", paddingVertical: 4 },
   storyPage: { alignItems: "center", justifyContent: "center" },
-  storyCard: { position: "relative", overflow: "hidden", borderRadius: 8, backgroundColor: colors.bg },
+  storyFrame: { borderRadius: 8, backgroundColor: colors.bg, shadowColor: colors.black, shadowOpacity: 0.34, shadowRadius: 28, shadowOffset: { width: 0, height: 16 }, elevation: 12 },
+  storyCard: { position: "relative", overflow: "hidden", borderWidth: 1, borderColor: alpha(colors.text, 0.18), borderRadius: 8, backgroundColor: colors.bg },
   storyProgress: { position: "absolute", zIndex: 10, top: 13, right: 13, left: 13, height: 16, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 3, borderRadius: 4, backgroundColor: alpha(colors.text, 0.34) },
   storyProgressTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: alpha(colors.bg, 0.34) },
   storyProgressTrackDark: { backgroundColor: alpha(colors.text, 0.22) },
@@ -784,19 +797,19 @@ const makeStyles = (colors) => StyleSheet.create({
   personaCopy: { maxWidth: 330, marginTop: 16, color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: "800" },
   personaRule: { height: 2, marginTop: "auto", backgroundColor: colors.text },
   personaFoot: { marginTop: 11, marginBottom: 24, color: colors.text, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
-  finalSlide: { backgroundColor: colors.bg },
-  finalArtworkFrame: { width: "100%", aspectRatio: 1, overflow: "hidden", marginBottom: 18, borderWidth: 2, borderColor: colors.text },
+  finalSlide: { backgroundColor: colors.text },
+  finalArtworkFrame: { width: "100%", aspectRatio: 1, overflow: "hidden", marginBottom: 18, borderWidth: 2, borderColor: colors.bg },
   finalArtwork: { width: "100%", height: "100%" },
   finalTitle: { marginTop: 11, fontFamily: DISPLAY_FONT, fontWeight: "900" },
   finalStats: { flexDirection: "row", gap: 10, marginTop: 22 },
   finalStat: { flex: 1, gap: 3, paddingTop: 8, borderTopWidth: 2 },
-  finalStatValue: { color: colors.text, fontFamily: MONO_FONT, fontSize: 16, fontWeight: "900" },
-  finalStatLabel: { color: alpha(colors.text, 0.62), fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
-  finalTop: { marginTop: 16, color: alpha(colors.text, 0.62), fontSize: 9, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
-  storyNavigation: { width: "100%", maxWidth: 430, flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "center", gap: 10, paddingHorizontal: 14, paddingTop: 10 },
-  storyNavButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.cardSoft, borderRadius: 22, backgroundColor: colors.surface },
+  finalStatValue: { color: colors.bg, fontFamily: MONO_FONT, fontSize: 16, fontWeight: "900" },
+  finalStatLabel: { color: alpha(colors.bg, 0.62), fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
+  finalTop: { marginTop: 16, color: alpha(colors.bg, 0.62), fontSize: 9, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
+  storyNavigation: { width: "100%", maxWidth: 430, flexDirection: "row", alignItems: "center", justifyContent: "center", alignSelf: "center", gap: 10, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6 },
+  storyNavButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: alpha(colors.text, 0.18), borderRadius: 22, backgroundColor: alpha(colors.text, 0.08) },
   storyNavButtonDisabled: { opacity: 0.28 },
-  storyChapter: { flex: 1, color: colors.muted, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900", textAlign: "center", textTransform: "uppercase" },
+  storyChapter: { flex: 1, height: 44, paddingHorizontal: 10, overflow: "hidden", borderWidth: 1, borderColor: alpha(colors.text, 0.14), borderRadius: 10, backgroundColor: alpha(colors.text, 0.06), color: alpha(colors.text, 0.72), fontFamily: MONO_FONT, fontSize: 9, lineHeight: 42, fontWeight: "900", textAlign: "center", textTransform: "uppercase" },
   summaryScreen: { flex: 1 },
   summaryContent: { gap: 14, padding: spacing.lg },
   summaryHero: { gap: 6, paddingVertical: 8 },

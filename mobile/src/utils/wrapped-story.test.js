@@ -53,8 +53,9 @@ describe("mobile wrapped story model", () => {
   });
 
   it("keeps story cards within compact phone and tablet bounds", () => {
-    expect(getWrappedStoryCardSize(320, 568)).toEqual({ width: 180, height: 320 });
-    expect(getWrappedStoryCardSize(390, 844)).toEqual({ width: 335.25, height: 596 });
+    expect(getWrappedStoryCardSize(320, 568)).toEqual({ width: 212.625, height: 378 });
+    expect(getWrappedStoryCardSize(375, 667)).toEqual({ width: 268.3125, height: 477 });
+    expect(getWrappedStoryCardSize(390, 844)).toEqual({ width: 314, height: 5024 / 9 });
     expect(getWrappedStoryCardSize(1024, 1366)).toEqual({ width: 429.75, height: 764 });
   });
 

@@ -129,6 +129,7 @@ function Tabs() {
           name="Wrapped"
           options={{
             tabBarIcon: (props) => <TabIcon {...props} name="stats-chart" outlineName="stats-chart-outline" />,
+            tabBarStyle: { display: "none" },
           }}
         >
           {(props) => <WrappedScreen {...props} onAccessChanged={loadWrappedAccess} />}

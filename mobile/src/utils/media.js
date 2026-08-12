@@ -5,6 +5,13 @@ export function formatDuration(seconds) {
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
 }
 
+export function getPlaybackProgress(position, duration) {
+  const elapsed = Number(position);
+  const total = Number(duration);
+  if (!Number.isFinite(elapsed) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.min(Math.max(elapsed / total, 0), 1);
+}
+
 export function getMediaKind(mime = "") {
   const value = typeof mime === "string" ? mime : "";
   if (value.startsWith("audio/")) return "audio";
