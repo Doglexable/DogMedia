@@ -25,7 +25,7 @@ function useReducedMotion() {
   return reducedMotion;
 }
 
-export function LyricsView({ contentContainerStyle, mediaId, onSeek, position, scrollComponent: ScrollComponent = ScrollView, style }) {
+export function LyricsView({ contentContainerStyle, mediaId, offlineLyrics = null, onSeek, position, scrollComponent: ScrollComponent = ScrollView, style }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lyrics, setLyrics] = useState(null);
@@ -45,6 +45,13 @@ export function LyricsView({ contentContainerStyle, mediaId, onSeek, position, s
     lineLayoutsRef.current.clear();
     lastDisplayIndexRef.current = 0;
 
+    if (offlineLyrics) {
+      const data = normalizeLyricsResponse(offlineLyrics, mediaId);
+      setLyrics(data);
+      setStatus(data?.segments?.length ? "ready" : "empty");
+      return () => controller.abort();
+    }
+
     api(`/api/media/${mediaId}/lyrics`, { signal: controller.signal })
       .then(async (response) => {
         if (response.status === 404) return null;
@@ -61,7 +68,7 @@ export function LyricsView({ contentContainerStyle, mediaId, onSeek, position, s
         setStatus("error");
       });
     return () => controller.abort();
-  }, [mediaId, retryKey]);
+  }, [mediaId, offlineLyrics, retryKey]);
 
   const activeIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),

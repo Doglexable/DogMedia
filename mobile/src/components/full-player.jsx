@@ -1,15 +1,16 @@
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEventListener } from "expo";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, BottomSheetView } from "@gorhom/bottom-sheet";
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mediaStreamUrl, mediaThumbnailUrl } from "../api";
-import { alpha, radii, shadow, spacing, useTheme } from "../theme";
+import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getArtistLabel, getMediaLabel } from "../utils/media";
 import { usePlayer } from "../context/player-context";
+import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
 import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 
@@ -275,11 +276,11 @@ function QueueContent({ colors, currentMedia, error, items, loading, onClear, on
       {error && <Text style={styles.queueError}>{error}</Text>}
 
       {loading ? (
-        <BottomSheetView style={styles.sheetScroll}>
+        <View style={styles.sheetScroll}>
           <QueueSkeleton colors={colors} styles={styles} />
-        </BottomSheetView>
+        </View>
       ) : items.length > 0 ? (
-        <BottomSheetView style={styles.sheetScroll}>
+        <View style={styles.sheetScroll}>
           <DraggableFlatList
             ListHeaderComponent={(
               <>
@@ -306,11 +307,11 @@ function QueueContent({ colors, currentMedia, error, items, loading, onClear, on
             renderItem={renderQueueItem}
             showsVerticalScrollIndicator={false}
           />
-        </BottomSheetView>
+        </View>
       ) : (
-        <BottomSheetView style={styles.sheetScroll}>
+        <View style={styles.sheetScroll}>
           <Text style={styles.queueEmpty}>Queue is empty.</Text>
-        </BottomSheetView>
+        </View>
       )}
 
       {!loading && items.length > 0 && (
@@ -332,6 +333,7 @@ function PlayerBottomSheet({
   items,
   loading,
   mediaId,
+  offlineLyrics,
   onClear,
   onClose,
   onMove,
@@ -375,14 +377,15 @@ function PlayerBottomSheet({
       ref={bottomSheetRef}
       backdropComponent={renderBackdrop}
       backgroundStyle={styles.sheetBackground}
+      enableDynamicSizing={false}
       enablePanDownToClose
       handleIndicatorStyle={styles.sheetHandle}
       index={0}
       onDismiss={onClose}
       snapPoints={snapPoints}
     >
-      <BottomSheetView style={styles.sheetPanel}>
-        <BottomSheetView style={styles.sheetHeader}>
+      <View style={styles.sheetPanel}>
+        <View style={styles.sheetHeader}>
           <View style={styles.sheetTabs}>
             <Pressable
               accessibilityLabel="Show lyrics"
@@ -406,13 +409,14 @@ function PlayerBottomSheet({
             </Pressable>
           </View>
           <QueueActionButton accessibilityLabel="Close player details" colors={colors} icon="close" onPress={closeSheet} styles={styles} />
-        </BottomSheetView>
+        </View>
 
-        <BottomSheetView style={[styles.sheetBody, { paddingBottom: sheetInset }]}>
+        <View style={[styles.sheetBody, { paddingBottom: sheetInset }]}>
           {activeTab === "lyrics" ? (
             <LyricsView
               contentContainerStyle={[styles.sheetLyricsContent, { paddingBottom: sheetInset + spacing.xl }]}
               mediaId={mediaId}
+              offlineLyrics={offlineLyrics}
               onSeek={seek}
               position={position}
               scrollComponent={BottomSheetScrollView}
@@ -434,18 +438,19 @@ function PlayerBottomSheet({
               styles={styles}
             />
           )}
-        </BottomSheetView>
-      </BottomSheetView>
+        </View>
+      </View>
     </BottomSheetModal>
   );
 }
 
 export function FullPlayer({ navigation }) {
   const player = usePlayer();
-  const { colors, resolvedMode } = useTheme();
+  const offline = useOffline();
+  const { colors, resolvedMode, shadow } = useTheme();
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const styles = useMemo(() => makeStyles(colors, resolvedMode), [colors, resolvedMode]);
+  const styles = useMemo(() => makeStyles(colors, resolvedMode, shadow), [colors, resolvedMode, shadow]);
   const [progressWidth, setProgressWidth] = useState(1);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetTab, setSheetTab] = useState("lyrics");
@@ -506,6 +511,7 @@ export function FullPlayer({ navigation }) {
   const muted = player.muted || player.volume <= 0;
   const coverSize = Math.max(150, Math.min(width - spacing.lg * 5, height < 720 ? 178 : 230));
   const sheetHeight = Math.min(Math.max(height * 0.6, 330), 560);
+  const thumbnailUri = offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id);
 
   if (!isAudio) {
     return (
@@ -564,7 +570,7 @@ export function FullPlayer({ navigation }) {
 
   return (
     <View style={[styles.shell, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
-      <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={styles.bg} blurRadius={34} />
+      <Image source={{ uri: thumbnailUri }} style={styles.bg} blurRadius={34} />
       <View style={styles.dim} />
       <View style={styles.header}>
         <PlayerIconButton
@@ -576,7 +582,7 @@ export function FullPlayer({ navigation }) {
       </View>
 
       <View style={styles.mediaZone}>
-        <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={[styles.cover, { width: coverSize, height: coverSize }]} />
+        <Image source={{ uri: thumbnailUri }} style={[styles.cover, { width: coverSize, height: coverSize }]} />
         <Text style={styles.album} numberOfLines={1}>{getLastFolderName(media)}</Text>
         <Text style={styles.title} numberOfLines={2}>{media.title}</Text>
         <Text style={styles.artist} numberOfLines={1}>{getArtistLabel(media.artists)}</Text>
@@ -641,8 +647,9 @@ export function FullPlayer({ navigation }) {
           <PlayerIconButton
             accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
             active={isLiked}
+            disabled={!offline.isConnected}
             icon={isLiked ? "bookmark" : "bookmark-outline"}
-            iconColor={isLiked ? colors.primary : colors.text}
+            iconColor={!offline.isConnected ? colors.subtle : isLiked ? colors.primary : colors.text}
             onPress={() => player.toggleLike(media)}
           />
           <SleepTimerButton
@@ -691,6 +698,7 @@ export function FullPlayer({ navigation }) {
           onSelect={(item) => runQueueOperation(player.selectQueueItem(item), { closeOnSuccess: true })}
           onTabChange={changeSheetTab}
           mediaId={media.id}
+          offlineLyrics={offline.getOfflineLyrics(media.id)}
           position={player.position}
           queueIndex={player.queueIndex}
           seek={player.seek}
@@ -702,7 +710,7 @@ export function FullPlayer({ navigation }) {
   );
 }
 
-const makeStyles = (colors, resolvedMode) => {
+const makeStyles = (colors, resolvedMode, shadow) => {
   const isLight = resolvedMode === "light";
 
   return StyleSheet.create({
@@ -892,14 +900,14 @@ const makeStyles = (colors, resolvedMode) => {
     gap: spacing.md,
   },
   sheetBackground: {
-    backgroundColor: colors.card,
+    backgroundColor: colors.bg,
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
   },
   sheetPanel: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: colors.card,
+    backgroundColor: colors.bg,
   },
   sheetHandle: {
     width: 42,
@@ -1033,7 +1041,7 @@ const makeStyles = (colors, resolvedMode) => {
   queueItemDragging: {
     borderColor: colors.primary,
     backgroundColor: alpha(colors.primary, 0.2),
-    ...shadow.soft,
+    ...shadow.dragging,
   },
   queueIcon: {
     width: 32,

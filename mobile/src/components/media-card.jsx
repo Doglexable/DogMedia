@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
 import { mediaThumbnailUrl } from "../api";
-import { alpha, radii, shadow, spacing, useTheme } from "../theme";
+import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getMediaFolderName, getMediaLabel } from "../utils/media";
+import { useOffline } from "../context/offline-context";
 
 function QueueSheetAction({ colors, icon, label, onPress, styles }) {
   return (
@@ -26,13 +27,31 @@ function QueueSheetAction({ colors, icon, label, onPress, styles }) {
 }
 
 export function MediaCard({ compact = false, item, liked = false, onPlayNext, onPress, onQueue, onToggleLike }) {
-  const { colors } = useTheme();
+  const { colors, shadow } = useTheme();
+  const offline = useOffline();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetError, setSheetError] = useState("");
   const audio = item.mime_type?.startsWith("audio/");
   const hasQueueActions = Boolean(onPlayNext || onQueue);
+  const downloaded = offline.downloadsById.get(Number(item.id));
+  const downloadJob = offline.jobs.find((job) => job.mediaId === Number(item.id));
+  const downloadActive = ["queued", "downloading", "paused"].includes(downloadJob?.state);
+
+  const download = (cellularApproved = false) => offline.downloadMedia(item.id, { cellularApproved });
+  const handleDownload = () => {
+    if (downloaded) return offline.removeDownload(item.id);
+    if (downloadActive) return offline.cancelDownload(item.id);
+    if (offline.networkType === "cellular") {
+      Alert.alert("Use cellular data?", "This audio download may use a large amount of mobile data.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Download", onPress: () => download(true).catch(() => {}) },
+      ]);
+      return Promise.resolve();
+    }
+    return download();
+  };
 
   const handleAction = (event, action) => {
     event.stopPropagation();
@@ -54,7 +73,7 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
         onPress={() => onPress?.(item)}
         style={({ pressed }) => [styles.card, compact && styles.compactCard, pressed && styles.pressed]}
       >
-        <Image source={{ uri: mediaThumbnailUrl(item.id) }} style={[styles.cover, compact && styles.compactCover]} />
+        <Image source={{ uri: downloaded?.thumbnailUri || mediaThumbnailUrl(item.id) }} style={[styles.cover, compact && styles.compactCover]} />
         <View style={styles.copy}>
           <Text style={styles.title} numberOfLines={compact ? 1 : 2}>{item.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{item.artists || getMediaFolderName(item)}</Text>
@@ -64,7 +83,7 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
           </View>
         </View>
         <View style={styles.actions}>
-          {audio && (
+          {audio && onToggleLike && (
             <Pressable
               accessibilityLabel={liked ? "Remove from favorites" : "Add to favorites"}
               accessibilityRole="button"
@@ -74,6 +93,17 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
               style={[styles.actionButton, liked && styles.actionActive]}
             >
               <Ionicons name={liked ? "bookmark" : "bookmark-outline"} size={18} color={liked ? colors.primary : colors.muted} />
+            </Pressable>
+          )}
+          {audio && (
+            <Pressable
+              accessibilityLabel={downloaded ? "Remove download" : downloadActive ? "Cancel download" : "Download audio"}
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={(event) => handleAction(event, handleDownload)}
+              style={[styles.actionButton, downloaded && styles.actionActive]}
+            >
+              <Ionicons name={downloaded ? "checkmark" : downloadActive ? "close" : "download-outline"} size={18} color={downloaded ? colors.primary : colors.muted} />
             </Pressable>
           )}
         </View>
@@ -101,6 +131,7 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
             {sheetError && <Text style={styles.sheetError}>{sheetError}</Text>}
             {onPlayNext && <QueueSheetAction colors={colors} icon="play-skip-forward" label="Play next" onPress={() => runSheetAction(onPlayNext)} styles={styles} />}
             {onQueue && <QueueSheetAction colors={colors} icon="list" label="Add to queue" onPress={() => runSheetAction(onQueue)} styles={styles} />}
+            {audio && <QueueSheetAction colors={colors} icon={downloaded ? "trash-outline" : "download-outline"} label={downloaded ? "Remove download" : "Download"} onPress={() => runSheetAction(handleDownload)} styles={styles} />}
           </View>
         </View>
       </Modal>
@@ -108,7 +139,7 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, shadow) => StyleSheet.create({
   card: {
     width: 172,
     minHeight: 248,
@@ -197,7 +228,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderTopLeftRadius: radii.xl,
     borderTopRightRadius: radii.xl,
     backgroundColor: colors.card,
-    ...shadow.soft,
+    ...shadow.floating,
   },
   handle: {
     alignSelf: "center",

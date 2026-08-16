@@ -62,6 +62,7 @@ services:
       dockerfile: web/Containerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-}
+        VITE_ANDROID_APK_URL: ${VITE_ANDROID_APK_URL:-}
     network_mode: host
     depends_on:
       - server

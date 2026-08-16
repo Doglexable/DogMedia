@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiJson, mediaThumbnailUrl } from "../api";
 import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
-import { MiniPlayer } from "../components/mini-player";
+import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { usePlayer } from "../context/player-context";
-import { radii, shadow, spacing, useTheme } from "../theme";
+import { useOffline } from "../context/offline-context";
+import { radii, spacing, useTheme } from "../theme";
 import { getArtistLabel } from "../utils/media";
 
 function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
@@ -81,9 +81,9 @@ function Row({ items, likedIds, onPlay, onPlayNext, onQueue, onToggleLike, style
 
 export function DashboardScreen({ navigation }) {
   const player = usePlayer();
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const offline = useOffline();
+  const { colors, shadow } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
   const [categories, setCategories] = useState([]);
   const [media, setMedia] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -153,11 +153,21 @@ export function DashboardScreen({ navigation }) {
   };
 
   const toggleLike = (item) => player.toggleLike(item).catch(() => setNotice("Could not update favorites."));
+  const downloadFolder = (cellularApproved = false) => offline.downloadCategory(selectedCategory, { cellularApproved })
+    .then((count) => setNotice(count ? `${count} audio download${count === 1 ? "" : "s"} queued.` : "No audio found in this folder."))
+    .catch((error) => setNotice(error.message || "Could not download this folder."));
+  const confirmFolderDownload = () => {
+    if (offline.networkType !== "cellular") return downloadFolder();
+    Alert.alert("Use cellular data?", "Download this folder using mobile data?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Download", onPress: () => downloadFolder(true) },
+    ]);
+  };
 
   return (
     <View style={styles.screen}>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: 140 + insets.bottom }]}
+        contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
@@ -175,6 +185,13 @@ export function DashboardScreen({ navigation }) {
         />
 
         <CategoryChips categories={categories} selectedId={selectedCategory} onSelect={setSelectedCategory} />
+
+        {selectedCategory && (
+          <Pressable accessibilityRole="button" onPress={confirmFolderDownload} style={styles.downloadFolder}>
+            <Ionicons color={colors.primary} name="download-outline" size={19} />
+            <Text style={styles.downloadFolderText}>Download this folder</Text>
+          </Pressable>
+        )}
         {notice && <Text style={styles.notice}>{notice}</Text>}
 
         <Featured colors={colors} item={featured} onPlay={play} styles={styles} />
@@ -217,7 +234,7 @@ export function DashboardScreen({ navigation }) {
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, shadow) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -225,7 +242,7 @@ const makeStyles = (colors) => StyleSheet.create({
   content: {
     paddingTop: 58,
     paddingHorizontal: spacing.lg,
-    paddingBottom: 140,
+    paddingBottom: MINI_PLAYER_CLEARANCE,
     gap: spacing.lg,
   },
   header: {
@@ -261,6 +278,19 @@ const makeStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.warningBg,
     color: colors.warningText,
     fontWeight: "800",
+  },
+  downloadFolder: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: colors.card,
+  },
+  downloadFolderText: {
+    color: colors.primary,
+    fontWeight: "900",
   },
   featured: {
     flexDirection: "row",

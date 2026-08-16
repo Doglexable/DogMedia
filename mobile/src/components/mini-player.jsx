@@ -1,17 +1,20 @@
 import { useMemo } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mediaThumbnailUrl } from "../api";
-import { alpha, radii, shadow, spacing, useTheme } from "../theme";
+import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getArtistLabel, getPlaybackProgress } from "../utils/media";
 import { usePlayer } from "../context/player-context";
+import { useOffline } from "../context/offline-context";
 import { PlayerTransportControls } from "./player-controls";
+
+export const MINI_PLAYER_HEIGHT = 48;
+export const MINI_PLAYER_CLEARANCE = MINI_PLAYER_HEIGHT + spacing.md * 2;
 
 export function MiniPlayer({ navigation }) {
   const player = usePlayer();
-  const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const offline = useOffline();
+  const { colors, shadow } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
   const media = player?.currentMedia;
   if (!media) return null;
 
@@ -19,14 +22,14 @@ export function MiniPlayer({ navigation }) {
   const progress = getPlaybackProgress(player.position, player.duration);
 
   return (
-    <View style={[styles.bar, { bottom: 80 + insets.bottom }]}>
+    <View style={styles.bar}>
       <Pressable
         accessibilityLabel={`Open player for ${media.title}, ${Math.round(progress * 100)}% played`}
         accessibilityRole="button"
         onPress={openPlayer}
         style={styles.surface}
       >
-        <Image source={{ uri: mediaThumbnailUrl(media.id) }} style={styles.cover} />
+        <Image source={{ uri: offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id) }} style={styles.cover} />
         <View style={styles.copy}>
           <Text style={styles.title} numberOfLines={1}>{media.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{getArtistLabel(media.artists)} · {formatDuration(player.position)}</Text>
@@ -34,11 +37,11 @@ export function MiniPlayer({ navigation }) {
         <PlayerTransportControls
           player={player}
           playButtonStyle={styles.play}
-          playIconSize={16}
+          playIconSize={18}
           stopPropagation
           style={styles.controls}
           transportButtonStyle={styles.transport}
-          transportIconSize={14}
+          transportIconSize={16}
         />
         <View pointerEvents="none" style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
@@ -48,21 +51,22 @@ export function MiniPlayer({ navigation }) {
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, shadow) => StyleSheet.create({
   bar: {
     position: "absolute",
     left: spacing.md,
     right: spacing.md,
-    height: 40,
+    bottom: spacing.md,
+    height: MINI_PLAYER_HEIGHT,
     borderRadius: radii.lg,
     backgroundColor: colors.card,
-    ...shadow.soft,
+    ...shadow.floating,
   },
   surface: {
-    height: 40,
+    height: MINI_PLAYER_HEIGHT,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: spacing.sm,
     paddingHorizontal: 4,
     paddingBottom: 2,
     overflow: "hidden",
@@ -72,8 +76,8 @@ const makeStyles = (colors) => StyleSheet.create({
     backgroundColor: colors.card,
   },
   cover: {
-    width: 32,
-    height: 32,
+    width: 40,
+    height: 40,
     borderRadius: 10,
     backgroundColor: colors.surface,
   },
@@ -83,14 +87,14 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   title: {
     color: colors.text,
-    fontSize: 13,
-    lineHeight: 15,
+    fontSize: 14,
+    lineHeight: 17,
     fontWeight: "900",
   },
   meta: {
     color: colors.muted,
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: "700",
   },
   controls: {
@@ -99,19 +103,19 @@ const makeStyles = (colors) => StyleSheet.create({
     gap: 2,
   },
   transport: {
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: colors.cardSoft,
-  },
-  play: {
     width: 32,
     height: 32,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 16,
+    backgroundColor: colors.cardSoft,
+  },
+  play: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 18,
     backgroundColor: colors.primary,
   },
   progressTrack: {

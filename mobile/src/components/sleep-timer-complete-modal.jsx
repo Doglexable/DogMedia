@@ -1,11 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { alpha, radii, shadow, spacing, useTheme } from "../theme";
+import { alpha, radii, spacing, useTheme } from "../theme";
 
 export function SleepTimerCompleteModal({ canResume, mediaTitle, onDismiss, onResume, visible }) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, shadow } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
 
   return (
     <Modal
@@ -51,7 +51,7 @@ export function SleepTimerCompleteModal({ canResume, mediaTitle, onDismiss, onRe
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, shadow) => StyleSheet.create({
   overlay: {
     flex: 1,
     alignItems: "center",
@@ -68,7 +68,7 @@ const makeStyles = (colors) => StyleSheet.create({
     borderColor: alpha(colors.text, 0.1),
     borderRadius: radii.xl,
     backgroundColor: colors.surface,
-    ...shadow.soft,
+    ...shadow.floating,
   },
   icon: {
     width: 58,

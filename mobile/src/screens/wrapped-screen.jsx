@@ -30,8 +30,8 @@ const DISPLAY_FONT = Platform.select({ ios: "Arial", android: "sans-serif-conden
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
 function useWrappedTheme() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { colors, shadow } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
   return { colors, styles };
 }
 
@@ -732,7 +732,7 @@ export function WrappedScreen({ navigation, onAccessChanged }) {
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const makeStyles = (colors, shadow) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   pressed: { opacity: 0.72 },
   header: { minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingHorizontal: 14, paddingBottom: 10, backgroundColor: colors.bg },
@@ -746,7 +746,7 @@ const makeStyles = (colors) => StyleSheet.create({
   viewSwitchTextActive: { color: colors.bg },
   storyViewer: { flex: 1, justifyContent: "center", paddingVertical: 4 },
   storyPage: { alignItems: "center", justifyContent: "center" },
-  storyFrame: { borderRadius: 8, backgroundColor: colors.bg, shadowColor: colors.black, shadowOpacity: 0.34, shadowRadius: 28, shadowOffset: { width: 0, height: 16 }, elevation: 12 },
+  storyFrame: { borderRadius: 8, backgroundColor: colors.bg, ...shadow.story },
   storyCard: { position: "relative", overflow: "hidden", borderWidth: 1, borderColor: alpha(colors.text, 0.18), borderRadius: 8, backgroundColor: colors.bg },
   storyProgress: { position: "absolute", zIndex: 10, top: 13, right: 13, left: 13, height: 16, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 3, borderRadius: 4, backgroundColor: alpha(colors.text, 0.34) },
   storyProgressTrack: { flex: 1, height: 3, borderRadius: 2, backgroundColor: alpha(colors.bg, 0.34) },

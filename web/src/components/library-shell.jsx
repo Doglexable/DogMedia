@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBars,
   faChartSimple,
+  faDownload,
   faFolder,
   faFolderOpen,
   faGear,
@@ -13,9 +14,10 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { ThemeToggle } from "../App";
 import { Link, useLocation } from "react-router-dom";
-import { api } from "../api";
+import { api, apiUrl } from "../api";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
+const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
 
 export function useLibrary() {
   return useContext(LibraryContext);
@@ -79,6 +81,22 @@ function AccessBadge({ access }) {
         {clientIp && <small>{clientIp}</small>}
       </span>
     </div>
+  );
+}
+
+function AndroidDownloadLink({ mobile = false }) {
+  return (
+    <a
+      className={mobile ? "mobile-android-download" : "global-sidebar-android-download"}
+      href={ANDROID_APK_URL}
+      download
+    >
+      <span className="android-download-icon"><FontAwesomeIcon icon={faDownload} /></span>
+      <span className="android-download-copy">
+        <strong>Get the Android app</strong>
+        <small>Downloads and offline listening</small>
+      </span>
+    </a>
   );
 }
 
@@ -194,6 +212,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 
         {/* Sidebar footer: theme toggle */}
         <div className="global-sidebar-footer">
+          <AndroidDownloadLink />
           <AccessBadge access={access} />
           <ThemeToggle className="global-sidebar-theme-btn" />
         </div>
@@ -241,6 +260,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           </button>
         </div>
         <nav className="mobile-categories-sheet-body" aria-label="Media categories">
+          <AndroidDownloadLink mobile />
           {categoriesLoading ? (
             Array.from({ length: 6 }, (_, index) => (
               <span key={index} className="global-sidebar-category-skeleton skeleton-shimmer" style={{ margin: "4px 0", borderRadius: 10, height: 40 }} />

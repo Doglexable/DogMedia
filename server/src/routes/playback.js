@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import { buildDashboardSummary } from "../playback-dashboard-summary.js";
 
 const fallbackRedis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
@@ -314,108 +315,6 @@ async function getWrappedFromRedis(fastify, from, to) {
   return { totalPlayTime, totalPlays, topMedia, timeline };
 }
 
-function orderedIds(items, filter = () => true, sorter = null, limit = 14) {
-  const source = items.filter(filter);
-  if (sorter) source.sort(sorter);
-  return source.slice(0, limit).map((item) => item.id);
-}
-
-function idsByPlaybackScore(items, filter = () => true, limit = 14) {
-  return orderedIds(
-    items,
-    filter,
-    (a, b) =>
-      b.playbackScore - a.playbackScore ||
-      b.totalTime - a.totalTime ||
-      b.playCount - a.playCount ||
-      new Date(b.createdAt || 0) - new Date(a.createdAt || 0) ||
-      a.title.localeCompare(b.title),
-    limit
-  );
-}
-
-function idsByRecentPlayback(items, filter = () => true, limit = 14) {
-  return orderedIds(
-    items,
-    (item) => filter(item) && item.lastPlayedAt,
-    (a, b) =>
-      new Date(b.lastPlayedAt || 0) - new Date(a.lastPlayedAt || 0) ||
-      b.playbackScore - a.playbackScore ||
-      a.title.localeCompare(b.title),
-    limit
-  );
-}
-
-function fallbackIds(items, filter = () => true, limit = 14) {
-  return orderedIds(
-    items,
-    filter,
-    (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0) || a.title.localeCompare(b.title),
-    limit
-  );
-}
-
-function withFallback(primaryIds, fallbackIdList, limit = 14) {
-  const seen = new Set();
-  const ids = [];
-
-  for (const id of [...primaryIds, ...fallbackIdList]) {
-    const numericId = Number(id);
-    if (!Number.isFinite(numericId) || seen.has(numericId)) continue;
-    seen.add(numericId);
-    ids.push(numericId);
-    if (ids.length >= limit) break;
-  }
-
-  return ids;
-}
-
-function buildDashboardSummary(items, options = {}) {
-  const hasPlayback = items.some((item) => item.playCount > 0 || item.totalTime > 0 || item.lastPlayedAt);
-  const lastPlayedAt = items
-    .map((item) => item.lastPlayedAt)
-    .filter(Boolean)
-    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
-  const allFallback = fallbackIds(items, () => true, 24);
-  const playedIds = hasPlayback ? idsByPlaybackScore(items, () => true, 24) : [];
-  const recentIds = hasPlayback ? idsByRecentPlayback(items, () => true, 24) : [];
-
-  const featuredId = withFallback(playedIds, allFallback, 1)[0] || null;
-
-  return {
-    generatedAt: new Date().toISOString(),
-    refreshIntervalSeconds: DASHBOARD_CACHE_TTL_SECONDS,
-    source: hasPlayback ? "playback_events" : "media_assets",
-    filters: {
-      view: options.view || "all",
-      categoryId: options.categoryId || null,
-    },
-    stats: {
-      totalPlayTime: items.reduce((sum, item) => sum + Math.max(0, Number(item.totalTime) || 0), 0),
-      totalPlays: items.reduce((sum, item) => sum + Math.max(0, Number(item.playCount) || 0), 0),
-      activeMediaCount: items.filter((item) => item.playCount > 0 || item.totalTime > 0 || item.lastPlayedAt).length,
-      mediaCount: items.length,
-      lastPlayedAt,
-    },
-    featuredId,
-    quickAccessIds: withFallback(recentIds, withFallback(playedIds, allFallback, 24), 8),
-    rows: [
-      {
-        key: "recently-played",
-        title: hasPlayback ? "Recently played" : "Recently added",
-        type: "square",
-        mediaIds: withFallback(recentIds, allFallback, 14),
-      },
-      {
-        key: "top-media",
-        title: hasPlayback ? "Most played" : "Library picks",
-        type: "square",
-        mediaIds: withFallback(playedIds, allFallback, 14),
-      },
-    ],
-  };
-}
-
 async function getDashboardSummaryFromDb(fastify, request, { view, categoryId }) {
   const params = [request.accessTier, DASHBOARD_LOOKBACK_DAYS];
   let likedJoin = "";
@@ -499,7 +398,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId })
       lastPlayedAt: row.last_played_at,
       playbackScore: row.playback_score || 0,
     })),
-    { view, categoryId }
+    { view, categoryId, refreshIntervalSeconds: DASHBOARD_CACHE_TTL_SECONDS }
   );
 }
 
@@ -508,7 +407,7 @@ async function getCachedDashboardSummary(fastify, request) {
   const view = normalizeDashboardView(request.query.view);
   const categoryId = normalizePositiveMediaId(request.query.category_id);
   const ownerPart = view === "liked" ? `:${request.clientIp || request.ip}` : "";
-  const cacheKey = `playback:dashboard:v1:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
+  const cacheKey = `playback:dashboard:v2:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) {
@@ -522,7 +421,11 @@ async function getCachedDashboardSummary(fastify, request) {
   } catch (err) {
     if (err.code !== "42P01") throw err;
     fastify.log.warn("playback_events table is missing; dashboard summary will use media fallback");
-    const summary = await buildDashboardSummary([], { view, categoryId });
+    const summary = await buildDashboardSummary([], {
+      view,
+      categoryId,
+      refreshIntervalSeconds: DASHBOARD_CACHE_TTL_SECONDS,
+    });
     await redis.set(cacheKey, JSON.stringify(summary), "EX", DASHBOARD_CACHE_TTL_SECONDS);
     return { ...summary, cached: false };
   }

@@ -5,10 +5,12 @@ import { apiJson } from "../api";
 import { MediaCard } from "../components/media-card";
 import { MiniPlayer } from "../components/mini-player";
 import { usePlayer } from "../context/player-context";
+import { useOffline } from "../context/offline-context";
 import { spacing, useTheme } from "../theme";
 
 export function FavoritesScreen({ navigation }) {
   const player = usePlayer();
+  const offline = useOffline();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -17,11 +19,16 @@ export function FavoritesScreen({ navigation }) {
 
   const load = useCallback(() => {
     setRefreshing(true);
+    if (!offline.isConnected) {
+      setItems(offline.downloads.filter((item) => item.liked));
+      setRefreshing(false);
+      return Promise.resolve();
+    }
     return apiJson("/api/likes")
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setRefreshing(false));
-  }, []);
+  }, [offline.downloads, offline.isConnected]);
 
   useEffect(() => {
     load();
@@ -50,7 +57,7 @@ export function FavoritesScreen({ navigation }) {
             onPress={play}
             onPlayNext={player.playNext}
             onQueue={player.addToQueue}
-            onToggleLike={(media) => player.toggleLike(media).then(load)}
+            onToggleLike={offline.isConnected ? (media) => player.toggleLike(media).then(load) : undefined}
           />
         )}
       />

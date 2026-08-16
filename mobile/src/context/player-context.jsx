@@ -2,6 +2,7 @@ import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson, mediaStreamUrl } from "../api";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
+import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
 import {
   getCompletionAction,
@@ -19,6 +20,7 @@ export function usePlayer() {
 }
 
 export function PlayerProvider({ children }) {
+  const offline = useOffline();
   const soundRef = useRef(null);
   const soundSubscriptionRef = useRef(null);
   const videoControllerRef = useRef(null);
@@ -32,6 +34,8 @@ export function PlayerProvider({ children }) {
   const shuffleEnabledRef = useRef(false);
   const queueIdsRef = useRef([]);
   const queueIndexRef = useRef(0);
+  const queueItemsRef = useRef([]);
+  const queueModeRef = useRef("server");
   const pendingStartPositionRef = useRef(null);
   const awaitingAutoplayRef = useRef(null);
   const completedMediaRef = useRef(null);
@@ -69,21 +73,38 @@ export function PlayerProvider({ children }) {
 
     queueIdsRef.current = normalized.queueIds;
     queueIndexRef.current = normalized.queueIndex;
+    queueItemsRef.current = normalized.queueItems;
     setQueueIds(normalized.queueIds);
     setQueueItems(normalized.queueItems);
     setQueueIndex(normalized.queueIndex);
     return data;
   }, []);
 
+  const applyLocalQueue = useCallback((items, mediaId) => {
+    const queueItems = (items || []).filter(Boolean);
+    const queueIds = queueItems.map((item) => Number(item.id));
+    const selectedIndex = Math.max(0, queueIds.indexOf(Number(mediaId)));
+    queueModeRef.current = "offline";
+    queueItemsRef.current = queueItems;
+    queueIdsRef.current = queueIds;
+    queueIndexRef.current = selectedIndex;
+    setQueueItems(queueItems);
+    setQueueIds(queueIds);
+    setQueueIndex(selectedIndex);
+    return { items: queueItems, mediaIds: queueIds, index: selectedIndex };
+  }, []);
+
   const refreshQueue = useCallback(() => (
-    apiJson("/api/queue").then((data) => applyQueue(data))
-  ), [applyQueue]);
+    queueModeRef.current === "offline" || !offline.isConnected
+      ? Promise.resolve({ items: queueItemsRef.current, mediaIds: queueIdsRef.current, index: queueIndexRef.current })
+      : apiJson("/api/queue").then((data) => applyQueue(data))
+  ), [applyQueue, offline.isConnected]);
 
   const refreshLikes = useCallback(() => (
-    apiJson("/api/likes")
+    !offline.isConnected ? Promise.resolve() : apiJson("/api/likes")
       .then((items) => setLikedIds(new Set(items.map((item) => Number(item.id)))))
       .catch(() => {})
-  ), []);
+  ), [offline.isConnected]);
 
   const playbackPayload = useCallback((media, action, nextPosition, nextDuration) => ({
     mediaId: Number(media.id),
@@ -97,46 +118,47 @@ export function PlayerProvider({ children }) {
 
   const sendPlaybackEvent = useCallback((media, action, nextPosition = 0, nextDuration = 0) => {
     if (!media) return Promise.resolve();
-    return apiJson("/api/playback/event", {
-      method: "POST",
-      body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
-    }).catch(() => {});
-  }, [playbackPayload]);
+    return offline.recordPlaybackEvent(playbackPayload(media, action, nextPosition, nextDuration))
+      .then(() => { if (offline.isConnected) offline.flushSync(); })
+      .catch(() => {});
+  }, [offline, playbackPayload]);
 
   const sendActiveSession = useCallback((media, action, nextPosition = 0, nextDuration = 0) => {
     if (!media) return Promise.resolve();
+    if (!offline.isConnected) return Promise.resolve();
     return apiJson("/api/playback/active", {
       method: "POST",
       body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
     }).catch(() => {});
-  }, [playbackPayload]);
+  }, [offline.isConnected, playbackPayload]);
 
   const saveResumePositionFor = useCallback((media, nextPosition, nextDuration) => {
     if (!media || getMediaKind(media.mime_type) === "image") return Promise.resolve();
     if (!isValidResumePosition(nextPosition, nextDuration)) return Promise.resolve();
 
-    return apiJson(`/api/playback/resume/${Number(media.id)}`, {
-      method: "POST",
-      body: JSON.stringify({
-        position: Math.floor(nextPosition || 0),
-        duration: Math.floor(nextDuration || media.duration || 0),
-      }),
-    }).catch(() => {});
-  }, []);
+    return offline.saveResume(Number(media.id), Math.floor(nextPosition || 0), Math.floor(nextDuration || media.duration || 0))
+      .then(() => { if (offline.isConnected) offline.flushSync(); })
+      .catch(() => {});
+  }, [offline]);
 
   const loadResumePosition = useCallback((media) => {
     if (!media || getMediaKind(media.mime_type) === "image") return;
     const sequence = resumeLoadSequenceRef.current + 1;
     resumeLoadSequenceRef.current = sequence;
 
-    apiJson(`/api/playback/resume/${Number(media.id)}`)
-      .then((data) => {
+    Promise.all([
+      offline.getLocalResume(Number(media.id)),
+      offline.isConnected ? apiJson(`/api/playback/resume/${Number(media.id)}`).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([local, remote]) => {
         if (resumeLoadSequenceRef.current !== sequence) return;
+        const data = new Date(local?.updatedAt || 0).getTime() > new Date(remote?.timestamp || 0).getTime() ? local : remote;
+        if (!data) return;
         const nextDuration = data.duration || media.duration || durationRef.current;
         setResumePosition(isValidResumePosition(data.position, nextDuration) ? Math.floor(data.position) : null);
       })
       .catch(() => {});
-  }, []);
+  }, [offline]);
 
   const unloadSound = useCallback(async () => {
     const sound = soundRef.current;
@@ -203,7 +225,9 @@ export function PlayerProvider({ children }) {
   reportPlayingRef.current = reportPlaying;
 
   const loadAudio = useCallback(async (media, autoplay, startPosition) => {
-    const sound = createAudioPlayer({ uri: mediaStreamUrl(media.id) }, { updateInterval: 500 });
+    const localUri = offline.resolveMediaUri(media.id);
+    if (!localUri && !offline.isConnected) throw new Error("This track is not available offline");
+    const sound = createAudioPlayer({ uri: localUri || mediaStreamUrl(media.id) }, { updateInterval: 500 });
     sound.volume = mutedRef.current ? 0 : volumeRef.current;
     sound.loop = false;
     soundRef.current = sound;
@@ -219,7 +243,7 @@ export function PlayerProvider({ children }) {
 
     if (startPosition > 0) await sound.seekTo(startPosition);
     if (autoplay) sound.play();
-  }, []);
+  }, [offline]);
 
   const startMedia = useCallback(async (media, options = {}) => {
     if (!media) return;
@@ -389,6 +413,16 @@ export function PlayerProvider({ children }) {
   const selectQueueItem = useCallback((media, options = {}) => {
     const { skipCurrent = true } = options;
     if (!media) return Promise.resolve(null);
+    if (queueModeRef.current === "offline" || !offline.isConnected) {
+      if (!offline.resolveMediaUri(media.id)) return Promise.reject(new Error("This track is not available offline"));
+      if (skipCurrent && Number(currentMediaRef.current?.id) !== Number(media.id)) recordCurrentSkip();
+      const index = queueIdsRef.current.indexOf(Number(media.id));
+      if (index >= 0) {
+        queueIndexRef.current = index;
+        setQueueIndex(index);
+      }
+      return startMedia(media, { replacementAction: null }).then(() => ({ items: queueItemsRef.current }));
+    }
     return apiJson("/api/queue/select", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
@@ -398,12 +432,16 @@ export function PlayerProvider({ children }) {
       await startMedia(media, { replacementAction: null });
       return data;
     });
-  }, [applyQueue, recordCurrentSkip, startMedia]);
+  }, [applyQueue, offline, recordCurrentSkip, startMedia]);
 
   const playQueueId = useCallback(async (mediaId, options = {}) => {
+    if (queueModeRef.current === "offline" || !offline.isConnected) {
+      const media = queueItemsRef.current.find((item) => Number(item.id) === Number(mediaId));
+      return selectQueueItem(media, options);
+    }
     const media = await apiJson(`/api/media/${Number(mediaId)}`);
     return selectQueueItem(media, options);
-  }, [selectQueueItem]);
+  }, [offline.isConnected, selectQueueItem]);
 
   const advance = useCallback(async (direction, options = {}) => {
     const { skipCurrent = true } = options;
@@ -419,6 +457,11 @@ export function PlayerProvider({ children }) {
       return playQueueId(wrapId, { skipCurrent });
     }
 
+    if (queueModeRef.current === "offline" || !offline.isConnected) {
+      const targetIndex = queueIndexRef.current + (isNext ? 1 : -1);
+      return playQueueId(ids[targetIndex], { skipCurrent });
+    }
+
     const data = await apiJson(isNext ? "/api/queue/next" : "/api/queue/prev", { method: "POST" });
     if (!data.mediaId) return null;
     if (skipCurrent) recordCurrentSkip();
@@ -426,7 +469,7 @@ export function PlayerProvider({ children }) {
     await startMedia(media, { replacementAction: null });
     await refreshQueue().catch(() => {});
     return media;
-  }, [playQueueId, recordCurrentSkip, refreshQueue, startMedia]);
+  }, [offline.isConnected, playQueueId, recordCurrentSkip, refreshQueue, startMedia]);
 
   const handleEnded = useCallback(async () => {
     const media = currentMediaRef.current;
@@ -480,6 +523,14 @@ export function PlayerProvider({ children }) {
 
   const playMedia = useCallback(async (media, categoryId = null) => {
     if (!media) return;
+    if (!offline.isConnected) {
+      const localItems = queueItemsRef.current.filter((item) => offline.resolveMediaUri(item.id));
+      const items = localItems.some((item) => Number(item.id) === Number(media.id)) ? localItems : [media];
+      applyLocalQueue(items, media.id);
+      await startMedia(media, { autoplay: true, replacementAction: "skip" });
+      return;
+    }
+    queueModeRef.current = "server";
     await startMedia(media, { autoplay: true, replacementAction: "skip" });
     const endpoint = categoryId
       ? `/api/queue/auto/${categoryId}?start=${media.id}`
@@ -487,7 +538,17 @@ export function PlayerProvider({ children }) {
     apiJson(endpoint, { method: "POST" })
       .then((data) => applyQueue(data, media.id))
       .catch(() => {});
-  }, [applyQueue, startMedia]);
+  }, [applyLocalQueue, applyQueue, offline, startMedia]);
+
+  const playOfflineMedia = useCallback(async (items, mediaId) => {
+    if (!offline.leaseState.playable) throw new Error("Reconnect to validate offline access");
+    const playableItems = (items || []).filter((item) => offline.resolveMediaUri(item.mediaId ?? item.id));
+    const media = playableItems.find((item) => Number(item.mediaId ?? item.id) === Number(mediaId));
+    if (!media) throw new Error("Downloaded audio is unavailable");
+    const normalizedItems = playableItems.map((item) => ({ ...item, id: Number(item.mediaId ?? item.id) }));
+    applyLocalQueue(normalizedItems, mediaId);
+    await startMedia({ ...media, id: Number(media.mediaId ?? media.id) }, { autoplay: true, replacementAction: "skip" });
+  }, [applyLocalQueue, offline, startMedia]);
 
   const togglePlayback = useCallback(() => {
     if (!currentMediaRef.current || getMediaKind(currentMediaRef.current.mime_type) === "image") return;
@@ -584,6 +645,14 @@ export function PlayerProvider({ children }) {
       return Promise.resolve(false);
     }
 
+    if (queueModeRef.current === "offline" || !offline.isConnected) {
+      const currentId = Number(currentMediaRef.current?.id);
+      const rest = queueItemsRef.current.filter((item) => Number(item.id) !== currentId).sort(() => Math.random() - 0.5);
+      applyLocalQueue([currentMediaRef.current, ...rest], currentId);
+      shuffleEnabledRef.current = true;
+      setShuffleEnabled(true);
+      return Promise.resolve(true);
+    }
     return apiJson("/api/queue/shuffle", { method: "POST" }).then((data) => {
       applyQueue(data, currentMediaRef.current?.id);
       shuffleEnabledRef.current = true;
@@ -592,48 +661,66 @@ export function PlayerProvider({ children }) {
       if (media) sendActiveSession(media, pausedRef.current ? "pause" : "play", positionRef.current, durationRef.current);
       return true;
     });
-  }, [applyQueue, sendActiveSession]);
+  }, [applyLocalQueue, applyQueue, offline.isConnected, sendActiveSession]);
 
   const addToQueue = useCallback((media) => (
-    apiJson("/api/queue/items", {
+    queueModeRef.current === "offline" || !offline.isConnected
+      ? Promise.resolve(applyLocalQueue([...queueItemsRef.current, media], currentMediaRef.current?.id))
+      : apiJson("/api/queue/items", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
-    }).then((data) => applyQueue(data))
-  ), [applyQueue]);
+      }).then((data) => applyQueue(data))
+  ), [applyLocalQueue, applyQueue, offline.isConnected]);
 
   const playNext = useCallback((media) => (
-    apiJson("/api/queue/items/next", {
+    queueModeRef.current === "offline" || !offline.isConnected
+      ? Promise.resolve(applyLocalQueue([
+        ...queueItemsRef.current.slice(0, queueIndexRef.current + 1), media,
+        ...queueItemsRef.current.slice(queueIndexRef.current + 1),
+      ], currentMediaRef.current?.id))
+      : apiJson("/api/queue/items/next", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
-    }).then((data) => applyQueue(data))
-  ), [applyQueue]);
+      }).then((data) => applyQueue(data))
+  ), [applyLocalQueue, applyQueue, offline.isConnected]);
 
-  const removeFromQueue = useCallback((mediaId) => (
-    apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
+  const removeFromQueue = useCallback((mediaId) => {
+    if (queueModeRef.current === "offline" || !offline.isConnected) {
+      const activeRemoved = Number(currentMediaRef.current?.id) === Number(mediaId);
+      const data = applyLocalQueue(queueItemsRef.current.filter((item) => Number(item.id) !== Number(mediaId)), currentMediaRef.current?.id);
+      if (activeRemoved) return stopPlayback().then(() => ({ ...data, activeRemoved: true }));
+      return Promise.resolve({ ...data, activeRemoved: false });
+    }
+    return apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
       .then(async (data) => {
         applyQueue(data);
         if (data.activeRemoved) await stopPlayback();
         return data;
-      })
-  ), [applyQueue, stopPlayback]);
+      });
+  }, [applyLocalQueue, applyQueue, offline.isConnected, stopPlayback]);
 
   const clearQueue = useCallback(() => (
-    apiJson("/api/queue", { method: "DELETE" })
+    queueModeRef.current === "offline" || !offline.isConnected
+      ? (applyLocalQueue([], null), stopPlayback().then(() => ({ items: [], activeRemoved: true })))
+      : apiJson("/api/queue", { method: "DELETE" })
       .then(async (data) => {
         applyQueue(data, null);
         if (data.activeRemoved) await stopPlayback();
         return data;
       })
-  ), [applyQueue, stopPlayback]);
+  ), [applyLocalQueue, applyQueue, offline.isConnected, stopPlayback]);
 
   const reorderQueue = useCallback((mediaIds) => (
-    apiJson("/api/queue/order", {
+    queueModeRef.current === "offline" || !offline.isConnected
+      ? Promise.resolve(applyLocalQueue(mediaIds.map((id) => queueItemsRef.current.find((item) => Number(item.id) === Number(id))).filter(Boolean), currentMediaRef.current?.id))
+      : apiJson("/api/queue/order", {
       method: "PUT",
       body: JSON.stringify({ mediaIds: mediaIds.map(Number) }),
-    }).then((data) => applyQueue(data))
-  ), [applyQueue]);
+      }).then((data) => applyQueue(data))
+  ), [applyLocalQueue, applyQueue, offline.isConnected]);
 
   const toggleLike = useCallback((media) => {
+    if (!offline.isConnected) return Promise.reject(new Error("Favorites cannot be changed offline"));
     const mediaId = Number(media?.id ?? media);
     const liked = likedIds.has(mediaId);
     return apiJson(`/api/likes/${mediaId}`, { method: liked ? "DELETE" : "PUT" }).then(() => {
@@ -644,7 +731,7 @@ export function PlayerProvider({ children }) {
       });
       return !liked;
     });
-  }, [likedIds]);
+  }, [likedIds, offline.isConnected]);
 
   useEffect(() => {
     setAudioModeAsync({
@@ -655,6 +742,19 @@ export function PlayerProvider({ children }) {
     refreshLikes();
     refreshQueue().catch(() => {});
   }, [refreshLikes, refreshQueue]);
+
+  useEffect(() => {
+    if (offline.isConnected || queueModeRef.current === "offline") return;
+    const playableItems = queueItemsRef.current.filter((item) => offline.resolveMediaUri(item.id));
+    const currentId = Number(currentMediaRef.current?.id);
+    applyLocalQueue(playableItems, currentId);
+    if (playableItems.some((item) => Number(item.id) === currentId)) return;
+    if (playableItems.length > 0) {
+      startMedia(playableItems[0], { autoplay: !pausedRef.current, replacementAction: "skip" }).catch(() => {});
+    } else if (currentMediaRef.current) {
+      stopPlayback();
+    }
+  }, [applyLocalQueue, offline, startMedia, stopPlayback]);
 
   useEffect(() => {
     if (activeRestoreStartedRef.current) return;
@@ -713,6 +813,7 @@ export function PlayerProvider({ children }) {
     muted,
     paused,
     playMedia,
+    playOfflineMedia,
     playNext,
     position,
     queueIndex,
@@ -741,7 +842,7 @@ export function PlayerProvider({ children }) {
     volume,
   }), [
     addToQueue, advance, applyResumePosition, changeVolume, clearQueue, currentKind, currentMedia,
-    duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia,
+    duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
     playNext, position, queueIds, queueIndex, queueItems, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,

@@ -10,8 +10,10 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
 import { PlayerProvider } from "./context/player-context";
+import { OfflineProvider, useOffline } from "./context/offline-context";
 import { AccessDeniedScreen } from "./screens/access-denied-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
+import { DownloadsScreen } from "./screens/downloads-screen";
 import { FavoritesScreen } from "./screens/favorites-screen";
 import { PlayerScreen } from "./screens/player-screen";
 import { WrappedScreen } from "./screens/wrapped-screen";
@@ -42,19 +44,22 @@ function LoadingScreen() {
 }
 
 function AccessGuard({ children }) {
+  const offline = useOffline();
   const [status, setStatus] = useState("loading");
 
   useEffect(() => {
-    apiJson("/api/check-access")
+    offline.validateAccess()
       .then((data) => setStatus({
         ok: true,
         tier: data.tier,
         description: data.description,
         firstRun: data.firstRun,
         clientIp: data.ip,
+        offline: Boolean(data.offline),
+        managementOnly: Boolean(data.managementOnly),
       }))
       .catch(() => setStatus({ ok: false }));
-  }, []);
+  }, [offline.validateAccess]);
 
   if (status === "loading") return <LoadingScreen />;
   if (!status.ok) return <AccessDeniedScreen />;
@@ -67,6 +72,7 @@ function AccessGuard({ children }) {
 }
 
 function Tabs() {
+  const access = useAccess();
   const { colors, mode, toggleMode } = useTheme();
   const insets = useSafeAreaInsets();
   const [wrappedAvailable, setWrappedAvailable] = useState(true);
@@ -86,6 +92,7 @@ function Tabs() {
 
   return (
     <Tab.Navigator
+      initialRouteName={access?.managementOnly ? "Downloads" : "Home"}
       screenListeners={{
         state: (event) => {
           const state = event.data.state;
@@ -122,6 +129,13 @@ function Tabs() {
         component={FavoritesScreen}
         options={{
           tabBarIcon: (props) => <TabIcon {...props} name="bookmark" outlineName="bookmark-outline" />,
+        }}
+      />
+      <Tab.Screen
+        name="Downloads"
+        component={DownloadsScreen}
+        options={{
+          tabBarIcon: (props) => <TabIcon {...props} name="download" outlineName="download-outline" />,
         }}
       />
       {showWrapped && (
@@ -173,14 +187,16 @@ function AppShell() {
     <NavigationContainer theme={navigationTheme}>
       <StatusBar style={resolvedMode === "dark" ? "light" : "dark"} />
       <BottomSheetModalProvider>
-        <AccessGuard>
-          <PlayerProvider>
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="Tabs" component={Tabs} />
-              <Stack.Screen name="Player" component={PlayerScreen} />
-            </Stack.Navigator>
-          </PlayerProvider>
-        </AccessGuard>
+        <OfflineProvider>
+          <AccessGuard>
+            <PlayerProvider>
+              <Stack.Navigator screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="Tabs" component={Tabs} />
+                <Stack.Screen name="Player" component={PlayerScreen} />
+              </Stack.Navigator>
+            </PlayerProvider>
+          </AccessGuard>
+        </OfflineProvider>
       </BottomSheetModalProvider>
     </NavigationContainer>
   );

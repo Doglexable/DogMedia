@@ -14,6 +14,11 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.dogmedia.mobile",
+      "versionCode": 1,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "icon": "./assets/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -30,7 +35,16 @@
     },
     "plugins": [
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      "expo-sqlite",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ]
   }
 }

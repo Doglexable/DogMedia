@@ -12,6 +12,8 @@ COPY web ./web
 # Bake the API URL into the bundle at build time
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_ANDROID_APK_URL
+ENV VITE_ANDROID_APK_URL=$VITE_ANDROID_APK_URL
 RUN npm run build --workspace=web
 
 FROM nginx:stable-alpine

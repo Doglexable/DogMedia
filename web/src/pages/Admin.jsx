@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { ThemeToggle, useAccess } from "../App";
-import { api } from "../api";
+import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
@@ -910,6 +910,49 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
   }
 }
 
+async function uploadAndroidRelease({ file, version, onProgress }) {
+  const initRes = await api("/api/mobile-release/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, filename: file.name, size: file.size }),
+  });
+
+  if (!initRes.ok) {
+    throw new Error(await readApiError(initRes, `Release upload setup failed (${initRes.status})`));
+  }
+
+  const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
+  const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+
+  try {
+    for (let index = 0; index < totalChunks; index += 1) {
+      const start = index * chunkSize;
+      const chunk = file.slice(start, Math.min(start + chunkSize, file.size));
+      const form = new FormData();
+      form.append("index", String(index));
+      form.append("chunk", chunk, file.name);
+
+      const chunkRes = await api(`/api/mobile-release/uploads/${uploadId}/chunks`, {
+        method: "POST",
+        body: form,
+      });
+      if (!chunkRes.ok) {
+        throw new Error(await readApiError(chunkRes, `APK chunk upload failed (${chunkRes.status})`));
+      }
+      onProgress?.(Math.round(((index + 1) / totalChunks) * 100));
+    }
+
+    const completeRes = await api(`/api/mobile-release/uploads/${uploadId}/complete`, { method: "POST" });
+    if (!completeRes.ok) {
+      throw new Error(await readApiError(completeRes, `Release finalization failed (${completeRes.status})`));
+    }
+    return completeRes.json();
+  } catch (error) {
+    await api(`/api/mobile-release/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    throw error;
+  }
+}
+
 export default function Admin() {
   const { tier } = useAccess();
   const { refreshCategories: refreshGlobalCategories } = useLibrary();
@@ -951,6 +994,11 @@ export default function Admin() {
   const [editLyrics, setEditLyrics] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editProgress, setEditProgress] = useState(null);
+  const [mobileRelease, setMobileRelease] = useState(null);
+  const [releaseVersion, setReleaseVersion] = useState("0.1.0");
+  const [releaseFile, setReleaseFile] = useState(null);
+  const [uploadingRelease, setUploadingRelease] = useState(false);
+  const [releaseProgress, setReleaseProgress] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -970,6 +1018,22 @@ export default function Admin() {
     };
 
     loadCategories();
+
+    const loadMobileRelease = async () => {
+      try {
+        const res = await api("/api/mobile-release");
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!cancelled) {
+          setMobileRelease(data);
+          if (data.available && data.version) setReleaseVersion(data.version);
+        }
+      } catch {
+        if (!cancelled) setMobileRelease({ available: false });
+      }
+    };
+
+    loadMobileRelease();
 
     return () => {
       cancelled = true;
@@ -1410,6 +1474,47 @@ export default function Admin() {
     }
   };
 
+  const handleUploadRelease = async (event) => {
+    event.preventDefault();
+    if (!releaseVersion.trim() || !releaseFile) {
+      setMessage({ type: "error", text: "Enter a version and choose an Android APK." });
+      return;
+    }
+
+    setUploadingRelease(true);
+    setReleaseProgress(0);
+    setMessage(null);
+    try {
+      const release = await uploadAndroidRelease({
+        file: releaseFile,
+        version: releaseVersion.trim(),
+        onProgress: setReleaseProgress,
+      });
+      setMobileRelease(release);
+      setReleaseFile(null);
+      const input = document.getElementById("admin-android-release-file");
+      if (input) input.value = "";
+      setMessage({ type: "success", text: `Android ${release.version} is ready to download.` });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setUploadingRelease(false);
+      setReleaseProgress(null);
+    }
+  };
+
+  const handleDeleteRelease = async () => {
+    if (!window.confirm("Remove the current Android app release? The download button will become unavailable.")) return;
+    try {
+      const res = await api("/api/mobile-release", { method: "DELETE" });
+      if (!res.ok) throw new Error(await readApiError(res, "Release removal failed"));
+      setMobileRelease({ available: false });
+      setMessage({ type: "success", text: "Android release removed." });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    }
+  };
+
   return (
     <>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -1486,6 +1591,71 @@ export default function Admin() {
                 Upload Here
               </button>
             </div>
+          </section>
+
+          <section className="glass-surface" style={styles.tableCard}>
+            <div style={styles.tableHeader}>
+              <h2 style={styles.cardTitle}>Android app release</h2>
+              <p style={styles.cardSubtitle}>Publish the APK served by the download button in the library sidebar and mobile Browse sheet.</p>
+            </div>
+            <form onSubmit={handleUploadRelease} style={{ padding: 20, display: "grid", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontWeight: 800, color: "var(--text)" }}>
+                    {mobileRelease?.available ? `DogMedia Android ${mobileRelease.version}` : "No Android release published"}
+                  </div>
+                  <div style={{ ...styles.toolbarMeta, marginTop: 5 }}>
+                    {mobileRelease?.available
+                      ? `${formatBytes(mobileRelease.size)} · uploaded ${new Date(mobileRelease.uploadedAt).toLocaleString()}`
+                      : "Upload a signed or internal-release APK to activate downloads."}
+                  </div>
+                </div>
+                {mobileRelease?.available && (
+                  <div style={styles.actionRow}>
+                    <a href={apiUrl("/api/mobile-release/download")} download style={{ ...styles.button("secondary"), textDecoration: "none" }}>
+                      Download current
+                    </a>
+                    <button type="button" style={styles.button("danger", uploadingRelease)} disabled={uploadingRelease} onClick={handleDeleteRelease}>
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="admin-release-form-grid">
+                <div style={styles.fieldGroup}>
+                  <label htmlFor="admin-android-release-version" style={styles.label}>Version</label>
+                  <input
+                    id="admin-android-release-version"
+                    style={styles.input}
+                    value={releaseVersion}
+                    onChange={(event) => setReleaseVersion(event.target.value)}
+                    placeholder="1.0.0"
+                    disabled={uploadingRelease}
+                  />
+                </div>
+                <div style={styles.fieldGroup}>
+                  <label htmlFor="admin-android-release-file" style={styles.label}>Android APK</label>
+                  <input
+                    id="admin-android-release-file"
+                    type="file"
+                    accept=".apk,application/vnd.android.package-archive"
+                    style={styles.fileInput}
+                    onChange={(event) => setReleaseFile(event.target.files[0] || null)}
+                    disabled={uploadingRelease}
+                  />
+                </div>
+                <button type="submit" style={styles.button("primary", uploadingRelease || !releaseFile)} disabled={uploadingRelease || !releaseFile}>
+                  {uploadingRelease && <span style={styles.spinner} />}
+                  {uploadingRelease
+                    ? `Uploading ${releaseProgress ?? 0}%`
+                    : mobileRelease?.available ? "Replace release" : "Publish release"}
+                </button>
+              </div>
+              <p style={{ ...styles.cardSubtitle, marginTop: -6 }}>
+                APK files upload in 512 KB chunks. Maximum release size is 300 MB.
+              </p>
+            </form>
           </section>
 
           <section className="glass-surface" style={styles.tableCard}>

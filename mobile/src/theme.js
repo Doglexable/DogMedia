@@ -48,6 +48,69 @@ export const palettes = {
 
 export const colors = palettes.dark;
 
+export const shadows = {
+  light: {
+    soft: {
+      shadowColor: "#18181b",
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 2,
+    },
+    floating: {
+      shadowColor: "#18181b",
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 4,
+    },
+    dragging: {
+      shadowColor: "#18181b",
+      shadowOpacity: 0.14,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+    story: {
+      shadowColor: "#18181b",
+      shadowOpacity: 0.12,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 6,
+    },
+  },
+  dark: {
+    soft: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 8,
+    },
+    floating: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 8,
+    },
+    dragging: {
+      shadowColor: "#000",
+      shadowOpacity: 0.24,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 8,
+    },
+    story: {
+      shadowColor: "#000",
+      shadowOpacity: 0.34,
+      shadowRadius: 28,
+      shadowOffset: { width: 0, height: 16 },
+      elevation: 12,
+    },
+  },
+};
+
 export function alpha(hex, opacity) {
   const value = String(hex || "").replace("#", "");
   if (value.length !== 6) return `rgba(255,255,255,${opacity})`;
@@ -59,6 +122,7 @@ export function alpha(hex, opacity) {
 
 const ThemeContext = createContext({
   colors,
+  shadow: shadows.dark,
   mode: "system",
   resolvedMode: "dark",
   setMode: () => {},
@@ -105,6 +169,7 @@ export function ThemeProvider({ children }) {
   const resolvedMode = resolveThemeMode(mode, systemScheme);
   const value = useMemo(() => ({
     colors: palettes[resolvedMode],
+    shadow: shadows[resolvedMode],
     mode,
     resolvedMode,
     setMode,
@@ -132,14 +197,4 @@ export const radii = {
   md: 12,
   lg: 16,
   xl: 22,
-};
-
-export const shadow = {
-  soft: {
-    shadowColor: "#000",
-    shadowOpacity: 0.24,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 8,
-  },
 };
