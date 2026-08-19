@@ -203,19 +203,20 @@ export function FullPlayer({
             </div>
           </section>
 
-          <FullscreenLyrics mediaId={currentMedia.id} onSeek={onSeek} position={position} />
+          <div className="fullscreen-player-utilities">
+            <FullscreenLyrics mediaId={currentMedia.id} onSeek={onSeek} position={position} />
+            <button
+              type="button"
+              className={queueOpen ? "fullscreen-player-message fullscreen-player-message--active" : "fullscreen-player-message"}
+              aria-label="Queue"
+              aria-pressed={queueOpen}
+              title="Queue"
+              onClick={onOpenQueue}
+            >
+              <FontAwesomeIcon icon={faMessage} />
+            </button>
+          </div>
         </main>
-
-        <button
-          type="button"
-          className={queueOpen ? "fullscreen-player-message fullscreen-player-message--active" : "fullscreen-player-message"}
-          aria-label="Queue"
-          aria-pressed={queueOpen}
-          title="Queue"
-          onClick={onOpenQueue}
-        >
-          <FontAwesomeIcon icon={faMessage} />
-        </button>
 
         {resumePos !== null && (
           <div style={styles.resumePrompt}>

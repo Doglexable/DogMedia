@@ -178,7 +178,7 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
   );
 }
 
-const MOBILE_DRAWER_QUERY = "(max-width: 640px)";
+const MOBILE_DRAWER_QUERY = "(max-width: 640px), (max-width: 900px) and (max-height: 500px) and (orientation: landscape)";
 
 function useMobileDrawer() {
   const [mobile, setMobile] = useState(() => (

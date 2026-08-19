@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faCircleCheck,
+  faCloudArrowUp,
+  faDownload,
+  faFileShield,
+  faMobileScreenButton,
+  faTrash,
+} from "@fortawesome/free-solid-svg-icons";
 import { ThemeToggle, useAccess } from "../App";
 import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
@@ -1593,69 +1602,138 @@ export default function Admin() {
             </div>
           </section>
 
-          <section className="glass-surface" style={styles.tableCard}>
-            <div style={styles.tableHeader}>
-              <h2 style={styles.cardTitle}>Android app release</h2>
-              <p style={styles.cardSubtitle}>Publish the APK served by the download button in the library sidebar and mobile Browse sheet.</p>
-            </div>
-            <form onSubmit={handleUploadRelease} style={{ padding: 20, display: "grid", gap: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontWeight: 800, color: "var(--text)" }}>
-                    {mobileRelease?.available ? `DogMedia Android ${mobileRelease.version}` : "No Android release published"}
-                  </div>
-                  <div style={{ ...styles.toolbarMeta, marginTop: 5 }}>
-                    {mobileRelease?.available
-                      ? `${formatBytes(mobileRelease.size)} · uploaded ${new Date(mobileRelease.uploadedAt).toLocaleString()}`
-                      : "Upload a signed or internal-release APK to activate downloads."}
-                  </div>
+          <section className="admin-release-card" aria-labelledby="admin-release-title">
+            <header className="admin-release-header">
+              <div className="admin-release-heading-icon" aria-hidden="true">
+                <FontAwesomeIcon icon={faMobileScreenButton} />
+              </div>
+              <div>
+                <span className="admin-release-eyebrow">App distribution</span>
+                <h2 id="admin-release-title">Android release</h2>
+                <p>Control the APK offered in the library sidebar and mobile Browse sheet.</p>
+              </div>
+            </header>
+
+            <div className="admin-release-layout">
+              <aside className={`admin-release-status${mobileRelease?.available ? " admin-release-status--published" : ""}`}>
+                <div className="admin-release-status-topline">
+                  <span className="admin-release-status-badge">
+                    <span aria-hidden="true" />
+                    {mobileRelease?.available ? "Published" : "Offline"}
+                  </span>
+                  <FontAwesomeIcon
+                    icon={mobileRelease?.available ? faCircleCheck : faMobileScreenButton}
+                    className="admin-release-status-icon"
+                    aria-hidden="true"
+                  />
                 </div>
+
+                <div className="admin-release-status-copy">
+                  <span>Current download</span>
+                  <h3>{mobileRelease?.available ? `DogMedia ${mobileRelease.version}` : "No active build"}</h3>
+                  <p>
+                    {mobileRelease?.available
+                      ? `${formatBytes(mobileRelease.size)} · Published ${new Date(mobileRelease.uploadedAt).toLocaleString()}`
+                      : "Downloads stay hidden until an APK is published."}
+                  </p>
+                </div>
+
                 {mobileRelease?.available && (
-                  <div style={styles.actionRow}>
-                    <a href={apiUrl("/api/mobile-release/download")} download style={{ ...styles.button("secondary"), textDecoration: "none" }}>
-                      Download current
+                  <div className="admin-release-status-actions">
+                    <a href={apiUrl("/api/mobile-release/download")} download className="admin-release-action">
+                      <FontAwesomeIcon icon={faDownload} />
+                      Download
                     </a>
-                    <button type="button" style={styles.button("danger", uploadingRelease)} disabled={uploadingRelease} onClick={handleDeleteRelease}>
+                    <button
+                      type="button"
+                      className="admin-release-action admin-release-action--danger"
+                      disabled={uploadingRelease}
+                      onClick={handleDeleteRelease}
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
                       Remove
                     </button>
                   </div>
                 )}
-              </div>
+              </aside>
 
-              <div className="admin-release-form-grid">
-                <div style={styles.fieldGroup}>
-                  <label htmlFor="admin-android-release-version" style={styles.label}>Version</label>
-                  <input
-                    id="admin-android-release-version"
-                    style={styles.input}
-                    value={releaseVersion}
-                    onChange={(event) => setReleaseVersion(event.target.value)}
-                    placeholder="1.0.0"
-                    disabled={uploadingRelease}
-                  />
+              <form className="admin-release-publisher" onSubmit={handleUploadRelease}>
+                <div className="admin-release-publisher-heading">
+                  <div>
+                    <span>Prepare a build</span>
+                    <h3>{mobileRelease?.available ? "Replace the current APK" : "Publish your first APK"}</h3>
+                  </div>
+                  <span className="admin-release-limit">300 MB max</span>
                 </div>
-                <div style={styles.fieldGroup}>
-                  <label htmlFor="admin-android-release-file" style={styles.label}>Android APK</label>
-                  <input
-                    id="admin-android-release-file"
-                    type="file"
-                    accept=".apk,application/vnd.android.package-archive"
-                    style={styles.fileInput}
-                    onChange={(event) => setReleaseFile(event.target.files[0] || null)}
-                    disabled={uploadingRelease}
-                  />
+
+                <div className="admin-release-fields">
+                  <div className="admin-release-version-field">
+                    <label htmlFor="admin-android-release-version">Version</label>
+                    <input
+                      id="admin-android-release-version"
+                      value={releaseVersion}
+                      onChange={(event) => setReleaseVersion(event.target.value)}
+                      placeholder="1.0.0"
+                      autoComplete="off"
+                      disabled={uploadingRelease}
+                    />
+                    <span>Shown with the download.</span>
+                  </div>
+
+                  <div className="admin-release-file-field">
+                    <span className="admin-release-field-label">Android APK</span>
+                    <input
+                      id="admin-android-release-file"
+                      className="admin-release-file-input"
+                      type="file"
+                      accept=".apk,application/vnd.android.package-archive"
+                      onChange={(event) => setReleaseFile(event.target.files[0] || null)}
+                      disabled={uploadingRelease}
+                    />
+                    <label
+                      htmlFor="admin-android-release-file"
+                      className={`admin-release-file-picker${releaseFile ? " admin-release-file-picker--selected" : ""}${uploadingRelease ? " admin-release-file-picker--disabled" : ""}`}
+                    >
+                      <span className="admin-release-file-icon" aria-hidden="true">
+                        <FontAwesomeIcon icon={releaseFile ? faFileShield : faCloudArrowUp} />
+                      </span>
+                      <span className="admin-release-file-copy">
+                        <strong>{releaseFile ? releaseFile.name : "Choose an APK file"}</strong>
+                        <small>{releaseFile ? `${formatBytes(releaseFile.size)} ready to upload` : "Signed or internal-release builds are accepted"}</small>
+                      </span>
+                      <span className="admin-release-file-cta">{releaseFile ? "Change" : "Browse"}</span>
+                    </label>
+                  </div>
                 </div>
-                <button type="submit" style={styles.button("primary", uploadingRelease || !releaseFile)} disabled={uploadingRelease || !releaseFile}>
-                  {uploadingRelease && <span style={styles.spinner} />}
-                  {uploadingRelease
-                    ? `Uploading ${releaseProgress ?? 0}%`
-                    : mobileRelease?.available ? "Replace release" : "Publish release"}
-                </button>
-              </div>
-              <p style={{ ...styles.cardSubtitle, marginTop: -6 }}>
-                APK files upload in 512 KB chunks. Maximum release size is 300 MB.
-              </p>
-            </form>
+
+                {uploadingRelease && (
+                  <div
+                    className="admin-release-progress"
+                    role="progressbar"
+                    aria-label="Android release upload progress"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow={releaseProgress ?? 0}
+                  >
+                    <span style={{ width: `${releaseProgress ?? 0}%` }} />
+                  </div>
+                )}
+
+                <div className="admin-release-publisher-footer">
+                  <p>Uploads are secured and sent in resilient 512 KB chunks.</p>
+                  <button
+                    type="submit"
+                    className="admin-release-publish"
+                    disabled={uploadingRelease || !releaseFile || !releaseVersion.trim()}
+                  >
+                    {uploadingRelease && <span style={styles.spinner} />}
+                    {uploadingRelease
+                      ? `Uploading ${releaseProgress ?? 0}%`
+                      : mobileRelease?.available ? "Replace release" : "Publish release"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </section>
 
           <section className="glass-surface" style={styles.tableCard}>
