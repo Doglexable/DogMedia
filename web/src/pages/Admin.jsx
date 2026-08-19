@@ -1660,28 +1660,43 @@ export default function Admin() {
               <form className="admin-release-publisher" onSubmit={handleUploadRelease}>
                 <div className="admin-release-publisher-heading">
                   <div>
-                    <span>Prepare a build</span>
+                    <span>Release manifest</span>
                     <h3>{mobileRelease?.available ? "Replace the current APK" : "Publish your first APK"}</h3>
+                    <p>Identify the build, then attach the package people will download.</p>
                   </div>
-                  <span className="admin-release-limit">300 MB max</span>
+                  <span className="admin-release-count">2 required fields</span>
                 </div>
 
                 <div className="admin-release-fields">
-                  <div className="admin-release-version-field">
-                    <label htmlFor="admin-android-release-version">Version</label>
-                    <input
-                      id="admin-android-release-version"
-                      value={releaseVersion}
-                      onChange={(event) => setReleaseVersion(event.target.value)}
-                      placeholder="1.0.0"
-                      autoComplete="off"
-                      disabled={uploadingRelease}
-                    />
-                    <span>Shown with the download.</span>
+                  <div className="admin-release-step admin-release-version-field">
+                    <div className="admin-release-step-heading">
+                      <span className="admin-release-step-index">01</span>
+                      <div>
+                        <label htmlFor="admin-android-release-version">Version label</label>
+                        <p>Shown beside the app download.</p>
+                      </div>
+                    </div>
+                    <div className="admin-release-version-control">
+                      <span aria-hidden="true">v</span>
+                      <input
+                        id="admin-android-release-version"
+                        value={releaseVersion}
+                        onChange={(event) => setReleaseVersion(event.target.value)}
+                        placeholder="1.0.0"
+                        autoComplete="off"
+                        disabled={uploadingRelease}
+                      />
+                    </div>
                   </div>
 
-                  <div className="admin-release-file-field">
-                    <span className="admin-release-field-label">Android APK</span>
+                  <div className="admin-release-step admin-release-file-field">
+                    <div className="admin-release-step-heading">
+                      <span className="admin-release-step-index">02</span>
+                      <div>
+                        <span className="admin-release-field-label">Android package</span>
+                        <p>Choose the signed APK to publish.</p>
+                      </div>
+                    </div>
                     <input
                       id="admin-android-release-file"
                       className="admin-release-file-input"
@@ -1720,7 +1735,11 @@ export default function Admin() {
                 )}
 
                 <div className="admin-release-publisher-footer">
-                  <p>Uploads are secured and sent in resilient 512 KB chunks.</p>
+                  <div className="admin-release-specs" aria-label="Upload requirements">
+                    <span><strong>APK</strong> format</span>
+                    <span><strong>300 MB</strong> maximum</span>
+                    <span><strong>512 KB</strong> chunks</span>
+                  </div>
                   <button
                     type="submit"
                     className="admin-release-publish"

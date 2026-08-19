@@ -5776,9 +5776,9 @@ a {
 .admin-release-publisher {
   display: grid;
   align-content: center;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
-  padding: 24px;
+  padding: 20px 22px;
 }
 
 .admin-release-publisher-heading h3 {
@@ -5787,16 +5787,31 @@ a {
   font-weight: 900;
 }
 
-.admin-release-limit {
+.admin-release-publisher-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
+.admin-release-count {
   flex: 0 0 auto;
   padding: 6px 9px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-bg) 82%, transparent);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .admin-release-fields {
   display: grid;
-  grid-template-columns: minmax(120px, 0.34fr) minmax(260px, 1fr);
-  gap: 12px;
-  align-items: end;
+  grid-template-columns: minmax(170px, 0.72fr) minmax(280px, 1.28fr);
+  gap: 10px;
+  align-items: stretch;
 }
 
 .admin-release-version-field,
@@ -5804,33 +5819,95 @@ a {
   min-width: 0;
 }
 
-.admin-release-version-field > label,
-.admin-release-field-label {
-  display: block;
-  margin-bottom: 7px;
+.admin-release-step {
+  display: grid;
+  align-content: space-between;
+  gap: 13px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card-bg) 72%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 78%, var(--card-bg));
 }
 
-.admin-release-version-field > input {
-  width: 100%;
-  min-height: 54px;
-  box-sizing: border-box;
-  padding: 0 13px;
+.admin-release-step-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-release-step-index {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--card-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--primary) 9%, var(--card-bg));
+  color: var(--primary);
+  font-size: 0.58rem;
+  font-weight: 950;
+  letter-spacing: 0.05em;
+}
+
+.admin-release-step-heading label,
+.admin-release-step-heading .admin-release-field-label {
+  display: block;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.admin-release-step-heading p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.admin-release-version-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 52px;
+  align-items: center;
+  overflow: hidden;
   border: 1px solid var(--card-border);
-  border-radius: 12px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg) 90%, var(--card-bg));
+}
+
+.admin-release-version-control > span {
+  display: grid;
+  height: 100%;
+  padding: 0 12px;
+  place-items: center;
+  border-right: 1px solid var(--card-border);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.admin-release-version-control > input {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0 11px;
+  border: 0;
   outline: 0;
-  background: color-mix(in srgb, var(--bg) 80%, var(--card-bg));
+  background: transparent;
   color: var(--text);
   font: inherit;
   font-size: 0.9rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-}
-
-.admin-release-version-field > span {
-  display: block;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 0.66rem;
 }
 
 .admin-release-file-input {
@@ -5846,13 +5923,13 @@ a {
 .admin-release-file-picker {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  min-height: 54px;
+  min-height: 52px;
   align-items: center;
   gap: 11px;
   box-sizing: border-box;
   padding: 8px 10px;
   border: 1px dashed color-mix(in srgb, var(--primary) 34%, var(--card-border));
-  border-radius: 12px;
+  border-radius: 11px;
   background: color-mix(in srgb, var(--primary) 5%, var(--bg));
   color: var(--text);
   cursor: pointer;
@@ -5932,11 +6009,40 @@ a {
 }
 
 .admin-release-publisher-footer {
-  align-items: flex-end;
+  align-items: center;
+  padding-top: 2px;
 }
 
-.admin-release-publisher-footer p {
-  max-width: 330px;
+.admin-release-specs {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.admin-release-specs span {
+  position: relative;
+  padding-left: 10px;
+  white-space: nowrap;
+}
+
+.admin-release-specs span::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 68%, var(--muted));
+  content: "";
+  transform: translateY(-50%);
+}
+
+.admin-release-specs strong {
+  color: var(--text);
+  font-weight: 900;
 }
 
 .admin-release-publish {
@@ -5976,7 +6082,7 @@ a {
 .admin-release-action:focus-visible,
 .admin-release-file-input:focus-visible + .admin-release-file-picker,
 .admin-release-publish:focus-visible,
-.admin-release-version-field > input:focus-visible {
+.admin-release-version-control:focus-within {
   outline: 3px solid color-mix(in srgb, var(--primary) 26%, transparent);
   outline-offset: 2px;
 }
