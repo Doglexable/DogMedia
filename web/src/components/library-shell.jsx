@@ -1,9 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBars,
   faChartSimple,
   faDownload,
+  faEllipsis,
   faFolder,
   faFolderOpen,
   faGear,
@@ -23,17 +25,80 @@ export function useLibrary() {
   return useContext(LibraryContext);
 }
 
-function SidebarLink({ active, children, icon, onClick, style, to }) {
+function SidebarLink({ active, children, icon, onClick, onContextMenu, style, to }) {
   return (
     <Link
       to={to}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`global-sidebar-link${active ? " global-sidebar-link--active" : ""}`}
       style={style}
     >
       <FontAwesomeIcon icon={icon} className="global-sidebar-link-icon" />
       <span className="truncate">{children}</span>
     </Link>
+  );
+}
+
+function CategoryContextMenu({ category, menu, onAddToQueue, onClose }) {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const closeOnEscape = (event) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("click", onClose);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("click", onClose);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [menu, onClose]);
+
+  if (!menu || !category) return null;
+
+  return createPortal(
+    <div
+      className="global-sidebar-context-menu"
+      role="menu"
+      aria-label={`${category.name} actions`}
+      style={{ left: menu.x, top: menu.y }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="global-sidebar-context-title" title={category.path || category.name}>
+        {category.name}
+      </div>
+      <button type="button" role="menuitem" onClick={() => onAddToQueue(category)}>
+        Add folder to queue
+      </button>
+    </div>,
+    document.body
+  );
+}
+
+function CategorySidebarItem({ active, category, close, onOpenMenu }) {
+  const paddingLeft = 12 + Math.min(Number(category.depth) || 0, 4) * 14;
+  return (
+    <div
+      className="global-sidebar-category-row"
+      onContextMenu={(event) => onOpenMenu(event, category)}
+    >
+      <SidebarLink
+        to={`/?category=${category.id}`}
+        icon={faFolder}
+        active={active}
+        onClick={close}
+        style={{ paddingLeft }}
+      >
+        {category.name}
+      </SidebarLink>
+      <button
+        type="button"
+        className="global-sidebar-category-actions"
+        aria-label={`Open actions for ${category.name}`}
+        aria-haspopup="menu"
+        onClick={(event) => onOpenMenu(event, category, true)}
+      >
+        <FontAwesomeIcon icon={faEllipsis} />
+      </button>
+    </div>
   );
 }
 
@@ -106,19 +171,58 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [wrappedAvailable, setWrappedAvailable] = useState(true);
+  const [categoryMenu, setCategoryMenu] = useState(null);
+  const [queueNotice, setQueueNotice] = useState("");
   const params = new URLSearchParams(location.search);
   const selectedCategory = params.get("category");
   const liked = location.pathname === "/" && params.get("view") === "liked";
   const showWrapped = wrappedAvailable || location.pathname === "/wrapped";
   const close = () => setOpen(false);
   const closeCategories = () => setCategoriesOpen(false);
+  const closeCategoryMenu = useCallback(() => setCategoryMenu(null), []);
   const mediaCategories = categories.filter((category) => Number(category.media_count) > 0);
 
   // Close sidebar and sheet on navigation
   useEffect(() => {
     setOpen(false);
     setCategoriesOpen(false);
+    setCategoryMenu(null);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!queueNotice) return undefined;
+    const timeout = window.setTimeout(() => setQueueNotice(""), 3000);
+    return () => window.clearTimeout(timeout);
+  }, [queueNotice]);
+
+  const openCategoryMenu = (event, category, anchorToButton = false) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const rawX = anchorToButton ? rect.right : event.clientX;
+    const rawY = anchorToButton ? rect.bottom + 4 : event.clientY;
+    setCategoryMenu({
+      category,
+      x: Math.max(8, Math.min(rawX, window.innerWidth - 210)),
+      y: Math.max(8, Math.min(rawY, window.innerHeight - 112)),
+    });
+  };
+
+  const addCategoryToQueue = (category) => {
+    closeCategoryMenu();
+    api(`/api/queue/items/category/${Number(category.id)}`, { method: "POST" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not add folder to queue");
+        window.dispatchEvent(new CustomEvent("queue-changed", { detail: data }));
+        const count = Number(data?.addedCount) || 0;
+        setQueueNotice(count > 0
+          ? `${count} track${count === 1 ? "" : "s"} from “${category.name}” added to queue.`
+          : `All tracks from “${category.name}” are already in the queue.`);
+        return data;
+      })
+      .catch((error) => setQueueNotice(error.message || "Could not add folder to queue."));
+  };
 
   const loadWrappedAccess = useCallback(() => {
     return api("/api/wrapped/access")
@@ -193,16 +297,13 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
               Array.from({ length: 5 }, (_, index) => <span key={index} className="global-sidebar-category-skeleton skeleton-shimmer" />)
             ) : mediaCategories.length > 0 ? (
               mediaCategories.map((category) => (
-                <SidebarLink
+                <CategorySidebarItem
                   key={category.id}
-                  to={`/?category=${category.id}`}
-                  icon={faFolder}
+                  category={category}
                   active={String(category.id) === selectedCategory}
-                  onClick={close}
-                  style={{ paddingLeft: 12 + Math.min(Number(category.depth) || 0, 4) * 14 }}
-                >
-                  {category.name}
-                </SidebarLink>
+                  close={close}
+                  onOpenMenu={openCategoryMenu}
+                />
               ))
             ) : (
               <p className="global-sidebar-empty">No media categories available.</p>
@@ -267,22 +368,26 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
             ))
           ) : mediaCategories.length > 0 ? (
             mediaCategories.map((category) => (
-              <SidebarLink
+              <CategorySidebarItem
                 key={category.id}
-                to={`/?category=${category.id}`}
-                icon={faFolder}
+                category={category}
                 active={String(category.id) === selectedCategory}
-                onClick={closeCategories}
-                style={{ paddingLeft: 12 + Math.min(Number(category.depth) || 0, 4) * 14 }}
-              >
-                {category.name}
-              </SidebarLink>
+                close={closeCategories}
+                onOpenMenu={openCategoryMenu}
+              />
             ))
           ) : (
             <p className="global-sidebar-empty">No media categories available.</p>
           )}
         </nav>
       </div>
+      <CategoryContextMenu
+        category={categoryMenu?.category}
+        menu={categoryMenu}
+        onAddToQueue={addCategoryToQueue}
+        onClose={closeCategoryMenu}
+      />
+      {queueNotice && <div className="global-sidebar-queue-notice" role="status">{queueNotice}</div>}
     </>
   );
 }

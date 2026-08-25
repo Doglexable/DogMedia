@@ -185,6 +185,23 @@ export function GlobalPlayerProvider({ children }) {
   }, [applyQueueResponse]);
 
   useEffect(() => {
+    const applyExternalQueueChange = (event) => {
+      if (Array.isArray(event.detail?.queue)) {
+        setHiddenQueueIds((current) => {
+          const next = new Set(current);
+          event.detail.queue.forEach((mediaId) => next.delete(Number(mediaId)));
+          return next;
+        });
+        applyQueueResponse(event.detail);
+        return;
+      }
+      refreshQueue().catch(() => {});
+    };
+    window.addEventListener("queue-changed", applyExternalQueueChange);
+    return () => window.removeEventListener("queue-changed", applyExternalQueueChange);
+  }, [applyQueueResponse, refreshQueue]);
+
+  useEffect(() => {
     refreshQueue().catch(() => refreshQueueState(null));
   }, [refreshQueue, refreshQueueState]);
 
@@ -498,6 +515,24 @@ export function GlobalPlayerProvider({ children }) {
         setHiddenQueueIds((current) => {
           const next = new Set(current);
           next.delete(mediaId);
+          return next;
+        });
+        return applyQueueResponse(data);
+      });
+  }, [applyQueueResponse]);
+
+  const addCategoryToQueue = useCallback((categoryOrId) => {
+    const categoryId = Number(categoryOrId?.id ?? categoryOrId);
+    if (!Number.isInteger(categoryId) || categoryId < 1) {
+      return Promise.reject(new Error("Invalid category"));
+    }
+    return api(`/api/queue/items/category/${categoryId}`, { method: "POST" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not add folder to queue");
+        setHiddenQueueIds((current) => {
+          const next = new Set(current);
+          data.queue.forEach((mediaId) => next.delete(Number(mediaId)));
           return next;
         });
         return applyQueueResponse(data);
@@ -1044,6 +1079,7 @@ export function GlobalPlayerProvider({ children }) {
   const preventMediaMenu = useCallback((event) => event.preventDefault(), []);
 
   const contextValue = useMemo(() => ({
+    addCategoryToQueue,
     addToQueue,
     advance,
     clearQueue,
@@ -1066,7 +1102,7 @@ export function GlobalPlayerProvider({ children }) {
     stopPlayback,
     togglePlayback,
     toggleLike,
-  }), [addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueIds, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
+  }), [addCategoryToQueue, addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueIds, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
 
   return (
     <PlayerContext.Provider value={contextValue}>

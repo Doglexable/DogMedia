@@ -1,9 +1,10 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { apiJson, mediaStreamUrl } from "../api";
+import { apiJson, assertApiReachable, mediaStreamUrl } from "../api";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
+import { createApiUnreachableError } from "../utils/playback-errors";
 import {
   getCompletionAction,
   getQueueNavigation,
@@ -46,6 +47,8 @@ export function PlayerProvider({ children }) {
   const handleEndedRef = useRef(() => {});
   const reportPlayingRef = useRef(() => {});
   const reportProgressRef = useRef(() => {});
+  const saveResumePositionForRef = useRef(() => Promise.resolve());
+  const sendActiveSessionRef = useRef(() => Promise.resolve());
 
   const [currentMedia, setCurrentMedia] = useState(null);
   const [paused, setPaused] = useState(true);
@@ -131,6 +134,7 @@ export function PlayerProvider({ children }) {
       body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
     }).catch(() => {});
   }, [offline.isConnected, playbackPayload]);
+  sendActiveSessionRef.current = sendActiveSession;
 
   const saveResumePositionFor = useCallback((media, nextPosition, nextDuration) => {
     if (!media || getMediaKind(media.mime_type) === "image") return Promise.resolve();
@@ -140,6 +144,7 @@ export function PlayerProvider({ children }) {
       .then(() => { if (offline.isConnected) offline.flushSync(); })
       .catch(() => {});
   }, [offline]);
+  saveResumePositionForRef.current = saveResumePositionFor;
 
   const loadResumePosition = useCallback((media) => {
     if (!media || getMediaKind(media.mime_type) === "image") return;
@@ -524,12 +529,9 @@ export function PlayerProvider({ children }) {
   const playMedia = useCallback(async (media, categoryId = null) => {
     if (!media) return;
     if (!offline.isConnected) {
-      const localItems = queueItemsRef.current.filter((item) => offline.resolveMediaUri(item.id));
-      const items = localItems.some((item) => Number(item.id) === Number(media.id)) ? localItems : [media];
-      applyLocalQueue(items, media.id);
-      await startMedia(media, { autoplay: true, replacementAction: "skip" });
-      return;
+      throw createApiUnreachableError();
     }
+    await assertApiReachable();
     queueModeRef.current = "server";
     await startMedia(media, { autoplay: true, replacementAction: "skip" });
     const endpoint = categoryId
@@ -538,7 +540,7 @@ export function PlayerProvider({ children }) {
     apiJson(endpoint, { method: "POST" })
       .then((data) => applyQueue(data, media.id))
       .catch(() => {});
-  }, [applyLocalQueue, applyQueue, offline, startMedia]);
+  }, [applyQueue, offline.isConnected, startMedia]);
 
   const playOfflineMedia = useCallback(async (items, mediaId) => {
     if (!offline.leaseState.playable) throw new Error("Reconnect to validate offline access");
@@ -789,12 +791,12 @@ export function PlayerProvider({ children }) {
   useEffect(() => () => {
     const media = currentMediaRef.current;
     if (media) {
-      saveResumePositionFor(media, positionRef.current, durationRef.current || media.duration || 0);
-      sendActiveSession(media, "pause", positionRef.current, durationRef.current || media.duration || 0);
+      saveResumePositionForRef.current(media, positionRef.current, durationRef.current || media.duration || 0);
+      sendActiveSessionRef.current(media, "pause", positionRef.current, durationRef.current || media.duration || 0);
     }
     videoControllerRef.current?.pause?.();
     unloadSound();
-  }, [saveResumePositionFor, sendActiveSession, unloadSound]);
+  }, [unloadSound]);
 
   const value = useMemo(() => ({
     addToQueue,

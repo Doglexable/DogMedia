@@ -23,7 +23,7 @@ function mediaRow() {
   return {
     id: 1, category_id: 7, category_name: "Folder", category_path: "Folder",
     title: "Track", description: null, artists: "Artist", duration: 30,
-    mime_type: "audio/mpeg", file_path: "7/1.mp3", has_lyrics: true, liked: true,
+    track_order: 3, mime_type: "audio/mpeg", file_path: "7/1.mp3", has_lyrics: true, liked: true,
   };
 }
 
@@ -56,10 +56,11 @@ describe("offline routes", () => {
     const { app, queries } = await buildApp(await fixture());
     const response = await app.inject({ method: "GET", url: "/api/offline/manifest?category_id=7" });
     expect(response.statusCode).toBe(200);
-    expect(response.json().items[0]).toMatchObject({ id: 1, category_id: 7, byteSize: 13, hasLyrics: true, liked: true });
+    expect(response.json().items[0]).toMatchObject({ id: 1, category_id: 7, track_order: 3, byteSize: 13, hasLyrics: true, liked: true });
     expect(response.json().items[0].fileVersion).toMatch(/^13:\d+$/);
     expect(queries[0].sql).toContain("m.mime_type LIKE 'audio/%'");
     expect(queries[0].sql).toContain("m.category_id = $3");
+    expect(queries[0].sql).toContain("m.track_order ASC NULLS LAST");
     expect(queries[0].params).toEqual([0, "127.0.0.1", 7]);
     await app.close();
   });

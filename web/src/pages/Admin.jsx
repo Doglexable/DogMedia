@@ -539,6 +539,20 @@ function orderCategories(categories) {
   );
 }
 
+function orderMedia(items) {
+  return [...items].sort((a, b) => {
+    const aTrack = Number.isInteger(Number(a.track_order)) && Number(a.track_order) >= 1
+      ? Number(a.track_order)
+      : Number.POSITIVE_INFINITY;
+    const bTrack = Number.isInteger(Number(b.track_order)) && Number(b.track_order) >= 1
+      ? Number(b.track_order)
+      : Number.POSITIVE_INFINITY;
+    return aTrack - bTrack
+      || String(a.title || "").localeCompare(String(b.title || ""), undefined, { sensitivity: "base" })
+      || Number(a.id) - Number(b.id);
+  });
+}
+
 function applyCategoryMove(categories, categoryId, parentId, index) {
   const numericId = Number(categoryId);
   const normalizedParentId = parentId == null ? null : Number(parentId);
@@ -792,7 +806,7 @@ async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, upl
   return sentBytes;
 }
 
-async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", duration = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
+async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
   const lyrics = await readLyricsFile(lyricsFile);
   const initRes = await api("/api/media/uploads", {
     method: "POST",
@@ -802,6 +816,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
       title,
       description,
       artists,
+      track_order: trackOrder,
       duration,
       fileName: file.name,
       fileSize: file.size,
@@ -983,6 +998,7 @@ export default function Admin() {
   const [mediaTitle, setMediaTitle] = useState("");
   const [mediaDescription, setMediaDescription] = useState("");
   const [mediaArtists, setMediaArtists] = useState("");
+  const [mediaTrackOrder, setMediaTrackOrder] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaThumb, setMediaThumb] = useState(null);
   const [mediaLyrics, setMediaLyrics] = useState(null);
@@ -997,12 +1013,14 @@ export default function Admin() {
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editArtists, setEditArtists] = useState("");
+  const [editTrackOrder, setEditTrackOrder] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editFile, setEditFile] = useState(null);
   const [editThumb, setEditThumb] = useState(null);
   const [editLyrics, setEditLyrics] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editProgress, setEditProgress] = useState(null);
+  const [scanningTrackOrders, setScanningTrackOrders] = useState(false);
   const [mobileRelease, setMobileRelease] = useState(null);
   const [releaseVersion, setReleaseVersion] = useState("0.1.0");
   const [releaseFile, setReleaseFile] = useState(null);
@@ -1069,7 +1087,7 @@ export default function Admin() {
         const res = await api(`/api/media?category_id=${mediaModalCategoryId}`);
         const data = await res.json();
         if (!cancelled) {
-          setCategoryMedia(Array.isArray(data) ? data : []);
+          setCategoryMedia(Array.isArray(data) ? orderMedia(data) : []);
         }
       } catch {
         if (!cancelled) {
@@ -1132,6 +1150,7 @@ export default function Admin() {
     setMediaTitle("");
     setMediaDescription("");
     setMediaArtists("");
+    setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
     setMediaLyrics(null);
@@ -1149,6 +1168,7 @@ export default function Admin() {
     setMediaTitle("");
     setMediaDescription("");
     setMediaArtists("");
+    setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
     setMediaLyrics(null);
@@ -1165,6 +1185,7 @@ export default function Admin() {
     setEditTitle(media.title || "");
     setEditDescription(media.description || "");
     setEditArtists(media.artists || "");
+    setEditTrackOrder(media.track_order == null ? "" : String(media.track_order));
     setEditDuration(media.duration == null ? "" : String(media.duration));
     setEditFile(null);
     setEditThumb(null);
@@ -1178,6 +1199,7 @@ export default function Admin() {
     setEditTitle("");
     setEditDescription("");
     setEditArtists("");
+    setEditTrackOrder("");
     setEditDuration("");
     setEditFile(null);
     setEditThumb(null);
@@ -1326,6 +1348,11 @@ export default function Admin() {
       }
     }
 
+    if (mediaTrackOrder && (!/^\d+$/.test(mediaTrackOrder) || Number.parseInt(mediaTrackOrder, 10) < 1)) {
+      setMessage({ type: "error", text: "Track order must be a positive integer." });
+      return;
+    }
+
     setUploadingMedia(true);
     setUploadProgress(0);
     setMessage(null);
@@ -1336,16 +1363,18 @@ export default function Admin() {
         title: mediaTitle.trim(),
         description: mediaDescription,
         artists: mediaArtists,
+        trackOrder: mediaTrackOrder,
         duration: mediaDuration ? String(Math.floor(Number.parseFloat(mediaDuration))) : "",
         file: mediaFile,
         lyricsFile: mediaLyrics,
         thumbnail: mediaThumb,
         onProgress: setUploadProgress,
       });
-      setCategoryMedia((prev) => [...prev, created]);
+      setCategoryMedia((prev) => orderMedia([...prev, created]));
       setMediaTitle("");
       setMediaDescription("");
       setMediaArtists("");
+      setMediaTrackOrder("");
       setMediaFile(null);
       setMediaThumb(null);
       setMediaLyrics(null);
@@ -1394,7 +1423,7 @@ export default function Admin() {
     }
 
     if (createdItems.length > 0) {
-      setCategoryMedia((prev) => [...prev, ...createdItems]);
+      setCategoryMedia((prev) => orderMedia([...prev, ...createdItems]));
     }
 
     if (failures.length === 0) {
@@ -1425,6 +1454,34 @@ export default function Admin() {
     }
   };
 
+  const handleScanTrackOrders = async () => {
+    if (!window.confirm("Scan track numbers from every audio file? Valid embedded tags will replace stored track orders.")) return;
+
+    setScanningTrackOrders(true);
+    setMessage(null);
+    try {
+      const response = await api("/api/media/track-orders/scan", { method: "POST" });
+      if (!response.ok) throw new Error(await readApiError(response, "Track metadata scan failed"));
+      const result = await response.json();
+
+      if (mediaModalCategoryId !== null) {
+        const mediaResponse = await api(`/api/media?category_id=${mediaModalCategoryId}`);
+        if (!mediaResponse.ok) throw new Error(await readApiError(mediaResponse, "Media refresh failed"));
+        const mediaItems = await mediaResponse.json();
+        setCategoryMedia(Array.isArray(mediaItems) ? orderMedia(mediaItems) : []);
+      }
+
+      setMessage({
+        type: result.failed ? "error" : "success",
+        text: `Track scan complete: ${result.scanned} scanned, ${result.updated} updated, ${result.missing} without a track tag, ${result.failed} failed.`,
+      });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setScanningTrackOrders(false);
+    }
+  };
+
   const handleSaveMediaEdit = async (event) => {
     event.preventDefault();
     if (!editingMedia) return;
@@ -1442,6 +1499,11 @@ export default function Admin() {
       }
     }
 
+    if (editTrackOrder && (!/^\d+$/.test(editTrackOrder) || Number.parseInt(editTrackOrder, 10) < 1)) {
+      setMessage({ type: "error", text: "Track order must be a positive integer." });
+      return;
+    }
+
     setSavingEdit(true);
     setEditProgress(null);
     setMessage(null);
@@ -1453,6 +1515,7 @@ export default function Admin() {
         body: JSON.stringify({
           title: editTitle.trim(),
           artists: editArtists.trim() || null,
+          track_order: editTrackOrder ? Number.parseInt(editTrackOrder, 10) : null,
           description: editDescription || "",
           duration: editDuration ? Math.floor(Number.parseFloat(editDuration)) : null,
         }),
@@ -1472,7 +1535,7 @@ export default function Admin() {
         });
       }
 
-      setCategoryMedia((prev) => prev.map((item) => (item.id === editingMedia.id ? updated : item)));
+      setCategoryMedia((prev) => orderMedia(prev.map((item) => (item.id === editingMedia.id ? updated : item))));
       setMessage({ type: "success", text: `Updated "${updated.title}".` });
       closeEditMediaModal();
     } catch (error) {
@@ -1898,6 +1961,20 @@ export default function Admin() {
                   </p>
                 </div>
                 <div style={styles.panelBody}>
+                  <div style={{ ...styles.actionRow, justifyContent: "space-between", marginBottom: 14 }}>
+                    <p style={{ ...styles.helpText, margin: 0 }}>
+                      Track numbers are read from embedded audio metadata and can also be edited manually.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={scanningTrackOrders}
+                      style={styles.button("secondary", scanningTrackOrders)}
+                      onClick={handleScanTrackOrders}
+                    >
+                      {scanningTrackOrders && <span style={styles.spinner} />}
+                      {scanningTrackOrders ? "Scanning..." : "Scan All Track Orders"}
+                    </button>
+                  </div>
                   {loadingMedia ? (
                     <div style={{ ...styles.emptyState, padding: "18px 8px" }}>
                       <span style={styles.spinner} />
@@ -1918,6 +1995,7 @@ export default function Admin() {
                               {media.title}
                             </div>
                             <div style={styles.mediaMeta}>
+                              {media.track_order != null ? `Track ${media.track_order} · ` : ""}
                               {media.artists?.trim() ? `${media.artists} · ` : ""}
                               {media.duration != null ? formatDuration(media.duration) : "Unknown duration"}
                               {" · "}
@@ -1990,6 +2068,22 @@ export default function Admin() {
                         value={mediaArtists}
                         onChange={(event) => setMediaArtists(event.target.value)}
                         placeholder="Unknown Artist"
+                      />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>
+                        Track Order{" "}
+                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        style={styles.input}
+                        value={mediaTrackOrder}
+                        onChange={(event) => setMediaTrackOrder(event.target.value)}
+                        placeholder="Read from audio metadata"
                       />
                     </div>
 
@@ -2209,6 +2303,20 @@ export default function Admin() {
                         onChange={(event) => setEditArtists(event.target.value)}
                         placeholder="Unknown Artist"
                       />
+                    </div>
+
+                    <div style={styles.fieldGroup}>
+                      <label style={styles.label}>Track Order</label>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        style={styles.input}
+                        value={editTrackOrder}
+                        onChange={(event) => setEditTrackOrder(event.target.value)}
+                        placeholder="No stored track order"
+                      />
+                      <p style={styles.helpText}>Leave blank to clear the stored track order.</p>
                     </div>
 
                     <div style={styles.fieldGroup}>

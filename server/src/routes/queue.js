@@ -179,6 +179,54 @@ export default async function (fastify) {
     );
   });
 
+  fastify.post("/items/category/:categoryId", async (request, reply) => {
+    const categoryId = normalizeStartId(request.params.categoryId);
+    if (categoryId === null || categoryId < 1) {
+      return reply.code(400).send({ error: "Invalid category ID" });
+    }
+
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       , selected_categories AS (
+         SELECT id FROM accessible_categories WHERE id = $2
+         UNION ALL
+         SELECT c.id
+         FROM categories c
+         JOIN selected_categories sc ON c.parent_id = sc.id
+         JOIN accessible_categories ac ON ac.id = c.id
+       )
+       SELECT m.id FROM media_assets m
+       JOIN selected_categories sc ON sc.id = m.category_id
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.mime_type LIKE 'audio/%'
+       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
+                m.track_order ASC NULLS LAST,
+                lower(m.title),
+                m.id`,
+      [request.accessTier, categoryId]
+    );
+
+    if (rows.length === 0) {
+      return reply.code(404).send({ error: "No audio in this category" });
+    }
+
+    const categoryIds = rows.map((row) => Number(row.id));
+    const { key, idxKey } = queueKeys(request);
+    const state = await readQueueState(fastify.redis, key, idxKey);
+    const queuedIds = new Set(state.queue);
+    const addedIds = categoryIds.filter((id) => !queuedIds.has(id));
+    const nextQueue = [...state.queue, ...addedIds];
+    const nextIndex = await replaceQueue(
+      fastify.redis,
+      key,
+      idxKey,
+      nextQueue,
+      state.currentMediaId
+    );
+    const result = await queueResult(fastify, request, nextQueue, nextIndex);
+    return { ...result, addedCount: addedIds.length };
+  });
+
   fastify.put("/order", async (request, reply) => {
     const mediaIds = normalizeIds(request.body?.mediaIds);
     if (mediaIds === null) {
@@ -250,7 +298,11 @@ export default async function (fastify) {
        )
        SELECT m.id FROM media_assets m
        JOIN selected_categories sc ON sc.id = m.category_id
-       ORDER BY m.title, m.id`,
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
+                m.track_order ASC NULLS LAST,
+                lower(m.title),
+                m.id`,
       [request.accessTier, categoryId]
     );
 
@@ -271,7 +323,10 @@ export default async function (fastify) {
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.id FROM media_assets m
        JOIN accessible_categories ac ON ac.id = m.category_id
-       ORDER BY m.title, m.id`,
+       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
+                m.track_order ASC NULLS LAST,
+                lower(m.title),
+                m.id`,
       [request.accessTier]
     );
 

@@ -47,6 +47,7 @@ function metadataFromManifest(item) {
   return {
     id: Number(item.id), category_id: Number(item.category_id), category_name: item.category_name,
     category_path: item.category_path, title: item.title, description: item.description,
+    track_order: item.track_order,
     artists: item.artists, duration: item.duration, mime_type: item.mime_type,
     liked: Boolean(item.liked),
   };

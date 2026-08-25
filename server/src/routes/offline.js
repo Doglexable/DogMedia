@@ -33,6 +33,7 @@ function serializeMedia(row, stats) {
     title: row.title,
     description: row.description,
     artists: row.artists,
+    track_order: row.track_order,
     duration: row.duration,
     mime_type: row.mime_type,
     byteSize: Number(stats.size),
@@ -62,7 +63,10 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
      JOIN accessible_categories ac ON ac.id = m.category_id
      LEFT JOIN media_lyrics ml ON ml.media_id = m.id
      WHERE m.mime_type LIKE 'audio/%'${filter}
-     ORDER BY m.title`,
+     ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
+              m.track_order ASC NULLS LAST,
+              lower(m.title),
+              m.id`,
     params
   );
   return rows;

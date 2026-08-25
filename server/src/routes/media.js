@@ -96,6 +96,22 @@ function normalizeOptionalText(value) {
   return trimmed || null;
 }
 
+export function parseTrackOrder(value) {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 1 ? value : null;
+  }
+  if (typeof value !== "string") return null;
+
+  const match = value.trim().match(/^(\d+)(?:\s*\/\s*\d+)?$/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function hasTrackOrderValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
 function firstMetadataValue(tags, keys) {
   if (!tags || typeof tags !== "object") return null;
 
@@ -108,7 +124,18 @@ function firstMetadataValue(tags, keys) {
   return null;
 }
 
-async function probeMediaTags(filePath, log) {
+export function mediaMetadataFromTags(tags) {
+  return {
+    artists: firstMetadataValue(tags, ["artist", "album_artist", "artists", "composer", "performer"]),
+    trackOrder: parseTrackOrder(firstMetadataValue(tags, ["track", "tracknumber", "track_number"])),
+  };
+}
+
+export function resolveTrackOrder(providedValue, detectedValue) {
+  return parseTrackOrder(providedValue) ?? parseTrackOrder(detectedValue) ?? null;
+}
+
+export async function probeMediaTags(filePath, log) {
   try {
     const { stdout } = await execFileAsync("ffprobe", [
       "-v", "error",
@@ -119,12 +146,10 @@ async function probeMediaTags(filePath, log) {
     const parsed = JSON.parse(stdout || "{}");
     const tags = parsed?.format?.tags || {};
 
-    return {
-      artists: firstMetadataValue(tags, ["artist", "album_artist", "artists", "composer", "performer"]),
-    };
+    return mediaMetadataFromTags(tags);
   } catch (err) {
     log.warn(err, "ffprobe metadata detection failed");
-    return {};
+    return { probeFailed: true };
   }
 }
 
@@ -196,6 +221,10 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
     await cleanupUploads(mainFileUpload, thumbUpload);
     return reply.code(400).send({ error: "Category and title required" });
   }
+  if (hasTrackOrderValue(fields.track_order) && parseTrackOrder(fields.track_order) === null) {
+    await cleanupUploads(mainFileUpload, thumbUpload);
+    return reply.code(400).send({ error: "Track order must be a positive integer" });
+  }
 
   const { rowCount: categoryExists } = await fastify.pg.query(
     "SELECT 1 FROM categories WHERE id = $1",
@@ -213,10 +242,11 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   const parsedDuration = fields.duration ? Number(fields.duration) : null;
   const durationObj = Number.isFinite(parsedDuration) && parsedDuration >= 0 ? Math.floor(parsedDuration) : null;
   const providedArtists = normalizeOptionalText(fields.artists);
+  const providedTrackOrder = parseTrackOrder(fields.track_order);
 
   const { rows } = await fastify.pg.query(
-    "INSERT INTO media_assets (category_id, title, description, file_path, duration, mime_type, artists) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
-    [fields.category_id, fields.title, fields.description || "", "", durationObj, null, providedArtists]
+    "INSERT INTO media_assets (category_id, title, description, file_path, duration, mime_type, artists, track_order) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+    [fields.category_id, fields.title, fields.description || "", "", durationObj, null, providedArtists, providedTrackOrder]
   );
 
   const mediaId = rows[0].id;
@@ -227,8 +257,9 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   await unlink(mainFileUpload.tempPath).catch(() => {});
   const mimeType = mimeFromExt(filePath);
   const detectedDuration = durationObj ?? (await probeDuration(filePath, request.log));
-  const detectedTags = providedArtists ? {} : await probeMediaTags(filePath, request.log);
+  const detectedTags = mimeType.startsWith("audio/") ? await probeMediaTags(filePath, request.log) : {};
   const artists = providedArtists || detectedTags.artists || null;
+  const trackOrder = resolveTrackOrder(providedTrackOrder, detectedTags.trackOrder);
 
   let thumbStoredName = `${mediaId}_thumb.webp`;
 
@@ -251,8 +282,8 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   }
 
   const { rows: updated } = await fastify.pg.query(
-    "UPDATE media_assets SET file_path = $1, mime_type = $2, duration = $3, artists = $4 WHERE id = $5 RETURNING *",
-    [`${fields.category_id}/${storedName}`, mimeType, detectedDuration, artists, mediaId]
+    "UPDATE media_assets SET file_path = $1, mime_type = $2, duration = $3, artists = $4, track_order = $5 WHERE id = $6 RETURNING *",
+    [`${fields.category_id}/${storedName}`, mimeType, detectedDuration, artists, trackOrder, mediaId]
   );
 
   if (lyrics) {
@@ -387,7 +418,8 @@ async function generateAutoThumbnail({ filePath, outputPath, mimeType, log }) {
   }
 }
 
-export default async function (fastify) {
+export default async function (fastify, options = {}) {
+  const scanMediaTags = options.probeMediaTags || probeMediaTags;
   fastify.get("/", async (request) => {
     const { category_id } = request.query;
     let query = `
@@ -406,7 +438,7 @@ export default async function (fastify) {
       query += " AND m.category_id = $2";
       params.push(category_id);
     }
-    query += " ORDER BY m.title";
+    query += " ORDER BY lower(array_to_string(ac.path_parts, ' / ')), m.track_order ASC NULLS LAST, lower(m.title), m.id";
 
     const { rows } = await fastify.pg.query(query, params);
     return rows;
@@ -490,6 +522,7 @@ export default async function (fastify) {
       title,
       description = "",
       artists = "",
+      track_order = "",
       duration = "",
       fileName,
       fileSize,
@@ -506,6 +539,10 @@ export default async function (fastify) {
 
     if (!isReplacement && (!category_id || !title || !fileName)) {
       return reply.code(400).send({ error: "Category, title, and file name are required" });
+    }
+
+    if (!isReplacement && hasTrackOrderValue(track_order) && parseTrackOrder(track_order) === null) {
+      return reply.code(400).send({ error: "Track order must be a positive integer" });
     }
 
     if (isReplacement && !fileName && !thumbnailName && rawLyrics === null) {
@@ -533,6 +570,7 @@ export default async function (fastify) {
         title,
         description,
         artists,
+        track_order,
         duration,
       },
       file: fileName
@@ -683,20 +721,63 @@ export default async function (fastify) {
     return reply.code(204).send();
   });
 
+  fastify.post("/track-orders/scan", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+
+    const { rows } = await fastify.pg.query(
+      "SELECT id, file_path, track_order FROM media_assets WHERE mime_type LIKE 'audio/%' ORDER BY id"
+    );
+    const result = { scanned: rows.length, updated: 0, missing: 0, failed: 0 };
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (nextIndex < rows.length) {
+        const row = rows[nextIndex];
+        nextIndex += 1;
+        const tags = await scanMediaTags(join(DATA_DIR, row.file_path), request.log);
+        if (tags.probeFailed) {
+          result.failed += 1;
+          continue;
+        }
+        if (tags.trackOrder === null || tags.trackOrder === undefined) {
+          result.missing += 1;
+          continue;
+        }
+        if (Number(row.track_order) === tags.trackOrder) continue;
+
+        await fastify.pg.query(
+          "UPDATE media_assets SET track_order = $1 WHERE id = $2",
+          [tags.trackOrder, row.id]
+        );
+        result.updated += 1;
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(4, rows.length) }, () => worker()));
+    return result;
+  });
+
   fastify.put("/:id", async (request, reply) => {
     if (request.accessTier < 100) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
-    const { title, description, duration, artists } = request.body;
+    const { title, description, duration, artists, track_order: trackOrder } = request.body;
     const hasArtists = Object.hasOwn(request.body || {}, "artists");
     const hasDuration = Object.hasOwn(request.body || {}, "duration");
+    const hasTrackOrder = Object.hasOwn(request.body || {}, "track_order");
+    if (hasTrackOrder && hasTrackOrderValue(trackOrder) && parseTrackOrder(trackOrder) === null) {
+      return reply.code(400).send({ error: "Track order must be a positive integer" });
+    }
     const normalizedArtists = hasArtists ? normalizeOptionalText(artists) : null;
     const parsedDuration = Number.parseInt(duration, 10);
     const normalizedDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0 ? parsedDuration : null;
+    const normalizedTrackOrder = parseTrackOrder(trackOrder);
     const { rows } = await fastify.pg.query(
-      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END WHERE id = $7 RETURNING *",
-      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, id]
+      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END, track_order = CASE WHEN $7 THEN $8 ELSE track_order END WHERE id = $9 RETURNING *",
+      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, hasTrackOrder, normalizedTrackOrder, id]
     );
     if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
     return rows[0];

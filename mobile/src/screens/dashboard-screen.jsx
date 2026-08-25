@@ -9,6 +9,7 @@ import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { radii, spacing, useTheme } from "../theme";
 import { getArtistLabel } from "../utils/media";
+import { getPlaybackErrorPresentation } from "../utils/playback-errors";
 
 function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
   const seen = new Set();
@@ -148,8 +149,20 @@ export function DashboardScreen({ navigation }) {
     : [{ title: "Recently added", items: visibleMedia.slice(0, 12) }];
 
   const play = (item) => {
-    player.playMedia(item, selectedCategory);
-    (navigation.getParent?.() || navigation).navigate("Player");
+    player.playMedia(item, selectedCategory)
+      .then(() => (navigation.getParent?.() || navigation).navigate("Player"))
+      .catch((error) => {
+        const presentation = getPlaybackErrorPresentation(error);
+        Alert.alert(
+          presentation.title,
+          presentation.message,
+          [{
+            text: presentation.actionLabel,
+            onPress: presentation.route ? () => navigation.navigate(presentation.route) : undefined,
+          }],
+          presentation.route ? { cancelable: false } : undefined
+        );
+      });
   };
 
   const toggleLike = (item) => player.toggleLike(item).catch(() => setNotice("Could not update favorites."));

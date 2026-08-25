@@ -1,4 +1,7 @@
+import { createApiUnreachableError } from "./utils/playback-errors";
+
 const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
+export const API_REACHABILITY_TIMEOUT_MS = 2500;
 
 export const API_BASE = (envApiBase || "http://localhost:3001").replace(/\/+$/, "");
 
@@ -41,4 +44,18 @@ export async function readJson(response, fallbackMessage = "Request failed") {
 
 export function apiJson(path, options = {}) {
   return api(path, options).then((response) => readJson(response));
+}
+
+export async function assertApiReachable({ timeoutMs = API_REACHABILITY_TIMEOUT_MS } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    await api("/api/check-access", { signal: controller.signal });
+    return true;
+  } catch {
+    throw createApiUnreachableError();
+  } finally {
+    clearTimeout(timeout);
+  }
 }

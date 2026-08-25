@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "../api";
 import { MediaCard } from "../components/media-card";
@@ -7,6 +7,7 @@ import { MiniPlayer } from "../components/mini-player";
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { spacing, useTheme } from "../theme";
+import { getPlaybackErrorPresentation } from "../utils/playback-errors";
 
 export function FavoritesScreen({ navigation }) {
   const player = usePlayer();
@@ -35,8 +36,20 @@ export function FavoritesScreen({ navigation }) {
   }, [load]);
 
   const play = (item) => {
-    player.playMedia(item);
-    (navigation.getParent?.() || navigation).navigate("Player");
+    player.playMedia(item)
+      .then(() => (navigation.getParent?.() || navigation).navigate("Player"))
+      .catch((error) => {
+        const presentation = getPlaybackErrorPresentation(error);
+        Alert.alert(
+          presentation.title,
+          presentation.message,
+          [{
+            text: presentation.actionLabel,
+            onPress: presentation.route ? () => navigation.navigate(presentation.route) : undefined,
+          }],
+          presentation.route ? { cancelable: false } : undefined
+        );
+      });
   };
 
   return (
