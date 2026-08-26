@@ -4,8 +4,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { StatusBar } from "expo-status-bar";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
@@ -32,13 +32,55 @@ export function useAccess() {
 }
 
 function LoadingScreen() {
-  const { colors } = useTheme();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 1200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  const haloStyle = {
+    opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.46] }),
+    transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.06] }) }],
+  };
 
   return (
-    <View style={styles.loading}>
-      <ActivityIndicator color={colors.primary} size="large" />
-      <Text style={styles.loadingText}>Opening private library</Text>
+    <View style={styles.loading} accessibilityLabel="Opening DogMedia private library">
+      <View style={styles.splashMarkWrap}>
+        <Animated.View style={[styles.splashHalo, haloStyle]} />
+        <Image
+          accessibilityIgnoresInvertColors
+          accessible={false}
+          source={require("../assets/splash-mark-v2.png")}
+          resizeMode="contain"
+          style={styles.splashMark}
+        />
+      </View>
+
+      <Text style={styles.splashWordmark}>DOGMEDIA</Text>
+      <Text style={styles.splashTagline}>YOUR PRIVATE MEDIA LIBRARY</Text>
+
+      <View style={styles.loadingStatus}>
+        <ActivityIndicator color="#22b8ff" size="small" />
+        <Text style={styles.loadingText}>Opening your library</Text>
+      </View>
     </View>
   );
 }
@@ -214,23 +256,60 @@ export default function App() {
   );
 }
 
-const makeStyles = (colors) => StyleSheet.create({
+const styles = StyleSheet.create({
   loading: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.bg,
+    backgroundColor: "#050607",
+    paddingBottom: 18,
+  },
+  splashMarkWrap: {
+    width: 252,
+    height: 252,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  splashHalo: {
+    position: "absolute",
+    width: 198,
+    height: 198,
+    borderRadius: 99,
+    backgroundColor: "rgba(22,140,255,0.08)",
+    borderColor: "rgba(61,227,242,0.28)",
+    borderWidth: 1,
+  },
+  splashMark: {
+    width: 252,
+    height: 252,
+  },
+  splashWordmark: {
+    marginTop: -16,
+    color: "#f4f4f5",
+    fontSize: 23,
+    fontWeight: "900",
+    letterSpacing: 5.5,
+  },
+  splashTagline: {
+    marginTop: 8,
+    color: "#667085",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 2.1,
+  },
+  loadingStatus: {
+    position: "absolute",
+    bottom: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
   loadingText: {
-    marginTop: 14,
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
+    color: "#8b95a7",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
   },
-});
-
-const styles = StyleSheet.create({
   gestureRoot: {
     flex: 1,
   },

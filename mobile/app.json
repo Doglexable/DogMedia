@@ -23,7 +23,7 @@
       "icon": "./assets/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0b0b0f"
+        "backgroundColor": "#050607"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -33,9 +33,9 @@
       ]
     },
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-mark-v2.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0b0b0f"
+      "backgroundColor": "#050607"
     },
     "extra": {
       "apiUrlNote": "Set EXPO_PUBLIC_API_URL, e.g. http://10.0.2.2:3001 or http://<lan-ip>:3001"
