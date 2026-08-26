@@ -1,7 +1,7 @@
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEventListener } from "expo";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal } from "@gorhom/bottom-sheet";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -230,13 +230,13 @@ function QueueItem({ active = false, colors, drag, dragging = false, draggable =
   );
 }
 
-function QueueContent({ colors, currentMedia, error, items, loading, onClear, onMove, onRefresh, onRemove, onSelect, queueIndex, styles }) {
+function QueueContent({ colors, currentMedia, error, items, loading, onClear, onMove, onRefresh, onRemove, onSelect, queueIndex, styles, total }) {
   const pinnedIndex = resolveCurrentIndex(items, queueIndex, currentMedia);
   const hasPinnedItem = pinnedIndex > -1;
   const pinnedItem = hasPinnedItem ? items[pinnedIndex] : null;
   const previousItems = hasPinnedItem ? items.slice(0, pinnedIndex) : [];
   const upcomingItems = hasPinnedItem ? items.slice(pinnedIndex + 1) : items;
-  const displayedTotal = loading ? items.length : (hasPinnedItem ? upcomingItems.length + 1 : items.length);
+  const displayedTotal = Number.isFinite(total) ? total : (loading ? items.length : (hasPinnedItem ? upcomingItems.length + 1 : items.length));
 
   const reorderUpcomingItems = (reorderedUpcoming) => {
     const nextItems = hasPinnedItem ? [...previousItems, pinnedItem, ...reorderedUpcoming] : reorderedUpcoming;
@@ -347,6 +347,7 @@ function PlayerBottomSheet({
   seek,
   sheetInset,
   styles,
+  total,
 }) {
   const bottomSheetRef = useRef(null);
   const snapPoints = useMemo(() => [height], [height]);
@@ -422,7 +423,7 @@ function PlayerBottomSheet({
               offlineLyrics={offlineLyrics}
               onSeek={seek}
               position={position}
-              scrollComponent={BottomSheetScrollView}
+              listComponent={BottomSheetFlatList}
               style={styles.sheetLyrics}
             />
           ) : (
@@ -439,6 +440,7 @@ function PlayerBottomSheet({
               onSelect={onSelect}
               queueIndex={queueIndex}
               styles={styles}
+              total={total}
             />
           )}
         </View>
@@ -708,6 +710,7 @@ export function FullPlayer({ navigation }) {
           seek={player.seek}
           sheetInset={insets.bottom + spacing.lg}
           styles={styles}
+          total={player.queueTotal}
         />
       )}
     </View>

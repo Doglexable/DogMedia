@@ -1,14 +1,12 @@
-import Redis from "ioredis";
 import { buildDashboardSummary } from "../playback-dashboard-summary.js";
 
-const fallbackRedis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
 const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
 const DASHBOARD_LOOKBACK_DAYS = 90;
+const ACTIVE_INDEX_KEY = "playback:active:index";
 
 function getRedis(fastify) {
-  if (fastify.redis) return fastify.redis;
-  fastify.log.warn("fastify.redis is undefined, using fallback redis");
-  return fallbackRedis;
+  if (!fastify.redis) throw new Error("Redis plugin must be registered before playback routes");
+  return fastify.redis;
 }
 
 function startOfDay(d) {
@@ -366,8 +364,15 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId })
      )
      SELECT
        m.id,
+       m.category_id,
        m.title,
+       m.description,
+       m.artists,
+       m.track_order,
+       m.duration,
        m.mime_type,
+       ac.name AS category_name,
+       array_to_string(ac.path_parts, ' / ') AS category_path,
        m.created_at,
        COALESCE(ps.play_count, 0)::int AS play_count,
        COALESCE(ps.total_time, 0)::int AS total_time,
@@ -387,8 +392,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId })
     params
   );
 
-  return buildDashboardSummary(
-    rows.map((row) => ({
+  const summaryRows = rows.map((row) => ({
       id: Number(row.id),
       title: row.title || "",
       mimeType: row.mime_type || "",
@@ -397,9 +401,31 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId })
       totalTime: row.total_time || 0,
       lastPlayedAt: row.last_played_at,
       playbackScore: row.playback_score || 0,
-    })),
+    }));
+  const summary = buildDashboardSummary(
+    summaryRows,
     { view, categoryId, refreshIntervalSeconds: DASHBOARD_CACHE_TTL_SECONDS }
   );
+  const referencedIds = new Set([
+    summary.featuredId,
+    ...(summary.quickAccessIds || []),
+    ...(summary.rows || []).flatMap((row) => row.mediaIds || []),
+  ].map(Number).filter(Number.isFinite));
+  return {
+    ...summary,
+    media: rows.filter((row) => referencedIds.has(Number(row.id))).map((row) => ({
+      id: Number(row.id),
+      category_id: Number(row.category_id),
+      category_name: row.category_name,
+      category_path: row.category_path,
+      title: row.title,
+      description: row.description,
+      artists: row.artists,
+      track_order: row.track_order,
+      duration: row.duration,
+      mime_type: row.mime_type,
+    })),
+  };
 }
 
 async function getCachedDashboardSummary(fastify, request) {
@@ -407,7 +433,7 @@ async function getCachedDashboardSummary(fastify, request) {
   const view = normalizeDashboardView(request.query.view);
   const categoryId = normalizePositiveMediaId(request.query.category_id);
   const ownerPart = view === "liked" ? `:${request.clientIp || request.ip}` : "";
-  const cacheKey = `playback:dashboard:v2:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
+  const cacheKey = `playback:dashboard:v4:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) {
@@ -481,7 +507,10 @@ export default async function (fastify) {
       action: normalizedAction,
     });
     const redis = getRedis(fastify);
-    await redis.set(`playback:active:${event.ip}`, JSON.stringify(event), "EX", 300);
+    const multi = redis.multi();
+    multi.set(`playback:active:${event.ip}`, JSON.stringify(event), "EX", 300);
+    multi.zadd(ACTIVE_INDEX_KEY, Date.now() + 300_000, event.ip);
+    await multi.exec();
 
     return { ok: true };
   });
@@ -533,29 +562,37 @@ export default async function (fastify) {
     }
 
     const redis = getRedis(fastify);
-    const keys = [];
-    let cursor = "0";
-    do {
-      const result = await redis.scan(
-        cursor,
-        "MATCH",
-        "playback:active:*",
-        "COUNT",
-        50
-      );
-      cursor = result[0];
-      keys.push(...result[1]);
-    } while (cursor !== "0");
+    const now = Date.now();
+    await redis.zremrangebyscore(ACTIVE_INDEX_KEY, "-inf", now);
+    let ips = await redis.zrangebyscore(ACTIVE_INDEX_KEY, now, "+inf");
 
-    if (keys.length === 0) return [];
+    // One-release bridge for sessions written before the active-session index existed.
+    if (ips.length === 0) {
+      const legacyKeys = [];
+      let cursor = "0";
+      do {
+        const result = await redis.scan(cursor, "MATCH", "playback:active:*", "COUNT", 50);
+        cursor = result[0];
+        legacyKeys.push(...result[1].filter((key) => key !== ACTIVE_INDEX_KEY));
+      } while (cursor !== "0");
+      ips = legacyKeys.map((key) => key.replace("playback:active:", ""));
+      if (ips.length > 0) {
+        const migration = redis.multi();
+        for (const ip of ips) migration.zadd(ACTIVE_INDEX_KEY, now + 300_000, ip);
+        await migration.exec();
+      }
+    }
 
+    if (ips.length === 0) return [];
+
+    const keys = ips.map((ip) => `playback:active:${ip}`);
     const values = await redis.mget(keys);
     const sessions = [];
 
     for (let i = 0; i < keys.length; i++) {
       if (!values[i]) continue;
       const data = JSON.parse(values[i]);
-      const ip = keys[i].replace("playback:active:", "");
+      const ip = ips[i];
       sessions.push({ ip, ...data });
     }
 

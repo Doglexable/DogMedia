@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getClientIp } from "./auth.js";
+import Fastify from "fastify";
+import authPlugin, { getClientIp } from "./auth.js";
 
 describe("getClientIp", () => {
   it("uses x-forwarded-for when nginx provides a client IP", () => {
@@ -50,5 +51,32 @@ describe("getClientIp", () => {
     });
 
     expect(ip).toBe("10.0.0.50");
+  });
+});
+
+describe("auth cache", () => {
+  it("does not repeat whitelist lookups for a cached IP and can be invalidated", async () => {
+    let accessQueries = 0;
+    const app = Fastify({ logger: false });
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 1 }] };
+        if (sql.includes("masklen")) {
+          accessQueries += 1;
+          return { rows: [{ access_tier: 5, description: "LAN" }] };
+        }
+        return { rows: [] };
+      },
+    });
+    await authPlugin(app);
+    app.get("/api/test", async (request) => ({ tier: request.accessTier }));
+
+    expect((await app.inject("/api/test")).json()).toEqual({ tier: 5 });
+    expect((await app.inject("/api/test")).json()).toEqual({ tier: 5 });
+    expect(accessQueries).toBe(1);
+    app.clearAuthCache();
+    await app.inject("/api/test");
+    expect(accessQueries).toBe(2);
+    await app.close();
   });
 });

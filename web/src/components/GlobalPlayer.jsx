@@ -1,10 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { FullPlayer } from "./global-player/full-player";
 import { MiniPlayer } from "./global-player/mini-player";
-import { QueuePanel } from "./global-player/queue-panel";
-import { SleepTimerCompleteDialog } from "./global-player/sleep-timer-complete-dialog";
 import {
   cleanMediaText,
   getAudioArtist,
@@ -20,6 +17,10 @@ import {
 } from "./global-player/player-utils";
 
 const PlayerContext = createContext(null);
+const PlayerLibraryContext = createContext(null);
+const FullPlayer = lazy(() => import("./global-player/full-player").then((module) => ({ default: module.FullPlayer })));
+const QueuePanel = lazy(() => import("./global-player/queue-panel").then((module) => ({ default: module.QueuePanel })));
+const SleepTimerCompleteDialog = lazy(() => import("./global-player/sleep-timer-complete-dialog").then((module) => ({ default: module.SleepTimerCompleteDialog })));
 const DEFAULT_DOCUMENT_TITLE = "DogMedia";
 const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
@@ -29,6 +30,10 @@ const SLEEP_TIMER_MAX_MINUTES = 60;
 
 export function useGlobalPlayer() {
   return useContext(PlayerContext);
+}
+
+export function useGlobalPlayerLibrary() {
+  return useContext(PlayerLibraryContext);
 }
 
 function getDocumentTitle(media, isAudioMedia) {
@@ -89,6 +94,9 @@ export function GlobalPlayerProvider({ children }) {
   const [hasPrev, setHasPrev] = useState(false);
   const [queueIds, setQueueIds] = useState([]);
   const [queueIndex, setQueueIndex] = useState(0);
+  const [queueOffset, setQueueOffset] = useState(0);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueRevision, setQueueRevision] = useState(0);
   const [queueItems, setQueueItems] = useState([]);
   const [hiddenQueueIds, setHiddenQueueIds] = useState(new Set());
   const [queueLoading, setQueueLoading] = useState(false);
@@ -114,13 +122,12 @@ export function GlobalPlayerProvider({ children }) {
   const streamSrc = currentMedia ? `/api/media/${currentMedia.id}/stream` : "";
   const thumbSrc = currentMedia ? `/api/media/${currentMedia.id}/thumbnail` : "";
   const meta = mediaMeta(currentMime);
-  const currentQueueIndex = currentMedia ? queueIds.indexOf(Number(currentMedia.id)) : -1;
-  const hasQueueNext = currentQueueIndex > -1 && currentQueueIndex < queueIds.length - 1;
-  const hasQueuePrev = currentQueueIndex > 0;
+  const hasQueueNext = queueTotal > 0 && queueIndex < queueTotal - 1;
+  const hasQueuePrev = queueTotal > 0 && queueIndex > 0;
   const hasLinearNext = hasNext || hasQueueNext;
   const hasLinearPrev = hasPrev || hasQueuePrev;
-  const canGoNext = hasLinearNext || (loopMode === "queue" && queueIds.length > 1);
-  const canGoPrev = hasLinearPrev || (loopMode === "queue" && queueIds.length > 1);
+  const canGoNext = hasLinearNext || (loopMode === "queue" && queueTotal > 1);
+  const canGoPrev = hasLinearPrev || (loopMode === "queue" && queueTotal > 1);
 
   const visibleQueueItems = useCallback((items) => (
     Array.isArray(items)
@@ -154,6 +161,8 @@ export function GlobalPlayerProvider({ children }) {
     if (!Array.isArray(queue)) {
       setQueueIds([]);
       setQueueIndex(0);
+      setQueueOffset(0);
+      setQueueTotal(0);
       setHasPrev(false);
       setHasNext(false);
       return;
@@ -167,39 +176,47 @@ export function GlobalPlayerProvider({ children }) {
         : normalizedQueue
     ));
     setQueueIndex(idx > -1 ? idx : 0);
+    setQueueOffset(0);
+    setQueueTotal(normalizedQueue.length);
     setHasPrev(idx > 0);
     setHasNext(idx > -1 && idx < normalizedQueue.length - 1);
   }, []);
 
-  const applyQueueResponse = useCallback((data, fallbackMediaId = currentMedia?.id) => {
-    refreshQueueState(data?.queue, fallbackMediaId);
-    const items = visibleQueueItems(data?.items);
-    if (items) setQueueItems(items);
+  const applyQueueWindow = useCallback((data) => {
+    const items = visibleQueueItems(data?.items) || [];
+    setQueueItems(items);
+    setQueueIds(items.map((item) => Number(item.id)));
+    setQueueOffset(Number(data?.offset) || 0);
+    setQueueTotal(Number(data?.total) || 0);
+    setQueueIndex(Number(data?.currentIndex) || 0);
+    setQueueRevision(Number(data?.revision) || 0);
+    setHasPrev(Boolean(data?.total) && Number(data.currentIndex) > 0);
+    setHasNext(Boolean(data?.total) && Number(data.currentIndex) < Number(data.total) - 1);
     return data;
-  }, [currentMedia?.id, refreshQueueState, visibleQueueItems]);
+  }, [visibleQueueItems]);
+
+  const applyCompactQueueResponse = useCallback((data) => {
+    setQueueTotal(Number(data?.total) || 0);
+    setQueueIndex(Number(data?.currentIndex) || 0);
+    setQueueRevision(Number(data?.revision) || 0);
+    setHasPrev(Boolean(data?.total) && Number(data.currentIndex) > 0);
+    setHasNext(Boolean(data?.total) && Number(data.currentIndex) < Number(data.total) - 1);
+    return data;
+  }, []);
 
   const refreshQueue = useCallback(() => {
-    return api("/api/queue")
+    return api("/api/queue/window?limit=100")
       .then((response) => response.json())
-      .then((data) => applyQueueResponse(data));
-  }, [applyQueueResponse]);
+      .then((data) => applyQueueWindow(data));
+  }, [applyQueueWindow]);
 
   useEffect(() => {
     const applyExternalQueueChange = (event) => {
-      if (Array.isArray(event.detail?.queue)) {
-        setHiddenQueueIds((current) => {
-          const next = new Set(current);
-          event.detail.queue.forEach((mediaId) => next.delete(Number(mediaId)));
-          return next;
-        });
-        applyQueueResponse(event.detail);
-        return;
-      }
       refreshQueue().catch(() => {});
     };
     window.addEventListener("queue-changed", applyExternalQueueChange);
     return () => window.removeEventListener("queue-changed", applyExternalQueueChange);
-  }, [applyQueueResponse, refreshQueue]);
+  }, [refreshQueue]);
 
   useEffect(() => {
     refreshQueue().catch(() => refreshQueueState(null));
@@ -214,14 +231,17 @@ export function GlobalPlayerProvider({ children }) {
 
   const initializeQueue = useCallback((mediaId, nextCategoryId) => {
     const queueEndpoint = nextCategoryId
-      ? `/api/queue/auto/${nextCategoryId}?start=${mediaId}`
-      : `/api/queue/auto?start=${mediaId}`;
+      ? `/api/queue/auto/${nextCategoryId}?start=${mediaId}&compact=1`
+      : `/api/queue/auto?start=${mediaId}&compact=1`;
 
     api(queueEndpoint, { method: "POST" })
       .then((r) => r.json())
-      .then((data) => refreshQueueState(data.queue, mediaId))
+      .then((data) => {
+        applyCompactQueueResponse(data);
+        return refreshQueue();
+      })
       .catch(() => refreshQueueState(null));
-  }, [refreshQueueState]);
+  }, [applyCompactQueueResponse, refreshQueue, refreshQueueState]);
 
   const resetForMedia = useCallback((mediaItem, options = {}) => {
     const { autoplay = true, startPosition = 0 } = options;
@@ -367,46 +387,20 @@ export function GlobalPlayerProvider({ children }) {
     );
   }, [loopMode, shuffleEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadQueueItemsFallback = useCallback((visibleQueueIds, seq) => {
-    Promise.all(
-      visibleQueueIds.map((id) =>
-        api(`/api/media/${id}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null)
-      )
-    )
-      .then((items) => {
-        if (queueLoadSeqRef.current === seq) setQueueItems(items.filter(Boolean));
+  const loadQueueItems = useCallback(() => {
+    const seq = queueLoadSeqRef.current + 1;
+    queueLoadSeqRef.current = seq;
+    setQueueLoading(true);
+    api("/api/queue/window?limit=100")
+      .then((response) => response.json())
+      .then((data) => {
+        if (queueLoadSeqRef.current !== seq) return;
+        applyQueueWindow(data);
       })
       .finally(() => {
         if (queueLoadSeqRef.current === seq) setQueueLoading(false);
       });
-  }, []);
-
-  const loadQueueItems = useCallback(() => {
-    const seq = queueLoadSeqRef.current + 1;
-    queueLoadSeqRef.current = seq;
-    const visibleQueueIds = queueIds.filter((id) => !hiddenQueueIds.has(Number(id)));
-    if (visibleQueueIds.length === 0) {
-      setQueueItems([]);
-      setQueueLoading(false);
-      return;
-    }
-
-    setQueueLoading(true);
-    api("/api/queue")
-      .then((response) => response.json())
-      .then((data) => {
-        if (queueLoadSeqRef.current !== seq) return;
-        applyQueueResponse(data);
-        if (!Array.isArray(data?.items)) {
-          loadQueueItemsFallback(visibleQueueIds, seq);
-          return;
-        }
-        setQueueLoading(false);
-      })
-      .catch(() => loadQueueItemsFallback(visibleQueueIds, seq));
-  }, [applyQueueResponse, hiddenQueueIds, loadQueueItemsFallback, queueIds]);
+  }, [applyQueueWindow]);
 
   useEffect(() => {
     if (!queueOpen) return;
@@ -504,7 +498,7 @@ export function GlobalPlayerProvider({ children }) {
   const addToQueue = useCallback((mediaItemOrId) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
     if (!Number.isFinite(mediaId)) return Promise.reject(new Error("Invalid media"));
-    return api("/api/queue/items", {
+    return api("/api/queue/items?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mediaId }),
@@ -517,32 +511,35 @@ export function GlobalPlayerProvider({ children }) {
           next.delete(mediaId);
           return next;
         });
-        return applyQueueResponse(data);
+        applyCompactQueueResponse(data);
+        if (queueOpen) await refreshQueue();
+        return data;
       });
-  }, [applyQueueResponse]);
+  }, [applyCompactQueueResponse, queueOpen, refreshQueue]);
 
   const addCategoryToQueue = useCallback((categoryOrId) => {
     const categoryId = Number(categoryOrId?.id ?? categoryOrId);
     if (!Number.isInteger(categoryId) || categoryId < 1) {
       return Promise.reject(new Error("Invalid category"));
     }
-    return api(`/api/queue/items/category/${categoryId}`, { method: "POST" })
+    return api(`/api/queue/items/category/${categoryId}?compact=1`, { method: "POST" })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not add folder to queue");
         setHiddenQueueIds((current) => {
           const next = new Set(current);
-          data.queue.forEach((mediaId) => next.delete(Number(mediaId)));
           return next;
         });
-        return applyQueueResponse(data);
+        applyCompactQueueResponse(data);
+        if (queueOpen) await refreshQueue();
+        return data;
       });
-  }, [applyQueueResponse]);
+  }, [applyCompactQueueResponse, queueOpen, refreshQueue]);
 
   const playNext = useCallback((mediaItemOrId) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
     if (!Number.isFinite(mediaId)) return Promise.reject(new Error("Invalid media"));
-    return api("/api/queue/items/next", {
+    return api("/api/queue/items/next?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mediaId }),
@@ -555,12 +552,16 @@ export function GlobalPlayerProvider({ children }) {
           next.delete(mediaId);
           return next;
         });
-        return applyQueueResponse(data);
+        applyCompactQueueResponse(data);
+        if (queueOpen) await refreshQueue();
+        return data;
       });
-  }, [applyQueueResponse]);
+  }, [applyCompactQueueResponse, queueOpen, refreshQueue]);
 
   const reorderQueue = useCallback((mediaIds) => {
-    const previous = queueIds;
+    if (hiddenQueueIds.size > 0) {
+      return Promise.reject(new Error("Close and reopen the queue before reordering hidden items"));
+    }
     const reorderedVisibleIds = mediaIds.map(Number);
     const expectedVisibleIds = queueIds.filter((id) => !hiddenQueueIds.has(Number(id)));
     const hasSameVisibleItems = reorderedVisibleIds.length === expectedVisibleIds.length
@@ -569,26 +570,23 @@ export function GlobalPlayerProvider({ children }) {
       return Promise.reject(new Error("Queue changed; close and reopen it before reordering"));
     }
 
-    let visibleIndex = 0;
-    const nextQueue = queueIds.map((id) => (
-      hiddenQueueIds.has(Number(id)) ? Number(id) : reorderedVisibleIds[visibleIndex++]
-    ));
-    refreshQueueState(nextQueue, currentMedia?.id);
-    return api("/api/queue/order", {
+    return api("/api/queue/window/order", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mediaIds: nextQueue }),
+      body: JSON.stringify({ offset: queueOffset, mediaIds: reorderedVisibleIds, revision: queueRevision }),
     })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not reorder queue");
-        return applyQueueResponse(data);
+        applyCompactQueueResponse(data);
+        await refreshQueue();
+        return data;
       })
-      .catch((error) => {
-        refreshQueueState(previous, currentMedia?.id);
+      .catch(async (error) => {
+        await refreshQueue().catch(() => {});
         throw error;
       });
-  }, [applyQueueResponse, currentMedia?.id, hiddenQueueIds, queueIds, refreshQueueState]);
+  }, [applyCompactQueueResponse, hiddenQueueIds, queueIds, queueOffset, queueRevision, refreshQueue]);
 
   const removeFromQueue = useCallback((mediaId) => {
     const numericId = Number(mediaId);
@@ -600,31 +598,34 @@ export function GlobalPlayerProvider({ children }) {
       return Promise.resolve({ visibleOnly: true });
     }
 
-    return api(`/api/queue/items/${numericId}`, { method: "DELETE" })
+    return api(`/api/queue/items/${numericId}?compact=1`, { method: "DELETE" })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not remove queue item");
-        applyQueueResponse(data, currentMedia?.id);
+        applyCompactQueueResponse(data);
         setHiddenQueueIds((current) => {
           const next = new Set(current);
           next.delete(numericId);
           return next;
         });
+        await refreshQueue();
         return data;
       });
-  }, [applyQueueResponse, currentMedia?.id]);
+  }, [applyCompactQueueResponse, currentMedia?.id, refreshQueue]);
 
   const clearQueue = useCallback(() => {
-    return api("/api/queue", { method: "DELETE" })
+    return api("/api/queue?compact=1", { method: "DELETE" })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not clear queue");
-        applyQueueResponse(data, null);
+        applyCompactQueueResponse(data);
+        setQueueIds([]);
+        setQueueItems([]);
         setHiddenQueueIds(new Set());
         if (data.activeRemoved) stopPlayback();
         return data;
       });
-  }, [applyQueueResponse, stopPlayback]);
+  }, [applyCompactQueueResponse, stopPlayback]);
 
   const toggleLike = useCallback((mediaItemOrId) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
@@ -782,7 +783,7 @@ export function GlobalPlayerProvider({ children }) {
       sendNowPlaying(previousMedia, "skip", previousPosition, previousDuration);
     }
 
-    api("/api/queue/select", {
+    api("/api/queue/select?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mediaId: Number(mediaItem.id) }),
@@ -792,14 +793,15 @@ export function GlobalPlayerProvider({ children }) {
         resetForMedia(mediaItem, { autoplay: true });
         loadResumePosition(mediaItem.id);
         sendNowPlaying(mediaItem, "play", 0, mediaItem.duration || 0);
-        refreshQueueState(data.queue || queueIds, mediaItem.id);
+        applyCompactQueueResponse(data);
+        if (queueOpen) refreshQueue().catch(() => {});
         if (closeQueue) setQueueOpen(false);
         if (isFullPlayer) {
           navigate(`/media/${mediaItem.id}${categoryQuery(categoryId)}`);
         }
       })
       .catch(() => {});
-  }, [categoryId, currentMedia, duration, isFullPlayer, loadResumePosition, navigate, position, queueIds, refreshQueueState, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
+  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, isFullPlayer, loadResumePosition, navigate, position, queueOpen, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
 
   const playQueueId = useCallback((mediaId, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
@@ -816,29 +818,42 @@ export function GlobalPlayerProvider({ children }) {
       return;
     }
 
-    api("/api/queue/shuffle", { method: "POST" })
+    api("/api/queue/shuffle?compact=1", { method: "POST" })
       .then((response) => response.json())
       .then((data) => {
-        refreshQueueState(data.queue, currentMedia?.id);
+        applyCompactQueueResponse(data);
+        if (queueOpen) refreshQueue().catch(() => {});
         setShuffleEnabled(true);
       })
       .catch(() => {});
-  }, [currentMedia?.id, refreshQueueState, shuffleEnabled]);
+  }, [applyCompactQueueResponse, queueOpen, refreshQueue, shuffleEnabled]);
+
+  const playQueueBoundary = useCallback((atEnd, options = {}) => {
+    const params = new URLSearchParams({ limit: "1" });
+    if (atEnd) params.set("offset", String(Math.max(queueTotal - 1, 0)));
+    api(`/api/queue/window?${params.toString()}`)
+      .then((response) => response.json())
+      .then((data) => {
+        const mediaId = data.items?.[0]?.id;
+        if (mediaId) playQueueId(mediaId, { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+      })
+      .catch(() => {});
+  }, [playQueueId, queueTotal]);
 
   const advance = useCallback((dir, options = {}) => {
-    if (loopMode === "queue" && queueIds.length > 1) {
+    if (loopMode === "queue" && queueTotal > 1) {
       if (dir === "next" && !hasLinearNext) {
-        playQueueId(queueIds[0], { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+        playQueueBoundary(false, options);
         return;
       }
 
       if (dir === "prev" && !hasLinearPrev) {
-        playQueueId(queueIds[queueIds.length - 1], { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+        playQueueBoundary(true, options);
         return;
       }
     }
 
-    const endpoint = dir === "next" ? "/api/queue/next" : "/api/queue/prev";
+    const endpoint = dir === "next" ? "/api/queue/next?compact=1" : "/api/queue/prev?compact=1";
     const previousMedia = currentMedia;
     const previousPosition = mediaRef.current?.currentTime || position || 0;
     const previousDuration = mediaRef.current?.duration || duration || previousMedia?.duration || 0;
@@ -851,6 +866,7 @@ export function GlobalPlayerProvider({ children }) {
     api(endpoint, { method: "POST" })
       .then((r) => r.json())
       .then((data) => {
+        applyCompactQueueResponse(data);
         if (!data.mediaId) return null;
         return api(`/api/media/${data.mediaId}`)
           .then(readMediaItem)
@@ -861,14 +877,12 @@ export function GlobalPlayerProvider({ children }) {
             if (isFullPlayer) {
               navigate(`/media/${nextMedia.id}${categoryQuery(categoryId)}`);
             }
-            return api("/api/queue")
-              .then((r) => r.json())
-              .then((queueState) => refreshQueueState(queueState.queue, nextMedia.id))
-              .catch(() => {});
+            if (queueOpen) return refreshQueue().catch(() => {});
+            return null;
           });
       })
       .catch(() => {});
-  }, [categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isFullPlayer, loadResumePosition, loopMode, navigate, playQueueId, position, queueIds, refreshQueueState, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
+  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isFullPlayer, loadResumePosition, loopMode, navigate, playQueueBoundary, position, queueOpen, queueTotal, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
 
   const seek = useCallback((eventOrValue) => {
     const nextPosition = Number(eventOrValue?.target ? eventOrValue.target.value : eventOrValue);
@@ -981,8 +995,8 @@ export function GlobalPlayerProvider({ children }) {
       return;
     }
 
-    if (loopMode === "queue" && !hasLinearNext && queueIds.length > 0) {
-      playQueueId(queueIds[0], { skipCurrent: false, closeQueue: false });
+    if (loopMode === "queue" && !hasLinearNext && queueTotal > 0) {
+      playQueueBoundary(false, { skipCurrent: false });
       return;
     }
 
@@ -993,7 +1007,7 @@ export function GlobalPlayerProvider({ children }) {
     }
 
     advance("next", { skipCurrent: false });
-  }, [advance, currentMedia, duration, hasLinearNext, loopMode, playQueueId, queueIds, sendNowPlaying, sendPlaybackEvent]);
+  }, [advance, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, sendNowPlaying, sendPlaybackEvent]);
 
   useEffect(() => {
     if (!currentMedia || !("mediaSession" in navigator) || !("MediaMetadata" in window)) return undefined;
@@ -1094,7 +1108,7 @@ export function GlobalPlayerProvider({ children }) {
     playMedia,
     playNext,
     position,
-    queueCount: queueIds.filter((id) => !hiddenQueueIds.has(Number(id))).length,
+    queueCount: Math.max(queueTotal - hiddenQueueIds.size, 0),
     removeFromQueue,
     reorderQueue,
     duration,
@@ -1102,9 +1116,22 @@ export function GlobalPlayerProvider({ children }) {
     stopPlayback,
     togglePlayback,
     toggleLike,
-  }), [addCategoryToQueue, addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueIds, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
+  }), [addCategoryToQueue, addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueTotal, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
+
+  const libraryContextValue = useMemo(() => ({
+    addCategoryToQueue,
+    addToQueue,
+    currentMedia,
+    isLiked: (mediaId) => likedIds.has(Number(mediaId)),
+    likedIds,
+    playMedia,
+    playNext,
+    stopPlayback,
+    toggleLike,
+  }), [addCategoryToQueue, addToQueue, currentMedia, likedIds, playMedia, playNext, stopPlayback, toggleLike]);
 
   return (
+    <PlayerLibraryContext.Provider value={libraryContextValue}>
     <PlayerContext.Provider value={contextValue}>
       {children}
       {currentMedia && (
@@ -1149,6 +1176,7 @@ export function GlobalPlayerProvider({ children }) {
           )}
 
           {isFullPlayer ? (
+            <Suspense fallback={null}>
             <FullPlayer
               autoPlay={!paused}
               currentMedia={currentMedia}
@@ -1202,6 +1230,7 @@ export function GlobalPlayerProvider({ children }) {
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
             />
+            </Suspense>
           ) : (
             <MiniPlayer
               currentMedia={currentMedia}
@@ -1237,27 +1266,32 @@ export function GlobalPlayerProvider({ children }) {
         </>
       )}
       {queueOpen && (
+        <Suspense fallback={null}>
         <QueuePanel
-          currentIndex={queueIndex}
+          currentIndex={queueIndex - queueOffset}
           currentMedia={currentMedia}
           items={queueItems}
           loading={queueLoading}
-          total={queueIds.filter((id) => !hiddenQueueIds.has(Number(id))).length}
+          total={Math.max(queueTotal - hiddenQueueIds.size, 0)}
           onClear={clearQueue}
           onClose={() => setQueueOpen(false)}
           onRemove={removeFromQueue}
           onReorder={reorderQueue}
           onSelect={playQueueMedia}
         />
+        </Suspense>
       )}
       {sleepTimerCompleted && (
+        <Suspense fallback={null}>
         <SleepTimerCompleteDialog
           canResume={Boolean(currentMedia) && !isImage}
           mediaTitle={currentMedia?.title}
           onDismiss={dismissSleepTimerNotification}
           onResume={resumeAfterSleepTimer}
         />
+        </Suspense>
       )}
     </PlayerContext.Provider>
+    </PlayerLibraryContext.Provider>
   );
 }

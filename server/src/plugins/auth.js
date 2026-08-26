@@ -63,8 +63,77 @@ export function getClientIp(request) {
 }
 
 export default async function (fastify) {
+  const cacheTtlMs = 60_000;
+  const cacheLimit = 1_024;
+  const accessCache = new Map();
+  let whitelistEmpty = false;
+  let firstRunPromise = null;
+
+  try {
+    const { rows } = await fastify.pg.query("SELECT COUNT(*)::int AS cnt FROM ip_whitelist");
+    whitelistEmpty = rows[0].cnt === 0;
+  } catch (err) {
+    fastify.log.warn(err, "could not initialize whitelist state");
+  }
+
+  const clearAuthCache = () => accessCache.clear();
+  if (!fastify.hasDecorator("clearAuthCache")) {
+    fastify.decorate("clearAuthCache", clearAuthCache);
+  }
+
+  function cacheAccess(ip, value) {
+    if (accessCache.size >= cacheLimit) {
+      accessCache.delete(accessCache.keys().next().value);
+    }
+    accessCache.set(ip, { expiresAt: Date.now() + cacheTtlMs, value });
+  }
+
+  function cachedAccess(ip) {
+    const cached = accessCache.get(ip);
+    if (!cached) return undefined;
+    if (cached.expiresAt <= Date.now()) {
+      accessCache.delete(ip);
+      return undefined;
+    }
+    // Refresh insertion order so the size bound behaves like a small LRU.
+    accessCache.delete(ip);
+    accessCache.set(ip, cached);
+    return cached.value;
+  }
+
+  async function initializeWhitelist(clientIp) {
+    if (!firstRunPromise) {
+      firstRunPromise = (async () => {
+        await fastify.pg.query(
+          "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 999, 'First-run auto-add (Admin)') ON CONFLICT DO NOTHING",
+          [clientIp]
+        );
+
+        const hostIps = getHostIps();
+        for (const ip of hostIps) {
+          await fastify.pg.query(
+            "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 999, 'Host Machine LAN IP (Admin)') ON CONFLICT DO NOTHING",
+            [ip]
+          );
+        }
+
+        const privateSubnets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"];
+        for (const subnet of privateSubnets) {
+          await fastify.pg.query(
+            "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 0, 'Home Network (Standard)') ON CONFLICT DO NOTHING",
+            [subnet]
+          );
+        }
+        whitelistEmpty = false;
+        clearAuthCache();
+      })().finally(() => {
+        firstRunPromise = null;
+      });
+    }
+    await firstRunPromise;
+  }
+
   fastify.addHook("onRequest", async (request, reply) => {
-    fastify.log.info({ url: request.url }, "auth onRequest running");
     const clientIp = getClientIp(request);
     request.clientIp = clientIp;
 
@@ -79,42 +148,26 @@ export default async function (fastify) {
       return;
     }
 
-    const { rows: countRows } = await fastify.pg.query(
-      "SELECT COUNT(*)::int AS cnt FROM ip_whitelist"
-    );
-
-    if (countRows[0].cnt === 0) {
-      // 1. Whitelist the exact IP as Admin (Tier 999)
-      await fastify.pg.query(
-        "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 999, 'First-run auto-add (Admin)') ON CONFLICT DO NOTHING",
-        [clientIp]
-      );
-
-      // 1b. Also whitelist the laptop's real host IPs as Admin just in case they initialized via 127.0.0.1
-      const hostIps = getHostIps();
-      for (const ip of hostIps) {
-        await fastify.pg.query(
-          "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 999, 'Host Machine LAN IP (Admin)') ON CONFLICT DO NOTHING",
-          [ip]
-        );
+    if (whitelistEmpty) {
+      const initializedByThisRequest = firstRunPromise === null;
+      await initializeWhitelist(clientIp);
+      if (initializedByThisRequest) {
+        request.accessTier = 999;
+        request.accessDescription = "First-run auto-add (Admin)";
+        request.firstRun = true;
+        return;
       }
+    }
 
-      // 2. Blanket whitelist common private networks as standard users (Tier 0)
-      // This ensures any device on the home network can watch, but only
-      // the laptop that initialized the server gets the Admin privileges.
-      const privateSubnets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"];
-      for (const subnet of privateSubnets) {
-        await fastify.pg.query(
-          "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 0, 'Home Network (Standard)') ON CONFLICT DO NOTHING",
-          [subnet]
-        );
-      }
-
-      request.accessTier = 999;
-      request.accessDescription = "First-run auto-add (Admin)";
-      request.firstRun = true;
+    const cached = cachedAccess(clientIp);
+    if (cached !== undefined) {
+      fastify.log.debug({ clientIp }, "auth cache hit");
+      if (cached === null) return reply.code(403).send({ error: "Access denied" });
+      request.accessTier = cached.accessTier;
+      request.accessDescription = cached.description;
       return;
     }
+    fastify.log.debug({ clientIp }, "auth cache miss");
 
     // ORDER BY masklen DESC ensures an exact IP (masklen 32) overrides a subnet (masklen 16/8).
     const { rows } = await fastify.pg.query(
@@ -123,10 +176,15 @@ export default async function (fastify) {
     );
 
     if (rows.length === 0) {
+      cacheAccess(clientIp, null);
       return reply.code(403).send({ error: "Access denied" });
     }
 
     request.accessTier = rows[0].access_tier;
     request.accessDescription = rows[0].description;
+    cacheAccess(clientIp, {
+      accessTier: rows[0].access_tier,
+      description: rows[0].description,
+    });
   });
 }

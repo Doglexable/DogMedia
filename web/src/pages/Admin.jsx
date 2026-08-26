@@ -13,7 +13,7 @@ import { ThemeToggle, useAccess } from "../App";
 import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
-import { useGlobalPlayer } from "../components/GlobalPlayer";
+import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 
 const FALLBACK_CHUNK_SIZE = 512 * 1024;
 
@@ -548,7 +548,6 @@ function orderMedia(items) {
       ? Number(b.track_order)
       : Number.POSITIVE_INFINITY;
     return aTrack - bTrack
-      || String(a.title || "").localeCompare(String(b.title || ""), undefined, { sensitivity: "base" })
       || Number(a.id) - Number(b.id);
   });
 }
@@ -980,7 +979,7 @@ async function uploadAndroidRelease({ file, version, onProgress }) {
 export default function Admin() {
   const { tier } = useAccess();
   const { refreshCategories: refreshGlobalCategories } = useLibrary();
-  const player = useGlobalPlayer();
+  const player = useGlobalPlayerLibrary();
   const [categories, setCategories] = useState([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [message, setMessage] = useState(null);

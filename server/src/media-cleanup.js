@@ -115,7 +115,7 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
   return summary;
 }
 
-export function startOrphanMediaCleanupScheduler({ dataDir, env = process.env, log, pg }) {
+export function startOrphanMediaCleanupScheduler({ cleanup = cleanupOrphanMediaFiles, dataDir, env = process.env, log, pg }) {
   const config = getOrphanMediaCleanupConfig(env);
   if (!config.enabled) {
     log?.info?.("orphan media cleanup disabled");
@@ -127,7 +127,7 @@ export function startOrphanMediaCleanupScheduler({ dataDir, env = process.env, l
     if (running) return;
     running = true;
     try {
-      await cleanupOrphanMediaFiles({ dataDir, graceMs: config.graceMs, log, pg });
+      await cleanup({ dataDir, graceMs: config.graceMs, log, pg });
     } catch (error) {
       log?.warn?.({ err: error }, "orphan media cleanup failed");
     } finally {

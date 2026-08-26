@@ -90,12 +90,6 @@ export function buildDashboardSummary(items, options = {}) {
         type: "square",
         mediaIds: withFallback(recentIds, allFallback, 14),
       },
-      {
-        key: "top-media",
-        title: "Most played",
-        type: "square",
-        mediaIds: withFallback(playedIds, allFallback, 14),
-      },
     ],
   };
 }

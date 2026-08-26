@@ -19,7 +19,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
-      ARRAY[c.name::text]::text[] AS path_parts
+      ARRAY[c.name::text]::text[] AS path_parts,
+      ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
     FROM categories c
     WHERE c.parent_id IS NULL
       AND c.min_access_tier <= $1
@@ -29,7 +30,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
-      ac.path_parts || c.name::text
+      ac.path_parts || c.name::text,
+      ac.order_parts || COALESCE(c.sort_order, 0)
     FROM categories c
     JOIN accessible_categories ac ON c.parent_id = ac.id
     WHERE c.min_access_tier <= $1
@@ -65,13 +67,56 @@ function extFromFilename(filename, fallback = "bin") {
   return (parts.length > 1 ? parts.pop() : fallback).toLowerCase();
 }
 
-function applyNoDownloadHeaders(reply) {
+function applyNoDownloadHeaders(reply, { revalidate = false } = {}) {
   reply.header("Content-Disposition", "inline");
-  reply.header("Cache-Control", "no-store, private, max-age=0");
-  reply.header("Pragma", "no-cache");
-  reply.header("Expires", "0");
+  reply.header("Cache-Control", revalidate ? "private, no-cache" : "no-store, private, max-age=0");
+  if (!revalidate) {
+    reply.header("Pragma", "no-cache");
+    reply.header("Expires", "0");
+  }
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Download-Options", "noopen");
+}
+
+export function parseByteRange(value, fileSize) {
+  if (!value || !Number.isInteger(fileSize) || fileSize <= 0 || !/^bytes=[^,]+$/.test(value)) return null;
+  const [rawStart, rawEnd] = value.slice(6).split("-");
+  if (rawStart === "") {
+    const suffixLength = Number.parseInt(rawEnd, 10);
+    if (!Number.isInteger(suffixLength) || suffixLength <= 0) return null;
+    return { start: Math.max(fileSize - suffixLength, 0), end: fileSize - 1 };
+  }
+  const start = Number.parseInt(rawStart, 10);
+  const requestedEnd = rawEnd === "" ? fileSize - 1 : Number.parseInt(rawEnd, 10);
+  if (!Number.isInteger(start) || !Number.isInteger(requestedEnd) || start < 0 || start >= fileSize || requestedEnd < start) return null;
+  return { start, end: Math.min(requestedEnd, fileSize - 1) };
+}
+
+function encodeBrowseCursor(row) {
+  return Buffer.from(JSON.stringify({
+    categoryOrder: Array.isArray(row.category_order) ? row.category_order.map(Number) : [],
+    categoryId: Number(row.category_id),
+    trackNull: row.track_order == null ? 1 : 0,
+    trackOrder: row.track_order == null ? 0 : Number(row.track_order),
+    id: Number(row.id),
+  })).toString("base64url");
+}
+
+export function decodeBrowseCursor(value) {
+  if (!value || typeof value !== "string" || value.length > 2_048) return null;
+  try {
+    const cursor = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!Array.isArray(cursor.categoryOrder)
+      || cursor.categoryOrder.length === 0
+      || cursor.categoryOrder.some((part) => !Number.isInteger(part))
+      || !Number.isInteger(cursor.categoryId) || cursor.categoryId < 1
+      || ![0, 1].includes(cursor.trackNull)
+      || !Number.isInteger(cursor.trackOrder)
+      || !Number.isInteger(cursor.id) || cursor.id < 1) return null;
+    return cursor;
+  } catch {
+    return null;
+  }
 }
 
 async function probeDuration(filePath, log) {
@@ -438,10 +483,86 @@ export default async function (fastify, options = {}) {
       query += " AND m.category_id = $2";
       params.push(category_id);
     }
-    query += " ORDER BY lower(array_to_string(ac.path_parts, ' / ')), m.track_order ASC NULLS LAST, lower(m.title), m.id";
+    query += ` ORDER BY ac.order_parts,
+                        ac.id,
+                        (m.track_order IS NULL)::int,
+                        COALESCE(m.track_order, 0),
+                        m.id`;
 
     const { rows } = await fastify.pg.query(query, params);
     return rows;
+  });
+
+  fastify.get("/browse", async (request, reply) => {
+    const parsedLimit = Number.parseInt(request.query?.limit ?? "50", 10);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+      return reply.code(400).send({ error: "limit must be between 1 and 100" });
+    }
+    const view = request.query?.view === "liked" ? "liked" : "all";
+    const categoryId = request.query?.category_id == null
+      ? null
+      : Number.parseInt(request.query.category_id, 10);
+    if (request.query?.category_id != null && (!Number.isInteger(categoryId) || categoryId < 1)) {
+      return reply.code(400).send({ error: "Invalid category_id" });
+    }
+    const search = String(request.query?.q || "").trim().slice(0, 200);
+    const cursor = request.query?.cursor ? decodeBrowseCursor(request.query.cursor) : null;
+    if (request.query?.cursor && !cursor) {
+      return reply.code(400).send({ error: "Invalid cursor" });
+    }
+
+    const params = [request.accessTier, request.clientIp || request.ip];
+    const clauses = [];
+    if (categoryId !== null) {
+      params.push(categoryId);
+      clauses.push(`m.category_id = $${params.length}`);
+    }
+    if (view === "liked") {
+      clauses.push("lm.media_id IS NOT NULL");
+    }
+    if (search) {
+      const escapedSearch = search.replace(/[\\%_]/g, "\\$&");
+      params.push(`%${escapedSearch}%`);
+      clauses.push(`lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' '
+        || coalesce(m.description, '') || ' ' || ac.name) LIKE lower($${params.length}) ESCAPE '\\'`);
+    }
+    if (cursor) {
+      const cursorStart = params.length + 1;
+      params.push(cursor.categoryOrder, cursor.categoryId, cursor.trackNull, cursor.trackOrder, cursor.id);
+      clauses.push(`(
+        ac.order_parts,
+        ac.id,
+        (m.track_order IS NULL)::int,
+        COALESCE(m.track_order, 0),
+        m.id
+      ) > ($${cursorStart}::integer[], $${cursorStart + 1}, $${cursorStart + 2}, $${cursorStart + 3}, $${cursorStart + 4})`);
+    }
+    params.push(parsedLimit + 1);
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.*, ac.name AS category_name,
+              array_to_string(ac.path_parts, ' / ') AS category_path,
+              ac.order_parts AS category_order,
+              (lm.media_id IS NOT NULL) AS liked
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       LEFT JOIN liked_music lm
+         ON lm.media_id = m.id AND lm.client_ip = $2::inet
+       ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
+       ORDER BY ac.order_parts,
+                ac.id,
+                (m.track_order IS NULL)::int,
+                COALESCE(m.track_order, 0),
+                m.id
+       LIMIT $${params.length}`,
+      params
+    );
+    const hasMore = rows.length > parsedLimit;
+    const items = rows.slice(0, parsedLimit);
+    return {
+      items,
+      nextCursor: hasMore && items.length ? encodeBrowseCursor(items.at(-1)) : null,
+    };
   });
 
   fastify.get("/:id", async (request, reply) => {
@@ -840,9 +961,12 @@ export default async function (fastify, options = {}) {
     applyNoDownloadHeaders(reply);
 
     if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const parsedRange = parseByteRange(range, fileSize);
+      if (!parsedRange) {
+        reply.header("Content-Range", `bytes */${fileSize}`);
+        return reply.code(416).send();
+      }
+      const { start, end } = parsedRange;
       const chunkSize = end - start + 1;
 
       reply.code(206);
@@ -886,8 +1010,16 @@ export default async function (fastify, options = {}) {
     for (const xt of exts) {
       const p = join(categoryDir, `${baseName}_thumb.${xt}`);
       try {
-        await stat(p);
-        applyNoDownloadHeaders(reply);
+        const thumbnailStats = await stat(p);
+        const etag = `W/\"${thumbnailStats.size.toString(16)}-${Math.floor(thumbnailStats.mtimeMs).toString(16)}\"`;
+        applyNoDownloadHeaders(reply, { revalidate: true });
+        reply.header("ETag", etag);
+        reply.header("Last-Modified", thumbnailStats.mtime.toUTCString());
+        const modifiedSince = Date.parse(request.headers["if-modified-since"] || "");
+        if (request.headers["if-none-match"] === etag
+          || (!request.headers["if-none-match"] && Number.isFinite(modifiedSince) && thumbnailStats.mtimeMs <= modifiedSince + 999)) {
+          return reply.code(304).send();
+        }
         reply.type(mimeFromExt(p));
         return reply.send(createReadStream(p));
       } catch {

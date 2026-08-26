@@ -9,7 +9,7 @@ import { toBlob } from "html-to-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { useGlobalPlayer } from "../components/GlobalPlayer";
+import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import {
   buildWaveformPoints,
   buildWrappedSlides,
@@ -27,7 +27,7 @@ const DAY_MS = 86400000;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function Wrapped() {
-  const player = useGlobalPlayer();
+  const player = useGlobalPlayerLibrary();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [locked, setLocked] = useState(null);

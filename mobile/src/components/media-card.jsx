@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
 import { mediaThumbnailUrl } from "../api";
@@ -73,7 +74,12 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
         onPress={() => onPress?.(item)}
         style={({ pressed }) => [styles.card, compact && styles.compactCard, pressed && styles.pressed]}
       >
-        <Image source={{ uri: downloaded?.thumbnailUri || mediaThumbnailUrl(item.id) }} style={[styles.cover, compact && styles.compactCover]} />
+        <Image
+          cachePolicy="memory-disk"
+          contentFit="cover"
+          source={{ uri: downloaded?.thumbnailUri || mediaThumbnailUrl(item.id) }}
+          style={[styles.cover, compact && styles.compactCover]}
+        />
         <View style={styles.copy}>
           <Text style={styles.title} numberOfLines={compact ? 1 : 2}>{item.title}</Text>
           <Text style={styles.meta} numberOfLines={1}>{item.artists || getMediaFolderName(item)}</Text>

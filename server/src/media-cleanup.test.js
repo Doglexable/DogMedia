@@ -171,27 +171,25 @@ describe("orphan media cleanup config and scheduler", () => {
   it("does not overlap scheduler runs", async () => {
     vi.useFakeTimers();
     let release;
-    const pg = {
-      calls: 0,
-      async query() {
-        this.calls += 1;
+    let calls = 0;
+    const cleanup = async () => {
+        calls += 1;
         await new Promise((resolve) => {
           release = resolve;
         });
-        return { rows: [] };
-      },
     };
     const dataDir = await tempDataDir();
     await writeManagedFile(dataDir, 7, "44.flac");
     const scheduler = startOrphanMediaCleanupScheduler({
       dataDir,
+      cleanup,
       env: { ORPHAN_MEDIA_CLEANUP_INTERVAL_MS: "1000" },
-      pg,
+      pg: {},
     });
 
     await vi.advanceTimersByTimeAsync(1000);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(pg.calls).toBe(1);
+    expect(calls).toBe(1);
     release();
     await vi.runOnlyPendingTimersAsync();
     scheduler.stop();

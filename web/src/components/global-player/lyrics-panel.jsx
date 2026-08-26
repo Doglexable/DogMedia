@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faQuoteRight, faShareNodes, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { toBlob } from "html-to-image";
 import { Drawer } from "vaul";
 import { api } from "../../api";
 import {
@@ -130,6 +129,7 @@ function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }
     setError("");
     try {
       await waitForCardAssets(cardRef.current);
+      const { toBlob } = await import("html-to-image");
       const blob = await toBlob(cardRef.current, {
         backgroundColor: "#12131a",
         cacheBust: true,

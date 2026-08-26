@@ -5,7 +5,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
-      ARRAY[c.name::text]::text[] AS path_parts
+      ARRAY[c.name::text]::text[] AS path_parts,
+      ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
     FROM categories c
     WHERE c.parent_id IS NULL
       AND c.min_access_tier <= $1
@@ -15,7 +16,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
-      ac.path_parts || c.name::text
+      ac.path_parts || c.name::text,
+      ac.order_parts || COALESCE(c.sort_order, 0)
     FROM categories c
     JOIN accessible_categories ac ON c.parent_id = ac.id
     WHERE c.min_access_tier <= $1
@@ -27,6 +29,7 @@ function queueKeys(request) {
   return {
     key: `queue:${ip}`,
     idxKey: `queue:index:${ip}`,
+    revisionKey: `queue:revision:${ip}`,
   };
 }
 
@@ -85,7 +88,28 @@ async function readQueueState(redis, key, idxKey) {
   return { queue, currentIndex, currentMediaId: queue[currentIndex] ?? null };
 }
 
+async function queueRevision(redis, revisionKey) {
+  const value = await redis.get(revisionKey);
+  const parsed = Number.parseInt(value || "0", 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+async function bumpQueueRevision(redis, revisionKey) {
+  if (typeof redis.incr !== "function") return 0;
+  return Number(await redis.incr(revisionKey));
+}
+
 async function queueResult(fastify, request, queue, currentIndex, activeRemoved = false) {
+  if (String(request.query?.compact || "") === "1") {
+    const { revisionKey } = queueKeys(request);
+    return {
+      total: queue.length,
+      currentIndex,
+      currentMediaId: queue[currentIndex] ?? null,
+      activeRemoved,
+      revision: await queueRevision(fastify.redis, revisionKey),
+    };
+  }
   return {
     queue,
     currentIndex,
@@ -119,6 +143,81 @@ function shuffled(ids) {
 }
 
 export default async function (fastify) {
+  fastify.get("/window", async (request, reply) => {
+    const parsedLimit = Number.parseInt(request.query?.limit ?? "100", 10);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+      return reply.code(400).send({ error: "limit must be between 1 and 100" });
+    }
+    const requestedOffset = request.query?.offset == null
+      ? null
+      : Number.parseInt(request.query.offset, 10);
+    if (request.query?.offset != null && (!Number.isInteger(requestedOffset) || requestedOffset < 0)) {
+      return reply.code(400).send({ error: "offset must be a non-negative integer" });
+    }
+    const { key, idxKey, revisionKey } = queueKeys(request);
+    const [total, storedIndex, revision] = await Promise.all([
+      fastify.redis.llen(key),
+      fastify.redis.get(idxKey),
+      queueRevision(fastify.redis, revisionKey),
+    ]);
+    const parsedIndex = Number.parseInt(storedIndex || "0", 10);
+    const currentIndex = total === 0 ? 0 : Math.min(Math.max(parsedIndex || 0, 0), total - 1);
+    const maxOffset = Math.max(total - parsedLimit, 0);
+    const offset = Math.min(
+      requestedOffset ?? Math.max(currentIndex - Math.floor(parsedLimit / 2), 0),
+      maxOffset
+    );
+    const queue = total > 0
+      ? (await fastify.redis.lrange(key, offset, offset + parsedLimit - 1)).map(Number)
+      : [];
+    const currentValue = total > 0 ? await fastify.redis.lindex(key, currentIndex) : null;
+    return {
+      items: await hydrateQueueItems(fastify, request.accessTier, queue),
+      offset,
+      total,
+      currentIndex,
+      currentMediaId: currentValue == null ? null : Number(currentValue),
+      hasPrevious: offset > 0,
+      hasNext: offset + queue.length < total,
+      revision,
+    };
+  });
+
+  fastify.put("/window/order", async (request, reply) => {
+    const offset = Number.parseInt(request.body?.offset, 10);
+    const revision = Number.parseInt(request.body?.revision, 10);
+    const mediaIds = normalizeIds(request.body?.mediaIds);
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(revision) || revision < 0
+      || mediaIds === null || mediaIds.length < 1 || mediaIds.length > 100) {
+      return reply.code(400).send({ error: "Invalid queue window order" });
+    }
+    const { key, idxKey, revisionKey } = queueKeys(request);
+    const currentRevision = await queueRevision(fastify.redis, revisionKey);
+    if (currentRevision !== revision) {
+      return reply.code(409).send({ error: "Queue changed; refresh and try again" });
+    }
+    const state = await readQueueState(fastify.redis, key, idxKey);
+    const existing = state.queue.slice(offset, offset + mediaIds.length);
+    const sameMembers = existing.length === mediaIds.length
+      && mediaIds.every((id) => existing.includes(id));
+    if (!sameMembers) return reply.code(409).send({ error: "Queue changed; refresh and try again" });
+    const accessible = await accessibleMediaIds(fastify, request.accessTier, mediaIds);
+    if (accessible.length !== mediaIds.length) {
+      return reply.code(403).send({ error: "Queue contains inaccessible media" });
+    }
+    const nextQueue = [...state.queue];
+    nextQueue.splice(offset, mediaIds.length, ...mediaIds);
+    const nextIndex = state.currentMediaId == null ? 0 : nextQueue.indexOf(state.currentMediaId);
+    await replaceQueue(fastify.redis, key, idxKey, nextQueue, state.currentMediaId);
+    const nextRevision = await bumpQueueRevision(fastify.redis, revisionKey);
+    return {
+      total: nextQueue.length,
+      currentIndex: Math.max(nextIndex, 0),
+      currentMediaId: state.currentMediaId,
+      revision: nextRevision,
+    };
+  });
+
   fastify.post("/items/next", async (request, reply) => {
     const mediaId = normalizeStartId(request.body?.mediaId);
     if (mediaId === null) return reply.code(400).send({ error: "mediaId is required" });
@@ -126,7 +225,7 @@ export default async function (fastify) {
     const accessible = await accessibleMediaIds(fastify, request.accessTier, [mediaId]);
     if (accessible.length === 0) return reply.code(404).send({ error: "Media not found" });
 
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     if (state.currentMediaId === mediaId) {
       return queueResult(fastify, request, state.queue, state.currentIndex);
@@ -145,6 +244,7 @@ export default async function (fastify) {
       nextQueue,
       state.currentMediaId
     );
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, nextQueue, nextIndex);
   });
 
@@ -155,7 +255,7 @@ export default async function (fastify) {
     const accessible = await accessibleMediaIds(fastify, request.accessTier, [mediaId]);
     if (accessible.length === 0) return reply.code(404).send({ error: "Media not found" });
 
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const queue = await fastify.redis.eval(
       `local items = redis.call('LRANGE', KEYS[1], 0, -1)
        for _, item in ipairs(items) do
@@ -171,6 +271,7 @@ export default async function (fastify) {
       String(mediaId)
     );
     const storedIndex = Number.parseInt((await fastify.redis.get(idxKey)) || "0", 10);
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(
       fastify,
       request,
@@ -199,9 +300,10 @@ export default async function (fastify) {
        JOIN selected_categories sc ON sc.id = m.category_id
        JOIN accessible_categories ac ON ac.id = m.category_id
        WHERE m.mime_type LIKE 'audio/%'
-       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
-                m.track_order ASC NULLS LAST,
-                lower(m.title),
+       ORDER BY ac.order_parts,
+                ac.id,
+                (m.track_order IS NULL)::int,
+                COALESCE(m.track_order, 0),
                 m.id`,
       [request.accessTier, categoryId]
     );
@@ -211,7 +313,7 @@ export default async function (fastify) {
     }
 
     const categoryIds = rows.map((row) => Number(row.id));
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     const queuedIds = new Set(state.queue);
     const addedIds = categoryIds.filter((id) => !queuedIds.has(id));
@@ -223,6 +325,7 @@ export default async function (fastify) {
       nextQueue,
       state.currentMediaId
     );
+    if (addedIds.length > 0) await bumpQueueRevision(fastify.redis, revisionKey);
     const result = await queueResult(fastify, request, nextQueue, nextIndex);
     return { ...result, addedCount: addedIds.length };
   });
@@ -233,7 +336,7 @@ export default async function (fastify) {
       return reply.code(400).send({ error: "mediaIds must be a unique array of IDs" });
     }
 
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     const sameMembers = mediaIds.length === state.queue.length
       && mediaIds.every((id) => state.queue.includes(id));
@@ -246,6 +349,7 @@ export default async function (fastify) {
 
     const nextIndex = state.currentMediaId === null ? 0 : mediaIds.indexOf(state.currentMediaId);
     await replaceQueue(fastify.redis, key, idxKey, mediaIds, state.currentMediaId);
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, mediaIds, Math.max(nextIndex, 0));
   });
 
@@ -253,7 +357,7 @@ export default async function (fastify) {
     const mediaId = normalizeStartId(request.params.mediaId);
     if (mediaId === null) return reply.code(400).send({ error: "Invalid media ID" });
 
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     const removeIndex = state.queue.indexOf(mediaId);
     if (removeIndex < 0) return queueResult(fastify, request, state.queue, state.currentIndex);
@@ -272,13 +376,15 @@ export default async function (fastify) {
       multi.set(idxKey, nextIndex);
     }
     await multi.exec();
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, nextQueue, nextIndex, activeRemoved);
   });
 
   fastify.delete("/", async (request) => {
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const state = await readQueueState(fastify.redis, key, idxKey);
     await fastify.redis.del(key, idxKey);
+    if (state.queue.length > 0) await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, [], 0, state.currentMediaId !== null);
   });
 
@@ -299,9 +405,10 @@ export default async function (fastify) {
        SELECT m.id FROM media_assets m
        JOIN selected_categories sc ON sc.id = m.category_id
        JOIN accessible_categories ac ON ac.id = m.category_id
-       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
-                m.track_order ASC NULLS LAST,
-                lower(m.title),
+       ORDER BY ac.order_parts,
+                ac.id,
+                (m.track_order IS NULL)::int,
+                COALESCE(m.track_order, 0),
                 m.id`,
       [request.accessTier, categoryId]
     );
@@ -311,8 +418,9 @@ export default async function (fastify) {
     }
 
     const ids = rows.map((r) => r.id);
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const currentIndex = await replaceQueue(fastify.redis, key, idxKey, ids, startId);
+    await bumpQueueRevision(fastify.redis, revisionKey);
 
     return queueResult(fastify, request, ids, currentIndex);
   });
@@ -323,9 +431,10 @@ export default async function (fastify) {
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.id FROM media_assets m
        JOIN accessible_categories ac ON ac.id = m.category_id
-       ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
-                m.track_order ASC NULLS LAST,
-                lower(m.title),
+       ORDER BY ac.order_parts,
+                ac.id,
+                (m.track_order IS NULL)::int,
+                COALESCE(m.track_order, 0),
                 m.id`,
       [request.accessTier]
     );
@@ -335,29 +444,36 @@ export default async function (fastify) {
     }
 
     const ids = rows.map((r) => r.id);
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const currentIndex = await replaceQueue(fastify.redis, key, idxKey, ids, startId);
+    await bumpQueueRevision(fastify.redis, revisionKey);
 
     return queueResult(fastify, request, ids, currentIndex);
   });
 
   fastify.post("/next", async (request, reply) => {
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
 
     const len = await fastify.redis.llen(key);
     if (len === 0) return { mediaId: null };
 
     let idx = parseInt((await fastify.redis.get(idxKey)) || "0", 10);
     if (!Number.isInteger(idx) || idx < 0) idx = 0;
+    const previousIndex = idx;
     idx = Math.min(idx + 1, len - 1);
     await fastify.redis.set(idxKey, idx);
+    if (idx !== previousIndex) await bumpQueueRevision(fastify.redis, revisionKey);
 
     const mediaId = await fastify.redis.lindex(key, idx);
-    return { mediaId: mediaId ? parseInt(mediaId, 10) : null };
+    const numericMediaId = mediaId ? parseInt(mediaId, 10) : null;
+    if (String(request.query?.compact || "") === "1") {
+      return { mediaId: numericMediaId, total: len, currentIndex: idx, currentMediaId: numericMediaId, revision: await queueRevision(fastify.redis, revisionKey) };
+    }
+    return { mediaId: numericMediaId };
   });
 
   fastify.post("/prev", async (request, reply) => {
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
 
     let idx = parseInt((await fastify.redis.get(idxKey)) || "0", 10);
     if (!Number.isInteger(idx) || idx < 0) idx = 0;
@@ -365,16 +481,22 @@ export default async function (fastify) {
 
     idx -= 1;
     await fastify.redis.set(idxKey, idx);
+    await bumpQueueRevision(fastify.redis, revisionKey);
 
     const mediaId = await fastify.redis.lindex(key, idx);
-    return { mediaId: mediaId ? parseInt(mediaId, 10) : null };
+    const numericMediaId = mediaId ? parseInt(mediaId, 10) : null;
+    if (String(request.query?.compact || "") === "1") {
+      const total = await fastify.redis.llen(key);
+      return { mediaId: numericMediaId, total, currentIndex: idx, currentMediaId: numericMediaId, revision: await queueRevision(fastify.redis, revisionKey) };
+    }
+    return { mediaId: numericMediaId };
   });
 
   fastify.post("/select", async (request, reply) => {
     const selectedId = normalizeStartId(request.body?.mediaId);
     if (selectedId === null) return reply.code(400).send({ error: "mediaId is required" });
 
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const queue = (await fastify.redis.lrange(key, 0, -1)).map(Number);
     const idx = queue.indexOf(selectedId);
 
@@ -383,6 +505,7 @@ export default async function (fastify) {
     }
 
     await fastify.redis.set(idxKey, idx);
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return {
       mediaId: selectedId,
       ...(await queueResult(fastify, request, queue, idx)),
@@ -390,7 +513,7 @@ export default async function (fastify) {
   });
 
   fastify.post("/shuffle", async (request) => {
-    const { key, idxKey } = queueKeys(request);
+    const { key, idxKey, revisionKey } = queueKeys(request);
     const [storedQueue, storedIndex] = await Promise.all([
       fastify.redis.lrange(key, 0, -1),
       fastify.redis.get(idxKey),
@@ -412,6 +535,7 @@ export default async function (fastify) {
     ];
 
     await replaceQueue(fastify.redis, key, idxKey, nextQueue, currentMediaId);
+    await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, nextQueue, 0);
   });
 

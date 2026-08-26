@@ -30,6 +30,7 @@ function mediaRow() {
 async function buildApp(dataDir) {
   const app = Fastify();
   const queries = [];
+  const redisCommands = [];
   app.decorate("pg", {
     async query(sql, params) {
       queries.push({ sql, params });
@@ -39,16 +40,32 @@ async function buildApp(dataDir) {
       }
       if (sql.includes("SELECT id FROM media_assets")) return { rows: [{ id: 1 }, { id: 2 }], rowCount: 2 };
       if (sql.includes("SELECT 1 FROM media_assets")) return { rows: [{ "?column?": 1 }], rowCount: 1 };
+      if (sql.includes("INSERT INTO playback_events")) {
+        return { rows: JSON.parse(params[0]).map((event) => ({ client_event_id: event.client_event_id })), rowCount: 1 };
+      }
       return { rows: [], rowCount: 0 };
     },
   });
-  app.decorate("redis", { get: async () => null, set: async () => "OK", del: async () => 1, zadd: async () => 1 });
+  app.decorate("redis", {
+    get: async () => null,
+    set: async () => "OK",
+    del: async () => 1,
+    zadd: async () => 1,
+    multi() {
+      const chain = {};
+      for (const command of ["del", "set", "zadd"]) {
+        chain[command] = (...args) => { redisCommands.push([command, ...args]); return chain; };
+      }
+      chain.exec = async () => [];
+      return chain;
+    },
+  });
   app.addHook("onRequest", async (request) => {
     request.accessTier = 0;
     request.clientIp = "127.0.0.1";
   });
   await app.register(offlineRoutes, { prefix: "/api/offline", dataDir });
-  return { app, queries };
+  return { app, queries, redisCommands };
 }
 
 describe("offline routes", () => {
@@ -60,7 +77,9 @@ describe("offline routes", () => {
     expect(response.json().items[0].fileVersion).toMatch(/^13:\d+$/);
     expect(queries[0].sql).toContain("m.mime_type LIKE 'audio/%'");
     expect(queries[0].sql).toContain("m.category_id = $3");
-    expect(queries[0].sql).toContain("m.track_order ASC NULLS LAST");
+    expect(queries[0].sql).toContain("ORDER BY ac.order_parts");
+    expect(queries[0].sql).toContain("COALESCE(m.track_order, 0)");
+    expect(queries[0].sql).not.toContain("lower(m.title)");
     expect(queries[0].params).toEqual([0, "127.0.0.1", 7]);
     await app.close();
   });
@@ -88,6 +107,24 @@ describe("offline routes", () => {
     const { app } = await buildApp(await fixture());
     const response = await app.inject({ method: "POST", url: "/api/offline/validate", payload: { items: Array.from({ length: 501 }, (_, index) => ({ mediaId: index + 1 })) } });
     expect(response.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("writes offline events in one database batch and pipelines Redis updates", async () => {
+    const { app, queries, redisCommands } = await buildApp(await fixture());
+    const clientEventId = "123e4567-e89b-42d3-a456-426614174000";
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/offline/sync",
+      payload: {
+        events: [{ clientEventId, mediaId: 1, action: "play", position: 3, duration: 30, title: "Track", occurredAt: "2026-01-02T03:04:05.000Z" }],
+        resumes: [{ mediaId: 1, position: 9, duration: 30, updatedAt: "2026-01-02T03:05:05.000Z" }],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ acceptedEventIds: [clientEventId], acceptedResumeIds: [1] });
+    expect(queries.filter(({ sql }) => sql.includes("INSERT INTO playback_events"))).toHaveLength(1);
+    expect(redisCommands.map(([command]) => command)).toEqual(["zadd", "set"]);
     await app.close();
   });
 });

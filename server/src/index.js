@@ -36,6 +36,35 @@ await app.register(postgres, {
   connectionString:
     process.env.DATABASE_URL || "postgres://pfs:pfs_secret@localhost:5432/pfs",
 });
+
+const slowQueryMs = Number.parseInt(process.env.SLOW_QUERY_MS || "100", 10);
+const originalQuery = app.pg.query.bind(app.pg);
+app.pg.query = async (...args) => {
+  const startedAt = performance.now();
+  try {
+    return await originalQuery(...args);
+  } finally {
+    const durationMs = performance.now() - startedAt;
+    if (durationMs >= slowQueryMs) {
+      const sql = typeof args[0] === "string" ? args[0] : args[0]?.text;
+      app.log.warn({ durationMs: Math.round(durationMs), sql: String(sql || "").slice(0, 240) }, "slow database query");
+    }
+  }
+};
+
+const slowRequestMs = Number.parseInt(process.env.SLOW_REQUEST_MS || "250", 10);
+app.addHook("onResponse", async (request, reply) => {
+  const durationMs = reply.elapsedTime;
+  if (durationMs >= slowRequestMs) {
+    app.log.warn({
+      durationMs: Math.round(durationMs),
+      method: request.method,
+      route: request.routeOptions?.url || request.url,
+      statusCode: reply.statusCode,
+      contentLength: reply.getHeader("content-length") || null,
+    }, "slow request");
+  }
+});
 startOrphanMediaCleanupScheduler({
   dataDir: DATA_DIR,
   log: app.log,

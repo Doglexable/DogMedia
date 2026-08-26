@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image } from "expo-image";
 import { apiJson, mediaThumbnailUrl } from "../api";
 import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
 import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
-import { usePlayer } from "../context/player-context";
+import { usePlayerLibrary } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { radii, spacing, useTheme } from "../theme";
 import { getArtistLabel } from "../utils/media";
@@ -52,7 +53,7 @@ function Featured({ colors, item, onPlay, styles }) {
           <Ionicons name="play" size={20} color={colors.white} />
         </View>
       </View>
-      <Image source={{ uri: mediaThumbnailUrl(item.id) }} style={styles.featuredImage} />
+      <Image cachePolicy="memory-disk" contentFit="cover" source={{ uri: mediaThumbnailUrl(item.id) }} style={styles.featuredImage} />
     </Pressable>
   );
 }
@@ -81,7 +82,7 @@ function Row({ items, likedIds, onPlay, onPlayNext, onQueue, onToggleLike, style
 }
 
 export function DashboardScreen({ navigation }) {
-  const player = usePlayer();
+  const player = usePlayerLibrary();
   const offline = useOffline();
   const { colors, shadow } = useTheme();
   const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
@@ -90,7 +91,11 @@ export function DashboardScreen({ navigation }) {
   const [summary, setSummary] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState("");
+  const browseGenerationRef = useRef(0);
 
   const loadCategories = useCallback(() => {
     apiJson("/api/categories")
@@ -98,15 +103,47 @@ export function DashboardScreen({ navigation }) {
       .catch(() => setCategories([]));
   }, []);
 
-  const loadMedia = useCallback(() => {
-    const endpoint = selectedCategory ? `/api/media?category_id=${selectedCategory}` : "/api/media";
-    apiJson(endpoint)
-      .then(setMedia)
-      .catch(() => {
+  const loadMedia = useCallback((signal) => {
+    const generation = browseGenerationRef.current + 1;
+    browseGenerationRef.current = generation;
+    const params = new URLSearchParams({ limit: "50", view: "all" });
+    if (selectedCategory) params.set("category_id", selectedCategory);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    setMedia([]);
+    setNextCursor(null);
+    return apiJson(`/api/media/browse?${params.toString()}`, { signal })
+      .then((data) => {
+        if (browseGenerationRef.current !== generation) return;
+        setMedia(Array.isArray(data.items) ? data.items : []);
+        setNextCursor(data.nextCursor || null);
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") return;
+        if (browseGenerationRef.current !== generation) return;
         setMedia([]);
         setNotice("Could not load media.");
       });
-  }, [selectedCategory]);
+  }, [debouncedSearch, selectedCategory]);
+
+  const loadMore = useCallback(() => {
+    if (!nextCursor || loadingMore) return;
+    const generation = browseGenerationRef.current;
+    const params = new URLSearchParams({ limit: "50", view: "all", cursor: nextCursor });
+    if (selectedCategory) params.set("category_id", selectedCategory);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    setLoadingMore(true);
+    apiJson(`/api/media/browse?${params.toString()}`)
+      .then((data) => {
+        if (browseGenerationRef.current !== generation) return;
+        setMedia((current) => {
+          const seen = new Set(current.map((item) => Number(item.id)));
+          return [...current, ...(data.items || []).filter((item) => !seen.has(Number(item.id)))];
+        });
+        setNextCursor(data.nextCursor || null);
+      })
+      .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
+      .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
+  }, [debouncedSearch, loadingMore, nextCursor, selectedCategory]);
 
   const loadSummary = useCallback(() => {
     const params = new URLSearchParams({ view: "all" });
@@ -121,32 +158,40 @@ export function DashboardScreen({ navigation }) {
   }, [loadCategories]);
 
   useEffect(() => {
-    loadMedia();
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadMedia(controller.signal);
     loadSummary();
+    return () => controller.abort();
   }, [loadMedia, loadSummary]);
 
-  const visibleMedia = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-    if (!normalized) return media;
-    return media.filter((item) => [
-      item.title,
-      item.artists,
-      item.description,
-      item.category_name,
-      item.category_path,
-      item.mime_type,
-    ].some((value) => String(value ?? "").toLowerCase().includes(normalized)));
-  }, [media, search]);
+  const visibleMedia = media;
 
-  const byId = useMemo(() => new Map(visibleMedia.map((item) => [Number(item.id), item])), [visibleMedia]);
+  const byId = useMemo(() => {
+    const result = new Map(visibleMedia.map((item) => [Number(item.id), item]));
+    for (const item of summary?.media || []) if (!result.has(Number(item.id))) result.set(Number(item.id), item);
+    return result;
+  }, [summary, visibleMedia]);
   const featured = byId.get(Number(summary?.featuredId)) || visibleMedia[0] || null;
   const quickAccess = orderMediaByIds(summary?.quickAccessIds, byId, visibleMedia, 8);
   const rows = Array.isArray(summary?.rows) && summary.rows.length
-    ? summary.rows.slice(0, 3).map((row, index) => ({
+    ? summary.rows
+      .filter((row) => row.key !== "top-media" && row.title !== "Most played")
+      .slice(0, 3)
+      .map((row, index) => ({
+      key: row.key || `media-row-${index}`,
       title: row.title || `Shelf ${index + 1}`,
       items: orderMediaByIds(row.mediaIds, byId, visibleMedia, 12),
     }))
-    : [{ title: "Recently added", items: visibleMedia.slice(0, 12) }];
+    : [{ key: "recently-added", title: "Recently added", items: visibleMedia.slice(0, 12) }];
+  const recentlyPlayedRow = rows.find((row) => row.key === "recently-played" || row.title === "Recently played")
+    || rows[0]
+    || null;
+  const remainingRows = rows.filter((row) => row !== recentlyPlayedRow);
 
   const play = (item) => {
     player.playMedia(item, selectedCategory)
@@ -179,14 +224,36 @@ export function DashboardScreen({ navigation }) {
 
   return (
     <View style={styles.screen}>
-      <ScrollView
+      <FlatList
+        data={visibleMedia}
+        keyExtractor={(item) => String(item.id)}
+        numColumns={2}
+        columnWrapperStyle={styles.browseRow}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-      >
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.6}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        renderItem={({ item }) => (
+          <View style={styles.browseCard}>
+            <MediaCard
+              compact
+              item={item}
+              liked={player.isLiked(item.id)}
+              onPress={play}
+              onPlayNext={player.playNext}
+              onQueue={player.addToQueue}
+              onToggleLike={toggleLike}
+            />
+          </View>
+        )}
+        ListHeaderComponent={<>
         <View style={styles.header}>
           <Text style={styles.kicker}>DogMedia</Text>
           <Text style={styles.heading}>Private library</Text>
-          <Text style={styles.subhead}>{visibleMedia.length} item{visibleMedia.length === 1 ? "" : "s"} ready</Text>
+          <Text style={styles.subhead}>{visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"} ready</Text>
         </View>
 
         <TextInput
@@ -207,13 +274,25 @@ export function DashboardScreen({ navigation }) {
         )}
         {notice && <Text style={styles.notice}>{notice}</Text>}
 
-        <Featured colors={colors} item={featured} onPlay={play} styles={styles} />
+        {!debouncedSearch && recentlyPlayedRow && <Row
+          key={recentlyPlayedRow.key}
+          title={recentlyPlayedRow.title}
+          items={recentlyPlayedRow.items}
+          likedIds={player.likedIds}
+          onPlay={play}
+          onPlayNext={player.playNext}
+          onQueue={player.addToQueue}
+          onToggleLike={toggleLike}
+          styles={styles}
+        />}
 
-        <View style={styles.quickHeader}>
+        {!debouncedSearch && <Featured colors={colors} item={featured} onPlay={play} styles={styles} />}
+
+        {!debouncedSearch && <View style={styles.quickHeader}>
           <Text style={styles.sectionTitle}>Quick access</Text>
           {featured?.artists && <Text style={styles.quickMeta}>{getArtistLabel(featured.artists)}</Text>}
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        </View>}
+        {!debouncedSearch && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
           {quickAccess.map((item) => (
             <MediaCard
               compact
@@ -226,11 +305,11 @@ export function DashboardScreen({ navigation }) {
               onToggleLike={toggleLike}
             />
           ))}
-        </ScrollView>
+        </ScrollView>}
 
-        {rows.map((row) => (
+        {!debouncedSearch && remainingRows.map((row) => (
           <Row
-            key={row.title}
+            key={row.key}
             title={row.title}
             items={row.items}
             likedIds={player.likedIds}
@@ -241,7 +320,10 @@ export function DashboardScreen({ navigation }) {
             styles={styles}
           />
         ))}
-      </ScrollView>
+        {visibleMedia.length > 0 && <Text style={styles.sectionTitle}>Browse</Text>}
+        </>}
+        ListFooterComponent={loadingMore ? <Text style={styles.loadingMore}>Loading more media…</Text> : null}
+      />
       <MiniPlayer navigation={navigation} />
     </View>
   );
@@ -257,6 +339,19 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: MINI_PLAYER_CLEARANCE,
     gap: spacing.lg,
+  },
+  browseRow: {
+    gap: spacing.md,
+  },
+  browseCard: {
+    flex: 1,
+    marginBottom: spacing.md,
+  },
+  loadingMore: {
+    paddingVertical: spacing.lg,
+    color: colors.muted,
+    textAlign: "center",
+    fontWeight: "800",
   },
   header: {
     gap: spacing.xs,

@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark, faChevronRight, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
 import { api, readJsonArray } from "../api";
-import { useGlobalPlayer } from "../components/GlobalPlayer";
+import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
+import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
 import { formatDuration } from "../components/global-player/player-utils";
 
 const NOW_PLAYING_POLL_MS = 10000;
@@ -707,9 +708,11 @@ const styles = {
 export default function Dashboard() {
   const { tier, firstRun } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
-  const player = useGlobalPlayer();
+  const player = useGlobalPlayerLibrary();
   const [searchParams] = useSearchParams();
   const [media, setMedia] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [showEmptyGuide, setShowEmptyGuide] = useState(true);
@@ -718,8 +721,10 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
+  const browseGenerationRef = useRef(0);
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
   const categoryParam = searchParams.get("category");
@@ -732,36 +737,66 @@ export default function Dashboard() {
   }, [libraryView, selectedCategory]);
 
   useEffect(() => {
-    let cancelled = false;
+    const timer = window.setTimeout(() => setDebouncedSearch(mediaSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [mediaSearch]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const generation = browseGenerationRef.current + 1;
+    browseGenerationRef.current = generation;
     setMediaLoading(true);
-    if (libraryView === "liked") {
-      api("/api/likes")
-        .then((response) => readJsonArray(response, "Could not load favorites"))
-        .then((items) => { if (!cancelled) setMedia(items); })
-        .catch(() => { if (!cancelled) setNotice("Could not load favorites."); })
-        .finally(() => {
-          if (!cancelled) {
-            setLoaded(true);
-            setMediaLoading(false);
-          }
-        });
-      return () => { cancelled = true; };
-    }
-    const url = selectedCategory
-      ? `/api/media?category_id=${selectedCategory}`
-      : "/api/media";
-    api(url)
-      .then((response) => readJsonArray(response, "Could not load media"))
-      .then((items) => { if (!cancelled) setMedia(items); })
-      .catch(() => { if (!cancelled) setNotice("Could not load media."); })
+    setLoaded(false);
+    setMedia([]);
+    setNextCursor(null);
+    const params = new URLSearchParams({ limit: "50", view: libraryView });
+    if (selectedCategory) params.set("category_id", selectedCategory);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    api(`/api/media/browse?${params.toString()}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load media");
+        return response.json();
+      })
+      .then((data) => {
+        if (browseGenerationRef.current !== generation) return;
+        setMedia(Array.isArray(data.items) ? data.items : []);
+        setNextCursor(data.nextCursor || null);
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError" && browseGenerationRef.current === generation) setNotice("Could not load media.");
+      })
       .finally(() => {
-        if (!cancelled) {
+        if (browseGenerationRef.current === generation) {
           setLoaded(true);
           setMediaLoading(false);
         }
       });
-    return () => { cancelled = true; };
-  }, [selectedCategory, libraryView]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => controller.abort();
+  }, [debouncedSearch, selectedCategory, libraryView]);
+
+  const loadMoreMedia = useCallback(() => {
+    if (!nextCursor || loadingMore) return;
+    const generation = browseGenerationRef.current;
+    const params = new URLSearchParams({ limit: "50", view: libraryView, cursor: nextCursor });
+    if (selectedCategory) params.set("category_id", selectedCategory);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    setLoadingMore(true);
+    api(`/api/media/browse?${params.toString()}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load more media");
+        return response.json();
+      })
+      .then((data) => {
+        if (browseGenerationRef.current !== generation) return;
+        setMedia((current) => {
+          const seen = new Set(current.map((item) => Number(item.id)));
+          return [...current, ...(data.items || []).filter((item) => !seen.has(Number(item.id)))];
+        });
+        setNextCursor(data.nextCursor || null);
+      })
+      .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
+      .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
+  }, [debouncedSearch, libraryView, loadingMore, nextCursor, selectedCategory]);
 
   useEffect(() => {
     api("/api/likes/share")
@@ -831,22 +866,18 @@ export default function Dashboard() {
   const mediaTitle = libraryView === "liked"
     ? "Favorites"
     : selectedCategoryInfo?.path || selectedCategoryInfo?.name || "All Media";
-  const normalizedSearch = mediaSearch.trim().toLocaleLowerCase();
-  const visibleMedia = useMemo(() => {
-    if (!normalizedSearch) return media;
-
-    return media.filter((item) => [
-      item.title,
-      item.artists,
-      item.description,
-      item.category_name,
-      item.category_path,
-      item.mime_type,
-    ].some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedSearch)));
-  }, [media, normalizedSearch]);
+  const normalizedSearch = debouncedSearch.toLocaleLowerCase();
+  const visibleMedia = media;
+  const hydratedMedia = useMemo(() => {
+    const byId = new Map(media.map((item) => [Number(item.id), item]));
+    for (const item of dashboardSummary?.media || []) {
+      if (!byId.has(Number(item.id))) byId.set(Number(item.id), item);
+    }
+    return [...byId.values()];
+  }, [dashboardSummary, media]);
   const visibleMediaById = useMemo(
-    () => new Map(visibleMedia.map((item) => [Number(item.id), item])),
-    [visibleMedia]
+    () => new Map(hydratedMedia.map((item) => [Number(item.id), item])),
+    [hydratedMedia]
   );
   const orderMediaByIds = useCallback((ids = [], fallbackItems = visibleMedia, limit = 14) => {
     const seen = new Set();
@@ -869,7 +900,7 @@ export default function Dashboard() {
 
     return ordered;
   }, [visibleMedia, visibleMediaById]);
-  const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || media[0] || null;
+  const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || null;
   const quickAccessMedia = orderMediaByIds(dashboardSummary?.quickAccessIds, visibleMedia, 8);
   const fallbackRows = useMemo(() => [
     { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
@@ -885,13 +916,18 @@ export default function Dashboard() {
       "Photo shelf",
     ]);
     return dashboardSummary.rows
-      .filter((row) => !hiddenRows.has(row.title))
+      .filter((row) => row.key !== "top-media" && row.title !== "Most played" && !hiddenRows.has(row.title))
       .map((row, index) => ({
+        key: row.key || `media-row-${index}`,
         title: row.title || fallbackRows[index]?.title || "Media",
         type: row.type || fallbackRows[index]?.type || "square",
         items: orderMediaByIds(row.mediaIds, fallbackRows[index]?.items || visibleMedia, 14),
       }));
   }, [dashboardSummary, fallbackRows, orderMediaByIds, visibleMedia]);
+  const recentlyPlayedRow = libraryRows.find((row) => row.key === "recently-played" || row.title === "Recently played")
+    || libraryRows[0]
+    || null;
+  const remainingLibraryRows = libraryRows.filter((row) => row !== recentlyPlayedRow);
 
   const playMedia = useCallback((item) => {
     playMediaAction?.(item, libraryView === "liked" ? null : selectedCategory);
@@ -1021,7 +1057,7 @@ export default function Dashboard() {
             ))}
           </div>
           <span className="library-nav-count">
-            {visibleMedia.length} item{visibleMedia.length === 1 ? "" : "s"}
+            {visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"}
           </span>
         </nav>
 
@@ -1042,7 +1078,7 @@ export default function Dashboard() {
           <MediaGridSkeleton />
         ) : visibleMedia.length > 0 ? (
           <div className="library-home">
-            <section className="quick-access-section" aria-label="Quick access">
+            {!normalizedSearch && <section className="quick-access-section" aria-label="Quick access">
               {quickAccessMedia.map((item) => (
                 <QuickAccessCard
                   key={item.id}
@@ -1056,18 +1092,32 @@ export default function Dashboard() {
                   onToggleLike={player?.toggleLike}
                 />
               ))}
-            </section>
+            </section>}
 
-            <FeaturedPanel
+            {!normalizedSearch && recentlyPlayedRow && <ContentRow
+              key={recentlyPlayedRow.key || recentlyPlayedRow.title}
+              activeId={currentMediaId}
+              isLiked={player?.isLiked}
+              items={recentlyPlayedRow.items}
+              onAddQueue={player?.addToQueue}
+              onNotice={setNotice}
+              onPlay={playMedia}
+              onPlayNext={player?.playNext}
+              onToggleLike={player?.toggleLike}
+              title={recentlyPlayedRow.title}
+              type={recentlyPlayedRow.type}
+            />}
+
+            {!normalizedSearch && <FeaturedPanel
               item={featuredMedia}
               onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
               onPlay={playMedia}
               onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
-            />
+            />}
 
-            {libraryRows.map((row) => (
+            {!normalizedSearch && remainingLibraryRows.map((row) => (
               <ContentRow
-                key={row.title}
+                key={row.key || row.title}
                 activeId={currentMediaId}
                 isLiked={player?.isLiked}
                 items={row.items}
@@ -1080,6 +1130,19 @@ export default function Dashboard() {
                 type={row.type}
               />
             ))}
+            <VirtualMediaGrid
+              activeId={currentMediaId}
+              hasMore={Boolean(nextCursor)}
+              isLiked={player?.isLiked}
+              items={visibleMedia}
+              loadingMore={loadingMore}
+              onAddQueue={player?.addToQueue}
+              onLoadMore={loadMoreMedia}
+              onNotice={setNotice}
+              onPlay={playMedia}
+              onPlayNext={player?.playNext}
+              onToggleLike={player?.toggleLike}
+            />
           </div>
         ) : media.length > 0 && normalizedSearch ? (
           <div style={styles.emptyState} role="status">

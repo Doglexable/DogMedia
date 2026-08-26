@@ -15,6 +15,7 @@ export default async function (fastify) {
       "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, $2, $3) RETURNING *",
       [cidr_range, access_tier ?? 0, description ?? null]
     );
+    fastify.clearAuthCache?.();
     return reply.code(201).send(rows[0]);
   });
 
@@ -25,6 +26,7 @@ export default async function (fastify) {
       [id]
     );
     if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
+    fastify.clearAuthCache?.();
     return reply.code(204).send();
   });
 }

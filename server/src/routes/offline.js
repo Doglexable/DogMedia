@@ -13,11 +13,15 @@ const DATA_DIR = process.env.DATA_DIR || "data";
 const MAX_BATCH_ITEMS = 500;
 const ACCESSIBLE_AUDIO_SQL = `
   WITH RECURSIVE accessible_categories AS (
-    SELECT c.id, c.parent_id, c.name, ARRAY[c.name::text]::text[] AS path_parts
+    SELECT c.id, c.parent_id, c.name,
+           ARRAY[c.name::text]::text[] AS path_parts,
+           ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
     FROM categories c
     WHERE c.parent_id IS NULL AND c.min_access_tier <= $1
     UNION ALL
-    SELECT c.id, c.parent_id, c.name, ac.path_parts || c.name::text
+    SELECT c.id, c.parent_id, c.name,
+           ac.path_parts || c.name::text,
+           ac.order_parts || COALESCE(c.sort_order, 0)
     FROM categories c
     JOIN accessible_categories ac ON c.parent_id = ac.id
     WHERE c.min_access_tier <= $1
@@ -63,9 +67,10 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
      JOIN accessible_categories ac ON ac.id = m.category_id
      LEFT JOIN media_lyrics ml ON ml.media_id = m.id
      WHERE m.mime_type LIKE 'audio/%'${filter}
-     ORDER BY lower(array_to_string(ac.path_parts, ' / ')),
-              m.track_order ASC NULLS LAST,
-              lower(m.title),
+     ORDER BY ac.order_parts,
+              ac.id,
+              (m.track_order IS NULL)::int,
+              COALESCE(m.track_order, 0),
               m.id`,
     params
   );
@@ -73,14 +78,22 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
 }
 
 async function manifestItems(rows, dataDir) {
-  const items = await Promise.all(rows.map(async (row) => {
-    try {
-      const stats = await stat(join(dataDir, row.file_path));
-      return serializeMedia(row, stats);
-    } catch {
-      return null;
+  const items = new Array(rows.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(8, rows.length) }, async () => {
+    while (nextIndex < rows.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const row = rows[index];
+      try {
+        const stats = await stat(join(dataDir, row.file_path));
+        items[index] = serializeMedia(row, stats);
+      } catch {
+        items[index] = null;
+      }
     }
-  }));
+  });
+  await Promise.all(workers);
   return items.filter(Boolean);
 }
 
@@ -166,37 +179,67 @@ export default async function offlineRoutes(fastify, options = {}) {
     const allowedRows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: ids });
     const allowed = new Set(allowedRows.map((row) => Number(row.id)));
     const clientIp = request.clientIp || request.ip;
-    const acceptedEventIds = [];
-    for (const event of events) {
-      if (!allowed.has(event.mediaId)) continue;
-      const { rowCount } = await fastify.pg.query(
+    const acceptedEvents = events.filter((event) => allowed.has(event.mediaId));
+    const acceptedEventIds = acceptedEvents.map((event) => event.clientEventId);
+    let insertedIds = new Set();
+    if (acceptedEvents.length > 0) {
+      const { rows: inserted } = await fastify.pg.query(
         `INSERT INTO playback_events
          (media_id, client_ip, action, position, duration, title, occurred_at, client_event_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING`,
-        [event.mediaId, clientIp, event.action, event.position, event.duration, event.title, event.occurredAt, event.clientEventId]
+         SELECT event.media_id, $2::inet, event.action, event.position, event.duration,
+                event.title, event.occurred_at, event.client_event_id
+         FROM jsonb_to_recordset($1::jsonb) AS event(
+           media_id int, action text, position int, duration int, title text,
+           occurred_at timestamptz, client_event_id uuid
+         )
+         ON CONFLICT (client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING
+         RETURNING client_event_id`,
+        [JSON.stringify(acceptedEvents.map((event) => ({
+          media_id: event.mediaId,
+          action: event.action,
+          position: event.position,
+          duration: event.duration,
+          title: event.title,
+          occurred_at: event.occurredAt,
+          client_event_id: event.clientEventId,
+        }))), clientIp]
       );
-      acceptedEventIds.push(event.clientEventId);
-      if (rowCount > 0) {
-        await fastify.redis.zadd("playback:events", new Date(event.occurredAt).getTime(), JSON.stringify({
+      insertedIds = new Set(inserted.map((row) => String(row.client_event_id)));
+    }
+    const insertedEvents = acceptedEvents.filter((event) => insertedIds.has(String(event.clientEventId)));
+    if (insertedEvents.length > 0) {
+      const pipeline = fastify.redis.multi();
+      for (const event of insertedEvents) {
+        pipeline.zadd("playback:events", new Date(event.occurredAt).getTime(), JSON.stringify({
           mediaId: event.mediaId, title: event.title, action: event.action,
           position: event.position, duration: event.duration, ip: clientIp, timestamp: event.occurredAt,
           clientEventId: event.clientEventId,
         }));
       }
+      await pipeline.exec();
     }
+
+    const acceptedResumes = resumes.filter((resume) => allowed.has(resume.mediaId));
+    const resumeKeys = acceptedResumes.map((resume) => `playback:resume:${clientIp}:${resume.mediaId}`);
+    const remoteValues = resumeKeys.length === 0
+      ? []
+      : typeof fastify.redis.mget === "function"
+        ? await fastify.redis.mget(resumeKeys)
+        : await Promise.all(resumeKeys.map((key) => fastify.redis.get(key)));
+    const resumePipeline = acceptedResumes.length > 0 ? fastify.redis.multi() : null;
     const acceptedResumeIds = [];
-    for (const resume of resumes) {
-      if (!allowed.has(resume.mediaId)) continue;
+    for (let index = 0; index < acceptedResumes.length; index += 1) {
+      const resume = acceptedResumes[index];
       const key = `playback:resume:${clientIp}:${resume.mediaId}`;
-      const remoteRaw = await fastify.redis.get(key);
+      const remoteRaw = remoteValues[index];
       const remote = remoteRaw ? JSON.parse(remoteRaw) : null;
       if (isNewerOfflineResume(resume.updatedAt, remote?.timestamp)) {
-        if (resume.duration && resume.position >= resume.duration - 3) await fastify.redis.del(key);
-        else await fastify.redis.set(key, JSON.stringify({ position: resume.position, duration: resume.duration, timestamp: resume.updatedAt }), "EX", 604800);
+        if (resume.duration && resume.position >= resume.duration - 3) resumePipeline.del(key);
+        else resumePipeline.set(key, JSON.stringify({ position: resume.position, duration: resume.duration, timestamp: resume.updatedAt }), "EX", 604800);
       }
       acceptedResumeIds.push(resume.mediaId);
     }
+    if (resumePipeline) await resumePipeline.exec();
     return { acceptedEventIds, acceptedResumeIds };
   });
 }

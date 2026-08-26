@@ -14,7 +14,7 @@ function mediaItem(id, overrides = {}) {
 }
 
 describe("buildDashboardSummary", () => {
-  it("orders recently played and most played independently", () => {
+  it("orders recently played without exposing a most-played shelf", () => {
     const summary = buildDashboardSummary([
       mediaItem(1, {
         playCount: 2,
@@ -41,11 +41,7 @@ describe("buildDashboardSummary", () => {
       title: "Recently played",
       mediaIds: [3, 1, 2],
     });
-    expect(summary.rows[1]).toMatchObject({
-      key: "top-media",
-      title: "Most played",
-      mediaIds: [2, 1, 3],
-    });
+    expect(summary.rows).toHaveLength(1);
   });
 
   it("keeps playback row titles and fills them with folder items when history is absent", () => {
@@ -63,12 +59,6 @@ describe("buildDashboardSummary", () => {
       {
         key: "recently-played",
         title: "Recently played",
-        type: "square",
-        mediaIds: [42, 41],
-      },
-      {
-        key: "top-media",
-        title: "Most played",
         type: "square",
         mediaIds: [42, 41],
       },

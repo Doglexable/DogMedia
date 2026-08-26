@@ -9,15 +9,19 @@ import {
   getCompletionAction,
   getQueueNavigation,
   isValidResumePosition,
-  normalizeQueueState,
 } from "../utils/player-state";
 
 const PlayerContext = createContext(null);
+const PlayerLibraryContext = createContext(null);
 const PROGRESS_SYNC_SECONDS = 10;
 const SLEEP_TIMER_MAX_MINUTES = 60;
 
 export function usePlayer() {
   return useContext(PlayerContext);
+}
+
+export function usePlayerLibrary() {
+  return useContext(PlayerLibraryContext);
 }
 
 export function PlayerProvider({ children }) {
@@ -35,6 +39,9 @@ export function PlayerProvider({ children }) {
   const shuffleEnabledRef = useRef(false);
   const queueIdsRef = useRef([]);
   const queueIndexRef = useRef(0);
+  const queueTotalRef = useRef(0);
+  const queueOffsetRef = useRef(0);
+  const queueRevisionRef = useRef(0);
   const queueItemsRef = useRef([]);
   const queueModeRef = useRef("server");
   const pendingStartPositionRef = useRef(null);
@@ -62,24 +69,42 @@ export function PlayerProvider({ children }) {
   const [queueIds, setQueueIds] = useState([]);
   const [queueItems, setQueueItems] = useState([]);
   const [queueIndex, setQueueIndex] = useState(0);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueOffset, setQueueOffset] = useState(0);
+  const [, setQueueRevision] = useState(0);
   const [likedIds, setLikedIds] = useState(new Set());
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
-  const navigation = getQueueNavigation(queueIds, queueIndex, loopMode);
+  const navigation = getQueueNavigation({ length: queueTotal }, queueIndex, loopMode);
 
-  const applyQueue = useCallback((data, mediaId = currentMediaRef.current?.id) => {
-    const normalized = normalizeQueueState(data, mediaId);
-    if (!normalized) return data;
+  const applyQueueWindow = useCallback((data) => {
+    const items = Array.isArray(data?.items) ? data.items : [];
+    const ids = items.map((item) => Number(item.id));
+    queueItemsRef.current = items;
+    queueIdsRef.current = ids;
+    queueIndexRef.current = Number(data?.currentIndex) || 0;
+    queueTotalRef.current = Number(data?.total) || 0;
+    queueOffsetRef.current = Number(data?.offset) || 0;
+    queueRevisionRef.current = Number(data?.revision) || 0;
+    setQueueItems(items);
+    setQueueIds(ids);
+    setQueueIndex(queueIndexRef.current);
+    setQueueTotal(queueTotalRef.current);
+    setQueueOffset(queueOffsetRef.current);
+    setQueueRevision(queueRevisionRef.current);
+    return data;
+  }, []);
 
-    queueIdsRef.current = normalized.queueIds;
-    queueIndexRef.current = normalized.queueIndex;
-    queueItemsRef.current = normalized.queueItems;
-    setQueueIds(normalized.queueIds);
-    setQueueItems(normalized.queueItems);
-    setQueueIndex(normalized.queueIndex);
+  const applyCompactQueue = useCallback((data) => {
+    queueIndexRef.current = Number(data?.currentIndex) || 0;
+    queueTotalRef.current = Number(data?.total) || 0;
+    queueRevisionRef.current = Number(data?.revision) || 0;
+    setQueueIndex(queueIndexRef.current);
+    setQueueTotal(queueTotalRef.current);
+    setQueueRevision(queueRevisionRef.current);
     return data;
   }, []);
 
@@ -94,14 +119,18 @@ export function PlayerProvider({ children }) {
     setQueueItems(queueItems);
     setQueueIds(queueIds);
     setQueueIndex(selectedIndex);
+    queueTotalRef.current = queueIds.length;
+    queueOffsetRef.current = 0;
+    setQueueTotal(queueIds.length);
+    setQueueOffset(0);
     return { items: queueItems, mediaIds: queueIds, index: selectedIndex };
   }, []);
 
   const refreshQueue = useCallback(() => (
     queueModeRef.current === "offline" || !offline.isConnected
       ? Promise.resolve({ items: queueItemsRef.current, mediaIds: queueIdsRef.current, index: queueIndexRef.current })
-      : apiJson("/api/queue").then((data) => applyQueue(data))
-  ), [applyQueue, offline.isConnected]);
+      : apiJson("/api/queue/window?limit=100").then(applyQueueWindow)
+  ), [applyQueueWindow, offline.isConnected]);
 
   const refreshLikes = useCallback(() => (
     !offline.isConnected ? Promise.resolve() : apiJson("/api/likes")
@@ -428,16 +457,17 @@ export function PlayerProvider({ children }) {
       }
       return startMedia(media, { replacementAction: null }).then(() => ({ items: queueItemsRef.current }));
     }
-    return apiJson("/api/queue/select", {
+    return apiJson("/api/queue/select?compact=1", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
     }).then(async (data) => {
       if (skipCurrent && Number(currentMediaRef.current?.id) !== Number(media.id)) recordCurrentSkip();
-      applyQueue(data, media.id);
+      applyCompactQueue(data);
       await startMedia(media, { replacementAction: null });
+      await refreshQueue().catch(() => {});
       return data;
     });
-  }, [applyQueue, offline, recordCurrentSkip, startMedia]);
+  }, [applyCompactQueue, offline, recordCurrentSkip, refreshQueue, startMedia]);
 
   const playQueueId = useCallback(async (mediaId, options = {}) => {
     if (queueModeRef.current === "offline" || !offline.isConnected) {
@@ -450,31 +480,34 @@ export function PlayerProvider({ children }) {
 
   const advance = useCallback(async (direction, options = {}) => {
     const { skipCurrent = true } = options;
-    const ids = queueIdsRef.current;
     const index = queueIndexRef.current;
-    const state = getQueueNavigation(ids, index, loopModeRef.current);
+    const total = queueTotalRef.current;
+    const state = getQueueNavigation({ length: total }, index, loopModeRef.current);
     const isNext = direction !== "prev";
     const hasLinearTarget = isNext ? state.hasLinearNext : state.hasLinearPrev;
 
     if (!hasLinearTarget) {
-      if (loopModeRef.current !== "queue" || ids.length <= 1) return null;
-      const wrapId = isNext ? ids[0] : ids[ids.length - 1];
-      return playQueueId(wrapId, { skipCurrent });
+      if (loopModeRef.current !== "queue" || total <= 1) return null;
+      const params = isNext ? "limit=1&offset=0" : `limit=1&offset=${Math.max(total - 1, 0)}`;
+      const boundary = await apiJson(`/api/queue/window?${params}`);
+      const wrapId = boundary.items?.[0]?.id;
+      return wrapId ? playQueueId(wrapId, { skipCurrent }) : null;
     }
 
     if (queueModeRef.current === "offline" || !offline.isConnected) {
       const targetIndex = queueIndexRef.current + (isNext ? 1 : -1);
-      return playQueueId(ids[targetIndex], { skipCurrent });
+      return playQueueId(queueIdsRef.current[targetIndex], { skipCurrent });
     }
 
-    const data = await apiJson(isNext ? "/api/queue/next" : "/api/queue/prev", { method: "POST" });
+    const data = await apiJson(isNext ? "/api/queue/next?compact=1" : "/api/queue/prev?compact=1", { method: "POST" });
+    applyCompactQueue(data);
     if (!data.mediaId) return null;
     if (skipCurrent) recordCurrentSkip();
     const media = await apiJson(`/api/media/${Number(data.mediaId)}`);
     await startMedia(media, { replacementAction: null });
     await refreshQueue().catch(() => {});
     return media;
-  }, [offline.isConnected, playQueueId, recordCurrentSkip, refreshQueue, startMedia]);
+  }, [applyCompactQueue, offline.isConnected, playQueueId, recordCurrentSkip, refreshQueue, startMedia]);
 
   const handleEnded = useCallback(async () => {
     const media = currentMediaRef.current;
@@ -486,14 +519,14 @@ export function PlayerProvider({ children }) {
     sendActiveSession(media, "end", nextPosition, nextDuration);
 
     const queueState = getQueueNavigation(
-      queueIdsRef.current,
+      { length: queueTotalRef.current },
       queueIndexRef.current,
       loopModeRef.current
     );
     const action = getCompletionAction({
       hasLinearNext: queueState.hasLinearNext,
       loopMode: loopModeRef.current,
-      queueLength: queueIdsRef.current.length,
+      queueLength: queueTotalRef.current,
     });
 
     if (action === "repeat") {
@@ -517,7 +550,8 @@ export function PlayerProvider({ children }) {
       return;
     }
     if (action === "wrap") {
-      await playQueueId(queueIdsRef.current[0], { skipCurrent: false });
+      const boundary = await apiJson("/api/queue/window?limit=1&offset=0");
+      if (boundary.items?.[0]?.id) await playQueueId(boundary.items[0].id, { skipCurrent: false });
       return;
     }
 
@@ -535,12 +569,15 @@ export function PlayerProvider({ children }) {
     queueModeRef.current = "server";
     await startMedia(media, { autoplay: true, replacementAction: "skip" });
     const endpoint = categoryId
-      ? `/api/queue/auto/${categoryId}?start=${media.id}`
-      : `/api/queue/auto?start=${media.id}`;
+      ? `/api/queue/auto/${categoryId}?start=${media.id}&compact=1`
+      : `/api/queue/auto?start=${media.id}&compact=1`;
     apiJson(endpoint, { method: "POST" })
-      .then((data) => applyQueue(data, media.id))
+      .then((data) => {
+        applyCompactQueue(data);
+        return refreshQueue();
+      })
       .catch(() => {});
-  }, [applyQueue, offline.isConnected, startMedia]);
+  }, [applyCompactQueue, offline.isConnected, refreshQueue, startMedia]);
 
   const playOfflineMedia = useCallback(async (items, mediaId) => {
     if (!offline.leaseState.playable) throw new Error("Reconnect to validate offline access");
@@ -655,24 +692,29 @@ export function PlayerProvider({ children }) {
       setShuffleEnabled(true);
       return Promise.resolve(true);
     }
-    return apiJson("/api/queue/shuffle", { method: "POST" }).then((data) => {
-      applyQueue(data, currentMediaRef.current?.id);
+    return apiJson("/api/queue/shuffle?compact=1", { method: "POST" }).then(async (data) => {
+      applyCompactQueue(data);
+      await refreshQueue();
       shuffleEnabledRef.current = true;
       setShuffleEnabled(true);
       const media = currentMediaRef.current;
       if (media) sendActiveSession(media, pausedRef.current ? "pause" : "play", positionRef.current, durationRef.current);
       return true;
     });
-  }, [applyLocalQueue, applyQueue, offline.isConnected, sendActiveSession]);
+  }, [applyCompactQueue, applyLocalQueue, offline.isConnected, refreshQueue, sendActiveSession]);
 
   const addToQueue = useCallback((media) => (
     queueModeRef.current === "offline" || !offline.isConnected
       ? Promise.resolve(applyLocalQueue([...queueItemsRef.current, media], currentMediaRef.current?.id))
-      : apiJson("/api/queue/items", {
+      : apiJson("/api/queue/items?compact=1", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
-      }).then((data) => applyQueue(data))
-  ), [applyLocalQueue, applyQueue, offline.isConnected]);
+      }).then(async (data) => {
+        applyCompactQueue(data);
+        await refreshQueue();
+        return data;
+      })
+  ), [applyCompactQueue, applyLocalQueue, offline.isConnected, refreshQueue]);
 
   const playNext = useCallback((media) => (
     queueModeRef.current === "offline" || !offline.isConnected
@@ -680,11 +722,15 @@ export function PlayerProvider({ children }) {
         ...queueItemsRef.current.slice(0, queueIndexRef.current + 1), media,
         ...queueItemsRef.current.slice(queueIndexRef.current + 1),
       ], currentMediaRef.current?.id))
-      : apiJson("/api/queue/items/next", {
+      : apiJson("/api/queue/items/next?compact=1", {
       method: "POST",
       body: JSON.stringify({ mediaId: Number(media.id) }),
-      }).then((data) => applyQueue(data))
-  ), [applyLocalQueue, applyQueue, offline.isConnected]);
+      }).then(async (data) => {
+        applyCompactQueue(data);
+        await refreshQueue();
+        return data;
+      })
+  ), [applyCompactQueue, applyLocalQueue, offline.isConnected, refreshQueue]);
 
   const removeFromQueue = useCallback((mediaId) => {
     if (queueModeRef.current === "offline" || !offline.isConnected) {
@@ -693,33 +739,45 @@ export function PlayerProvider({ children }) {
       if (activeRemoved) return stopPlayback().then(() => ({ ...data, activeRemoved: true }));
       return Promise.resolve({ ...data, activeRemoved: false });
     }
-    return apiJson(`/api/queue/items/${Number(mediaId)}`, { method: "DELETE" })
+    return apiJson(`/api/queue/items/${Number(mediaId)}?compact=1`, { method: "DELETE" })
       .then(async (data) => {
-        applyQueue(data);
+        applyCompactQueue(data);
+        await refreshQueue();
         if (data.activeRemoved) await stopPlayback();
         return data;
       });
-  }, [applyLocalQueue, applyQueue, offline.isConnected, stopPlayback]);
+  }, [applyCompactQueue, applyLocalQueue, offline.isConnected, refreshQueue, stopPlayback]);
 
   const clearQueue = useCallback(() => (
     queueModeRef.current === "offline" || !offline.isConnected
       ? (applyLocalQueue([], null), stopPlayback().then(() => ({ items: [], activeRemoved: true })))
-      : apiJson("/api/queue", { method: "DELETE" })
+      : apiJson("/api/queue?compact=1", { method: "DELETE" })
       .then(async (data) => {
-        applyQueue(data, null);
+        applyCompactQueue(data);
+        queueIdsRef.current = [];
+        queueItemsRef.current = [];
+        setQueueIds([]);
+        setQueueItems([]);
         if (data.activeRemoved) await stopPlayback();
         return data;
       })
-  ), [applyLocalQueue, applyQueue, offline.isConnected, stopPlayback]);
+  ), [applyCompactQueue, applyLocalQueue, offline.isConnected, stopPlayback]);
 
   const reorderQueue = useCallback((mediaIds) => (
     queueModeRef.current === "offline" || !offline.isConnected
       ? Promise.resolve(applyLocalQueue(mediaIds.map((id) => queueItemsRef.current.find((item) => Number(item.id) === Number(id))).filter(Boolean), currentMediaRef.current?.id))
-      : apiJson("/api/queue/order", {
+      : apiJson("/api/queue/window/order", {
       method: "PUT",
-      body: JSON.stringify({ mediaIds: mediaIds.map(Number) }),
-      }).then((data) => applyQueue(data))
-  ), [applyLocalQueue, applyQueue, offline.isConnected]);
+      body: JSON.stringify({ offset: queueOffsetRef.current, mediaIds: mediaIds.map(Number), revision: queueRevisionRef.current }),
+      }).then(async (data) => {
+        applyCompactQueue(data);
+        await refreshQueue();
+        return data;
+      }).catch(async (error) => {
+        await refreshQueue().catch(() => {});
+        throw error;
+      })
+  ), [applyCompactQueue, applyLocalQueue, offline.isConnected, refreshQueue]);
 
   const toggleLike = useCallback((media) => {
     if (!offline.isConnected) return Promise.reject(new Error("Favorites cannot be changed offline"));
@@ -818,9 +876,10 @@ export function PlayerProvider({ children }) {
     playOfflineMedia,
     playNext,
     position,
-    queueIndex,
+    queueIndex: Math.max(queueIndex - queueOffset, 0),
     queueItems,
     queueIds,
+    queueTotal,
     refreshLikes,
     refreshQueue,
     registerVideoController,
@@ -845,13 +904,24 @@ export function PlayerProvider({ children }) {
   }), [
     addToQueue, advance, applyResumePosition, changeVolume, clearQueue, currentKind, currentMedia,
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
-    playNext, position, queueIds, queueIndex, queueItems, refreshLikes, refreshQueue,
+    playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
     setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
+  const libraryValue = useMemo(() => ({
+    addToQueue,
+    currentMedia,
+    isLiked: (mediaId) => likedIds.has(Number(mediaId)),
+    likedIds,
+    playMedia,
+    playNext,
+    toggleLike,
+  }), [addToQueue, currentMedia, likedIds, playMedia, playNext, toggleLike]);
+
   return (
+    <PlayerLibraryContext.Provider value={libraryValue}>
     <PlayerContext.Provider value={value}>
       {children}
       <SleepTimerCompleteModal
@@ -862,5 +932,6 @@ export function PlayerProvider({ children }) {
         visible={sleepTimerCompleted}
       />
     </PlayerContext.Provider>
+    </PlayerLibraryContext.Provider>
   );
 }

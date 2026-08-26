@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, FlatList, Image, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import ViewShot, { captureRef } from "react-native-view-shot";
 import { api } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { findActiveLyricsIndex, getCenteredLyricsOffset, normalizeLyricsResponse } from "../utils/lyrics";
-import { captureAndShareLyrics, createLyricsSelection, getLyricsCandidateWindow, getLyricsPickerOffset, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
+import { findActiveLyricsIndex, normalizeLyricsResponse } from "../utils/lyrics";
+import { captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
 import { formatDuration } from "../utils/media";
 
 function useReducedMotion() {
@@ -66,8 +66,6 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
   const selected = useMemo(() => getSelectedLyrics(segments, selection), [segments, selection]);
   const cardWidth = Math.min(width - spacing.xl * 2, height < 720 ? 190 : 230);
   const currentPlaybackIndex = getLyricsShareIndex(segments, position, activeIndex);
-  const selectionWindow = useMemo(() => getLyricsCandidateWindow(anchorIndex, segments.length), [anchorIndex, segments.length]);
-  const pickerViewportWidth = Math.min(width - spacing.md * 2, 520);
 
   useEffect(() => {
     if (visible) {
@@ -80,11 +78,8 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
 
   const scrollPickerToActiveLine = useCallback(() => {
     if (!visible) return;
-    pickerRef.current?.scrollTo({
-      animated: false,
-      x: getLyricsPickerOffset({ gap: spacing.xs, index: anchorIndex, itemWidth: 156, viewportWidth: pickerViewportWidth }),
-    });
-  }, [anchorIndex, pickerViewportWidth, visible]);
+    pickerRef.current?.scrollToIndex({ animated: false, index: anchorIndex, viewPosition: 0.5 });
+  }, [anchorIndex, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -120,25 +115,34 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
             <View><Text style={styles.shareEyebrow}>Share a verse</Text><Text accessibilityRole="header" style={styles.shareHeading}>Choose up to 5 lines</Text></View>
             <Pressable accessibilityLabel="Close lyrics sharing" accessibilityRole="button" disabled={sharing} onPress={onClose} style={styles.shareClose}><Ionicons name="close" size={20} color={colors.text} /></Pressable>
           </View>
-          <ScrollView ref={pickerRef} contentContainerStyle={styles.sharePickerContent} horizontal onContentSizeChange={scrollPickerToActiveLine} showsHorizontalScrollIndicator={false} style={styles.sharePicker}>
-            {segments.map((segment, index) => {
+          <FlatList
+            ref={pickerRef}
+            contentContainerStyle={styles.sharePickerContent}
+            data={segments}
+            getItemLayout={(_data, index) => ({ index, length: 156 + spacing.xs, offset: index * (156 + spacing.xs) })}
+            horizontal
+            initialNumToRender={7}
+            keyExtractor={(segment, index) => `${segment.start}-${index}`}
+            maxToRenderPerBatch={8}
+            onScrollToIndexFailed={({ index }) => pickerRef.current?.scrollToOffset({ animated: false, offset: Math.max(0, index * (156 + spacing.xs)) })}
+            renderItem={({ item: segment, index }) => {
               const selectedLine = selection && index >= selection.start && index <= selection.end;
-              const selectable = index >= selectionWindow.start && index <= selectionWindow.end;
               return (
                 <Pressable
                   accessibilityLabel={segment.text}
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: !selectable, selected: Boolean(selectedLine) }}
-                  disabled={!selectable}
-                  key={`${segment.start}-${index}`}
+                  accessibilityState={{ selected: Boolean(selectedLine) }}
                   onPress={() => setSelection((current) => updateLyricsSelection(current, index, segments.length))}
-                  style={[styles.sharePickerLine, selectedLine && styles.sharePickerLineSelected, !selectable && styles.sharePickerLineDisabled]}
+                  style={[styles.sharePickerLine, selectedLine && styles.sharePickerLineSelected]}
                 >
                   <Text numberOfLines={3} style={[styles.sharePickerText, selectedLine && styles.sharePickerTextSelected]}>{segment.text}</Text>
                 </Pressable>
               );
-            })}
-          </ScrollView>
+            }}
+            showsHorizontalScrollIndicator={false}
+            style={styles.sharePicker}
+            windowSize={5}
+          />
           <View style={styles.sharePreview}><LyricsCard artworkFailed={artworkFailed} cardRef={cardRef} cardWidth={cardWidth} metadata={metadata} onArtworkError={() => setArtworkFailed(true)} selected={selected} styles={styles} /></View>
           {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
           <View style={styles.shareActions}>
@@ -154,17 +158,14 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
   );
 }
 
-export function LyricsView({ artworkUri = null, contentContainerStyle, media = null, mediaId, offlineLyrics = null, onSeek, position, scrollComponent: ScrollComponent = ScrollView, style }) {
+export function LyricsView({ artworkUri = null, contentContainerStyle, listComponent: ListComponent = FlatList, media = null, mediaId, offlineLyrics = null, onSeek, position, style }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [lyrics, setLyrics] = useState(null);
   const [status, setStatus] = useState("loading");
   const [retryKey, setRetryKey] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [contentHeight, setContentHeight] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const scrollRef = useRef(null);
-  const lineLayoutsRef = useRef(new Map());
   const lastDisplayIndexRef = useRef(0);
   const reducedMotion = useReducedMotion();
 
@@ -172,7 +173,6 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, media = n
     const controller = new AbortController();
     setLyrics(null);
     setStatus("loading");
-    lineLayoutsRef.current.clear();
     lastDisplayIndexRef.current = 0;
 
     if (offlineLyrics) {
@@ -208,18 +208,8 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, media = n
   const displayIndex = activeIndex >= 0 ? activeIndex : lastDisplayIndexRef.current;
 
   const scrollToLine = useCallback((index) => {
-    const line = lineLayoutsRef.current.get(index);
-    if (!line || viewportHeight <= 0) return;
-    scrollRef.current?.scrollTo({
-      y: getCenteredLyricsOffset({
-        contentHeight,
-        lineHeight: line.height,
-        lineY: line.y,
-        viewportHeight,
-      }),
-      animated: !reducedMotion,
-    });
-  }, [contentHeight, reducedMotion, viewportHeight]);
+    scrollRef.current?.scrollToIndex?.({ index, viewPosition: 0.5, animated: !reducedMotion });
+  }, [reducedMotion]);
 
   useEffect(() => {
     if (!shareOpen && activeIndex >= 0) scrollToLine(activeIndex);
@@ -263,36 +253,35 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, media = n
           <Ionicons name="share-social" size={17} color={colors.text} /><Text style={styles.lyricsShareTriggerText}>Share</Text>
         </Pressable>
       </View>
-      <ScrollComponent
-      ref={scrollRef}
-      style={styles.shell}
-      contentContainerStyle={[styles.content, contentContainerStyle]}
-      onContentSizeChange={(_width, height) => setContentHeight(height)}
-      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-      showsVerticalScrollIndicator={false}
-      >
-      {lyrics.segments.map((segment, index) => {
-        const active = index === activeIndex;
-        const distance = Math.abs(index - displayIndex);
-        return (
-          <Pressable
-            key={`${segment.start}-${index}`}
+      <ListComponent
+        ref={scrollRef}
+        style={styles.shell}
+        contentContainerStyle={[styles.content, contentContainerStyle]}
+        data={lyrics.segments}
+        initialNumToRender={14}
+        keyExtractor={(segment, index) => `${segment.start}-${index}`}
+        maxToRenderPerBatch={12}
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          scrollRef.current?.scrollToOffset?.({ animated: false, offset: Math.max(0, index * averageItemLength) });
+          requestAnimationFrame(() => scrollToLine(index));
+        }}
+        renderItem={({ item: segment, index }) => {
+          const active = index === activeIndex;
+          const distance = Math.abs(index - displayIndex);
+          return <Pressable
             accessibilityHint="Seeks playback to this lyric"
             accessibilityLabel={`${formatDuration(segment.start)}. ${segment.text}`}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            onLayout={(event) => {
-              lineLayoutsRef.current.set(index, event.nativeEvent.layout);
-              if (index === activeIndex) scrollToLine(index);
-            }}
             onPress={() => onSeek(segment.start)}
             style={styles.lineButton}
           >
             <Text style={[styles.line, active && styles.activeLine, distance > 1 && styles.dimLine]}>{segment.text}</Text>
-          </Pressable>
-        );
-      })}
-      </ScrollComponent>
+          </Pressable>;
+        }}
+        showsVerticalScrollIndicator={false}
+        windowSize={7}
+      />
       <LyricsShareModal activeIndex={activeIndex} artworkUri={artworkUri} media={media} onClose={() => setShareOpen(false)} position={position} segments={lyrics.segments} visible={shareOpen} />
     </View>
   );

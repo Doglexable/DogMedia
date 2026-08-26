@@ -1,7 +1,44 @@
-node_modules/
-.git/
-*.md
-data/
-dist/
+# Version-control and editor metadata
+.git
+.github
+.idea
+.vscode
+.agents
+.codex
+**/.DS_Store
+
+# Local configuration and logs
 .env
-.env.local
+.env.*
+!.env.example
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies, caches, coverage, and generated output at any depth
+**/node_modules
+**/.cache
+**/.parcel-cache
+**/.turbo
+**/coverage
+**/dist
+**/build
+**/.vite
+**/*.tsbuildinfo
+
+# Runtime media and database volumes never belong in an image context
+data
+**/data
+**/tmp
+
+# Mobile is not used by the server or web container images. In particular,
+# this excludes the large Expo, Gradle, CocoaPods, APK, and native build trees.
+mobile
+
+# Development-only files are not needed by either production image
+**/*.test.js
+**/*.test.jsx
+**/*.spec.js
+**/*.spec.jsx
+*.md
