@@ -16,7 +16,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { ThemeToggle } from "../App";
 import { Link, useLocation } from "react-router-dom";
-import { api, apiUrl } from "../api";
+import { api, apiUrl, readJsonArray } from "../api";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -180,7 +180,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const close = () => setOpen(false);
   const closeCategories = () => setCategoriesOpen(false);
   const closeCategoryMenu = useCallback(() => setCategoryMenu(null), []);
-  const mediaCategories = categories.filter((category) => Number(category.media_count) > 0);
+  const mediaCategories = (Array.isArray(categories) ? categories : []).filter((category) => Number(category.media_count) > 0);
 
   // Close sidebar and sheet on navigation
   useEffect(() => {
@@ -402,7 +402,7 @@ export function LibraryShell({ access, children }) {
   const loadCategories = useCallback(() => {
     setCategoriesLoading(true);
     return api("/api/categories")
-      .then((response) => response.json())
+      .then((response) => readJsonArray(response, "Could not load categories"))
       .then(setCategories)
       .catch(() => setCategories([]))
       .finally(() => setCategoriesLoading(false));

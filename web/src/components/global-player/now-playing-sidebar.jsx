@@ -150,7 +150,7 @@ export function NowPlayingSidebar({
         )}
 
         {isAudio && (
-          <LyricsPanel mediaId={currentMedia.id} onSeek={onSeek} position={position} />
+          <LyricsPanel artworkUrl={thumbFailed ? null : thumbSrc} media={currentMedia} mediaId={currentMedia.id} onSeek={onSeek} position={position} />
         )}
 
         <Section title="Metadata">

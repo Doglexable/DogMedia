@@ -1,8 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faQuoteRight } from "@fortawesome/free-solid-svg-icons";
+import { faQuoteRight, faShareNodes, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { toBlob } from "html-to-image";
 import { Drawer } from "vaul";
 import { api } from "../../api";
+import {
+  createLyricsSelection,
+  getLyricsCandidateWindow,
+  getLyricsShareIndex,
+  getLyricsShareMetadata,
+  getSelectedLyrics,
+  LYRICS_CARD,
+  sanitizeLyricsFilename,
+  shareLyricsBlob,
+  updateLyricsSelection,
+} from "./lyrics-share";
 
 export function findActiveLyricsIndex(segments, position) {
   if (!Array.isArray(segments) || !Number.isFinite(position)) return -1;
@@ -47,6 +59,135 @@ function LyricsLines({ activeIndex, lineRefs, onSeek, segments, variant }) {
   });
 }
 
+async function waitForCardAssets(node) {
+  await document.fonts?.ready;
+  await Promise.all([...node.querySelectorAll("img")].map(async (image) => {
+    if (!image.complete) await new Promise((resolve) => {
+      image.addEventListener("load", resolve, { once: true });
+      image.addEventListener("error", resolve, { once: true });
+    });
+    await image.decode?.().catch(() => {});
+  }));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+function LyricsShareCard({ artworkFailed, cardRef, metadata, onArtworkError, selected }) {
+  return (
+    <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview">
+      {metadata.artworkUrl && !artworkFailed && (
+        <img className="lyrics-share-card-backdrop" src={metadata.artworkUrl} alt="" crossOrigin="anonymous" onError={onArtworkError} />
+      )}
+      <div className="lyrics-share-card-wash" />
+      <div className="lyrics-share-card-brand"><span>DM</span> DogMedia</div>
+      <div className="lyrics-share-card-copy">
+        <div className="lyrics-share-card-rule" />
+        {selected.map((segment, index) => <p key={`${segment.start}-${index}`}>{segment.text}</p>)}
+      </div>
+      <footer className="lyrics-share-card-footer">
+        {metadata.artworkUrl && !artworkFailed ? (
+          <img src={metadata.artworkUrl} alt="" crossOrigin="anonymous" onError={onArtworkError} />
+        ) : <span className="lyrics-share-card-art-fallback"><FontAwesomeIcon icon={faQuoteRight} /></span>}
+        <div><strong>{metadata.title}</strong><span>{metadata.artists}</span></div>
+      </footer>
+    </div>
+  );
+}
+
+function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }) {
+  const [anchorIndex] = useState(() => activeIndex >= 0 ? activeIndex : 0);
+  const [selection, setSelection] = useState(() => createLyricsSelection(anchorIndex, segments.length));
+  const [sharing, setSharing] = useState(false);
+  const [error, setError] = useState("");
+  const [artworkFailed, setArtworkFailed] = useState(false);
+  const cardRef = useRef(null);
+  const pickerRef = useRef(null);
+  const pickerLineRefs = useRef([]);
+  const metadata = useMemo(() => getLyricsShareMetadata(media, artworkUrl), [artworkUrl, media]);
+  const selected = useMemo(() => getSelectedLyrics(segments, selection), [segments, selection]);
+  const selectionWindow = useMemo(() => getLyricsCandidateWindow(anchorIndex, segments.length), [anchorIndex, segments.length]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event) => { if (event.key === "Escape" && !sharing) onClose(); };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose, sharing]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      scrollActiveLineIntoView(pickerRef.current, pickerLineRefs.current[anchorIndex]);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [anchorIndex]);
+
+  const share = useCallback(async () => {
+    if (!cardRef.current || selected.length === 0 || sharing) return;
+    setSharing(true);
+    setError("");
+    try {
+      await waitForCardAssets(cardRef.current);
+      const blob = await toBlob(cardRef.current, {
+        backgroundColor: "#12131a",
+        cacheBust: true,
+        width: LYRICS_CARD.cssWidth,
+        height: LYRICS_CARD.cssHeight,
+        pixelRatio: LYRICS_CARD.pixelRatio,
+        style: { transform: "none", borderRadius: "0" },
+      });
+      if (!blob) throw new Error("Image capture returned no data");
+      await shareLyricsBlob(blob, { filename: sanitizeLyricsFilename(metadata.title), title: metadata.title });
+      onClose();
+    } catch (shareError) {
+      if (shareError?.name !== "AbortError") setError("Could not create the lyrics card. Try sharing again.");
+    } finally {
+      setSharing(false);
+    }
+  }, [metadata.title, onClose, selected.length, sharing]);
+
+  return (
+    <div className="lyrics-share-overlay" role="dialog" aria-modal="true" aria-labelledby="lyrics-share-title">
+      <button className="lyrics-share-dismiss" type="button" aria-label="Close lyrics sharing" onClick={onClose} />
+      <section className="lyrics-share-dialog">
+        <header className="lyrics-share-dialog-header">
+          <div><span>Share a verse</span><h2 id="lyrics-share-title">Choose up to 5 lines</h2></div>
+          <button autoFocus type="button" className="lyrics-share-close" aria-label="Close lyrics sharing" onClick={onClose}><FontAwesomeIcon icon={faXmark} /></button>
+        </header>
+        <div className="lyrics-share-layout">
+          <div ref={pickerRef} className="lyrics-share-picker" aria-label="Choose lyrics to share">
+            {segments.map((segment, index) => {
+              const selectedLine = selection && index >= selection.start && index <= selection.end;
+              const selectable = index >= selectionWindow.start && index <= selectionWindow.end;
+              return (
+                <button
+                  key={`${segment.start}-${index}`}
+                  ref={(node) => { pickerLineRefs.current[index] = node; }}
+                  type="button"
+                  className={`lyrics-share-picker-line${selectedLine ? " lyrics-share-picker-line--selected" : ""}${!selectable ? " lyrics-share-picker-line--disabled" : ""}`}
+                  aria-pressed={Boolean(selectedLine)}
+                  disabled={!selectable}
+                  onClick={() => setSelection((current) => updateLyricsSelection(current, index, segments.length))}
+                >
+                  {segment.text}
+                </button>
+              );
+            })}
+          </div>
+          <div className="lyrics-share-preview-shell"><div className="lyrics-share-preview-frame"><LyricsShareCard artworkFailed={artworkFailed} cardRef={cardRef} metadata={metadata} onArtworkError={() => setArtworkFailed(true)} selected={selected} /></div></div>
+        </div>
+        {error && <p className="lyrics-share-error" role="alert">{error}</p>}
+        <footer className="lyrics-share-actions">
+          <span>{selected.length}/5 lines selected</span>
+          <button type="button" disabled={sharing || selected.length === 0} onClick={share}><FontAwesomeIcon icon={faShareNodes} /> {sharing ? "Creating card…" : "Share image"}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function useSynchronizedLyrics(mediaId) {
   const [lyrics, setLyrics] = useState(null);
 
@@ -71,10 +212,11 @@ function useSynchronizedLyrics(mediaId) {
   return lyrics;
 }
 
-export function LyricsPanel({ mediaId, onSeek, position }) {
+export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
   const lyrics = useSynchronizedLyrics(mediaId);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
+  const [shareOpen, setShareOpen] = useState(false);
   const inlineListRef = useRef(null);
   const drawerListRef = useRef(null);
   const inlineLineRefs = useRef([]);
@@ -84,18 +226,19 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
+  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeIndex), [activeIndex, lyrics?.segments, position]);
 
   useEffect(() => {
     const activeLine = activeIndex >= 0 ? activeIndex : 0;
-    if (drawerOpen && drawerListRef.current) {
+    if (!shareOpen && drawerOpen && drawerListRef.current) {
       requestAnimationFrame(() => {
         scrollActiveLineIntoView(drawerListRef.current, drawerLineRefs.current[activeLine]);
       });
     }
-    if (inlineListRef.current) {
+    if (!shareOpen && inlineListRef.current) {
       scrollActiveLineIntoView(inlineListRef.current, inlineLineRefs.current[activeLine]);
     }
-  }, [activeIndex, drawerOpen]);
+  }, [activeIndex, drawerOpen, shareOpen]);
 
   if (!lyrics?.segments?.length) return null;
 
@@ -103,7 +246,10 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
     <section className="now-playing-sidebar-section now-playing-lyrics-section">
       <div className="now-playing-lyrics-heading">
         <h2>Lyrics</h2>
-        {lyrics.language && <span>{lyrics.language}</span>}
+        <div className="lyrics-heading-actions">
+          {lyrics.language && <span>{lyrics.language}</span>}
+          <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
+        </div>
       </div>
       <div ref={inlineListRef} className="now-playing-lyrics-list now-playing-lyrics-list--inline" aria-label="Synchronized lyrics">
         <LyricsLines
@@ -148,6 +294,7 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
                 <button
                   type="button"
                   className="mobile-categories-sheet-close"
@@ -174,6 +321,7 @@ export function LyricsPanel({ mediaId, onSeek, position }) {
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
     </section>
   );
 }
@@ -196,11 +344,12 @@ function useMobileDrawer() {
   return mobile;
 }
 
-export function FullscreenLyrics({ mediaId, onSeek, position }) {
+export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position }) {
   const lyrics = useSynchronizedLyrics(mediaId);
   const mobile = useMobileDrawer();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
+  const [shareOpen, setShareOpen] = useState(false);
   const listRef = useRef(null);
   const lineRefs = useRef([]);
 
@@ -208,17 +357,18 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
+  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeIndex), [activeIndex, lyrics?.segments, position]);
   const displayActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   useEffect(() => {
-    if (listRef.current && (!mobile || drawerOpen)) {
+    if (!shareOpen && listRef.current && (!mobile || drawerOpen)) {
       requestAnimationFrame(() => {
         const list = listRef.current;
         const activeLine = lineRefs.current[displayActiveIndex];
         scrollActiveLineIntoView(list, activeLine);
       });
     }
-  }, [displayActiveIndex, drawerOpen, mobile]);
+  }, [displayActiveIndex, drawerOpen, mobile, shareOpen]);
 
   if (mobile) {
     if (!lyrics?.segments?.length) return null;
@@ -256,6 +406,7 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
                 <button
                   type="button"
                   className="mobile-categories-sheet-close"
@@ -281,6 +432,7 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
             </div>
           </Drawer.Content>
         </Drawer.Portal>
+        {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
       </Drawer.Root>
     );
   }
@@ -295,6 +447,7 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
 
   return (
     <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
+      <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
       <div ref={listRef} className="fullscreen-lyrics-list">
         {lyrics.segments.map((segment, index) => {
           const distance = Math.max(Math.min(index - displayActiveIndex, 4), -4);
@@ -314,6 +467,7 @@ export function FullscreenLyrics({ mediaId, onSeek, position }) {
           );
         })}
       </div>
+      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
     </section>
   );
 }

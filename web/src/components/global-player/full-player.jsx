@@ -204,7 +204,7 @@ export function FullPlayer({
           </section>
 
           <div className="fullscreen-player-utilities">
-            <FullscreenLyrics mediaId={currentMedia.id} onSeek={onSeek} position={position} />
+            <FullscreenLyrics artworkUrl={thumbFailed ? null : thumbSrc} media={currentMedia} mediaId={currentMedia.id} onSeek={onSeek} position={position} />
             <button
               type="button"
               className={queueOpen ? "fullscreen-player-message fullscreen-player-message--active" : "fullscreen-player-message"}

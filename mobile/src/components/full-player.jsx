@@ -326,6 +326,7 @@ function QueueContent({ colors, currentMedia, error, items, loading, onClear, on
 
 function PlayerBottomSheet({
   activeTab,
+  artworkUri,
   colors,
   currentMedia,
   error,
@@ -414,7 +415,9 @@ function PlayerBottomSheet({
         <View style={[styles.sheetBody, { paddingBottom: sheetInset }]}>
           {activeTab === "lyrics" ? (
             <LyricsView
+              artworkUri={artworkUri}
               contentContainerStyle={[styles.sheetLyricsContent, { paddingBottom: sheetInset + spacing.xl }]}
+              media={currentMedia}
               mediaId={mediaId}
               offlineLyrics={offlineLyrics}
               onSeek={seek}
@@ -684,6 +687,7 @@ export function FullPlayer({ navigation }) {
       {sheetOpen && (
         <PlayerBottomSheet
           activeTab={sheetTab}
+          artworkUri={thumbnailUri}
           colors={colors}
           currentMedia={media}
           error={queueError}

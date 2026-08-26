@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark, faChevronRight, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
-import { api } from "../api";
+import { api, readJsonArray } from "../api";
 import { useGlobalPlayer } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
@@ -736,7 +736,7 @@ export default function Dashboard() {
     setMediaLoading(true);
     if (libraryView === "liked") {
       api("/api/likes")
-        .then((r) => r.json())
+        .then((response) => readJsonArray(response, "Could not load favorites"))
         .then((items) => { if (!cancelled) setMedia(items); })
         .catch(() => { if (!cancelled) setNotice("Could not load favorites."); })
         .finally(() => {
@@ -751,7 +751,7 @@ export default function Dashboard() {
       ? `/api/media?category_id=${selectedCategory}`
       : "/api/media";
     api(url)
-      .then((r) => r.json())
+      .then((response) => readJsonArray(response, "Could not load media"))
       .then((items) => { if (!cancelled) setMedia(items); })
       .catch(() => { if (!cancelled) setNotice("Could not load media."); })
       .finally(() => {
@@ -794,7 +794,7 @@ export default function Dashboard() {
     if (tier < 100) return;
     const poll = () => {
       api("/api/playback/now-playing")
-        .then((r) => r.json())
+        .then((response) => readJsonArray(response, "Could not load active sessions"))
         .then((sessions) => {
           setNowPlaying(sessions);
           setNowPlayingRenderNow(Date.now());
