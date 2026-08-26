@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faQuoteRight, faShareNodes, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { Drawer } from "vaul";
@@ -148,7 +149,7 @@ function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }
     }
   }, [metadata.title, onClose, selected.length, sharing]);
 
-  return (
+  return createPortal((
     <div className="lyrics-share-overlay" role="dialog" aria-modal="true" aria-labelledby="lyrics-share-title">
       <button className="lyrics-share-dismiss" type="button" aria-label="Close lyrics sharing" onClick={onClose} />
       <section className="lyrics-share-dialog">
@@ -185,7 +186,7 @@ function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }
         </footer>
       </section>
     </div>
-  );
+  ), document.body);
 }
 
 function useSynchronizedLyrics(mediaId) {
@@ -212,11 +213,34 @@ function useSynchronizedLyrics(mediaId) {
   return lyrics;
 }
 
+function useLyricsShareFlow(setDrawerOpen) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const [drawerSuspended, setDrawerSuspended] = useState(false);
+
+  useEffect(() => {
+    if (!drawerSuspended || shareOpen) return undefined;
+    const timer = setTimeout(() => setShareOpen(true), 0);
+    return () => clearTimeout(timer);
+  }, [drawerSuspended, shareOpen]);
+
+  const openShare = useCallback(() => setShareOpen(true), []);
+  const openShareFromDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    setDrawerSuspended(true);
+  }, [setDrawerOpen]);
+  const closeShare = useCallback(() => {
+    setShareOpen(false);
+    setDrawerSuspended(false);
+  }, []);
+
+  return { closeShare, drawerSuspended, openShare, openShareFromDrawer, shareOpen };
+}
+
 export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
   const lyrics = useSynchronizedLyrics(mediaId);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
-  const [shareOpen, setShareOpen] = useState(false);
+  const { closeShare, drawerSuspended, openShare, openShareFromDrawer, shareOpen } = useLyricsShareFlow(setDrawerOpen);
   const inlineListRef = useRef(null);
   const drawerListRef = useRef(null);
   const inlineLineRefs = useRef([]);
@@ -248,7 +272,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
         <h2>Lyrics</h2>
         <div className="lyrics-heading-actions">
           {lyrics.language && <span>{lyrics.language}</span>}
-          <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
+          <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={openShare}><FontAwesomeIcon icon={faShareNodes} /></button>
         </div>
       </div>
       <div ref={inlineListRef} className="now-playing-lyrics-list now-playing-lyrics-list--inline" aria-label="Synchronized lyrics">
@@ -261,67 +285,69 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
         />
       </div>
 
-      <Drawer.Root
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        snapPoints={[0.45, 0.88]}
-        activeSnapPoint={snap}
-        setActiveSnapPoint={setSnap}
-        fadeFromIndex={0}
-        autoFocus
-        handleOnly
-        shouldScaleBackground={false}
-        setBackgroundColorOnScale={false}
-      >
-        <Drawer.Trigger asChild>
-          <button
-            type="button"
-            className="lyrics-icon-button"
-            aria-label="Open lyrics"
-            title="Open lyrics"
-          >
-            <FontAwesomeIcon icon={faQuoteRight} />
-          </button>
-        </Drawer.Trigger>
-        <Drawer.Portal>
-          <Drawer.Overlay className="mobile-player-drawer-overlay" />
-          <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
-            <Drawer.Handle className="mobile-player-drawer-handle" />
-            <div className="mobile-player-drawer-header">
-              <div>
-                <span>Synchronized Lyrics</span>
-                <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+      {!drawerSuspended && (
+        <Drawer.Root
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          snapPoints={[0.45, 0.88]}
+          activeSnapPoint={snap}
+          setActiveSnapPoint={setSnap}
+          fadeFromIndex={0}
+          autoFocus
+          handleOnly
+          shouldScaleBackground={false}
+          setBackgroundColorOnScale={false}
+        >
+          <Drawer.Trigger asChild>
+            <button
+              type="button"
+              className="lyrics-icon-button"
+              aria-label="Open lyrics"
+              title="Open lyrics"
+            >
+              <FontAwesomeIcon icon={faQuoteRight} />
+            </button>
+          </Drawer.Trigger>
+          <Drawer.Portal>
+            <Drawer.Overlay className="mobile-player-drawer-overlay" />
+            <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
+              <Drawer.Handle className="mobile-player-drawer-handle" />
+              <div className="mobile-player-drawer-header">
+                <div>
+                  <span>Synchronized Lyrics</span>
+                  <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                  <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={openShareFromDrawer}><FontAwesomeIcon icon={faShareNodes} /></button>
+                  <button
+                    type="button"
+                    className="mobile-categories-sheet-close"
+                    onClick={() => setDrawerOpen(false)}
+                    title="Close lyrics"
+                    aria-label="Close lyrics"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
-                <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
-                <button
-                  type="button"
-                  className="mobile-categories-sheet-close"
-                  onClick={() => setDrawerOpen(false)}
-                  title="Close lyrics"
-                  aria-label="Close lyrics"
-                >
-                  ✕
-                </button>
+              <Drawer.Description className="mobile-player-drawer-description">
+                Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
+              </Drawer.Description>
+              <div ref={drawerListRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
+                <LyricsLines
+                  activeIndex={activeIndex}
+                  lineRefs={drawerLineRefs}
+                  onSeek={onSeek}
+                  segments={lyrics.segments}
+                  variant="mobile-lyrics-drawer"
+                />
               </div>
-            </div>
-            <Drawer.Description className="mobile-player-drawer-description">
-              Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
-            </Drawer.Description>
-            <div ref={drawerListRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
-              <LyricsLines
-                activeIndex={activeIndex}
-                lineRefs={drawerLineRefs}
-                onSeek={onSeek}
-                segments={lyrics.segments}
-                variant="mobile-lyrics-drawer"
-              />
-            </div>
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
-      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer.Root>
+      )}
+      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={closeShare} segments={lyrics.segments} />}
     </section>
   );
 }
@@ -349,7 +375,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
   const mobile = useMobileDrawer();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
-  const [shareOpen, setShareOpen] = useState(false);
+  const { closeShare, drawerSuspended, openShare, openShareFromDrawer, shareOpen } = useLyricsShareFlow(setDrawerOpen);
   const listRef = useRef(null);
   const lineRefs = useRef([]);
 
@@ -373,67 +399,69 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
   if (mobile) {
     if (!lyrics?.segments?.length) return null;
     return (
-      <Drawer.Root
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        snapPoints={[0.45, 0.88]}
-        activeSnapPoint={snap}
-        setActiveSnapPoint={setSnap}
-        fadeFromIndex={0}
-        autoFocus
-        handleOnly
-        shouldScaleBackground={false}
-        setBackgroundColorOnScale={false}
-      >
-        <Drawer.Trigger asChild>
-          <button
-            type="button"
-            className="lyrics-icon-button"
-            aria-label="Open lyrics"
-            title="Open lyrics"
-          >
-            <FontAwesomeIcon icon={faQuoteRight} />
-          </button>
-        </Drawer.Trigger>
-        <Drawer.Portal>
-          <Drawer.Overlay className="mobile-player-drawer-overlay" />
-          <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
-            <Drawer.Handle className="mobile-player-drawer-handle" />
-            <div className="mobile-player-drawer-header">
-              <div>
-                <span>Synchronized Lyrics</span>
-                <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+      <>
+        {!drawerSuspended && <Drawer.Root
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          snapPoints={[0.45, 0.88]}
+          activeSnapPoint={snap}
+          setActiveSnapPoint={setSnap}
+          fadeFromIndex={0}
+          autoFocus
+          handleOnly
+          shouldScaleBackground={false}
+          setBackgroundColorOnScale={false}
+        >
+          <Drawer.Trigger asChild>
+            <button
+              type="button"
+              className="lyrics-icon-button"
+              aria-label="Open lyrics"
+              title="Open lyrics"
+            >
+              <FontAwesomeIcon icon={faQuoteRight} />
+            </button>
+          </Drawer.Trigger>
+          <Drawer.Portal>
+            <Drawer.Overlay className="mobile-player-drawer-overlay" />
+            <Drawer.Content className="mobile-player-drawer mobile-lyrics-drawer">
+              <Drawer.Handle className="mobile-player-drawer-handle" />
+              <div className="mobile-player-drawer-header">
+                <div>
+                  <span>Synchronized Lyrics</span>
+                  <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                  <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={openShareFromDrawer}><FontAwesomeIcon icon={faShareNodes} /></button>
+                  <button
+                    type="button"
+                    className="mobile-categories-sheet-close"
+                    onClick={() => setDrawerOpen(false)}
+                    title="Close lyrics"
+                    aria-label="Close lyrics"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
-                <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /></button>
-                <button
-                  type="button"
-                  className="mobile-categories-sheet-close"
-                  onClick={() => setDrawerOpen(false)}
-                  title="Close lyrics"
-                  aria-label="Close lyrics"
-                >
-                  ✕
-                </button>
+              <Drawer.Description className="mobile-player-drawer-description">
+                Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
+              </Drawer.Description>
+              <div ref={listRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
+                <LyricsLines
+                  activeIndex={activeIndex}
+                  lineRefs={lineRefs}
+                  onSeek={onSeek}
+                  segments={lyrics.segments}
+                  variant="mobile-lyrics-drawer"
+                />
               </div>
-            </div>
-            <Drawer.Description className="mobile-player-drawer-description">
-              Synchronized lyrics{lyrics.language ? ` in ${lyrics.language}` : ""}. Select a line to seek to it.
-            </Drawer.Description>
-            <div ref={listRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
-              <LyricsLines
-                activeIndex={activeIndex}
-                lineRefs={lineRefs}
-                onSeek={onSeek}
-                segments={lyrics.segments}
-                variant="mobile-lyrics-drawer"
-              />
-            </div>
-          </Drawer.Content>
-        </Drawer.Portal>
-        {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
-      </Drawer.Root>
+            </Drawer.Content>
+          </Drawer.Portal>
+        </Drawer.Root>}
+        {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={closeShare} segments={lyrics.segments} />}
+      </>
     );
   }
 
@@ -447,7 +475,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
 
   return (
     <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
-      <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
+      <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={openShare}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
       <div ref={listRef} className="fullscreen-lyrics-list">
         {lyrics.segments.map((segment, index) => {
           const distance = Math.max(Math.min(index - displayActiveIndex, 4), -4);
@@ -467,7 +495,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
           );
         })}
       </div>
-      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
+      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={closeShare} segments={lyrics.segments} />}
     </section>
   );
 }

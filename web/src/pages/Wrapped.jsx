@@ -1,7 +1,5 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faChevronLeft,
-  faChevronRight,
   faDownload,
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
@@ -9,6 +7,7 @@ import { toBlob } from "html-to-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import DepthCarousel from "../components/DepthCarousel/DepthCarousel";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import {
   buildWaveformPoints,
@@ -239,60 +238,45 @@ function StoryViewer({
   timeline,
   wrappedCopy,
 }) {
-  const pointerStart = useRef(null);
   const lastIndex = slides.length - 1;
-  const goTo = useCallback((nextIndex) => {
-    onIndexChange(Math.min(Math.max(nextIndex, 0), lastIndex));
-  }, [lastIndex, onIndexChange]);
-
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLButtonElement) return;
-      if (event.key === "ArrowRight") goTo(index + 1);
-      if (event.key === "ArrowLeft") goTo(index - 1);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [goTo, index]);
-
   const palette = data.persona?.palette || { accent: "#FF5A5F", secondary: "#2DC7C9" };
-  const handlePointerUp = (event) => {
-    if (pointerStart.current == null) return;
-    const distance = event.clientX - pointerStart.current;
-    pointerStart.current = null;
-    if (Math.abs(distance) < 42) return;
-    goTo(distance < 0 ? index + 1 : index - 1);
-  };
 
   return (
     <section className="wrapped-story-shell" style={{ "--recap-accent": palette.accent, "--recap-secondary": palette.secondary }}>
-      <div
-        className="wrapped-story-stage"
-        onPointerDown={(event) => { pointerStart.current = event.clientX; }}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={() => { pointerStart.current = null; }}
-      >
-        <div className="wrapped-story-progress" aria-label={`Slide ${index + 1} of ${slides.length}`}>
-          {slides.map((slide, slideIndex) => (
-            <button
-              key={slide.id}
-              type="button"
-              aria-label={`Go to slide ${slideIndex + 1}`}
-              aria-current={slideIndex === index ? "step" : undefined}
-              onClick={() => goTo(slideIndex)}
-            ><span /></button>
-          ))}
-        </div>
-        <div key={slides[index].id} className="wrapped-story-frame">
-          <StorySlide data={data} periodLabel={periodLabel} slide={slides[index]} timeline={timeline} wrappedCopy={wrappedCopy} />
-        </div>
-        <span className="wrapped-story-count">{String(index + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</span>
+      <div className="wrapped-depth-carousel-frame">
+        <DepthCarousel
+          ariaLabel="Wrapped story"
+          items={slides}
+          renderItem={(slide, slideIndex) => (
+            <div className="wrapped-depth-story-card">
+              <StorySlide data={data} periodLabel={periodLabel} slide={slide} timeline={timeline} wrappedCopy={wrappedCopy} />
+              <span className="wrapped-story-count">{String(slideIndex + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</span>
+            </div>
+          )}
+          initialIndex={index}
+          cardWidth={432}
+          cardHeight={768}
+          radius={8}
+          tint="var(--recap-ink)"
+          depth={170}
+          spread={78}
+          tilt={15}
+          perspective={1600}
+          visibleCards={3}
+          falloff={0.18}
+          blur={4}
+          duration={650}
+          autoplay={false}
+          loop={false}
+          showControls
+          showIndicators
+          onChange={onIndexChange}
+          className="wrapped-depth-carousel"
+        />
       </div>
 
-      <div className="wrapped-story-navigation">
-        <button type="button" aria-label="Previous slide" disabled={index === 0} onClick={() => goTo(index - 1)}>
-          <FontAwesomeIcon icon={faChevronLeft} />
-        </button>
+      <div className="wrapped-story-navigation wrapped-story-navigation--depth">
+        <p>{getStoryChapterLabel(slides[index]?.id)}</p>
         <div className="wrapped-download-tools">
           <div className="wrapped-download-actions">
             {index === lastIndex && (
@@ -313,12 +297,21 @@ function StoryViewer({
           )}
           {exportError && <p role="alert">{exportError}</p>}
         </div>
-        <button type="button" aria-label="Next slide" disabled={index === lastIndex} onClick={() => goTo(index + 1)}>
-          <FontAwesomeIcon icon={faChevronRight} />
-        </button>
       </div>
     </section>
   );
+}
+
+function getStoryChapterLabel(id) {
+  return ({
+    opening: "Opening",
+    time: "Time in motion",
+    "top-media": "Your rotation",
+    rhythm: "Listening clock",
+    devices: "Device contributions",
+    persona: "Playback character",
+    share: "Final recap",
+  })[id] || "Wrapped story";
 }
 
 function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrappedCopy(data) }) {
@@ -391,6 +384,33 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
     );
   }
 
+  if (slide.id === "devices") {
+    const remainingDevices = Math.max((slide.totalCount || 0) - slide.items.length, 0);
+    return (
+      <article className="wrapped-slide wrapped-slide--devices">
+        <span className="wrapped-slide-kicker">All-device contribution</span>
+        <h2>One library.<br />Every screen.</h2>
+        <p className="wrapped-slide-lede">Listening time ranked across your network.</p>
+        {slide.items.length ? (
+          <ol className="wrapped-device-story-list">
+            {slide.items.map((device) => (
+              <li key={device.ip}>
+                <span className="wrapped-device-story-rank">{String(device.rank).padStart(2, "0")}</span>
+                <div>
+                  <strong>{device.label || device.ip}</strong>
+                  <small>{device.ip} · {formatNumber(device.playCount)} plays</small>
+                  <span className="wrapped-device-story-bar"><span style={{ width: `${Math.max((device.share || 0) * 100, 3)}%` }} /></span>
+                </div>
+                <b>{fmtTime(device.totalTime)}</b>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="wrapped-device-story-empty">Device contributions will appear after a complete playback session.</p>}
+        {remainingDevices > 0 && <p className="wrapped-device-story-more">+{remainingDevices} more {remainingDevices === 1 ? "device" : "devices"} in the full report</p>}
+      </article>
+    );
+  }
+
   if (slide.id === "persona") {
     return (
       <article className="wrapped-slide wrapped-slide--persona">
@@ -438,18 +458,20 @@ function Artwork({ className = "", media }) {
 
 function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappedCopy(data) }) {
   const topMedia = data.topMedia || [];
+  const deviceContributions = data.deviceContributions || [];
   const totalPlayTime = data.totalPlayTime || 0;
   const totalPlays = data.totalPlays || 0;
   const activeDays = data.totals?.activeDays ?? timeline.filter((day) => day.playTime || day.plays).length;
   const maxDayTime = Math.max(...timeline.map((day) => day.playTime), 1);
   const maxMediaTime = Math.max(...topMedia.map((media) => media.totalTime || 0), 1);
+  const maxDeviceTime = Math.max(...deviceContributions.map((device) => device.totalTime || 0), 1);
   const busiestDay = data.rhythm?.busiestDay || [...timeline].sort((a, b) => b.playTime - a.playTime)[0];
 
   return (
     <div className="wrapped-summary-view">
       <section className="wrapped-hero">
         <div className="wrapped-hero-copy">
-          <p className="wrapped-eyebrow">This device · {periodLabel}</p>
+          <p className="wrapped-eyebrow">All devices · {periodLabel}</p>
           <h1>Your playback pulse</h1>
           <p className="wrapped-subtitle">{wrappedCopy.storyDescription}</p>
         </div>
@@ -483,6 +505,7 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
         <aside className="wrapped-panel"><div className="wrapped-section-heading"><div><h2>Top folders</h2><p>Ranked by tracked time</p></div></div><CategoryList categories={data.topCategories || []} /></aside>
         <section className="wrapped-panel wrapped-panel--main"><div className="wrapped-section-heading"><div><h2>Top media</h2><p>Ranked by tracked time</p></div></div><TopMediaList media={topMedia} maxMediaTime={maxMediaTime} /></section>
         <aside className="wrapped-panel"><div className="wrapped-section-heading"><div><h2>Milestones</h2><p>Moments from this recap</p></div></div><dl className="wrapped-summary-list"><SummaryItem label="First play" value={data.milestones?.firstPlayAt ? formatLongDate(data.milestones.firstPlayAt) : "None"} /><SummaryItem label="Biggest day" value={busiestDay?.date ? formatLongDate(busiestDay.date) : "None"} /><SummaryItem label="Media explored" value={formatNumber(data.totals?.distinctMedia)} /><SummaryItem label="After dark" value={`${Math.round((data.rhythm?.nightShare || 0) * 100)}%`} /></dl></aside>
+        <section className="wrapped-panel wrapped-panel--devices"><div className="wrapped-section-heading"><div><h2>Device contributions</h2><p>Combined listening time across your network</p></div><span>{formatNumber(deviceContributions.length)} active devices</span></div><DeviceContributionList devices={deviceContributions} maxDeviceTime={maxDeviceTime} /></section>
       </div>
     </div>
   );
@@ -505,6 +528,11 @@ function TopMediaList({ media, maxMediaTime }) {
 function CategoryList({ categories }) {
   if (!categories.length) return <p className="wrapped-empty-note">Folder activity will appear after tracked playback.</p>;
   return <ol className="wrapped-category-list">{categories.map((category) => <li key={category.categoryId ?? category.name}><span>{category.rank}</span><div><strong>{category.name}</strong><small>{fmtTime(category.totalTime)} · {formatNumber(category.playCount)} plays</small></div></li>)}</ol>;
+}
+
+function DeviceContributionList({ devices, maxDeviceTime }) {
+  if (!devices.length) return <p className="wrapped-empty-note">Device contributions will appear after a complete playback session.</p>;
+  return <ol className="wrapped-device-list">{devices.map((device) => <li key={device.ip}><span className="wrapped-rank">{device.rank}</span><div><div className="wrapped-device-heading"><strong title={device.label || device.ip}>{device.label || device.ip}</strong><b>{fmtTime(device.totalTime)}</b></div><small>{device.label && device.label !== device.ip ? `${device.ip} · ` : ""}{formatNumber(device.playCount)} plays · {Math.round((device.share || 0) * 100)}%</small><div className="wrapped-device-bar"><span style={{ width: `${Math.max((device.totalTime / maxDeviceTime) * 100, 3)}%` }} /></div></div></li>)}</ol>;
 }
 
 function PageShell({ children, fullscreen = false, wide = false }) {

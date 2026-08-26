@@ -11,16 +11,26 @@ import {
 } from "./wrapped-story.js";
 
 describe("mobile wrapped story model", () => {
-  it("builds the six story chapters in stable order", () => {
+  it("builds the seven story chapters in stable order", () => {
     const slides = buildWrappedSlides({ topMedia: [{ mediaId: 7, title: "Track" }] }, []);
     expect(slides.map((slide) => slide.id)).toEqual([
       "opening",
       "time",
       "top-media",
       "rhythm",
+      "devices",
       "persona",
       "final",
     ]);
+    expect(slides[4]).toMatchObject({ items: [], totalCount: 0 });
+  });
+
+  it("limits the device chapter to the five leading contributors", () => {
+    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ ip: `192.168.0.${index + 1}` }));
+    const devices = buildWrappedSlides({ deviceContributions }, []).find((slide) => slide.id === "devices");
+
+    expect(devices.items).toHaveLength(5);
+    expect(devices.totalCount).toBe(7);
   });
 
   it("normalizes a local thirty-day timeline", () => {

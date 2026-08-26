@@ -14,9 +14,18 @@ import {
 } from "./wrapped-story";
 
 describe("buildWrappedSlides", () => {
-  it("always produces the six story chapters", () => {
+  it("always produces the seven story chapters", () => {
     const slides = buildWrappedSlides({ totalPlayTime: 42, topMedia: [{ mediaId: 7, title: "Track" }] }, []);
-    expect(slides.map((slide) => slide.id)).toEqual(["opening", "time", "top-media", "rhythm", "persona", "share"]);
+    expect(slides.map((slide) => slide.id)).toEqual(["opening", "time", "top-media", "rhythm", "devices", "persona", "share"]);
+    expect(slides[4]).toMatchObject({ id: "devices", items: [], totalCount: 0 });
+  });
+
+  it("caps the device story at five contributions while preserving the total count", () => {
+    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ ip: `192.168.0.${index + 1}` }));
+    const devices = buildWrappedSlides({ deviceContributions }, []).find((slide) => slide.id === "devices");
+
+    expect(devices.items).toHaveLength(5);
+    expect(devices.totalCount).toBe(7);
   });
 
   it("preserves long media titles for responsive rendering", () => {
@@ -80,15 +89,16 @@ describe("empty and export states", () => {
     });
   });
 
-  it("builds numbered filenames for all six slides", () => {
+  it("builds numbered filenames for all seven slides", () => {
     const slides = buildWrappedSlides({}, []);
     expect(slides.map(getWrappedSlideFilename)).toEqual([
       "dogmedia-recap-01-opening.png",
       "dogmedia-recap-02-time.png",
       "dogmedia-recap-03-top-media.png",
       "dogmedia-recap-04-rhythm.png",
-      "dogmedia-recap-05-persona.png",
-      "dogmedia-recap-06-share.png",
+      "dogmedia-recap-05-devices.png",
+      "dogmedia-recap-06-persona.png",
+      "dogmedia-recap-07-share.png",
     ]);
   });
 
@@ -103,7 +113,7 @@ describe("empty and export states", () => {
 
     expect(exports.map((item) => item.blob.slideId)).toEqual(slides.map((slide) => slide.id));
     expect(exports.map((item) => item.filename)).toEqual(slides.map(getWrappedSlideFilename));
-    expect(progress).toEqual(["1/6", "2/6", "3/6", "4/6", "5/6", "6/6"]);
+    expect(progress).toEqual(["1/7", "2/7", "3/7", "4/7", "5/7", "6/7", "7/7"]);
   });
 
   it("rejects bulk capture without returning a partial export set", async () => {

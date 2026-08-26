@@ -4,6 +4,7 @@ import {
   aggregateWrappedEvents,
   deriveWrappedPersona,
   getAnnualWrappedAvailability,
+  getCurrentWrapped,
   getWrappedAccessStatus,
 } from "./wrapped.js";
 
@@ -189,6 +190,8 @@ function playbackEvent(id, action, position, occurredAt, overrides = {}) {
     action,
     position,
     duration: overrides.duration ?? 3600,
+    client_ip: overrides.clientIp,
+    device_label: overrides.deviceLabel,
     occurred_at: occurredAt,
   };
 }
@@ -249,6 +252,39 @@ describe("aggregateWrappedEvents", () => {
     expect(report.period.timezoneOffset).toBe(-420);
   });
 
+  it("keeps overlapping playback of the same media isolated by IP", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { clientIp: "192.168.0.10", deviceLabel: "Living room" }),
+      playbackEvent(2, "play", 0, "2026-07-10T10:00:10.000Z", { clientIp: "192.168.0.20", deviceLabel: "Bedroom" }),
+      playbackEvent(3, "pause", 60, "2026-07-10T10:01:00.000Z", { clientIp: "192.168.0.10", deviceLabel: "Living room" }),
+      playbackEvent(4, "pause", 90, "2026-07-10T10:01:40.000Z", { clientIp: "192.168.0.20", deviceLabel: "Bedroom" }),
+    ], from, to);
+
+    expect(report.totalPlayTime).toBe(150);
+    expect(report.deviceContributions).toEqual([
+      { rank: 1, ip: "192.168.0.20", label: "Bedroom", playCount: 1, totalTime: 90, share: 0.6 },
+      { rank: 2, ip: "192.168.0.10", label: "Living room", playCount: 1, totalTime: 60, share: 0.4 },
+    ]);
+    expect(report.deviceContributions.reduce((total, device) => total + device.totalTime, 0)).toBe(report.totalPlayTime);
+  });
+
+  it("ranks equal device time by plays then IP and excludes zero-time devices", () => {
+    const report = aggregateWrappedEvents([
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { clientIp: "192.168.0.30" }),
+      playbackEvent(2, "pause", 60, "2026-07-10T10:01:00.000Z", { clientIp: "192.168.0.30" }),
+      playbackEvent(3, "play", 0, "2026-07-10T11:00:00.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
+      playbackEvent(4, "pause", 30, "2026-07-10T11:00:30.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
+      playbackEvent(5, "play", 30, "2026-07-10T11:01:00.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
+      playbackEvent(6, "pause", 60, "2026-07-10T11:01:30.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
+      playbackEvent(7, "pause", 50, "2026-07-10T12:00:00.000Z", { clientIp: "192.168.0.40" }),
+      playbackEvent(8, "play", 0, "2026-07-10T13:00:00.000Z", { clientIp: "192.168.0.50" }),
+    ], from, to);
+
+    expect(report.deviceContributions.map((device) => device.ip)).toEqual(["192.168.0.20", "192.168.0.30"]);
+    expect(report.deviceContributions[0]).toMatchObject({ label: "Office", playCount: 2, totalTime: 60 });
+    expect(report.deviceContributions[1]).toMatchObject({ label: "192.168.0.30", playCount: 1, totalTime: 60 });
+  });
+
   it("can describe an annual Wrapped period", () => {
     const report = aggregateWrappedEvents(
       [],
@@ -273,9 +309,36 @@ describe("aggregateWrappedEvents", () => {
       topMedia: [],
       timeline: [],
       topCategories: [],
+      deviceContributions: [],
       rhythm: { peakHour: null, longestStreak: 0 },
       milestones: { firstPlayAt: null, biggestDay: null },
     });
+  });
+});
+
+describe("getCurrentWrapped", () => {
+  it("queries every IP and resolves the most specific whitelist description", async () => {
+    let capturedSql = "";
+    let capturedParams = [];
+    const fastify = {
+      pg: {
+        async query(sql, params) {
+          capturedSql = sql;
+          capturedParams = params;
+          return { rows: [] };
+        },
+      },
+    };
+    const from = new Date("2026-07-01T00:00:00.000Z");
+    const to = new Date("2026-07-30T23:59:59.000Z");
+
+    const report = await getCurrentWrapped(fastify, { clientIp: "192.168.0.99" }, from, to);
+
+    expect(capturedParams).toEqual([from.toISOString(), to.toISOString()]);
+    expect(capturedSql).toContain("pe.client_ip::text AS client_ip");
+    expect(capturedSql).toContain("ORDER BY masklen(iw.cidr_range) DESC");
+    expect(capturedSql).not.toContain("pe.client_ip =");
+    expect(report).toMatchObject({ clientIp: "192.168.0.99", scope: "all-devices", deviceContributions: [] });
   });
 });
 

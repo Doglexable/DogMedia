@@ -172,6 +172,7 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
   const openByMedia = new Map();
   const mediaStats = new Map();
   const categoryStats = new Map();
+  const deviceStats = new Map();
   const dayStats = new Map();
   const hourTime = Array.from({ length: 24 }, () => 0);
   let totalPlays = 0;
@@ -194,17 +195,35 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
     return mediaStats.get(mediaId);
   };
 
+  const getDevice = (event) => {
+    const rawIp = eventValue(event, "clientIp", "client_ip");
+    const ip = typeof rawIp === "string" ? rawIp.trim() : String(rawIp || "").trim();
+    if (!ip) return { key: "unknown", stats: null };
+
+    const rawLabel = eventValue(event, "deviceLabel", "device_label");
+    const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim() : ip;
+    if (!deviceStats.has(ip)) {
+      deviceStats.set(ip, { ip, label, playCount: 0, totalTime: 0 });
+    } else if (deviceStats.get(ip).label === ip && label !== ip) {
+      deviceStats.get(ip).label = label;
+    }
+    return { key: ip, stats: deviceStats.get(ip) };
+  };
+
   for (const event of sortedEvents) {
     const action = eventValue(event, "action");
     const media = ensureMedia(event);
     if (!media) continue;
     const mediaId = media.mediaId;
+    const device = getDevice(event);
+    const sessionKey = `${device.key}\u0000${mediaId}`;
     const occurredAt = new Date(eventValue(event, "occurredAt", "occurred_at"));
     if (Number.isNaN(occurredAt.getTime())) continue;
 
     if (action === "play") {
       totalPlays += 1;
       media.playCount += 1;
+      if (device.stats) device.stats.playCount += 1;
       if (!firstPlayAt) firstPlayAt = occurredAt.toISOString();
       const date = shiftedDateParts(occurredAt, timezoneOffset).date;
       const day = dayStats.get(date) || { date, playTime: 0, plays: 0 };
@@ -220,19 +239,20 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
       };
       category.playCount += 1;
       categoryStats.set(categoryKey, category);
-      openByMedia.set(mediaId, {
+      openByMedia.set(sessionKey, {
         occurredAt,
         position: normalizeNonNegativeInt(eventValue(event, "position")),
         duration: normalizeNonNegativeInt(eventValue(event, "duration")),
         categoryKey,
+        deviceIp: device.stats?.ip || null,
       });
       continue;
     }
 
     if (!["pause", "end", "skip"].includes(action)) continue;
-    const start = openByMedia.get(mediaId);
+    const start = openByMedia.get(sessionKey);
     if (!start) continue;
-    openByMedia.delete(mediaId);
+    openByMedia.delete(sessionKey);
 
     const endPosition = normalizeNonNegativeInt(eventValue(event, "position"));
     const positionDelta = Math.max(endPosition - start.position, 0);
@@ -244,6 +264,9 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
     totalPlayTime += listened;
     segmentCount += 1;
     media.totalTime += listened;
+    if (start.deviceIp && deviceStats.has(start.deviceIp)) {
+      deviceStats.get(start.deviceIp).totalTime += listened;
+    }
     const startParts = shiftedDateParts(start.occurredAt, timezoneOffset);
     const hour = startParts.hour;
     hourTime[hour] += listened;
@@ -284,6 +307,14 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
   const nightShare = totalPlayTime ? nightTime / totalPlayTime : 0;
   const activeDays = timeline.length;
   const persona = deriveWrappedPersona({ averageSession, distinctMedia, leadShare, nightShare, totalPlayTime });
+  const deviceContributions = [...deviceStats.values()]
+    .filter((device) => device.totalTime > 0)
+    .sort((a, b) => b.totalTime - a.totalTime || b.playCount - a.playCount || a.ip.localeCompare(b.ip))
+    .map((device, index) => ({
+      ...device,
+      rank: index + 1,
+      share: totalPlayTime ? device.totalTime / totalPlayTime : 0,
+    }));
 
   return {
     period: {
@@ -307,6 +338,7 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
     },
     milestones: { firstPlayAt, biggestDay: busiestDay },
     topCategories,
+    deviceContributions,
     persona,
   };
 }
@@ -503,9 +535,9 @@ export async function getWrappedAccessStatus(client, clientIp) {
   return mapWrappedAccessStatus(rows[0]);
 }
 
-async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 0, options = {}) {
+export async function getCurrentWrapped(fastify, request, from, to, timezoneOffset = 0, options = {}) {
   const clientIp = request.clientIp || request.ip;
-  const params = [from.toISOString(), to.toISOString(), clientIp];
+  const params = [from.toISOString(), to.toISOString()];
   const { rows } = await fastify.pg.query(
     `SELECT
        pe.id,
@@ -515,15 +547,23 @@ async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 
        pe.duration,
        pe.title,
        pe.occurred_at,
+       pe.client_ip::text AS client_ip,
+       COALESCE(NULLIF(BTRIM(device.description), ''), pe.client_ip::text) AS device_label,
        ma.title AS media_title,
        ma.category_id,
        c.name AS category_name
      FROM playback_events pe
      LEFT JOIN media_assets ma ON ma.id = pe.media_id
      LEFT JOIN categories c ON c.id = ma.category_id
+     LEFT JOIN LATERAL (
+       SELECT iw.description
+       FROM ip_whitelist iw
+       WHERE pe.client_ip <<= iw.cidr_range
+       ORDER BY masklen(iw.cidr_range) DESC
+       LIMIT 1
+     ) device ON true
      WHERE pe.occurred_at >= $1
        AND pe.occurred_at <= $2
-       AND pe.client_ip = $3::inet
      ORDER BY pe.occurred_at, pe.id`,
     params
   );
@@ -531,6 +571,7 @@ async function getCurrentIpWrapped(fastify, request, from, to, timezoneOffset = 
 
   return {
     clientIp,
+    scope: "all-devices",
     periodStart: wrapped.period.start,
     periodEnd: wrapped.period.end,
     wrappedKind: options.wrappedKind || "monthly",
@@ -568,7 +609,7 @@ export default async function (fastify) {
     if (annual?.available) {
       const from = new Date(annual.period.start);
       const to = new Date(annual.period.end);
-      const wrapped = await getCurrentIpWrapped(fastify, request, from, to, timezoneOffset, {
+      const wrapped = await getCurrentWrapped(fastify, request, from, to, timezoneOffset, {
         periodKind: annual.period.kind,
         periodDays: annual.period.days,
         wrappedKind: annual.wrappedKind,
@@ -604,7 +645,7 @@ export default async function (fastify) {
         });
     }
 
-    const wrapped = await getCurrentIpWrapped(fastify, request, from, to, timezoneOffset);
+    const wrapped = await getCurrentWrapped(fastify, request, from, to, timezoneOffset);
     return {
       ...wrapped,
       access: {

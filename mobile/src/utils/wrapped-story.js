@@ -95,6 +95,7 @@ export function buildRibbonBars(timeline) {
 
 export function buildWrappedSlides(data, timeline) {
   const topMedia = Array.isArray(data?.topMedia) ? data.topMedia : [];
+  const deviceContributions = Array.isArray(data?.deviceContributions) ? data.deviceContributions : [];
   const lead = topMedia[0] || null;
   const persona = data?.persona || {
     key: "steady-signal",
@@ -108,6 +109,7 @@ export function buildWrappedSlides(data, timeline) {
     { id: "time", bars: buildRibbonBars(timeline) },
     { id: "top-media", items: topMedia },
     { id: "rhythm", rhythm: data?.rhythm || {}, categories: data?.topCategories || [] },
+    { id: "devices", items: deviceContributions.slice(0, 5), totalCount: deviceContributions.length },
     { id: "persona", persona },
     { id: "final", lead, persona },
   ];

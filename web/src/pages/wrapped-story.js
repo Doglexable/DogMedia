@@ -107,6 +107,7 @@ export function buildWaveformPoints(timeline, width = 100, height = 40) {
 
 export function buildWrappedSlides(data, timeline) {
   const topMedia = Array.isArray(data?.topMedia) ? data.topMedia : [];
+  const deviceContributions = Array.isArray(data?.deviceContributions) ? data.deviceContributions : [];
   const lead = topMedia[0] || null;
   const rhythm = data?.rhythm || {};
   const persona = data?.persona || {
@@ -121,6 +122,7 @@ export function buildWrappedSlides(data, timeline) {
     { id: "time", totalPlayTime: Number(data?.totalPlayTime || 0), waveform: buildWaveformPoints(timeline) },
     { id: "top-media", items: topMedia },
     { id: "rhythm", rhythm, categories: data?.topCategories || [] },
+    { id: "devices", items: deviceContributions.slice(0, 5), totalCount: deviceContributions.length },
     { id: "persona", persona },
     { id: "share", lead, persona, totalPlayTime: Number(data?.totalPlayTime || 0) },
   ];

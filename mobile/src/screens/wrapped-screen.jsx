@@ -221,13 +221,13 @@ function MediaTile({ lead = false, media, styles }) {
 }
 
 function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappedCopy }) {
-  const { styles } = useWrappedTheme();
+  const { colors, styles } = useWrappedTheme();
   const scale = Math.min(cardWidth / 430, 1);
   const lead = data.topMedia?.[0] || slide.lead;
   const persona = data.persona || slide.persona || {};
   const totals = data.totals || {};
   const rhythm = data.rhythm || {};
-  const darkProgress = ["time", "top-media", "rhythm", "persona"].includes(slide.id);
+  const darkProgress = ["time", "top-media", "rhythm", "devices", "persona"].includes(slide.id);
   const cardStyle = [styles.storyCard, { width: cardWidth, height: cardHeight }];
 
   let content;
@@ -285,6 +285,31 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
           <RhythmCell label="After dark" value={`${Math.round((rhythm.nightShare || 0) * 100)}%`} styles={styles} />
           <RhythmCell label="Top folder" value={data.topCategories?.[0]?.name || "Still forming"} styles={styles} />
         </View>
+      </View>
+    );
+  } else if (slide.id === "devices") {
+    const remainingDevices = Math.max((slide.totalCount || 0) - slide.items.length, 0);
+    content = (
+      <View style={[cardStyle, styles.devicesSlide, { padding: 26 * scale }]}>
+        <Text style={styles.devicesKicker}>All-device contribution</Text>
+        <Text style={[styles.devicesTitle, { fontSize: 46 * scale, lineHeight: 42 * scale }]}>One library. Every screen.</Text>
+        <Text style={styles.devicesLede}>Listening time ranked across your network.</Text>
+        {slide.items.length ? (
+          <View style={styles.deviceStoryList}>
+            {slide.items.map((device) => (
+              <View key={device.ip} style={styles.deviceStoryRow}>
+                <Text style={styles.deviceStoryRank}>{String(device.rank).padStart(2, "0")}</Text>
+                <View style={styles.deviceStoryCopy}>
+                  <Text style={styles.deviceStoryTitle} numberOfLines={1}>{device.label || device.ip}</Text>
+                  <Text style={styles.deviceStoryMeta} numberOfLines={1}>{device.ip} / {formatNumber(device.playCount)} plays</Text>
+                  <View style={styles.deviceStoryTrack}><View style={[styles.deviceStoryFill, { width: `${Math.max((device.share || 0) * 100, 3)}%` }]} /></View>
+                </View>
+                <Text style={styles.deviceStoryTime}>{fmtTime(device.totalTime)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : <Text style={styles.deviceStoryEmpty}>Device contributions will appear after a complete playback session.</Text>}
+        {remainingDevices > 0 && <Text style={styles.deviceStoryMore}>+{remainingDevices} more {remainingDevices === 1 ? "device" : "devices"} in the full report</Text>}
       </View>
     );
   } else if (slide.id === "persona") {
@@ -351,6 +376,7 @@ function storyChapter(id) {
     time: "Time in motion",
     "top-media": "Your rotation",
     rhythm: "Listening clock",
+    devices: "Device contributions",
     persona: "Playback character",
     final: "Final recap",
   })[id] || "Recap";
@@ -552,14 +578,41 @@ function CategoryList({ categories }) {
   );
 }
 
+function DeviceContributionList({ devices, maxDeviceTime }) {
+  const { styles } = useWrappedTheme();
+  if (!devices.length) return <Text style={styles.emptyNote}>Device contributions will appear after a complete playback session.</Text>;
+  return (
+    <View style={styles.deviceList}>
+      {devices.map((device) => {
+        const pct = Math.max(((device.totalTime || 0) / maxDeviceTime) * 100, 3);
+        return (
+          <View key={device.ip} style={styles.deviceRow}>
+            <Text style={styles.rank}>{device.rank}</Text>
+            <View style={styles.deviceCopy}>
+              <View style={styles.deviceHeading}>
+                <Text style={styles.deviceTitle} numberOfLines={1}>{device.label || device.ip}</Text>
+                <Text style={styles.deviceTime}>{fmtTime(device.totalTime)}</Text>
+              </View>
+              <Text style={styles.deviceMeta} numberOfLines={1}>{device.label && device.label !== device.ip ? `${device.ip} / ` : ""}{formatNumber(device.playCount)} plays / {Math.round((device.share || 0) * 100)}%</Text>
+              <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${pct}%` }]} /></View>
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) {
   const { styles } = useWrappedTheme();
   const topMedia = data.topMedia || [];
+  const deviceContributions = data.deviceContributions || [];
   const totalPlayTime = data.totalPlayTime || 0;
   const totalPlays = data.totalPlays || 0;
   const activeDays = data.totals?.activeDays ?? timeline.filter((day) => day.playTime || day.plays).length;
   const maxDayTime = Math.max(...timeline.map((day) => day.playTime), 1);
   const maxMediaTime = Math.max(...topMedia.map((media) => media.totalTime || 0), 1);
+  const maxDeviceTime = Math.max(...deviceContributions.map((device) => device.totalTime || 0), 1);
   const busiestDay = data.rhythm?.busiestDay || [...timeline].sort((a, b) => b.playTime - a.playTime)[0];
   const localWeekday = getBusiestWeekday(timeline);
   const busiestWeekday = data.rhythm?.busiestWeekday || localWeekday;
@@ -568,7 +621,7 @@ function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) 
   return (
     <ScrollView style={styles.summaryScreen} contentContainerStyle={[styles.summaryContent, { paddingBottom: 32 + insets.bottom }]} showsVerticalScrollIndicator={false}>
       <View style={styles.summaryHero}>
-        <Text style={styles.summaryEyebrow}>This device / {periodLabel}</Text>
+        <Text style={styles.summaryEyebrow}>All devices / {periodLabel}</Text>
         <Text style={styles.summaryHeroTitle}>Your playback pulse</Text>
         <Text style={styles.summaryHeroSubtitle}>{wrappedCopy.storyDescription}</Text>
         <View style={styles.metrics}>
@@ -604,6 +657,11 @@ function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) 
       <View style={styles.panel}>
         <SectionHeading title="Top media" detail="Ranked by tracked time" />
         <TopMediaList media={topMedia} maxMediaTime={maxMediaTime} />
+      </View>
+
+      <View style={styles.panel}>
+        <SectionHeading title="Device contributions" detail="Combined listening time across your network" value={`${formatNumber(deviceContributions.length)} active`} />
+        <DeviceContributionList devices={deviceContributions} maxDeviceTime={maxDeviceTime} />
       </View>
 
       <View style={styles.panel}>
@@ -790,6 +848,21 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   rhythmCell: { width: "50%", minHeight: 92, justifyContent: "space-between", padding: 12, borderRightWidth: 1, borderBottomWidth: 1, borderColor: alpha(colors.text, 0.62) },
   rhythmLabel: { color: colors.text, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   rhythmValue: { color: colors.text, fontSize: 15, lineHeight: 17, fontWeight: "900" },
+  devicesSlide: { backgroundColor: colors.text },
+  devicesKicker: { color: colors.bg, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
+  devicesTitle: { maxWidth: 340, marginTop: 20, color: colors.primary, fontFamily: DISPLAY_FONT, fontWeight: "900" },
+  devicesLede: { marginTop: 9, color: alpha(colors.bg, 0.68), fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  deviceStoryList: { marginTop: "auto", marginBottom: 18 },
+  deviceStoryRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: alpha(colors.bg, 0.24) },
+  deviceStoryRank: { width: 25, color: colors.primary, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
+  deviceStoryCopy: { flex: 1, minWidth: 0, gap: 3 },
+  deviceStoryTitle: { color: colors.bg, fontSize: 11, fontWeight: "900" },
+  deviceStoryMeta: { color: alpha(colors.bg, 0.58), fontFamily: MONO_FONT, fontSize: 7, fontWeight: "700" },
+  deviceStoryTrack: { height: 3, overflow: "hidden", backgroundColor: alpha(colors.bg, 0.14) },
+  deviceStoryFill: { height: "100%", backgroundColor: colors.primary },
+  deviceStoryTime: { color: colors.bg, fontFamily: MONO_FONT, fontSize: 9, fontWeight: "900" },
+  deviceStoryEmpty: { marginTop: "auto", marginBottom: 30, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: alpha(colors.bg, 0.24), color: alpha(colors.bg, 0.68), fontFamily: MONO_FONT, fontSize: 9, lineHeight: 15, fontWeight: "800" },
+  deviceStoryMore: { marginTop: -9, marginBottom: 18, color: alpha(colors.bg, 0.62), fontFamily: MONO_FONT, fontSize: 8, fontWeight: "800" },
   personaSlide: { backgroundColor: colors.primary },
   personaMark: { alignItems: "center", justifyContent: "center", marginTop: "14%", marginBottom: 20, borderWidth: 3, borderColor: colors.text },
   personaInitial: { color: colors.text, fontFamily: DISPLAY_FONT, fontWeight: "900" },
@@ -861,6 +934,13 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   mediaCopy: { flex: 1, minWidth: 0, gap: 3 },
   mediaTitle: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: "900" },
   mediaMeta: { color: colors.muted, fontSize: 10, fontWeight: "700" },
+  deviceList: { gap: 4 },
+  deviceRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.cardSoft },
+  deviceCopy: { flex: 1, minWidth: 0, gap: 3 },
+  deviceHeading: { flexDirection: "row", alignItems: "baseline", gap: 10 },
+  deviceTitle: { flex: 1, minWidth: 0, color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: "900" },
+  deviceTime: { color: colors.text, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900" },
+  deviceMeta: { color: colors.muted, fontSize: 10, fontWeight: "700" },
   categoryList: { gap: 4 },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.cardSoft },
   categoryRank: { width: 26, color: colors.primary, fontFamily: MONO_FONT, fontSize: 15, fontWeight: "900", textAlign: "center" },

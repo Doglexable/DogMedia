@@ -1,0 +1,158 @@
+.depth-carousel {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  outline: none;
+  perspective: var(--dc-perspective, 1400px);
+  perspective-origin: 50% 50%;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+.depth-carousel:active {
+  cursor: grabbing;
+}
+.depth-carousel:focus-visible {
+  border-radius: 12px;
+  outline: 2px solid color-mix(in srgb, var(--primary) 72%, var(--text));
+  outline-offset: 3px;
+}
+.depth-carousel__stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  transform-style: preserve-3d;
+}
+.depth-carousel__card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  background: var(--text);
+  box-shadow: 0 34px 72px -24px rgba(0, 0, 0, 0.72), 0 10px 24px -12px rgba(0, 0, 0, 0.56);
+  will-change: transform, opacity, filter;
+  cursor: pointer;
+}
+.depth-carousel__content,
+.depth-carousel__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.depth-carousel__img {
+  object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.depth-carousel__tint {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+.depth-carousel__arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--text) 22%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(12px) saturate(130%);
+  transform: translateY(-50%);
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.depth-carousel__arrow:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 48%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg));
+}
+.depth-carousel__arrow:active:not(:disabled) {
+  transform: translateY(-50%) scale(0.94);
+}
+.depth-carousel__arrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.depth-carousel__arrow--prev {
+  left: max(12px, calc(50% - 370px));
+}
+.depth-carousel__arrow--next {
+  right: max(12px, calc(50% - 370px));
+}
+.depth-carousel__dots {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(12px) saturate(130%);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.depth-carousel__dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+  transition: width 180ms ease, background 180ms ease;
+  cursor: pointer;
+}
+.depth-carousel__dot.is-active {
+  width: 22px;
+  background: var(--primary);
+}
+.depth-carousel__arrow:focus-visible,
+.depth-carousel__dot:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .depth-carousel__arrow {
+    top: auto;
+    bottom: 4px;
+    width: 38px;
+    height: 38px;
+    transform: none;
+  }
+  .depth-carousel__arrow:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+  .depth-carousel__arrow--prev {
+    left: 8px;
+  }
+  .depth-carousel__arrow--next {
+    right: 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .depth-carousel__card {
+    will-change: auto;
+  }
+  .depth-carousel__arrow,
+  .depth-carousel__dot {
+    transition: none;
+  }
+}
