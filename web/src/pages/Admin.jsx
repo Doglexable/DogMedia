@@ -1590,11 +1590,11 @@ export default function Admin() {
     <>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div className="premium-app-shell" style={styles.page}>
-        <header className="app-header" style={styles.header}>
+        <header className="app-header admin-vault-header" style={styles.header}>
           <div style={styles.headerBlock}>
             <div>
-              <div style={styles.headerTitle}>Admin Panel</div>
-              <div style={styles.headerNote}>Tree categories and selected-category media management</div>
+              <div className="admin-vault-title" style={styles.headerTitle}>Vault controls</div>
+              <div className="admin-vault-note" style={styles.headerNote}>Categories, media, and app distribution</div>
             </div>
           </div>
           <div style={styles.headerActions}>
@@ -1621,7 +1621,7 @@ export default function Admin() {
           </div>
         </header>
 
-        <main className="app-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
+        <main className="app-main admin-vault-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
           {message && (
             <div style={styles.notice(message.type)}>
               <span>{message.type === "error" ? "⚠️" : "✅"}</span>

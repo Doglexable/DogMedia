@@ -279,7 +279,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           />
           <span className="min-w-0">
             <strong>DogMedia</strong>
-            <small>Media library</small>
+            <small>Private media vault</small>
           </span>
         </Link>
 

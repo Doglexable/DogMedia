@@ -17,7 +17,6 @@ function formatCardDuration(seconds) {
 }
 
 function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPlayNext, onToggleLike }) {
-  const [hovered, setHovered] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
   const [menu, setMenu] = useState(null);
   const meta = getMimeMeta(item.mime_type);
@@ -59,12 +58,6 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
   return (
     <article
       className={`media-card${isActive ? " media-card--active" : ""}`}
-      style={{
-        transform: hovered ? "translateY(-3px)" : "none",
-        boxShadow: isActive ? "0 0 0 1px var(--primary)" : hovered ? "0 8px 24px rgba(0,0,0,0.12)" : "none",
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       onContextMenu={(event) => {
         event.preventDefault();
         setMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 145) });

@@ -10,6 +10,7 @@ import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
 import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
 import { formatDuration } from "../components/global-player/player-utils";
+import SpotlightCard from "../components/SpotlightCard";
 
 const NOW_PLAYING_POLL_MS = 10000;
 const NOW_PLAYING_TICK_MS = 1000;
@@ -204,31 +205,43 @@ function QuickAccessCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, 
 function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
   if (!item) return null;
   const description = item.description?.trim();
+  const meta = getMimeMeta(item.mime_type);
 
   return (
-    <section className="library-featured">
-      <div className="library-featured-copy">
-        <h1>{item.title}</h1>
-        {description && <p>{description}</p>}
-        <div className="library-featured-actions">
-          <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
-            <FontAwesomeIcon icon={faPlay} />
-            Play
-          </button>
-          <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
-            <FontAwesomeIcon icon={faList} />
-            Play next
-          </button>
-          <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
-            <FontAwesomeIcon icon={faPlus} />
-            Queue
-          </button>
+    <SpotlightCard
+      className="library-featured"
+      spotlightColor="color-mix(in srgb, var(--playback-signal) 22%, transparent)"
+    >
+      <section className="library-featured-inner" aria-labelledby={`featured-media-${item.id}`}>
+        <div className="library-featured-copy">
+          <p className="library-eyebrow">Featured signal · {meta.label}</p>
+          <h1 id={`featured-media-${item.id}`}>{item.title}</h1>
+          <p className="library-featured-meta">
+            <span>{mediaCategory(item)}</span>
+            {item.duration > 0 && <span>{formatDuration(item.duration)}</span>}
+          </p>
+          {description && <p className="library-featured-description">{description}</p>}
+          <div className="library-featured-actions">
+            <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
+              <FontAwesomeIcon icon={faPlay} />
+              Play
+            </button>
+            <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
+              <FontAwesomeIcon icon={faList} />
+              Play next
+            </button>
+            <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
+              <FontAwesomeIcon icon={faPlus} />
+              Queue
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="library-featured-art">
-        <MediaCover item={item} size="hero" />
-      </div>
-    </section>
+        <div className="library-featured-art">
+          <div className="library-signal-disc" aria-hidden="true" />
+          <MediaCover item={item} size="hero" />
+        </div>
+      </section>
+    </SpotlightCard>
   );
 }
 
@@ -992,28 +1005,42 @@ export default function Dashboard() {
           <MediaGridSkeleton />
         ) : visibleMedia.length > 0 ? (
           <div className="library-home">
-            {!normalizedSearch && <section className="quick-access-section" aria-label="Quick access">
-              {quickAccessMedia.map((item) => (
-                <QuickAccessCard
-                  key={item.id}
-                  active={Number(currentMediaId) === Number(item.id)}
-                  isLiked={player?.isLiked?.(item.id) || false}
-                  item={item}
-                  onAddQueue={player?.addToQueue}
-                  onNotice={setNotice}
+            {!normalizedSearch && (
+              <div className="vault-reveal">
+                <FeaturedPanel
+                  item={featuredMedia}
+                  onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
                   onPlay={playMedia}
-                  onPlayNext={player?.playNext}
-                  onToggleLike={player?.toggleLike}
+                  onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
                 />
-              ))}
-            </section>}
+              </div>
+            )}
 
-            {!normalizedSearch && <FeaturedPanel
-              item={featuredMedia}
-              onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
-              onPlay={playMedia}
-              onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
-            />}
+            {!normalizedSearch && (
+              <section className="quick-access-block vault-reveal vault-reveal--delayed" aria-labelledby="quick-access-heading">
+                <div className="library-section-header">
+                  <div>
+                    <p className="library-section-kicker">Recent rotation</p>
+                    <h2 id="quick-access-heading">Pick up where you left off</h2>
+                  </div>
+                </div>
+                <div className="quick-access-section">
+                  {quickAccessMedia.map((item) => (
+                    <QuickAccessCard
+                      key={item.id}
+                      active={Number(currentMediaId) === Number(item.id)}
+                      isLiked={player?.isLiked?.(item.id) || false}
+                      item={item}
+                      onAddQueue={player?.addToQueue}
+                      onNotice={setNotice}
+                      onPlay={playMedia}
+                      onPlayNext={player?.playNext}
+                      onToggleLike={player?.toggleLike}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
 
             <VirtualMediaGrid
               activeId={currentMediaId}
