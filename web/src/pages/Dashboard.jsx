@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookmark, faChevronRight, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
 import { api, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
@@ -227,71 +227,6 @@ function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
       </div>
       <div className="library-featured-art">
         <MediaCover item={item} size="hero" />
-      </div>
-    </section>
-  );
-}
-
-function RowCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike, type }) {
-  const [menu, setMenu] = useState(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
-  const meta = getMimeMeta(item.mime_type);
-  const circular = type === "profile" || type === "radio";
-  return (
-    <>
-      <button
-        type="button"
-        className={`library-row-card library-row-card--${type}${active ? " library-row-card--active" : ""}`}
-        onClick={() => onPlay(item)}
-        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
-      >
-        <MediaCover circular={circular} item={item} size={type === "playlist" ? "wide" : "regular"} />
-        <span className="library-row-card-copy">
-          <strong title={item.title}>{item.title}</strong>
-          <small>{type === "radio" ? "Station" : item.artists || mediaCategory(item) || meta.label}</small>
-        </span>
-      </button>
-      <MediaContextMenu
-        isLiked={isLiked}
-        item={item}
-        menu={menu}
-        onAddQueue={onAddQueue}
-        onClose={closeMenu}
-        onNotice={onNotice}
-        onPlayNext={onPlayNext}
-        onToggleLike={onToggleLike}
-      />
-    </>
-  );
-}
-
-function ContentRow({ activeId, isLiked, items, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike, title, type = "square" }) {
-  if (items.length === 0) return null;
-
-  return (
-    <section className="library-content-section">
-      <div className="library-section-header">
-        <h2>{title}</h2>
-        <button type="button">
-          Show All
-          <FontAwesomeIcon icon={faChevronRight} />
-        </button>
-      </div>
-      <div className="library-card-row" tabIndex={0}>
-        {items.map((item) => (
-          <RowCard
-            key={`${title}-${item.id}`}
-            active={Number(activeId) === Number(item.id)}
-            isLiked={isLiked?.(item.id) || false}
-            item={item}
-            onAddQueue={onAddQueue}
-            onNotice={onNotice}
-            onPlay={onPlay}
-            onPlayNext={onPlayNext}
-            onToggleLike={onToggleLike}
-            type={type}
-          />
-        ))}
       </div>
     </section>
   );
@@ -901,33 +836,12 @@ export default function Dashboard() {
     return ordered;
   }, [visibleMedia, visibleMediaById]);
   const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || null;
-  const quickAccessMedia = orderMediaByIds(dashboardSummary?.quickAccessIds, visibleMedia, 8);
-  const fallbackRows = useMemo(() => [
-    { title: "Recently added", type: "square", items: visibleMedia.slice(0, 14) },
-  ], [visibleMedia]);
-  const libraryRows = useMemo(() => {
-    if (!Array.isArray(dashboardSummary?.rows) || dashboardSummary.rows.length === 0) return fallbackRows;
-
-    const hiddenRows = new Set([
-      "Artists and voices",
-      "Playlists from this view",
-      "Podcast-style listens",
-      "Video stations",
-      "Photo shelf",
-    ]);
-    return dashboardSummary.rows
-      .filter((row) => row.key !== "top-media" && row.title !== "Most played" && !hiddenRows.has(row.title))
-      .map((row, index) => ({
-        key: row.key || `media-row-${index}`,
-        title: row.title || fallbackRows[index]?.title || "Media",
-        type: row.type || fallbackRows[index]?.type || "square",
-        items: orderMediaByIds(row.mediaIds, fallbackRows[index]?.items || visibleMedia, 14),
-      }));
-  }, [dashboardSummary, fallbackRows, orderMediaByIds, visibleMedia]);
-  const recentlyPlayedRow = libraryRows.find((row) => row.key === "recently-played" || row.title === "Recently played")
-    || libraryRows[0]
-    || null;
-  const remainingLibraryRows = libraryRows.filter((row) => row !== recentlyPlayedRow);
+  const recentlyPlayedIds = dashboardSummary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
+  const quickAccessMedia = orderMediaByIds(
+    recentlyPlayedIds || dashboardSummary?.quickAccessIds,
+    visibleMedia,
+    8
+  );
 
   const playMedia = useCallback((item) => {
     playMediaAction?.(item, libraryView === "liked" ? null : selectedCategory);
@@ -1094,20 +1008,6 @@ export default function Dashboard() {
               ))}
             </section>}
 
-            {!normalizedSearch && recentlyPlayedRow && <ContentRow
-              key={recentlyPlayedRow.key || recentlyPlayedRow.title}
-              activeId={currentMediaId}
-              isLiked={player?.isLiked}
-              items={recentlyPlayedRow.items}
-              onAddQueue={player?.addToQueue}
-              onNotice={setNotice}
-              onPlay={playMedia}
-              onPlayNext={player?.playNext}
-              onToggleLike={player?.toggleLike}
-              title={recentlyPlayedRow.title}
-              type={recentlyPlayedRow.type}
-            />}
-
             {!normalizedSearch && <FeaturedPanel
               item={featuredMedia}
               onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
@@ -1115,21 +1015,6 @@ export default function Dashboard() {
               onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
             />}
 
-            {!normalizedSearch && remainingLibraryRows.map((row) => (
-              <ContentRow
-                key={row.key || row.title}
-                activeId={currentMediaId}
-                isLiked={player?.isLiked}
-                items={row.items}
-                onAddQueue={player?.addToQueue}
-                onNotice={setNotice}
-                onPlay={playMedia}
-                onPlayNext={player?.playNext}
-                onToggleLike={player?.toggleLike}
-                title={row.title}
-                type={row.type}
-              />
-            ))}
             <VirtualMediaGrid
               activeId={currentMediaId}
               hasMore={Boolean(nextCursor)}

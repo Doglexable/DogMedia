@@ -57,7 +57,7 @@ export function VirtualMediaGrid({
   })), [columns, items, rows]);
 
   return (
-    <section className="library-content-section" aria-label="Browse media">
+    <section className="library-browse-section" aria-label="Browse media">
       <div className="library-section-header"><h2>Browse</h2></div>
       <div ref={containerRef} style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
         {renderedRows.map(({ virtualRow, rowItems }) => (

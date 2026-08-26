@@ -58,29 +58,6 @@ function Featured({ colors, item, onPlay, styles }) {
   );
 }
 
-function Row({ items, likedIds, onPlay, onPlayNext, onQueue, onToggleLike, styles, title }) {
-  if (!items.length) return null;
-  return (
-    <View style={styles.rowSection}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-        {items.map((item) => (
-          <MediaCard
-            compact
-            key={`${title}-${item.id}`}
-            item={item}
-            liked={likedIds.has(Number(item.id))}
-            onPress={onPlay}
-            onPlayNext={onPlayNext}
-            onQueue={onQueue}
-            onToggleLike={onToggleLike}
-          />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
 export function DashboardScreen({ navigation }) {
   const player = usePlayerLibrary();
   const offline = useOffline();
@@ -177,21 +154,8 @@ export function DashboardScreen({ navigation }) {
     return result;
   }, [summary, visibleMedia]);
   const featured = byId.get(Number(summary?.featuredId)) || visibleMedia[0] || null;
-  const quickAccess = orderMediaByIds(summary?.quickAccessIds, byId, visibleMedia, 8);
-  const rows = Array.isArray(summary?.rows) && summary.rows.length
-    ? summary.rows
-      .filter((row) => row.key !== "top-media" && row.title !== "Most played")
-      .slice(0, 3)
-      .map((row, index) => ({
-      key: row.key || `media-row-${index}`,
-      title: row.title || `Shelf ${index + 1}`,
-      items: orderMediaByIds(row.mediaIds, byId, visibleMedia, 12),
-    }))
-    : [{ key: "recently-added", title: "Recently added", items: visibleMedia.slice(0, 12) }];
-  const recentlyPlayedRow = rows.find((row) => row.key === "recently-played" || row.title === "Recently played")
-    || rows[0]
-    || null;
-  const remainingRows = rows.filter((row) => row !== recentlyPlayedRow);
+  const recentlyPlayedIds = summary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
+  const quickAccess = orderMediaByIds(recentlyPlayedIds || summary?.quickAccessIds, byId, visibleMedia, 8);
 
   const play = (item) => {
     player.playMedia(item, selectedCategory)
@@ -274,20 +238,6 @@ export function DashboardScreen({ navigation }) {
         )}
         {notice && <Text style={styles.notice}>{notice}</Text>}
 
-        {!debouncedSearch && recentlyPlayedRow && <Row
-          key={recentlyPlayedRow.key}
-          title={recentlyPlayedRow.title}
-          items={recentlyPlayedRow.items}
-          likedIds={player.likedIds}
-          onPlay={play}
-          onPlayNext={player.playNext}
-          onQueue={player.addToQueue}
-          onToggleLike={toggleLike}
-          styles={styles}
-        />}
-
-        {!debouncedSearch && <Featured colors={colors} item={featured} onPlay={play} styles={styles} />}
-
         {!debouncedSearch && <View style={styles.quickHeader}>
           <Text style={styles.sectionTitle}>Quick access</Text>
           {featured?.artists && <Text style={styles.quickMeta}>{getArtistLabel(featured.artists)}</Text>}
@@ -307,19 +257,7 @@ export function DashboardScreen({ navigation }) {
           ))}
         </ScrollView>}
 
-        {!debouncedSearch && remainingRows.map((row) => (
-          <Row
-            key={row.key}
-            title={row.title}
-            items={row.items}
-            likedIds={player.likedIds}
-            onPlay={play}
-            onPlayNext={player.playNext}
-            onQueue={player.addToQueue}
-            onToggleLike={toggleLike}
-            styles={styles}
-          />
-        ))}
+        {!debouncedSearch && <Featured colors={colors} item={featured} onPlay={play} styles={styles} />}
         {visibleMedia.length > 0 && <Text style={styles.sectionTitle}>Browse</Text>}
         </>}
         ListFooterComponent={loadingMore ? <Text style={styles.loadingMore}>Loading more media…</Text> : null}
@@ -465,9 +403,6 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
     color: colors.text,
     fontSize: 18,
     fontWeight: "900",
-  },
-  rowSection: {
-    gap: spacing.md,
   },
   row: {
     gap: spacing.md,

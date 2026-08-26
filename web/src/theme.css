@@ -2227,30 +2227,25 @@ body {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 70%, transparent);
 }
 
-.quick-access-copy,
-.library-row-card-copy {
+.quick-access-copy {
   display: grid;
   min-width: 0;
   gap: 4px;
 }
 
 .quick-access-copy strong,
-.quick-access-copy small,
-.library-row-card-copy strong,
-.library-row-card-copy small {
+.quick-access-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.quick-access-copy strong,
-.library-row-card-copy strong {
+.quick-access-copy strong {
   font-size: var(--fs-sm);
   font-weight: 900;
 }
 
-.quick-access-copy small,
-.library-row-card-copy small {
+.quick-access-copy small {
   color: var(--muted);
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -2336,7 +2331,7 @@ body {
   place-items: center;
 }
 
-.library-content-section {
+.library-browse-section {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -2366,40 +2361,6 @@ body {
   font-size: var(--fs-sm);
   font-weight: 900;
   cursor: pointer;
-}
-
-.library-card-row {
-  display: grid;
-  grid-auto-columns: 178px;
-  grid-auto-flow: column;
-  gap: 14px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  padding: 2px 2px 10px;
-  scroll-snap-type: x proximity;
-}
-
-.library-row-card {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-  scroll-snap-align: start;
-}
-
-.library-row-card--active .library-cover {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary);
-}
-
-.library-row-card--playlist,
-.library-row-card--podcast {
-  width: 210px;
 }
 
 .library-cover {
@@ -5667,15 +5628,6 @@ a {
 
   .library-featured h1 {
     font-size: 2.55rem;
-  }
-
-  .library-card-row {
-    grid-auto-columns: 150px;
-  }
-
-  .library-row-card--playlist,
-  .library-row-card--podcast {
-    width: 180px;
   }
 
   .wrapped-metric {
