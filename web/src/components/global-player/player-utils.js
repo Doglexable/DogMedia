@@ -8,9 +8,10 @@ export function formatDuration(seconds) {
 }
 
 export function getMediaMeta(mime = "") {
-  if (mime.startsWith("video/")) return { icon: faVideo, label: "Video" };
-  if (mime.startsWith("audio/")) return { icon: faMusic, label: "Audio" };
-  if (mime.startsWith("image/")) return { icon: faImage, label: "Photo" };
+  const safeMime = typeof mime === "string" ? mime : "";
+  if (safeMime.startsWith("video/")) return { icon: faVideo, label: "Video" };
+  if (safeMime.startsWith("audio/")) return { icon: faMusic, label: "Audio" };
+  if (safeMime.startsWith("image/")) return { icon: faImage, label: "Photo" };
   return { icon: faFile, label: "File" };
 }
 

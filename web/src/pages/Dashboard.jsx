@@ -44,7 +44,7 @@ function playbackStateLabels(session) {
 }
 
 function getMimeMeta(mime) {
-  if (!mime) return { icon: "□", label: "File" };
+  if (typeof mime !== "string") return { icon: "□", label: "File" };
   if (mime.startsWith("video/")) return { icon: "▶", label: "Video" };
   if (mime.startsWith("audio/")) return { icon: "♪", label: "Audio" };
   if (mime.startsWith("image/")) return { icon: "◧", label: "Photo" };

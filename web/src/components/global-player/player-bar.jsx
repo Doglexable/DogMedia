@@ -12,10 +12,10 @@ export function PlayerBar({
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
   shuffleEnabled, sleepTimerRemaining, streamSrc, thumbSrc, volume, onSetSleepTimer,
 }) {
-  const isAudio = currentMedia.mime_type?.startsWith("audio/");
+  const isAudio = Boolean(typeof currentMedia?.mime_type === "string" && currentMedia.mime_type.startsWith("audio/"));
   const artSrc = isImage ? streamSrc : thumbSrc;
   const folder = getMediaFolderName(currentMedia) || "Library";
-  const artists = isAudio ? currentMedia.artists : getMediaMeta(currentMedia.mime_type).label;
+  const artists = isAudio ? currentMedia.artists : getMediaMeta(currentMedia?.mime_type).label;
 
   return (
     <section aria-label="Media player" className="themed-player-bar fixed inset-x-0 bottom-0 z-[180] grid min-h-[var(--player-height)] grid-cols-1 items-center gap-3 border-t border-card-border bg-card px-4 py-3 text-content shadow-[0_-18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5 lg:grid-cols-[minmax(220px,1fr)_minmax(360px,1.5fr)_minmax(220px,1fr)] lg:gap-6">

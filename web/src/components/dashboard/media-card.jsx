@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons";
 
 function getMimeMeta(mime) {
-  if (!mime) return { icon: "📁", label: "File", color: "#888" };
+  if (typeof mime !== "string") return { icon: "📁", label: "File", color: "#888" };
   if (mime.startsWith("video/")) return { icon: "▶️", label: "Video", color: "#4a90d9" };
   if (mime.startsWith("audio/")) return { icon: "🎵", label: "Audio", color: "#9b59b6" };
   if (mime.startsWith("image/")) return { icon: "🖼️", label: "Photo", color: "#27ae60" };

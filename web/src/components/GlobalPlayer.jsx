@@ -115,7 +115,7 @@ export function GlobalPlayerProvider({ children }) {
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
   const isFullPlayer = Number.isFinite(fullMediaId);
-  const currentMime = currentMedia?.mime_type || "";
+  const currentMime = typeof currentMedia?.mime_type === "string" ? currentMedia.mime_type : "";
   const isAudio = currentMime.startsWith("audio/");
   const isVideo = currentMime.startsWith("video/");
   const isImage = currentMime.startsWith("image/");
