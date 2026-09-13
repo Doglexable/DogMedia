@@ -42,3 +42,15 @@ export function getLoopButtonTitle(mode) {
   if (mode === "media") return "Loop media";
   return "No loop";
 }
+
+export function getQueueBoundaryParams(atEnd, queueTotal = 0) {
+  const offset = atEnd ? String(Math.max(queueTotal - 1, 0)) : "0";
+  return new URLSearchParams({ limit: "1", offset });
+}
+
+export function getCompletionAction({ hasLinearNext, loopMode, queueLength = 0 }) {
+  if (loopMode === "media") return "repeat";
+  if (hasLinearNext) return "advance";
+  if (loopMode === "queue" && queueLength > 0) return "wrap";
+  return "stop";
+}

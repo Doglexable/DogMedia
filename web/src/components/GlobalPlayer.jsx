@@ -12,8 +12,10 @@ import { hiddenMediaStyle, playerStyles as styles } from "./global-player/player
 import {
   LOOP_MODES,
   getCategoryQuery as categoryQuery,
+  getCompletionAction,
   getMediaMeta as mediaMeta,
   getNextLoopMode as nextLoopMode,
+  getQueueBoundaryParams,
 } from "./global-player/player-utils";
 
 const PlayerContext = createContext(null);
@@ -83,7 +85,9 @@ export function GlobalPlayerProvider({ children }) {
   const nowPlayingPauseTimerRef = useRef(null);
   const nowPlayingPauseControllerRef = useRef(null);
   const mediaSessionActionsRef = useRef(null);
+  const currentMediaRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
+  currentMediaRef.current = currentMedia;
   const [categoryId, setCategoryId] = useState(null);
   const [paused, setPaused] = useState(true);
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
@@ -258,6 +262,13 @@ export function GlobalPlayerProvider({ children }) {
     pendingSeekPositionRef.current = nextPosition > 0 ? nextPosition : null;
     lastResumeSaveRef.current = nextPosition;
     lastActiveUpdateRef.current = nextPosition;
+
+    if (mediaRef.current && currentMediaRef.current?.id === mediaItem?.id) {
+      mediaRef.current.currentTime = nextPosition;
+      if (autoplay) {
+        mediaRef.current.play().catch(() => {});
+      }
+    }
   }, []);
 
   const loadResumePosition = useCallback((mediaId) => {
@@ -288,9 +299,13 @@ export function GlobalPlayerProvider({ children }) {
     if (currentMedia?.id === numericId) {
       setShouldAutoPlay(autoplay);
       setPaused(!autoplay);
-      if (startPosition > 0) {
-        setPosition(Math.floor(startPosition));
-        pendingSeekPositionRef.current = Math.floor(startPosition);
+      const nextPosition = Math.floor(startPosition || 0);
+      setPosition(nextPosition);
+      if (mediaRef.current) {
+        mediaRef.current.currentTime = nextPosition;
+        if (autoplay) {
+          mediaRef.current.play().catch(() => {});
+        }
       }
       return;
     }
@@ -829,13 +844,18 @@ export function GlobalPlayerProvider({ children }) {
   }, [applyCompactQueueResponse, queueOpen, refreshQueue, shuffleEnabled]);
 
   const playQueueBoundary = useCallback((atEnd, options = {}) => {
-    const params = new URLSearchParams({ limit: "1" });
-    if (atEnd) params.set("offset", String(Math.max(queueTotal - 1, 0)));
+    const params = getQueueBoundaryParams(atEnd, queueTotal);
     api(`/api/queue/window?${params.toString()}`)
       .then((response) => response.json())
       .then((data) => {
         const mediaId = data.items?.[0]?.id;
-        if (mediaId) playQueueId(mediaId, { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+        if (mediaId) {
+          playQueueId(mediaId, { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+        } else if (mediaRef.current) {
+          mediaRef.current.currentTime = 0;
+          setPosition(0);
+          mediaRef.current.play().catch(() => {});
+        }
       })
       .catch(() => {});
   }, [playQueueId, queueTotal]);
@@ -924,6 +944,7 @@ export function GlobalPlayerProvider({ children }) {
     const nextPosition = mediaRef.current?.currentTime || 0;
     const nextDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
     setPaused(false);
+    setShouldAutoPlay(true);
     sendPlaybackEvent(currentMedia, "play", nextPosition, nextDuration);
     sendNowPlaying(currentMedia, "play", nextPosition, nextDuration);
   }, [currentMedia, duration, sendNowPlaying, sendPlaybackEvent]);
@@ -931,6 +952,7 @@ export function GlobalPlayerProvider({ children }) {
   const handlePause = useCallback(() => {
     const nextPosition = mediaRef.current?.currentTime || 0;
     setPaused(true);
+    setShouldAutoPlay(false);
     saveResumePosition(nextPosition, true);
     sendNowPlaying(
       currentMedia,
@@ -970,43 +992,48 @@ export function GlobalPlayerProvider({ children }) {
       mediaRef.current.currentTime = pendingSeekPositionRef.current;
       setPosition(pendingSeekPositionRef.current);
       pendingSeekPositionRef.current = null;
-      return;
+    } else {
+      applyResumePosition();
     }
-    applyResumePosition();
-  }, [applyResumePosition, currentMedia?.duration]);
+    if (shouldAutoPlay && mediaRef.current && mediaRef.current.paused) {
+      mediaRef.current.play().catch(() => {});
+    }
+  }, [applyResumePosition, currentMedia?.duration, shouldAutoPlay]);
 
   const handleEnded = useCallback(() => {
-    sendPlaybackEvent(
-      currentMedia,
-      "end",
-      mediaRef.current?.currentTime || duration || currentMedia?.duration || 0,
-      mediaRef.current?.duration || duration || currentMedia?.duration || 0
-    );
-    sendNowPlaying(
-      currentMedia,
-      "end",
-      mediaRef.current?.currentTime || duration || currentMedia?.duration || 0,
-      mediaRef.current?.duration || duration || currentMedia?.duration || 0
-    );
-    if (loopMode === "media" && mediaRef.current) {
-      mediaRef.current.currentTime = 0;
-      setPosition(0);
-      mediaRef.current.play().catch(() => {});
+    const currentPosition = mediaRef.current?.currentTime || duration || currentMedia?.duration || 0;
+    const currentDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
+
+    sendPlaybackEvent(currentMedia, "end", currentPosition, currentDuration);
+    sendNowPlaying(currentMedia, "end", currentPosition, currentDuration);
+
+    const action = getCompletionAction({
+      hasLinearNext,
+      loopMode,
+      queueLength: queueTotal,
+    });
+
+    if (action === "repeat") {
+      if (mediaRef.current) {
+        mediaRef.current.currentTime = 0;
+        setPosition(0);
+        mediaRef.current.play().catch(() => {});
+      }
       return;
     }
 
-    if (loopMode === "queue" && !hasLinearNext && queueTotal > 0) {
+    if (action === "advance") {
+      advance("next", { skipCurrent: false });
+      return;
+    }
+
+    if (action === "wrap") {
       playQueueBoundary(false, { skipCurrent: false });
       return;
     }
 
-    if (loopMode === "none" && !hasLinearNext) {
-      setPaused(true);
-      setShouldAutoPlay(false);
-      return;
-    }
-
-    advance("next", { skipCurrent: false });
+    setPaused(true);
+    setShouldAutoPlay(false);
   }, [advance, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, sendNowPlaying, sendPlaybackEvent]);
 
   useEffect(() => {
