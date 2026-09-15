@@ -26,7 +26,10 @@ const app = Fastify({
   trustProxy: process.env.TRUST_PROXY || "127.0.0.1",
 });
 
-await app.register(cors, { origin: true });
+await app.register(cors, {
+  origin: true,
+  exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range"],
+});
 await app.register(multipart, {
   limits: {
     fileSize: 1024 * 1024,

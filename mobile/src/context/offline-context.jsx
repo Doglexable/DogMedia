@@ -33,6 +33,7 @@ import {
   OFFLINE_MAX_CONCURRENT_DOWNLOADS,
   resolveOfflineSource,
 } from "../utils/offline";
+import { getStoredMediaQuality } from "../media-quality";
 
 const OfflineContext = createContext(null);
 const OFFLINE_ROOT = `${FileSystem.documentDirectory}offline`;
@@ -49,7 +50,8 @@ function metadataFromManifest(item) {
     category_path: item.category_path, title: item.title, description: item.description,
     track_order: item.track_order,
     artists: item.artists, duration: item.duration, mime_type: item.mime_type,
-    liked: Boolean(item.liked),
+    liked: Boolean(item.liked), quality: item.quality || "ori",
+    available_qualities: item.available_qualities || ["ori"], encoding_status: item.encoding_status || {},
   };
 }
 
@@ -153,7 +155,7 @@ export function OfflineProvider({ children }) {
     if (!current.length) return;
     const result = await apiJson("/api/offline/validate", {
       method: "POST",
-      body: JSON.stringify({ items: current.map((item) => ({ mediaId: item.mediaId, fileVersion: item.fileVersion })) }),
+      body: JSON.stringify({ items: current.map((item) => ({ mediaId: item.mediaId, fileVersion: item.fileVersion, quality: item.quality || "ori" })) }),
     });
     await Promise.all((result.items || []).map((item) => updateStoredDownloadStatus(
       item.mediaId,
@@ -224,7 +226,7 @@ export function OfflineProvider({ children }) {
     await deleteUris(partUri);
     await patchStoredJob(job.mediaId, { state: "downloading", progress: 0, error: null });
     const download = FileSystem.createDownloadResumable(
-      `${API_BASE}/api/offline/media/${item.id}/download`,
+      `${API_BASE}/api/offline/media/${item.id}/download?quality=${encodeURIComponent(item.quality || "high")}`,
       partUri,
       {},
       ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
@@ -312,12 +314,14 @@ export function OfflineProvider({ children }) {
   }, [network, refresh]);
 
   const downloadMedia = useCallback(async (mediaId, options) => {
-    const manifest = await apiJson(`/api/offline/manifest?media_id=${Number(mediaId)}`);
+    const quality = await getStoredMediaQuality();
+    const manifest = await apiJson(`/api/offline/manifest?media_id=${Number(mediaId)}&quality=${quality}`);
     return enqueueManifest(manifest.items || [], options);
   }, [enqueueManifest]);
 
   const downloadCategory = useCallback(async (categoryId, options) => {
-    const manifest = await apiJson(`/api/offline/manifest?category_id=${Number(categoryId)}`);
+    const quality = await getStoredMediaQuality();
+    const manifest = await apiJson(`/api/offline/manifest?category_id=${Number(categoryId)}&quality=${quality}`);
     return enqueueManifest(manifest.items || [], options);
   }, [enqueueManifest]);
 

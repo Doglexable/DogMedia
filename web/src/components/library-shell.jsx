@@ -30,7 +30,7 @@ function SidebarLink({ active, children, icon, onClick, onContextMenu, style, to
     <Link
       to={to}
       onClick={onClick}
-      onContextMenu={onContextMenu}
+      onContextMenu={onContextMenu || ((event) => event.preventDefault())}
       className={`global-sidebar-link${active ? " global-sidebar-link--active" : ""}`}
       style={style}
     >
@@ -58,6 +58,7 @@ function CategoryContextMenu({ category, menu, onAddToQueue, onClose }) {
     <div
       className="global-sidebar-context-menu"
       role="menu"
+      onContextMenu={(event) => event.preventDefault()}
       aria-label={`${category.name} actions`}
       style={{ left: menu.x, top: menu.y }}
       onClick={(event) => event.stopPropagation()}

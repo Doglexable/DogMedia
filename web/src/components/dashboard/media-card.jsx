@@ -18,6 +18,8 @@ function formatCardDuration(seconds) {
 
 function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPlayNext, onToggleLike }) {
   const [imgFailed, setImgFailed] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const [menu, setMenu] = useState(null);
   const meta = getMimeMeta(item.mime_type);
   const category = item.category_path || item.category_name || "Uncategorized";
@@ -58,12 +60,14 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
   return (
     <article
       className={`media-card${isActive ? " media-card--active" : ""}`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onContextMenu={(event) => {
         event.preventDefault();
         setMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 145) });
       }}
     >
-      {!imgFailed && (
+      {isHovered && !imgFailed && imgLoaded && (
         <img
           src={`/api/media/${item.id}/thumbnail`}
           alt=""
@@ -83,6 +87,7 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
               decoding="async"
               fetchPriority="low"
               onError={() => setImgFailed(true)}
+              onLoad={() => setImgLoaded(true)}
               className="media-card-cover-image"
             />
           ) : (
@@ -109,7 +114,12 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
       )}
 
       {menu && createPortal(
-        <div role="menu" onClick={(event) => event.stopPropagation()} style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 500, minWidth: 170, padding: 6, border: "1px solid var(--card-border)", borderRadius: 8, background: "var(--card-bg)", boxShadow: "0 12px 32px rgba(0,0,0,.25)" }}>
+        <div
+          role="menu"
+          onContextMenu={(event) => event.preventDefault()}
+          onClick={(event) => event.stopPropagation()}
+          style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 500, minWidth: 170, padding: 6, border: "1px solid var(--card-border)", borderRadius: 8, background: "var(--card-bg)", boxShadow: "0 12px 32px rgba(0,0,0,.25)" }}
+        >
           <button type="button" role="menuitem" onClick={playNext} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Play next</button>
           <button type="button" role="menuitem" onClick={addToQueue} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Add to queue</button>
           {item.mime_type?.startsWith("audio/") && (

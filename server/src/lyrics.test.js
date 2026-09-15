@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "./lyrics.js";
 import {
+  DEFAULT_LYRICA_REFRESH_MS,
   LYRICA_MISS_TTL_SECONDS,
   LYRICA_SUCCESS_TTL_SECONDS,
   LyricaProviderError,
   buildLyricaUrl,
   fetchLyricaLyrics,
   getLyricaConfig,
+  isLyricaRowFresh,
   normalizeLyricsIdentity,
   normalizeLyricaLyrics,
   resolveLyricaLyrics,
@@ -182,6 +184,28 @@ describe("Lyrica requests", () => {
   });
 });
 
+describe("isLyricaRowFresh", () => {
+  it("considers rows updated within the refresh window as fresh", () => {
+    const recent = new Date(Date.now() - 1000).toISOString();
+    expect(isLyricaRowFresh({ updated_at: recent })).toBe(true);
+    expect(isLyricaRowFresh({ updated_at: new Date(Date.now() - 1000) })).toBe(true);
+  });
+
+  it("considers rows older than refresh window or missing updated_at as stale", () => {
+    const stale = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    expect(isLyricaRowFresh({ updated_at: stale })).toBe(false);
+    expect(isLyricaRowFresh({ updated_at: null })).toBe(false);
+    expect(isLyricaRowFresh({ updated_at: "invalid" })).toBe(false);
+    expect(isLyricaRowFresh(null)).toBe(false);
+  });
+
+  it("supports custom refresh intervals", () => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    expect(isLyricaRowFresh({ updated_at: threeDaysAgo }, 2 * 24 * 60 * 60 * 1000)).toBe(false);
+    expect(isLyricaRowFresh({ updated_at: threeDaysAgo }, 5 * 24 * 60 * 60 * 1000)).toBe(true);
+  });
+});
+
 describe("resolveLyricaLyrics", () => {
   const config = { apiUrl: "https://lyrics.example", timeoutMs: 5000 };
 
@@ -230,6 +254,7 @@ describe("resolveLyricaLyrics", () => {
 });
 
 describe("resolveMediaLyrics", () => {
+  const recentUpdatedAt = new Date().toISOString();
   const uploadedRow = {
     media_id: 7,
     title: "Song",
@@ -237,15 +262,19 @@ describe("resolveMediaLyrics", () => {
     mime_type: "audio/mpeg",
     language: "en",
     segments: [{ start: 0, end: 1, text: "Uploaded" }],
-    updated_at: "2026-08-05T00:00:00.000Z",
+    updated_at: recentUpdatedAt,
   };
 
-  it("returns uploaded lyrics without consulting Lyrica", async () => {
-    await expect(resolveMediaLyrics(uploadedRow)).resolves.toEqual({
+  it("returns uploaded lyrics without consulting Lyrica even if older than refresh interval", async () => {
+    const staleUploadedRow = {
+      ...uploadedRow,
+      updated_at: "2020-01-01T00:00:00.000Z",
+    };
+    await expect(resolveMediaLyrics(staleUploadedRow)).resolves.toEqual({
       mediaId: 7,
       language: "en",
       segments: uploadedRow.segments,
-      updatedAt: uploadedRow.updated_at,
+      updatedAt: staleUploadedRow.updated_at,
     });
   });
 
@@ -410,5 +439,111 @@ describe("resolveMediaLyrics", () => {
       config: { apiUrl: "https://lyrics.example", timeoutMs: 5000 },
       fetchImpl: async () => new Response(null, { status: 500 }),
     })).rejects.toBeInstanceOf(LyricaProviderError);
+  });
+
+  it("refreshes stale Lyrica lyrics and updates the database", async () => {
+    const staleDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    const newPersistedAt = new Date().toISOString();
+    const pgCalls = [];
+    const pg = {
+      async query(sql, params) {
+        pgCalls.push({ sql, params });
+        return {
+          rows: [{
+            media_id: 7,
+            language: null,
+            segments: [{ start: 0, end: 2, text: "Better lyrics from provider" }],
+            updated_at: newPersistedAt,
+          }],
+        };
+      },
+    };
+    const redis = createRedis(null);
+    const result = await resolveMediaLyrics({
+      ...uploadedRow,
+      lyrics_source: "lyrica",
+      lookup_title: "Song",
+      lookup_artists: "Artist",
+      updated_at: staleDate,
+    }, {
+      pg,
+      redis,
+      config: { apiUrl: "https://lyrics.example", timeoutMs: 5000, refreshMs: DEFAULT_LYRICA_REFRESH_MS },
+      fetchImpl: async () => new Response(JSON.stringify(lyricaPayload([
+        { text: "Better lyrics from provider", start_time: 0, end_time: 2000 },
+      ])), { status: 200 }),
+    });
+
+    expect(result).toEqual({
+      mediaId: 7,
+      language: null,
+      segments: [{ start: 0, end: 2, text: "Better lyrics from provider" }],
+      updatedAt: newPersistedAt,
+    });
+    expect(pgCalls[0].sql).toContain("INSERT INTO media_lyrics");
+    expect(pgCalls[0].sql).toContain("updated_at = NOW()");
+  });
+
+  it("gracefully retains existing lyrics when periodic refresh encounters provider error", async () => {
+    const staleDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    const pg = {
+      async query() {
+        throw new Error("should not run update query on provider error");
+      },
+    };
+    const redis = createRedis(null);
+    const result = await resolveMediaLyrics({
+      ...uploadedRow,
+      lyrics_source: "lyrica",
+      lookup_title: "Song",
+      lookup_artists: "Artist",
+      updated_at: staleDate,
+    }, {
+      pg,
+      redis,
+      config: { apiUrl: "https://lyrics.example", timeoutMs: 5000, refreshMs: DEFAULT_LYRICA_REFRESH_MS },
+      fetchImpl: async () => new Response(null, { status: 500 }),
+    });
+
+    expect(result).toEqual({
+      mediaId: 7,
+      language: "en",
+      segments: uploadedRow.segments,
+      updatedAt: staleDate,
+    });
+  });
+
+  it("retains existing lyrics and touches updated_at when periodic refresh returns 404", async () => {
+    const staleDate = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    const pgCalls = [];
+    const pg = {
+      async query(sql, params) {
+        pgCalls.push({ sql, params });
+        return { rowCount: 1 };
+      },
+    };
+    const redis = createRedis(null);
+    const result = await resolveMediaLyrics({
+      ...uploadedRow,
+      lyrics_source: "lyrica",
+      lookup_title: "Song",
+      lookup_artists: "Artist",
+      updated_at: staleDate,
+    }, {
+      pg,
+      redis,
+      config: { apiUrl: "https://lyrics.example", timeoutMs: 5000, refreshMs: DEFAULT_LYRICA_REFRESH_MS },
+      fetchImpl: async () => new Response(null, { status: 404 }),
+    });
+
+    expect(result).toEqual({
+      mediaId: 7,
+      language: "en",
+      segments: uploadedRow.segments,
+      updatedAt: staleDate,
+    });
+    expect(pgCalls).toHaveLength(1);
+    expect(pgCalls[0].sql).toContain("UPDATE media_lyrics SET updated_at = NOW()");
+    expect(pgCalls[0].sql).not.toContain("DELETE");
   });
 });

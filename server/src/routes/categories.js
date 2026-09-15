@@ -1,3 +1,12 @@
+import { createWriteStream } from "fs";
+import { mkdir, rm, stat, unlink } from "fs/promises";
+import { join } from "path";
+import { pipeline } from "stream/promises";
+import { randomUUID } from "crypto";
+import { normalizeCategoryCover, sendCoverFile } from "../category-cover.js";
+
+const DATA_DIR = process.env.DATA_DIR || "data";
+
 const CATEGORY_TREE_SQL = `
   WITH RECURSIVE category_tree AS (
     SELECT
@@ -7,6 +16,7 @@ const CATEGORY_TREE_SQL = `
       c.min_access_tier,
       c.parent_id,
       c.sort_order,
+      c.cover_path,
       c.created_at,
       ARRAY[c.name::text]::text[] AS path_parts,
       ARRAY[c.sort_order]::integer[] AS order_parts,
@@ -22,6 +32,7 @@ const CATEGORY_TREE_SQL = `
       c.min_access_tier,
       c.parent_id,
       c.sort_order,
+      c.cover_path,
       c.created_at,
       ct.path_parts || c.name::text,
       ct.order_parts || c.sort_order,
@@ -96,7 +107,8 @@ async function propagateTierToDescendants(fastify, id, tier) {
   );
 }
 
-export default async function (fastify) {
+export default async function (fastify, options = {}) {
+  const dataDir = options.dataDir || DATA_DIR;
   fastify.get("/", async (request) => {
     const { rows } = await fastify.pg.query(
       `${CATEGORY_TREE_SQL}
@@ -107,6 +119,7 @@ export default async function (fastify) {
          min_access_tier,
          parent_id,
          sort_order,
+         cover_path,
          created_at,
          depth,
          (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
@@ -130,6 +143,7 @@ export default async function (fastify) {
          min_access_tier,
          parent_id,
          sort_order,
+         cover_path,
          created_at,
          depth,
          (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
@@ -179,6 +193,74 @@ export default async function (fastify) {
       [normalizedName, description ?? null, effectiveTier, normalizedParentId]
     );
     return reply.code(201).send(rows[0]);
+  });
+
+  fastify.get("/:id/thumbnail", async (request, reply) => {
+    const { rows } = await fastify.pg.query(
+      `${CATEGORY_TREE_SQL}
+       SELECT id, cover_path FROM category_tree WHERE id = $2`,
+      [request.accessTier, request.params.id]
+    );
+    if (!rows.length) {
+      const exists = await categoryExists(fastify, request.params.id);
+      return exists ? reply.code(403).send({ error: "Access denied" }) : reply.code(404).send({ error: "Not found" });
+    }
+    if (!rows[0].cover_path) return reply.code(404).send({ error: "No thumbnail available" });
+    const filePath = join(dataDir, rows[0].cover_path);
+    try {
+      return sendCoverFile({ request, reply, filePath, stats: await stat(filePath) });
+    } catch {
+      return reply.code(404).send({ error: "No thumbnail available" });
+    }
+  });
+
+  fastify.put("/:id/thumbnail", async (request, reply) => {
+    if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
+    const category = await getCategory(fastify, request.params.id);
+    if (!category) return reply.code(404).send({ error: "Not found" });
+    let upload = null;
+    for await (const part of request.parts({ limits: { fileSize: 20 * 1024 * 1024 } })) {
+      if (part.type === "file" && (part.fieldname === "thumbnail" || part.fieldname === "file")) {
+        const tempDir = join(dataDir, "tmp", "covers");
+        await mkdir(tempDir, { recursive: true });
+        const tempPath = join(tempDir, randomUUID());
+        await pipeline(part.file, createWriteStream(tempPath));
+        if (upload) await unlink(upload).catch(() => {});
+        upload = tempPath;
+      } else if (part.type === "file") part.file.resume();
+    }
+    if (!upload) return reply.code(400).send({ error: "Thumbnail file required" });
+    try {
+      const coverPath = await normalizeCategoryCover({ categoryId: request.params.id, dataDir, inputPath: upload });
+      const { rows } = await fastify.pg.query(
+        "UPDATE categories SET cover_path = $1 WHERE id = $2 RETURNING *",
+        [coverPath, request.params.id]
+      );
+      return rows[0];
+    } catch (error) {
+      request.log.warn({ err: error }, "category cover normalization failed");
+      return reply.code(400).send({ error: "Thumbnail could not be converted to WebP" });
+    } finally {
+      await unlink(upload).catch(() => {});
+    }
+  });
+
+  fastify.delete("/:id/thumbnail", async (request, reply) => {
+    if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
+    const { rows } = await fastify.pg.query(
+      `SELECT c.id, c.parent_id, c.cover_path,
+              EXISTS (SELECT 1 FROM media_assets m WHERE m.category_id = c.id) AS has_media
+       FROM categories c WHERE c.id = $1`,
+      [request.params.id]
+    );
+    const category = rows[0];
+    if (!category) return reply.code(404).send({ error: "Not found" });
+    if (category.parent_id !== null && category.has_media) {
+      return reply.code(409).send({ error: "A non-root category containing media must have a cover" });
+    }
+    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
+    await fastify.pg.query("UPDATE categories SET cover_path = NULL WHERE id = $1", [request.params.id]);
+    return reply.code(204).send();
   });
 
   fastify.put("/:id", async (request, reply) => {
@@ -374,11 +456,14 @@ export default async function (fastify) {
       return reply.code(409).send({ error: "Delete child categories first" });
     }
 
+    const { rows: categoryRows } = await fastify.pg.query("SELECT cover_path FROM categories WHERE id = $1", [id]);
     const { rowCount } = await fastify.pg.query(
-      "DELETE FROM categories WHERE id = $1",
+      "DELETE FROM categories WHERE id = $1 RETURNING cover_path",
       [id]
     );
     if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
+    if (categoryRows[0]?.cover_path) await unlink(join(dataDir, categoryRows[0].cover_path)).catch(() => {});
+    await rm(join(dataDir, String(id)), { recursive: true, force: true }).catch(() => {});
     return reply.code(204).send();
   });
 }

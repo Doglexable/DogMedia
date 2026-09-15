@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookmark, faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { useAccess } from "../App";
 import { api, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
@@ -88,6 +88,8 @@ function MediaCover({ circular = false, item, size = "regular" }) {
           alt=""
           loading="lazy"
           decoding="async"
+          draggable={false}
+          onContextMenu={(event) => event.preventDefault()}
           onError={() => setFailed(true)}
         />
       ) : (
@@ -136,6 +138,7 @@ function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, 
   return createPortal(
     <div
       role="menu"
+      onContextMenu={(event) => event.preventDefault()}
       onClick={(event) => event.stopPropagation()}
       style={{
         position: "fixed",
@@ -202,46 +205,62 @@ function QuickAccessCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, 
   );
 }
 
-function FeaturedPanel({ item, onAddQueue, onPlay, onPlayNext }) {
+function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
   if (!item) return null;
   const description = item.description?.trim();
   const meta = getMimeMeta(item.mime_type);
 
   return (
-    <SpotlightCard
-      className="library-featured"
-      spotlightColor="color-mix(in srgb, var(--playback-signal) 22%, transparent)"
-    >
-      <section className="library-featured-inner" aria-labelledby={`featured-media-${item.id}`}>
-        <div className="library-featured-copy">
-          <p className="library-eyebrow">Featured signal · {meta.label}</p>
-          <h1 id={`featured-media-${item.id}`}>{item.title}</h1>
-          <p className="library-featured-meta">
-            <span>{mediaCategory(item)}</span>
-            {item.duration > 0 && <span>{formatDuration(item.duration)}</span>}
-          </p>
-          {description && <p className="library-featured-description">{description}</p>}
-          <div className="library-featured-actions">
-            <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
-              <FontAwesomeIcon icon={faPlay} />
-              Play
-            </button>
-            <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
-              <FontAwesomeIcon icon={faList} />
-              Play next
-            </button>
-            <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
-              <FontAwesomeIcon icon={faPlus} />
-              Queue
-            </button>
+    <>
+      <SpotlightCard
+        className="library-featured"
+        spotlightColor="color-mix(in srgb, var(--playback-signal) 22%, transparent)"
+        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
+      >
+        <section className="library-featured-inner" aria-labelledby={`featured-media-${item.id}`}>
+          <div className="library-featured-copy">
+            <p className="library-eyebrow">Featured signal · {meta.label}</p>
+            <h1 id={`featured-media-${item.id}`}>{item.title}</h1>
+            <p className="library-featured-meta">
+              <span>{mediaCategory(item)}</span>
+              {item.duration > 0 && <span>{formatDuration(item.duration)}</span>}
+            </p>
+            {description && <p className="library-featured-description">{description}</p>}
+            <div className="library-featured-actions">
+              <button type="button" className="library-action library-action--primary" onClick={() => onPlay(item)}>
+                <FontAwesomeIcon icon={faPlay} />
+                Play
+              </button>
+              <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
+                <FontAwesomeIcon icon={faList} />
+                Play next
+              </button>
+              <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
+                <FontAwesomeIcon icon={faPlus} />
+                Queue
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="library-featured-art">
-          <div className="library-signal-disc" aria-hidden="true" />
-          <MediaCover item={item} size="hero" />
-        </div>
-      </section>
-    </SpotlightCard>
+          <div className="library-featured-art">
+            <div className="library-signal-disc" aria-hidden="true" />
+            <MediaCover item={item} size="hero" />
+          </div>
+        </section>
+      </SpotlightCard>
+      <MediaContextMenu
+        isLiked={isLiked}
+        item={item}
+        menu={menu}
+        onAddQueue={onAddQueue}
+        onClose={closeMenu}
+        onNotice={onNotice}
+        onPlayNext={onPlayNext}
+        onToggleLike={onToggleLike}
+      />
+    </>
   );
 }
 
@@ -673,6 +692,7 @@ export default function Dashboard() {
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
   const browseGenerationRef = useRef(0);
+  const loadingMoreRef = useRef(false);
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
   const categoryParam = searchParams.get("category");
@@ -723,7 +743,8 @@ export default function Dashboard() {
   }, [debouncedSearch, selectedCategory, libraryView]);
 
   const loadMoreMedia = useCallback(() => {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loadingMore || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
     const generation = browseGenerationRef.current;
     const params = new URLSearchParams({ limit: "50", view: libraryView, cursor: nextCursor });
     if (selectedCategory) params.set("category_id", selectedCategory);
@@ -743,7 +764,12 @@ export default function Dashboard() {
         setNextCursor(data.nextCursor || null);
       })
       .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
-      .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
+      .finally(() => {
+        if (browseGenerationRef.current === generation) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
+      });
   }, [debouncedSearch, libraryView, loadingMore, nextCursor, selectedCategory]);
 
   useEffect(() => {
@@ -848,12 +874,18 @@ export default function Dashboard() {
 
     return ordered;
   }, [visibleMedia, visibleMediaById]);
-  const featuredMedia = visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || null;
+  const featuredMedia = useMemo(
+    () => visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || null,
+    [dashboardSummary?.featuredId, visibleMedia, visibleMediaById]
+  );
   const recentlyPlayedIds = dashboardSummary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
-  const quickAccessMedia = orderMediaByIds(
-    recentlyPlayedIds || dashboardSummary?.quickAccessIds,
-    visibleMedia,
-    8
+  const quickAccessMedia = useMemo(
+    () => orderMediaByIds(
+      recentlyPlayedIds || dashboardSummary?.quickAccessIds,
+      visibleMedia,
+      8
+    ),
+    [dashboardSummary?.quickAccessIds, orderMediaByIds, recentlyPlayedIds, visibleMedia]
   );
 
   const playMedia = useCallback((item) => {
@@ -966,27 +998,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        <nav className="library-top-nav" aria-label="Library filters">
-          <div className="library-filter-pills">
-            <Link className={`library-filter-pill${!selectedCategory && libraryView !== "liked" ? " library-filter-pill--active" : ""}`} to="/">All</Link>
-            <Link className={`library-filter-pill${libraryView === "liked" ? " library-filter-pill--active" : ""}`} to="/?view=liked">
-              <FontAwesomeIcon icon={faBookmark} />
-              Favorites
-            </Link>
-            {mediaCategories.slice(0, 10).map((category) => (
-              <Link
-                key={category.id}
-                className={`library-filter-pill${String(category.id) === String(selectedCategory) ? " library-filter-pill--active" : ""}`}
-                to={`/?category=${category.id}`}
-              >
-                {category.name}
-              </Link>
-            ))}
-          </div>
-          <span className="library-nav-count">
-            {visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"}
-          </span>
-        </nav>
 
         {libraryView === "liked" && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1009,9 +1020,12 @@ export default function Dashboard() {
               <div className="vault-reveal">
                 <FeaturedPanel
                   item={featuredMedia}
+                  isLiked={player?.isLiked?.(featuredMedia?.id) || false}
                   onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
+                  onNotice={setNotice}
                   onPlay={playMedia}
                   onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
+                  onToggleLike={player?.toggleLike}
                 />
               </div>
             )}

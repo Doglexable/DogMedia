@@ -17,6 +17,7 @@ import {
   getNextLoopMode as nextLoopMode,
   getQueueBoundaryParams,
 } from "./global-player/player-utils";
+import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
@@ -115,6 +116,7 @@ export function GlobalPlayerProvider({ children }) {
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
+  const [quality, setQuality] = useState(readMediaQuality);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -123,7 +125,8 @@ export function GlobalPlayerProvider({ children }) {
   const isAudio = currentMime.startsWith("audio/");
   const isVideo = currentMime.startsWith("video/");
   const isImage = currentMime.startsWith("image/");
-  const streamSrc = currentMedia ? `/api/media/${currentMedia.id}/stream` : "";
+  const actualQuality = actualMediaQuality(quality, currentMedia?.available_qualities);
+  const streamSrc = currentMedia ? `/api/media/${currentMedia.id}/stream?quality=${quality}` : "";
   const thumbSrc = currentMedia ? `/api/media/${currentMedia.id}/thumbnail` : "";
   const meta = mediaMeta(currentMime);
   const hasQueueNext = queueTotal > 0 && queueIndex < queueTotal - 1;
@@ -154,6 +157,14 @@ export function GlobalPlayerProvider({ children }) {
   useEffect(() => {
     window.localStorage.setItem(PLAYER_MUTED_KEY, String(muted));
   }, [muted]);
+
+  const changeQuality = useCallback((nextQuality) => {
+    const nextPosition = mediaRef.current?.currentTime || position || 0;
+    pendingSeekPositionRef.current = nextPosition;
+    setShouldAutoPlay(!paused);
+    window.localStorage.setItem(MEDIA_QUALITY_STORAGE_KEY, nextQuality);
+    setQuality(nextQuality);
+  }, [paused, position]);
 
   useEffect(() => {
     if (!mediaRef.current || isImage) return;
@@ -264,7 +275,9 @@ export function GlobalPlayerProvider({ children }) {
     lastActiveUpdateRef.current = nextPosition;
 
     if (mediaRef.current && currentMediaRef.current?.id === mediaItem?.id) {
-      mediaRef.current.currentTime = nextPosition;
+      if (Math.abs((mediaRef.current.currentTime || 0) - nextPosition) > 0.5) {
+        mediaRef.current.currentTime = nextPosition;
+      }
       if (autoplay) {
         mediaRef.current.play().catch(() => {});
       }
@@ -302,7 +315,9 @@ export function GlobalPlayerProvider({ children }) {
       const nextPosition = Math.floor(startPosition || 0);
       setPosition(nextPosition);
       if (mediaRef.current) {
-        mediaRef.current.currentTime = nextPosition;
+        if (Math.abs((mediaRef.current.currentTime || 0) - nextPosition) > 0.5) {
+          mediaRef.current.currentTime = nextPosition;
+        }
         if (autoplay) {
           mediaRef.current.play().catch(() => {});
         }
@@ -736,7 +751,9 @@ export function GlobalPlayerProvider({ children }) {
       return;
     }
 
-    mediaRef.current.currentTime = resumePos;
+    if (Math.abs((mediaRef.current.currentTime || 0) - resumePos) > 0.5) {
+      mediaRef.current.currentTime = resumePos;
+    }
     setPosition(resumePos);
     appliedResumeRef.current = true;
     setResumePos(null);
@@ -989,7 +1006,9 @@ export function GlobalPlayerProvider({ children }) {
     const nextDuration = Math.floor(mediaRef.current?.duration || currentMedia?.duration || 0);
     setDuration(nextDuration);
     if (pendingSeekPositionRef.current != null && mediaRef.current) {
-      mediaRef.current.currentTime = pendingSeekPositionRef.current;
+      if (Math.abs((mediaRef.current.currentTime || 0) - pendingSeekPositionRef.current) > 0.5) {
+        mediaRef.current.currentTime = pendingSeekPositionRef.current;
+      }
       setPosition(pendingSeekPositionRef.current);
       pendingSeekPositionRef.current = null;
     } else {
@@ -1170,6 +1189,7 @@ export function GlobalPlayerProvider({ children }) {
               controls={false}
               controlsList="nodownload noplaybackrate"
               disableRemotePlayback
+              preload="metadata"
               autoPlay={shouldAutoPlay}
               muted={muted || volume <= 0}
               style={hiddenMediaStyle}
@@ -1190,6 +1210,7 @@ export function GlobalPlayerProvider({ children }) {
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture
               disableRemotePlayback
+              preload="metadata"
               autoPlay={!paused}
               muted={muted || volume <= 0}
               style={hiddenMediaStyle}
@@ -1227,15 +1248,13 @@ export function GlobalPlayerProvider({ children }) {
               thumbFailed={thumbFailed}
               thumbSrc={thumbSrc}
               volume={volume}
+              quality={quality}
+              actualQuality={actualQuality}
+              onChangeQuality={changeQuality}
               onAdvance={advance}
               onChangeVolume={changeVolume}
               onEnded={handleEnded}
-              onLoadedMetadata={() => {
-                handleLoadedMetadata();
-                if (mediaRef.current && position > 0 && Math.abs(mediaRef.current.currentTime - position) > 1) {
-                  mediaRef.current.currentTime = position;
-                }
-              }}
+              onLoadedMetadata={handleLoadedMetadata}
               onCloseFull={closeFullPlayer}
               onOpenQueue={() => setQueueOpen((open) => !open)}
               onPause={handlePause}
@@ -1276,6 +1295,9 @@ export function GlobalPlayerProvider({ children }) {
               streamSrc={streamSrc}
               thumbSrc={thumbSrc}
               volume={volume}
+              quality={quality}
+              actualQuality={actualQuality}
+              onChangeQuality={changeQuality}
               onAdvance={advance}
               onChangeVolume={changeVolume}
               onOpenQueue={() => setQueueOpen((open) => !open)}

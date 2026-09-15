@@ -16,8 +16,24 @@ import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 
-function VideoSurface({ mediaId, playerState, shouldPlay, styles }) {
-  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId) });
+function QualityControl({ player, style, styles }) {
+  return (
+    <Pressable
+      accessibilityLabel={`Media quality ${player.quality}, playing ${player.actualQuality}`}
+      accessibilityRole="button"
+      onPress={() => {
+        const qualities = ["low", "med", "high", "ori"];
+        player.changeQuality(qualities[(qualities.indexOf(player.quality) + 1) % qualities.length]);
+      }}
+      style={[styles.qualityPill, style]}
+    >
+      <Text style={styles.qualityText}>{player.quality.toUpperCase()}{player.actualQuality !== player.quality ? ` → ${player.actualQuality.toUpperCase()}` : ""}</Text>
+    </Pressable>
+  );
+}
+
+function VideoSurface({ mediaId, playerState, quality, shouldPlay, styles }) {
+  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId, quality) });
 
   useEventListener(player, "playingChange", ({ isPlaying }) => {
     playerState.reportVideoPlaying(isPlaying);
@@ -527,17 +543,19 @@ export function FullPlayer({ navigation }) {
           onPress={closePlayer}
           style={styles.visualClose}
         />
+        <QualityControl player={player} style={[styles.visualQuality, { top: insets.top + spacing.md }]} styles={styles} />
         <View style={styles.visualStage}>
           {isVideo && (
             <VideoSurface
-              key={media.id}
+              key={`${media.id}-${player.quality}`}
               mediaId={media.id}
               playerState={player}
+              quality={player.quality}
               shouldPlay={!player.paused}
               styles={styles}
             />
           )}
-          {isImage && <Image source={{ uri: mediaStreamUrl(media.id) }} style={styles.image} resizeMode="contain" />}
+          {isImage && <Image source={{ uri: mediaStreamUrl(media.id, player.quality) }} style={styles.image} resizeMode="contain" />}
           {isVideo && (
             <ResumePrompt
               darkSurface
@@ -649,6 +667,7 @@ export function FullPlayer({ navigation }) {
         )}
 
         <View style={styles.actionRow}>
+          <QualityControl player={player} styles={styles} />
           <PlayerIconButton
             accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
             active={isLiked}
@@ -828,6 +847,29 @@ const makeStyles = (colors, resolvedMode, shadow) => {
     flexDirection: "row",
     justifyContent: "center",
     gap: spacing.md,
+  },
+  qualityPill: {
+    minWidth: 54,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: alpha(colors.primary, 0.35),
+    backgroundColor: alpha(colors.primary, 0.12),
+  },
+  qualityText: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
+  visualQuality: {
+    position: "absolute",
+    right: spacing.md,
+    zIndex: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
   },
   sleepButton: {
     minWidth: 42,

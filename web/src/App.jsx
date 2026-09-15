@@ -138,6 +138,17 @@ function ProtectedApp() {
 }
 
 export default function App() {
+  useEffect(() => {
+    const handleContextMenu = (event) => {
+      if (event.target.closest("input, textarea, [contenteditable='true']")) {
+        return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("contextmenu", handleContextMenu);
+    return () => window.removeEventListener("contextmenu", handleContextMenu);
+  }, []);
+
   return (
     <BrowserRouter>
       <Suspense fallback={null}>

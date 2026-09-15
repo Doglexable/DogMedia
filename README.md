@@ -50,9 +50,9 @@ and then start the application:
 podman compose build
 podman compose up -d db redis
 podman compose run --rm server npm run migrate --workspace=server
-podman compose up -d server web
+podman compose up -d server worker web
 
-# Confirm that all four services are running.
+# Confirm that all five services are running.
 podman compose ps
 
 # Test Nginx and Fastify locally. The first request bootstraps the IP whitelist.
@@ -66,11 +66,29 @@ Apache setup below to publish it on ports 80/443. Fastify listens only on
 Useful lifecycle commands:
 
 ```bash
-podman compose logs -f server web  # follow application logs
-podman compose restart server web # restart application services
+podman compose logs -f server worker web  # follow application logs
+podman compose restart server worker web # restart application services
 podman compose down               # stop containers; keep data
 podman compose up --build -d      # rebuild and start after an update
 podman compose exec server npm run migrate --workspace=server
+```
+
+### Upgrading an existing deployment
+
+When updating an existing installation to include the background worker and category cover flow:
+
+```bash
+# 1. Pull latest code and rebuild containers (starts the new worker service)
+podman compose up --build -d
+
+# 2. Run database migrations (applies migration 014)
+podman compose exec server npm run migrate --workspace=server
+
+# 3. Consolidate category covers and backfill media encoding jobs
+#    Inspect proposed actions first (dry-run):
+podman compose exec server npm run backfill:media --workspace=server -- --dry-run
+#    Run actual backfill:
+podman compose exec server npm run backfill:media --workspace=server
 ```
 
 Do not use `podman compose down -v` unless volume deletion is intentional.
@@ -100,12 +118,14 @@ podman compose -f compose.yml -f compose.dev.yml \
 Open `http://localhost:5173`. Database, Redis, media, and temporary-file state
 is shared with the production Compose setup under `data/`.
 
-For development without containers, install Node.js 22, PostgreSQL, and Redis;
+For development without containers, install Node.js 22, PostgreSQL, Redis, and ffmpeg;
 run `npm ci`, update `.env` with reachable database/cache URLs, then run:
 
 ```bash
 npm run migrate --workspace=server
 npm run dev
+# In a separate terminal (for background media encoding worker):
+npm run worker
 ```
 
 ## Architecture
@@ -113,7 +133,8 @@ npm run dev
 ```text
 Browser → Apache :80/:443 → Nginx :8030 → Fastify :3001
                                       ├─ PostgreSQL :5440
-                                      └─ Redis :16379
+                                      ├─ Redis :16379
+                                      └─ encoding worker (Redis Streams)
 ```
 
 All application containers use host networking. Apache removes any
@@ -254,9 +275,27 @@ a parent are **not** inherited by routes created with `register` + `prefix`.
 - **media_assets** — files stored at `data/media/{category_id}/{media_id}.{ext}`;
   media list/detail responses include `category_name` and `category_path` for
   player folder labels
+- **media_encoding_variants** — low/medium/high derivatives and their durable
+  queue status; originals remain untouched and are always the final fallback
 - **ip_whitelist** — CIDR ranges mapped to access tiers + description
 
 ## Redis
+
+Encoding jobs use the `media:encoding` Redis Stream. The Compose worker defaults
+to one encoder; set `ENCODING_CONCURRENCY` to raise concurrency deliberately.
+After applying migration `014`, consolidate legacy thumbnails and enqueue the
+existing library with an idempotent backfill:
+
+```bash
+# Inspect the proposed cover selection and encoding count first.
+podman compose run --rm server npm run backfill:media --workspace=server -- --dry-run
+
+# Create category front.webp files, back up old per-media thumbnails, and queue media.
+podman compose run --rm server npm run backfill:media --workspace=server
+```
+
+Legacy thumbnails are moved only after the new cover is verified. The command
+prints conflicts and categories for which no usable cover could be found.
 
 | Key | Type | TTL | Purpose |
 |-----|------|-----|---------|

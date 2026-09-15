@@ -56,6 +56,29 @@ services:
       - ./data/tmp:/app/data/tmp:Z
     restart: unless-stopped
 
+  worker:
+    build:
+      context: .
+      dockerfile: server/Containerfile
+    command: ["node", "server/src/worker.js"]
+    env_file:
+      - .env
+    network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
+      REDIS_URL: redis://127.0.0.1:16379
+      DATA_DIR: /app/data/media
+      ENCODING_CONCURRENCY: ${ENCODING_CONCURRENCY:-1}
+      NODE_ENV: production
+    volumes:
+      - ./data/media:/app/data/media:Z
+    restart: unless-stopped
+
   web:
     build:
       context: .

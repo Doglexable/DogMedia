@@ -1,11 +1,14 @@
 import { createReadStream, createWriteStream } from "fs";
 import { mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "fs/promises";
-import { join, dirname } from "path";
+import { join } from "path";
 import { pipeline } from "stream/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
+import { normalizeCategoryCover, sendCoverFile } from "../category-cover.js";
+import { enqueueEncoding, retryFailedEncoding } from "../encoding-queue.js";
+import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
@@ -37,6 +40,26 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
     WHERE c.min_access_tier <= $1
   )
 `;
+const MEDIA_ENCODING_FIELDS = `
+  ARRAY(
+    SELECT requested.quality
+    FROM unnest(ARRAY['low','med','high']::text[]) WITH ORDINALITY requested(quality, position)
+    WHERE EXISTS (
+      SELECT 1 FROM media_encoding_variants variant
+      WHERE variant.media_id = m.id AND variant.source_version = m.source_version
+        AND variant.quality = requested.quality AND variant.status = 'ready'
+    )
+    ORDER BY requested.position
+  ) || ARRAY['ori']::text[] AS available_qualities,
+  COALESCE((
+    SELECT jsonb_object_agg(variant.quality, jsonb_build_object(
+      'status', variant.status, 'attempts', variant.attempts, 'error', variant.last_error,
+      'bitrate', variant.bitrate, 'width', variant.width, 'height', variant.height
+    ))
+    FROM media_encoding_variants variant
+    WHERE variant.media_id = m.id AND variant.source_version = m.source_version
+  ), '{}'::jsonb) AS encoding_status
+`;
 
 function mimeFromExt(filePath) {
   const ext = filePath.split(".").pop().toLowerCase();
@@ -67,12 +90,17 @@ function extFromFilename(filename, fallback = "bin") {
   return (parts.length > 1 ? parts.pop() : fallback).toLowerCase();
 }
 
-function applyNoDownloadHeaders(reply, { revalidate = false } = {}) {
+function applyNoDownloadHeaders(reply, { revalidate = false, maxAge = 0, etag = null } = {}) {
   reply.header("Content-Disposition", "inline");
-  reply.header("Cache-Control", revalidate ? "private, no-cache" : "no-store, private, max-age=0");
-  if (!revalidate) {
-    reply.header("Pragma", "no-cache");
-    reply.header("Expires", "0");
+  if (etag) {
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", maxAge > 0 ? `private, max-age=${maxAge}` : "private, no-cache");
+  } else {
+    reply.header("Cache-Control", revalidate ? "private, no-cache" : "no-store, private, max-age=0");
+    if (!revalidate) {
+      reply.header("Pragma", "no-cache");
+      reply.header("Expires", "0");
+    }
   }
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Download-Options", "noopen");
@@ -213,11 +241,6 @@ async function cleanupUploads(...uploads) {
   await Promise.all(uploads.filter(Boolean).map((upload) => unlink(upload.tempPath).catch(() => {})));
 }
 
-async function deleteMediaThumbnails(categoryDir, mediaId) {
-  const exts = ["webp", "jpg", "png", "jpeg"];
-  await Promise.all(exts.map((xt) => unlink(join(categoryDir, `${mediaId}_thumb.${xt}`)).catch(() => {})));
-}
-
 function uploadSessionDir(uploadId) {
   if (!/^[0-9a-f-]{36}$/i.test(uploadId)) {
     return null;
@@ -271,11 +294,11 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
     return reply.code(400).send({ error: "Track order must be a positive integer" });
   }
 
-  const { rowCount: categoryExists } = await fastify.pg.query(
-    "SELECT 1 FROM categories WHERE id = $1",
+  const { rows: categoryRows } = await fastify.pg.query(
+    "SELECT id, parent_id, cover_path FROM categories WHERE id = $1",
     [fields.category_id]
   );
-  if (categoryExists === 0) {
+  if (categoryRows.length === 0) {
     await cleanupUploads(mainFileUpload, thumbUpload);
     return reply.code(400).send({ error: "Category not found" });
   }
@@ -306,24 +329,25 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   const artists = providedArtists || detectedTags.artists || null;
   const trackOrder = resolveTrackOrder(providedTrackOrder, detectedTags.trackOrder);
 
-  let thumbStoredName = `${mediaId}_thumb.webp`;
-
-  if (thumbUpload) {
-    const thumbExt = extFromFilename(thumbUpload.filename, "jpg");
-    thumbStoredName = `${mediaId}_thumb.${thumbExt}`;
-    await pipeline(createReadStream(thumbUpload.tempPath), createWriteStream(join(categoryDir, thumbStoredName)));
-    await unlink(thumbUpload.tempPath).catch(() => {});
-  } else {
+  let coverPath = categoryRows[0].cover_path;
+  if (!coverPath) {
     try {
-      await generateAutoThumbnail({
-        filePath,
-        outputPath: join(categoryDir, thumbStoredName),
-        mimeType,
-        log: request.log,
+      coverPath = await normalizeCategoryCover({
+        categoryId: fields.category_id,
+        dataDir: DATA_DIR,
+        inputPath: thumbUpload?.tempPath || filePath,
       });
+      await fastify.pg.query("UPDATE categories SET cover_path = $1 WHERE id = $2 AND cover_path IS NULL", [coverPath, fields.category_id]);
     } catch (err) {
-      request.log.error(err, "ffmpeg thumbnail generation failed");
+      request.log.debug({ err }, "uploaded media did not provide a usable category cover");
     }
+  }
+  await cleanupUploads(thumbUpload);
+
+  if (categoryRows[0].parent_id !== null && !coverPath) {
+    await unlink(filePath).catch(() => {});
+    await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [mediaId]);
+    return reply.code(400).send({ error: "A non-root category containing media must have a cover" });
   }
 
   const { rows: updated } = await fastify.pg.query(
@@ -334,6 +358,8 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   if (lyrics) {
     await upsertUploadedLyrics(fastify.pg, mediaId, lyrics);
   }
+
+  await enqueueEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId, sourceVersion: updated[0].source_version });
 
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
 }
@@ -350,6 +376,10 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
   }
 
   const existing = rows[0];
+  if (thumbUpload) {
+    await cleanupUploads(mainFileUpload, thumbUpload);
+    return reply.code(400).send({ error: "Replace shared artwork through the category thumbnail endpoint" });
+  }
   const categoryDir = join(DATA_DIR, String(existing.category_id));
   await mkdir(categoryDir, { recursive: true });
 
@@ -377,27 +407,6 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
     }
   }
 
-  if (mainFileUpload || thumbUpload) {
-    await deleteMediaThumbnails(categoryDir, mediaId);
-  }
-
-  if (thumbUpload) {
-    const thumbExt = extFromFilename(thumbUpload.filename, "jpg");
-    await pipeline(createReadStream(thumbUpload.tempPath), createWriteStream(join(categoryDir, `${mediaId}_thumb.${thumbExt}`)));
-    await unlink(thumbUpload.tempPath).catch(() => {});
-  } else if (mainFileUpload) {
-    try {
-      await generateAutoThumbnail({
-        filePath: join(DATA_DIR, nextFilePath),
-        outputPath: join(categoryDir, `${mediaId}_thumb.webp`),
-        mimeType: nextMimeType,
-        log: request.log,
-      });
-    } catch (err) {
-      request.log.error(err, "ffmpeg thumbnail generation failed");
-    }
-  }
-
   if (lyrics !== undefined) {
     if (lyrics === null) {
       await fastify.pg.query("DELETE FROM media_lyrics WHERE media_id = $1", [mediaId]);
@@ -411,66 +420,32 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
      SET file_path = $1,
          mime_type = $2,
          duration = COALESCE($3, duration),
-         artists = $4
+         artists = $4,
+         source_version = source_version + CASE WHEN $6 THEN 1 ELSE 0 END
      WHERE id = $5
      RETURNING *`,
-    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), mediaId]
+    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), mediaId, Boolean(mainFileUpload)]
   );
+
+  if (mainFileUpload) {
+    await rm(join(categoryDir, String(mediaId)), { recursive: true, force: true }).catch(() => {});
+    await fastify.pg.query("DELETE FROM media_encoding_variants WHERE media_id = $1 AND source_version <> $2", [mediaId, updatedRows[0].source_version]);
+    await enqueueEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId, sourceVersion: updatedRows[0].source_version });
+  }
 
   return reply.send({ ...updatedRows[0], has_lyrics: lyrics === undefined ? undefined : lyrics !== null });
 }
 
-async function generateAutoThumbnail({ filePath, outputPath, mimeType, log }) {
-  if (mimeType.startsWith("video/")) {
-    await execFileAsync("ffmpeg", [
-      "-y",
-      "-i", filePath,
-      "-ss", "00:00:01.000",
-      "-vframes", "1",
-      "-vf", "scale=320:-1",
-      "-c:v", "webp",
-      outputPath,
-    ]);
-    return;
-  }
-
-  if (mimeType.startsWith("image/")) {
-    await execFileAsync("ffmpeg", [
-      "-y",
-      "-i", filePath,
-      "-vf", "scale=320:-1",
-      "-vframes", "1",
-      "-c:v", "webp",
-      outputPath,
-    ]);
-    return;
-  }
-
-  if (mimeType.startsWith("audio/")) {
-    try {
-      await execFileAsync("ffmpeg", [
-        "-y",
-        "-i", filePath,
-        "-map", "0:v:0",
-        "-frames:v", "1",
-        "-vf", "scale=320:-1",
-        "-c:v", "webp",
-        outputPath,
-      ]);
-    } catch (err) {
-      log.debug(err, "audio file has no extractable embedded cover art");
-    }
-  }
-}
-
 export default async function (fastify, options = {}) {
   const scanMediaTags = options.probeMediaTags || probeMediaTags;
+  const dataDir = options.dataDir || DATA_DIR;
   fastify.get("/", async (request) => {
     const { category_id } = request.query;
     let query = `
       ${ACCESSIBLE_CATEGORY_TREE_SQL}
       SELECT
         m.*,
+        ${MEDIA_ENCODING_FIELDS},
         ac.name AS category_name,
         array_to_string(ac.path_parts, ' / ') AS category_path
       FROM media_assets m
@@ -540,7 +515,7 @@ export default async function (fastify, options = {}) {
     params.push(parsedLimit + 1);
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
-       SELECT m.*, ac.name AS category_name,
+       SELECT m.*, ${MEDIA_ENCODING_FIELDS}, ac.name AS category_name,
               array_to_string(ac.path_parts, ' / ') AS category_path,
               ac.order_parts AS category_order,
               (lm.media_id IS NOT NULL) AS liked
@@ -571,6 +546,7 @@ export default async function (fastify, options = {}) {
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT
          m.*,
+         ${MEDIA_ENCODING_FIELDS},
          ac.name AS category_name,
          array_to_string(ac.path_parts, ' / ') AS category_path
        FROM media_assets m
@@ -857,7 +833,7 @@ export default async function (fastify, options = {}) {
       while (nextIndex < rows.length) {
         const row = rows[nextIndex];
         nextIndex += 1;
-        const tags = await scanMediaTags(join(DATA_DIR, row.file_path), request.log);
+        const tags = await scanMediaTags(join(dataDir, row.file_path), request.log);
         if (tags.probeFailed) {
           result.failed += 1;
           continue;
@@ -878,6 +854,14 @@ export default async function (fastify, options = {}) {
 
     await Promise.all(Array.from({ length: Math.min(4, rows.length) }, () => worker()));
     return result;
+  });
+
+  fastify.post("/:id/encoding/retry", async (request, reply) => {
+    if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
+    const retried = await retryFailedEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId: request.params.id });
+    if (retried) return reply.code(202).send({ status: "queued" });
+    const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
+    return rowCount ? reply.code(409).send({ error: "No failed encoding variants to retry" }) : reply.code(404).send({ error: "Not found" });
   });
 
   fastify.put("/:id", async (request, reply) => {
@@ -910,21 +894,15 @@ export default async function (fastify, options = {}) {
     }
     const { id } = request.params;
     const { rows } = await fastify.pg.query(
-      "SELECT file_path FROM media_assets WHERE id = $1",
+      "SELECT file_path, category_id FROM media_assets WHERE id = $1",
       [id]
     );
     if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
 
-    const filePath = join(DATA_DIR, rows[0].file_path);
+    const filePath = join(dataDir, rows[0].file_path);
     await unlink(filePath).catch(() => {});
 
-    // Attempt to delete any related thumbnail indiscriminately
-    const baseDir = dirname(filePath);
-    const baseName = rows[0].file_path.split("/")[1].split(".")[0];
-    const exts = ["webp", "jpg", "png", "jpeg"];
-    for (const xt of exts) {
-      await unlink(join(baseDir, `${baseName}_thumb.${xt}`)).catch(() => {});
-    }
+    await rm(join(dataDir, String(rows[0].category_id), String(id)), { recursive: true, force: true }).catch(() => {});
 
     await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [id]);
     return reply.code(204).send();
@@ -932,6 +910,8 @@ export default async function (fastify, options = {}) {
 
   fastify.get("/:id/stream", async (request, reply) => {
     const { id } = request.params;
+    const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "ori" });
+    if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.* FROM media_assets m
@@ -946,19 +926,52 @@ export default async function (fastify, options = {}) {
     }
 
     const media = rows[0];
-    const filePath = join(DATA_DIR, media.file_path);
+    let actualQuality = "ori";
+    let selectedPath = media.file_path;
+    let selectedMime = media.mime_type;
+    if (requestedQuality !== "ori") {
+      const { rows: variants } = await fastify.pg.query(
+        `SELECT quality, file_path, mime_type FROM media_encoding_variants
+         WHERE media_id = $1 AND source_version = $2 AND status = 'ready'
+           AND quality = ANY($3::text[])`,
+        [id, media.source_version, ENCODED_QUALITIES]
+      );
+      actualQuality = selectActualQuality(requestedQuality, variants.map((variant) => variant.quality));
+      const selected = variants.find((variant) => variant.quality === actualQuality);
+      if (selected) {
+        selectedPath = selected.file_path;
+        selectedMime = selected.mime_type;
+      }
+    }
+    const filePath = join(dataDir, selectedPath);
 
     let fileStats;
     try {
       fileStats = await stat(filePath);
     } catch {
-      return reply.code(404).send({ error: "File not found on disk" });
+      if (actualQuality === "ori") return reply.code(404).send({ error: "File not found on disk" });
+      actualQuality = "ori";
+      selectedPath = media.file_path;
+      selectedMime = media.mime_type;
+      try {
+        fileStats = await stat(join(dataDir, selectedPath));
+      } catch {
+        return reply.code(404).send({ error: "File not found on disk" });
+      }
     }
 
     const fileSize = fileStats.size;
     const range = request.headers.range;
-    const contentType = media.mime_type || mimeFromExt(filePath);
-    applyNoDownloadHeaders(reply);
+    const resolvedFilePath = join(dataDir, selectedPath);
+    const contentType = selectedMime || mimeFromExt(resolvedFilePath);
+    const etag = `"${id}-${media.source_version || 1}-${fileSize}-${actualQuality}"`;
+    applyNoDownloadHeaders(reply, { etag, maxAge: 86400 });
+    reply.header("Accept-Ranges", "bytes");
+    reply.header("X-Media-Quality", actualQuality);
+
+    if (request.headers["if-none-match"] === etag && !range) {
+      return reply.code(304).send();
+    }
 
     if (range) {
       const parsedRange = parseByteRange(range, fileSize);
@@ -975,14 +988,14 @@ export default async function (fastify, options = {}) {
       reply.header("Accept-Ranges", "bytes");
       reply.type(contentType);
 
-      const stream = createReadStream(filePath, { start, end });
+      const stream = createReadStream(resolvedFilePath, { start, end });
       return reply.send(stream);
     }
 
     reply.header("Content-Length", fileSize);
     reply.header("Accept-Ranges", "bytes");
     reply.type(contentType);
-    const stream = createReadStream(filePath);
+    const stream = createReadStream(resolvedFilePath);
     return reply.send(stream);
   });
 
@@ -1001,32 +1014,13 @@ export default async function (fastify, options = {}) {
       return reply.code(403).send({ error: "Access denied" });
     }
 
-    const media = rows[0];
-    const categoryDir = join(DATA_DIR, String(media.category_id));
-    const baseName = media.file_path.split("/")[1].split(".")[0];
-
-    // Probe possible thumb names
-    const exts = ["webp", "jpg", "png", "jpeg"];
-    for (const xt of exts) {
-      const p = join(categoryDir, `${baseName}_thumb.${xt}`);
-      try {
-        const thumbnailStats = await stat(p);
-        const etag = `W/\"${thumbnailStats.size.toString(16)}-${Math.floor(thumbnailStats.mtimeMs).toString(16)}\"`;
-        applyNoDownloadHeaders(reply, { revalidate: true });
-        reply.header("ETag", etag);
-        reply.header("Last-Modified", thumbnailStats.mtime.toUTCString());
-        const modifiedSince = Date.parse(request.headers["if-modified-since"] || "");
-        if (request.headers["if-none-match"] === etag
-          || (!request.headers["if-none-match"] && Number.isFinite(modifiedSince) && thumbnailStats.mtimeMs <= modifiedSince + 999)) {
-          return reply.code(304).send();
-        }
-        reply.type(mimeFromExt(p));
-        return reply.send(createReadStream(p));
-      } catch {
-        // file doesn't exist, try next ext
-      }
+    const { rows: categories } = await fastify.pg.query("SELECT cover_path FROM categories WHERE id = $1", [rows[0].category_id]);
+    if (!categories[0]?.cover_path) return reply.code(404).send({ error: "No thumbnail available" });
+    const coverFile = join(dataDir, categories[0].cover_path);
+    try {
+      return sendCoverFile({ request, reply, filePath: coverFile, stats: await stat(coverFile) });
+    } catch {
+      return reply.code(404).send({ error: "No thumbnail available" });
     }
-
-    return reply.code(404).send({ error: "No thumbnail available" });
   });
 }

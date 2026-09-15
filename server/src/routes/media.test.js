@@ -1,4 +1,7 @@
 import Fastify from "fastify";
+import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { describe, expect, it } from "vitest";
 import mediaRoutes, { decodeBrowseCursor, mediaMetadataFromTags, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
 
@@ -175,5 +178,38 @@ describe("track order metadata", () => {
     const response = await app.inject({ method: "POST", url: "/api/media/track-orders/scan" });
     expect(response.statusCode).toBe(403);
     await app.close();
+  });
+});
+
+describe("quality-aware streaming", () => {
+  it("selects a lower ready tier, supports ranges, validates quality, and defaults to original", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-quality-route-"));
+    await mkdir(join(dataDir, "7", "1", "v1"), { recursive: true });
+    await writeFile(join(dataDir, "7", "1.mp3"), "original-media");
+    await writeFile(join(dataDir, "7", "1", "v1", "med.m4a"), "medium-media");
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("SELECT quality, file_path") && sql.includes("media_encoding_variants")) {
+          return { rows: [{ quality: "med", file_path: "7/1/v1/med.m4a", mime_type: "audio/mp4" }] };
+        }
+        if (sql.includes("FROM media_assets m")) {
+          return { rows: [{ id: 1, category_id: 7, file_path: "7/1.mp3", mime_type: "audio/mpeg", source_version: 1 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+
+    const response = await app.inject({ method: "GET", url: "/api/media/1/stream?quality=high", headers: { range: "bytes=0-5" } });
+    expect(response.statusCode).toBe(206);
+    expect(response.headers["x-media-quality"]).toBe("med");
+    expect(response.headers["content-type"]).toContain("audio/mp4");
+    expect(response.body).toBe("medium");
+    expect((await app.inject({ method: "GET", url: "/api/media/1/stream?quality=ultra" })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/api/media/1/stream" })).headers["x-media-quality"]).toBe("ori");
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
   });
 });

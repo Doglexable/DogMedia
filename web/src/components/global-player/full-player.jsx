@@ -1,11 +1,11 @@
+import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBackwardStep,
   faBookmark,
-  faEllipsis,
   faForwardStep,
   faInfinity,
-  faMessage,
+  faList,
   faPause,
   faPlay,
   faRepeat,
@@ -17,7 +17,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { AmbientArtwork } from "./ambient-artwork";
 import { PlayerBar } from "./player-bar";
-import { SleepTimerControl } from "./player-controls";
+import { QualityControl, SleepTimerControl } from "./player-controls";
 import { NowPlayingSidebar } from "./now-playing-sidebar";
 import { getArtistLabel } from "./media-artists";
 import { FullscreenLyrics } from "./lyrics-panel";
@@ -47,19 +47,26 @@ export function FullPlayer({
   onPreventMenu, onResume, onSeek, onThumbError, onTimeUpdate, onToggleLoop,
   onToggleMute, onToggleShuffle, onToggle, liked, onToggleLike, onCloseFull,
   onSetSleepTimer,
+  quality, actualQuality, onChangeQuality,
 }) {
   if (isAudio) {
     const album = getMediaFolderName(currentMedia) || "Library";
     const artist = getArtistLabel(currentMedia.artists);
+    const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
     const max = Math.max(duration || currentMedia.duration || 0, position, 1);
     const remaining = Math.max((duration || currentMedia.duration || 0) - position, 0);
     const hasArtwork = Boolean(thumbSrc) && !thumbFailed;
+    const isArtworkLoaded = hasArtwork && loadedArtworkSrc === thumbSrc;
     const volumePercent = Math.round(volume * 100);
     const effectiveVolume = muted ? 0 : volumePercent;
 
     return (
-      <div className="premium-app-shell fullscreen-player" style={{ "--fullscreen-volume": `${effectiveVolume}%` }}>
-        {hasArtwork && (
+      <div
+        className="premium-app-shell fullscreen-player"
+        onContextMenu={onPreventMenu}
+        style={{ "--fullscreen-volume": `${effectiveVolume}%` }}
+      >
+        {isArtworkLoaded && (
           <img
             src={thumbSrc}
             alt=""
@@ -91,6 +98,7 @@ export function FullPlayer({
                   draggable={false}
                   onContextMenu={onPreventMenu}
                   onError={onThumbError}
+                  onLoad={() => setLoadedArtworkSrc(thumbSrc)}
                 />
               ) : (
                 <div className="fullscreen-player-artwork fullscreen-player-artwork--fallback">
@@ -106,6 +114,13 @@ export function FullPlayer({
             </div>
 
             <div className="fullscreen-player-actions" aria-label="Track actions">
+              <QualityControl
+                currentMedia={currentMedia}
+                quality={quality}
+                actualQuality={actualQuality}
+                onChangeQuality={onChangeQuality}
+                variant="fullscreen"
+              />
               <button
                 type="button"
                 className={liked ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -125,7 +140,7 @@ export function FullPlayer({
                 title="Queue"
                 onClick={onOpenQueue}
               >
-                <FontAwesomeIcon icon={faEllipsis} />
+                <FontAwesomeIcon icon={faList} />
               </button>
             </div>
 
@@ -205,16 +220,6 @@ export function FullPlayer({
 
           <div className="fullscreen-player-utilities">
             <FullscreenLyrics artworkUrl={thumbFailed ? null : thumbSrc} media={currentMedia} mediaId={currentMedia.id} onSeek={onSeek} position={position} />
-            <button
-              type="button"
-              className={queueOpen ? "fullscreen-player-message fullscreen-player-message--active" : "fullscreen-player-message"}
-              aria-label="Queue"
-              aria-pressed={queueOpen}
-              title="Queue"
-              onClick={onOpenQueue}
-            >
-              <FontAwesomeIcon icon={faMessage} />
-            </button>
           </div>
         </main>
 
@@ -230,7 +235,7 @@ export function FullPlayer({
   }
 
   return (
-    <div className="premium-app-shell" style={styles.fullPage}>
+    <div className="premium-app-shell" onContextMenu={onPreventMenu} style={styles.fullPage}>
       <button
         type="button"
         className="fullscreen-player-close full-player-close"
@@ -272,6 +277,7 @@ export function FullPlayer({
               controlsList="nodownload noplaybackrate"
               disablePictureInPicture
               disableRemotePlayback
+              preload="metadata"
               autoPlay={autoPlay}
               muted={muted || volume <= 0}
               className="full-player-video"
@@ -345,6 +351,9 @@ export function FullPlayer({
         streamSrc={streamSrc}
         thumbSrc={thumbSrc}
         volume={volume}
+        quality={quality}
+        actualQuality={actualQuality}
+        onChangeQuality={onChangeQuality}
         onSetSleepTimer={onSetSleepTimer}
       />
     </div>

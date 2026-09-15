@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../.env --watch src/index.js",
     "start": "node src/index.js",
+    "worker": "node src/worker.js",
     "migrate": "node --env-file-if-exists=../.env src/migrate.js",
+    "backfill:media": "node --env-file-if-exists=../.env src/backfill-media.js",
     "lint": "eslint .",
     "test": "vitest run --reporter=verbose"
   },
@@ -17,7 +19,8 @@
     "@fastify/multipart": "^10.0.0",
     "@fastify/static": "^9.0.0",
     "@fastify/cors": "^11.0.0",
-    "ioredis": "^5.0.0"
+    "ioredis": "^5.0.0",
+    "pg": "^8.0.0"
   },
   "devDependencies": {
     "eslint": "^9.0.0",

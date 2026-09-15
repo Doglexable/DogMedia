@@ -8,10 +8,9 @@
   --vault-ink: #101116;
   --vault-paper: #f5f4f1;
   --vault-rose: #e11d48;
-  --vault-cyan: #5ad4d8;
   --vault-steel: #737782;
   --vault-white: #ffffff;
-  --playback-signal: var(--vault-cyan);
+  --playback-signal: var(--vault-rose);
   --font-display: "Space Grotesk Variable", "Arial Narrow", sans-serif;
   --font-body: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
@@ -269,21 +268,30 @@ textarea {
   transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.library-filter-pill:hover {
+.library-filter-pill:hover,
+.library-filter-pill:focus-visible {
   color: var(--text);
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--card-border) 80%, var(--text));
   transform: translateY(-1px);
+  outline: none;
 }
 
-.library-filter-pill--active {
+.library-filter-pill--active,
+.library-filter-pill--active:hover,
+.library-filter-pill--active:focus-visible {
   border-color: transparent;
   background: var(--vault-ink);
-  color: var(--vault-white);
+  color: var(--vault-white) !important;
   box-shadow: 0 8px 22px rgba(16, 17, 22, 0.18);
 }
 
-[data-theme="dark"] .library-filter-pill--active {
+[data-theme="dark"] .library-filter-pill--active,
+[data-theme="dark"] .library-filter-pill--active:hover,
+[data-theme="dark"] .library-filter-pill--active:focus-visible {
   background: var(--vault-paper);
-  color: var(--vault-ink);
+  color: var(--vault-ink) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
 .library-nav-count,
@@ -362,15 +370,23 @@ textarea {
     linear-gradient(300deg, color-mix(in srgb, var(--playback-signal) 12%, transparent), transparent 42%),
     color-mix(in srgb, var(--card-bg) 90%, var(--bg));
   box-shadow: var(--shadow-soft);
+  overflow: hidden;
 }
 
 .library-featured-inner {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 410px);
-  gap: clamp(26px, 5vw, 64px);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr);
+  gap: clamp(20px, 3.5vw, 52px);
   align-items: center;
-  min-height: 440px;
-  padding: clamp(26px, 5vw, 54px);
+  min-height: 390px;
+  padding: clamp(22px, 3.5vw, 50px);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.library-featured-copy {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .library-eyebrow {
@@ -383,10 +399,12 @@ textarea {
 
 .library-featured h1 {
   max-width: 820px;
-  font-size: clamp(2.75rem, 6.4vw, 6.4rem);
+  font-size: clamp(2.25rem, 5vw, 5.5rem);
   font-weight: 690;
   letter-spacing: -0.07em;
-  line-height: 0.88;
+  line-height: 0.9;
+  overflow-wrap: break-word;
+  word-break: break-word;
   text-wrap: balance;
 }
 
@@ -413,6 +431,14 @@ textarea {
   margin-top: 13px !important;
 }
 
+.library-featured-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+}
+
 .library-action {
   min-height: 44px;
   border-radius: 999px;
@@ -420,6 +446,7 @@ textarea {
   background: color-mix(in srgb, var(--card-bg) 76%, transparent);
   font-size: 0.78rem;
   font-weight: 720;
+  white-space: nowrap;
   transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
@@ -448,10 +475,20 @@ textarea {
 .library-featured-art {
   position: relative;
   isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .library-featured-art::after {
   position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   z-index: -1;
   width: 72%;
   aspect-ratio: 1;
@@ -460,12 +497,17 @@ textarea {
   filter: blur(70px);
   opacity: 0.2;
   content: "";
+  pointer-events: none;
 }
 
 .library-signal-disc {
   position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   z-index: -1;
-  width: 114%;
+  width: 110%;
+  max-width: 440px;
   aspect-ratio: 1;
   border: 1px solid color-mix(in srgb, var(--playback-signal) 44%, transparent);
   border-radius: 50%;
@@ -473,9 +515,14 @@ textarea {
     repeating-radial-gradient(circle, transparent 0 15px, color-mix(in srgb, var(--text) 8%, transparent) 16px 17px),
     color-mix(in srgb, var(--playback-signal) 4%, transparent);
   animation: vault-signal-spin 32s linear infinite;
+  pointer-events: none;
 }
 
 .library-cover--hero {
+  width: 100%;
+  max-width: clamp(200px, 27vw, 380px);
+  height: auto;
+  aspect-ratio: 1 / 1;
   border-radius: 20px;
   box-shadow: var(--shadow-lift);
   transform: rotate(1.5deg);
@@ -591,7 +638,7 @@ textarea {
 }
 
 .themed-player-bar {
-  border-top-color: color-mix(in srgb, var(--playback-signal) 20%, var(--card-border)) !important;
+  border-top-color: color-mix(in srgb, var(--primary) 20%, var(--card-border)) !important;
   box-shadow: 0 -18px 54px rgba(18, 19, 25, 0.16);
 }
 
@@ -611,7 +658,7 @@ textarea {
 .player-progress-range,
 .fullscreen-player-progress-range,
 .fullscreen-player-volume-range {
-  accent-color: var(--playback-signal);
+  accent-color: var(--primary);
 }
 
 .full-player-info h1,
@@ -701,10 +748,12 @@ textarea {
 
   .library-featured-art {
     order: -1;
+    justify-self: center;
   }
 
   .library-cover--hero {
-    width: min(72vw, 390px);
+    width: min(72vw, 360px);
+    max-width: 360px;
   }
 }
 
@@ -758,6 +807,32 @@ textarea {
     background: color-mix(in srgb, var(--card-bg) 92%, transparent);
     backdrop-filter: blur(24px) saturate(130%);
   }
+}
+
+/* Fullscreen player quality popover positioning */
+.fullscreen-player .player-quality-popover,
+.player-quality-control--fullscreen .player-quality-popover {
+  right: auto;
+  left: 0;
+  transform: translate(0, 6px);
+}
+
+.fullscreen-player .player-quality-popover::after,
+.player-quality-control--fullscreen .player-quality-popover::after {
+  right: auto;
+  left: 15px;
+  transform: rotate(45deg);
+}
+
+.fullscreen-player .player-quality-control:hover .player-quality-popover,
+.fullscreen-player .player-quality-control:focus-within .player-quality-popover,
+.fullscreen-player .player-quality-control--open .player-quality-popover,
+.player-quality-control--fullscreen:hover .player-quality-popover,
+.player-quality-control--fullscreen:focus-within .player-quality-popover,
+.player-quality-control--fullscreen.player-quality-control--open .player-quality-popover {
+  transform: translate(0, 0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

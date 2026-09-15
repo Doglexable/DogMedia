@@ -13,6 +13,8 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:web": "npm run dev --workspace=web",
     "dev:mobile": "npm --workspace=mobile run dev --",
+    "dev:worker": "npm run worker --workspace=server",
+    "worker": "npm run worker --workspace=server",
     "build": "npm run build --workspace=web",
     "build:web:budget": "npm run build --workspace=web && node scripts/check-web-bundle.mjs",
     "benchmark": "node scripts/benchmark.mjs",

@@ -1,5 +1,12 @@
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
-import { LyricaProviderError, normalizeLyricsIdentity, resolveLyricaLyrics } from "../lyrica.js";
+import {
+  DEFAULT_LYRICA_REFRESH_MS,
+  LyricaProviderError,
+  getLyricaConfig,
+  isLyricaRowFresh,
+  normalizeLyricsIdentity,
+  resolveLyricaLyrics,
+} from "../lyrica.js";
 
 const ACCESSIBLE_MEDIA_SQL = `
   WITH RECURSIVE accessible_categories AS (
@@ -75,23 +82,48 @@ export async function resolveMediaLyrics(row, options = {}) {
   const artists = typeof row.artists === "string" ? row.artists.trim() : "";
 
   if (row.segments && row.lyrics_source !== "lyrica") return serializeLyrics(row);
-  if (row.segments && isCurrentLyricaRow(row, title, artists)) return serializeLyrics(row);
+
+  const isCurrent = isCurrentLyricaRow(row, title, artists);
+  const refreshMs = options.refreshMs ?? options.config?.refreshMs ?? getLyricaConfig().refreshMs;
+  if (row.segments && isCurrent && isLyricaRowFresh(row, refreshMs)) {
+    return serializeLyrics(row);
+  }
 
   if (!row.mime_type?.startsWith("audio/") || !title || !artists) {
     if (row.lyrics_source === "lyrica") {
-      await options.pg.query("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
+      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
     }
     return null;
   }
 
-  const lyrics = await resolveLyricaLyrics({
-    ...options,
-    artist: artists,
-    song: title,
-  });
+  const hasExistingSegments = Boolean(row.segments && isCurrent);
+
+  let lyrics;
+  try {
+    lyrics = await resolveLyricaLyrics({
+      ...options,
+      artist: artists,
+      song: title,
+    });
+  } catch (error) {
+    if (hasExistingSegments && error instanceof LyricaProviderError) {
+      options.log?.warn?.({ err: error, mediaId: row.media_id }, "Lyrica periodic refresh failed; retaining existing lyrics");
+      return serializeLyrics(row);
+    }
+    throw error;
+  }
+
   if (!lyrics) {
+    if (hasExistingSegments) {
+      await options.pg?.query?.(
+        "UPDATE media_lyrics SET updated_at = NOW() WHERE media_id = $1 AND source = 'lyrica'",
+        [row.media_id]
+      );
+      return serializeLyrics(row);
+    }
+
     if (row.lyrics_source === "lyrica") {
-      await options.pg.query("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
+      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
     }
     return null;
   }

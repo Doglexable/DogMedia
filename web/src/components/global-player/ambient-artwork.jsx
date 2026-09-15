@@ -9,7 +9,9 @@ export function AmbientArtwork({
   src,
 }) {
   const [failedSrc, setFailedSrc] = useState("");
+  const [loadedSrc, setLoadedSrc] = useState("");
   const hasImage = Boolean(src) && failedSrc !== src;
+  const isLoaded = hasImage && loadedSrc === src;
 
   function handleImageError(event) {
     setFailedSrc(event.currentTarget.getAttribute("src") || src);
@@ -18,14 +20,15 @@ export function AmbientArtwork({
 
   return (
     <span className={`ambient-artwork ${className}`.trim()}>
-      {/* The same source provides color for the soft layer behind the artwork. */}
-      {hasImage && (
+      {/* The soft layer is rendered only after the main image has loaded, avoiding duplicate network requests. */}
+      {isLoaded && (
         <img
           src={src}
           alt=""
           aria-hidden="true"
           className="ambient-artwork__glow"
           draggable={false}
+          onContextMenu={onContextMenu || ((event) => event.preventDefault())}
         />
       )}
 
@@ -37,8 +40,9 @@ export function AmbientArtwork({
             alt={alt}
             className="ambient-artwork__image"
             draggable={false}
-            onContextMenu={onContextMenu}
+            onContextMenu={onContextMenu || ((event) => event.preventDefault())}
             onError={handleImageError}
+            onLoad={() => setLoadedSrc(src)}
           />
         ) : fallback}
       </span>

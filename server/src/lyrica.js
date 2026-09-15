@@ -4,6 +4,8 @@ import { LyricsValidationError, normalizeWhisperLyrics } from "./lyrics.js";
 
 export const LYRICA_SUCCESS_TTL_SECONDS = 24 * 60 * 60;
 export const LYRICA_MISS_TTL_SECONDS = 15 * 60;
+export const DEFAULT_LYRICA_REFRESH_DAYS = 7;
+export const DEFAULT_LYRICA_REFRESH_MS = DEFAULT_LYRICA_REFRESH_DAYS * 24 * 60 * 60 * 1000;
 
 const DEFAULT_API_URL = "https://wilooper-lyrica.hf.space";
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -25,10 +27,25 @@ export function getLyricaConfig(env = process.env) {
     ? Math.min(Math.max(parsedTimeout, MIN_TIMEOUT_MS), MAX_TIMEOUT_MS)
     : DEFAULT_TIMEOUT_MS;
 
+  const parsedRefreshDays = Number.parseFloat(env.LYRICA_REFRESH_DAYS);
+  const refreshMs = Number.isFinite(parsedRefreshDays) && parsedRefreshDays > 0
+    ? parsedRefreshDays * 24 * 60 * 60 * 1000
+    : DEFAULT_LYRICA_REFRESH_MS;
+
   return {
     apiUrl: env.LYRICA_API_URL?.trim() || DEFAULT_API_URL,
     timeoutMs,
+    refreshMs,
   };
+}
+
+export function isLyricaRowFresh(row, refreshMs = DEFAULT_LYRICA_REFRESH_MS) {
+  if (!row?.updated_at) return false;
+  const updatedTime = row.updated_at instanceof Date
+    ? row.updated_at.getTime()
+    : new Date(row.updated_at).getTime();
+  if (!Number.isFinite(updatedTime)) return false;
+  return Date.now() - updatedTime < refreshMs;
 }
 
 export function buildLyricaUrl(apiUrl, artist, song) {

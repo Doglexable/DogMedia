@@ -781,6 +781,14 @@ async function readLyricsFile(file) {
   }
 }
 
+async function uploadCategoryCover(categoryId, file) {
+  const form = new FormData();
+  form.append("thumbnail", file, file.name);
+  const response = await api(`/api/categories/${categoryId}/thumbnail`, { method: "PUT", body: form });
+  if (!response.ok) throw new Error(await readApiError(response, "Category cover upload failed"));
+  return response.json();
+}
+
 async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, uploadedBytes, totalBytes }) {
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
   let sentBytes = uploadedBytes;
@@ -1108,7 +1116,7 @@ export default function Admin() {
   const batchSummary = useMemo(() => ({
     files: batchFiles.length,
     tracks: batchItems.length,
-    covers: batchItems.filter((item) => item.thumbnail).length,
+    covers: new Set(batchItems.filter((item) => item.thumbnail).map((item) => item.thumbnail)).size,
     lyrics: batchItems.filter((item) => item.lyrics).length,
     skipped: batchItems.reduce((sum, item) => sum + item.skippedCount, 0),
     bytes: batchItems.reduce((sum, item) => sum + (item.file?.size || 0), 0),
@@ -1403,6 +1411,19 @@ export default function Admin() {
     const createdItems = [];
     const failures = [];
 
+    const batchCover = batchItems.find((item) => item.thumbnail)?.thumbnail || null;
+    if (batchCover) {
+      try {
+        await uploadCategoryCover(mediaModalCategoryId, batchCover);
+        await refreshCategories();
+      } catch (error) {
+        setUploadingBatch(false);
+        setBatchProgress(null);
+        setMessage({ type: "error", text: error.message });
+        return;
+      }
+    }
+
     for (const [itemIndex, item] of batchItems.entries()) {
       try {
         const created = await uploadMediaInChunks({
@@ -1410,7 +1431,7 @@ export default function Admin() {
           title: item.title,
           file: item.file,
           lyricsFile: item.lyrics,
-          thumbnail: item.thumbnail,
+          thumbnail: null,
           onProgress: (progress) => {
             setBatchProgress(Math.round(((itemIndex + progress / 100) / batchItems.length) * 100));
           },
@@ -1523,12 +1544,16 @@ export default function Admin() {
       if (!res.ok) throw new Error(await readApiError(res, "Edit failed"));
 
       let updated = await res.json();
-      if (editFile || editThumb || editLyrics) {
+      if (editThumb) {
+        await uploadCategoryCover(editingMedia.category_id, editThumb);
+        await refreshCategories();
+      }
+      if (editFile || editLyrics) {
         setEditProgress(0);
         updated = await replaceMediaFilesInChunks({
           mediaId: editingMedia.id,
           file: editFile,
-          thumbnail: editThumb,
+          thumbnail: null,
           lyricsFile: editLyrics,
           onProgress: setEditProgress,
         });
@@ -1543,6 +1568,22 @@ export default function Admin() {
       setSavingEdit(false);
       setEditProgress(null);
     }
+  };
+
+  const handleRetryEncoding = async () => {
+    if (!editingMedia) return;
+    const response = await api(`/api/media/${editingMedia.id}/encoding/retry`, { method: "POST" });
+    if (!response.ok) {
+      setMessage({ type: "error", text: await readApiError(response, "Encoding retry failed") });
+      return;
+    }
+    setEditingMedia((current) => ({
+      ...current,
+      encoding_status: Object.fromEntries(Object.entries(current.encoding_status || {}).map(([quality, value]) => [
+        quality, value.status === "failed" ? { ...value, status: "queued", attempts: 0, error: null } : value,
+      ])),
+    }));
+    setMessage({ type: "success", text: `Encoding retry queued for "${editingMedia.title}".` });
   };
 
   const handleUploadRelease = async (event) => {
@@ -2112,7 +2153,7 @@ export default function Admin() {
 
                     <div style={styles.fieldGroup}>
                       <label style={styles.label}>
-                        Custom Thumbnail{" "}
+                        Folder cover{" "}
                         <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
                       </label>
                       <input
@@ -2123,7 +2164,7 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>
-                        If omitted, videos/images generate a preview and audio tries embedded cover art.
+                        Shared by every item in this category. It only fills an empty cover; edit the category cover to replace it later.
                       </p>
                     </div>
 
@@ -2184,7 +2225,7 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>
-                        Select an album folder. This creates new media rows; matching JSON lyrics and cover/front-cover images are attached automatically.
+                        Select an album folder. Its front/cover image is uploaded once for the category; matching JSON lyrics are attached per track.
                       </p>
                     </div>
 
@@ -2272,7 +2313,7 @@ export default function Admin() {
         {editingMedia && (
           <Modal
             title={`Edit ${editingMedia.title}`}
-            subtitle="Update metadata, or replace the media file, thumbnail, and lyrics."
+            subtitle="Update metadata, replace the source, manage the shared folder cover, and inspect encoding."
             width={820}
             onClose={savingEdit ? () => {} : closeEditMediaModal}
           >
@@ -2355,6 +2396,15 @@ export default function Admin() {
                       <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 12 }}>
                         {editingMedia.mime_type || "Unknown type"} · {editingMedia.duration != null ? formatDuration(editingMedia.duration) : "unknown duration"}
                       </div>
+                      <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {["low", "med", "high"].map((quality) => {
+                          const state = editingMedia.encoding_status?.[quality]?.status || "queued";
+                          return <span key={quality} style={styles.batchBadge}>{quality.toUpperCase()} · {state}</span>;
+                        })}
+                        {Object.values(editingMedia.encoding_status || {}).some((item) => item.status === "failed") && (
+                          <button type="button" style={styles.button("secondary", false)} onClick={handleRetryEncoding}>Retry failed</button>
+                        )}
+                      </div>
                     </div>
 
                     <div style={styles.fieldGroup}>
@@ -2370,7 +2420,7 @@ export default function Admin() {
                     </div>
 
                     <div style={styles.fieldGroup}>
-                      <label style={styles.label}>Replace thumbnail</label>
+                      <label style={styles.label}>Replace folder cover</label>
                       <input
                         id="admin-edit-media-thumb"
                         type="file"
@@ -2378,7 +2428,7 @@ export default function Admin() {
                         onChange={(event) => setEditThumb(event.target.files[0] || null)}
                         style={styles.fileInput}
                       />
-                      <p style={styles.helpText}>If you replace the media file without choosing a thumbnail, the server will try to generate one.</p>
+                      <p style={styles.helpText}>This updates the shared cover for every media item in this category.</p>
                     </div>
 
                     <div style={styles.fieldGroup}>

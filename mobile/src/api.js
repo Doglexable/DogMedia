@@ -14,8 +14,8 @@ export function mediaThumbnailUrl(mediaId) {
   return absoluteApiUrl(`/api/media/${mediaId}/thumbnail`);
 }
 
-export function mediaStreamUrl(mediaId) {
-  return absoluteApiUrl(`/api/media/${mediaId}/stream`);
+export function mediaStreamUrl(mediaId, quality = "high") {
+  return absoluteApiUrl(`/api/media/${mediaId}/stream?quality=${encodeURIComponent(quality)}`);
 }
 
 export async function api(path, options = {}) {

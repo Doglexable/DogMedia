@@ -8,6 +8,7 @@ import {
   normalizeOfflineMediaId,
   normalizeOfflineResume,
 } from "../offline.js";
+import { normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const MAX_BATCH_ITEMS = 500;
@@ -28,7 +29,7 @@ const ACCESSIBLE_AUDIO_SQL = `
   )
 `;
 
-function serializeMedia(row, stats) {
+function serializeMedia(row, stats, quality = "ori") {
   return {
     id: Number(row.id),
     category_id: Number(row.category_id),
@@ -44,6 +45,9 @@ function serializeMedia(row, stats) {
     fileVersion: buildOfflineFileVersion(stats),
     hasLyrics: Boolean(row.has_lyrics),
     liked: Boolean(row.liked),
+    available_qualities: row.available_qualities || ["ori"],
+    encoding_status: row.encoding_status || {},
+    quality,
   };
 }
 
@@ -60,6 +64,13 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
   const { rows } = await fastify.pg.query(
     `${ACCESSIBLE_AUDIO_SQL}
      SELECT m.*, ac.name AS category_name,
+            ARRAY(
+              SELECT v.quality FROM media_encoding_variants v
+              WHERE v.media_id = m.id AND v.source_version = m.source_version AND v.status = 'ready'
+              ORDER BY array_position(ARRAY['low','med','high']::text[], v.quality)
+            ) || ARRAY['ori']::text[] AS available_qualities,
+            COALESCE((SELECT jsonb_object_agg(v.quality, jsonb_build_object('status', v.status, 'attempts', v.attempts, 'error', v.last_error, 'bitrate', v.bitrate, 'width', v.width, 'height', v.height))
+              FROM media_encoding_variants v WHERE v.media_id = m.id AND v.source_version = m.source_version), '{}'::jsonb) AS encoding_status,
             array_to_string(ac.path_parts, ' / ') AS category_path,
             (ml.media_id IS NOT NULL) AS has_lyrics,
             EXISTS (SELECT 1 FROM liked_music lm WHERE lm.media_id = m.id AND lm.client_ip = $2::inet) AS liked
@@ -77,7 +88,19 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
   return rows;
 }
 
-async function manifestItems(rows, dataDir) {
+async function resolveQualityFile(pg, row, requestedQuality) {
+  if (requestedQuality === "ori") return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+  const { rows } = await pg.query(
+    `SELECT quality, file_path, mime_type FROM media_encoding_variants
+     WHERE media_id = $1 AND source_version = $2 AND status = 'ready'`,
+    [row.id, row.source_version]
+  );
+  const quality = selectActualQuality(requestedQuality, rows.map((item) => item.quality));
+  const variant = rows.find((item) => item.quality === quality);
+  return variant ? { path: variant.file_path, mimeType: variant.mime_type, quality } : { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+}
+
+async function manifestItems(rows, dataDir, pg, requestedQuality = "ori") {
   const items = new Array(rows.length);
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(8, rows.length) }, async () => {
@@ -86,8 +109,17 @@ async function manifestItems(rows, dataDir) {
       nextIndex += 1;
       const row = rows[index];
       try {
-        const stats = await stat(join(dataDir, row.file_path));
-        items[index] = serializeMedia(row, stats);
+        const selected = await resolveQualityFile(pg, row, requestedQuality);
+        let resolved = selected;
+        let stats;
+        try {
+          stats = await stat(join(dataDir, resolved.path));
+        } catch (error) {
+          if (resolved.quality === "ori") throw error;
+          resolved = { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+          stats = await stat(join(dataDir, resolved.path));
+        }
+        items[index] = serializeMedia({ ...row, mime_type: resolved.mimeType }, stats, resolved.quality);
       } catch {
         items[index] = null;
       }
@@ -107,32 +139,45 @@ async function sendMissingOrDenied(fastify, reply, mediaId) {
 export default async function offlineRoutes(fastify, options = {}) {
   const dataDir = options.dataDir || DATA_DIR;
   fastify.get("/manifest", async (request, reply) => {
+    const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "ori" });
+    if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const categoryId = normalizeOfflineMediaId(request.query?.category_id);
     const mediaId = normalizeOfflineMediaId(request.query?.media_id);
     if (!categoryId && !mediaId) return reply.code(400).send({ error: "category_id or media_id is required" });
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, mediaId ? { mediaIds: [mediaId] } : { categoryId });
     if (mediaId && rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
-    return { items: await manifestItems(rows, dataDir) };
+    return { items: await manifestItems(rows, dataDir, fastify.pg, requestedQuality) };
   });
 
   fastify.get("/media/:id/download", async (request, reply) => {
+    const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "ori" });
+    if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const mediaId = normalizeOfflineMediaId(request.params.id);
     if (!mediaId) return reply.code(400).send({ error: "Invalid media ID" });
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: [mediaId] });
     if (rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
     const media = rows[0];
-    const filePath = join(dataDir, media.file_path);
+    let selected = await resolveQualityFile(fastify.pg, media, requestedQuality);
+    let filePath = join(dataDir, selected.path);
     let stats;
     try {
       stats = await stat(filePath);
     } catch {
-      return reply.code(404).send({ error: "File not found on disk" });
+      if (selected.quality === "ori") return reply.code(404).send({ error: "File not found on disk" });
+      selected = { path: media.file_path, mimeType: media.mime_type, quality: "ori" };
+      filePath = join(dataDir, selected.path);
+      try {
+        stats = await stat(filePath);
+      } catch {
+        return reply.code(404).send({ error: "File not found on disk" });
+      }
     }
     reply.header("Content-Length", stats.size);
     reply.header("X-File-Version", buildOfflineFileVersion(stats));
+    reply.header("X-Media-Quality", selected.quality);
     reply.header("Content-Disposition", `attachment; filename="${mediaId}"`);
     reply.header("Cache-Control", "no-store, private");
-    reply.type(media.mime_type || "application/octet-stream");
+    reply.type(selected.mimeType || "application/octet-stream");
     return reply.send(createReadStream(filePath));
   });
 
@@ -143,7 +188,16 @@ export default async function offlineRoutes(fastify, options = {}) {
     }
     const ids = [...new Set(requested.map((item) => normalizeOfflineMediaId(item?.mediaId)).filter(Boolean))];
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: ids });
-    const accessible = new Map((await manifestItems(rows, dataDir)).map((item) => [item.id, item]));
+    const rowById = new Map(rows.map((row) => [Number(row.id), row]));
+    const accessible = new Map();
+    await Promise.all(requested.map(async (requestItem) => {
+      const mediaId = normalizeOfflineMediaId(requestItem?.mediaId);
+      const row = rowById.get(mediaId);
+      if (!row) return;
+      const quality = normalizeRequestedQuality(requestItem?.quality, { defaultQuality: "ori" }) || "ori";
+      const items = await manifestItems([row], dataDir, fastify.pg, quality);
+      if (items[0]) accessible.set(`${mediaId}:${quality}`, items[0]);
+    }));
     const { rows: existingRows } = ids.length
       ? await fastify.pg.query("SELECT id FROM media_assets WHERE id = ANY($1::int[])", [ids])
       : { rows: [] };
@@ -151,7 +205,8 @@ export default async function offlineRoutes(fastify, options = {}) {
     return {
       items: requested.map((item) => {
         const mediaId = normalizeOfflineMediaId(item?.mediaId);
-        const current = accessible.get(mediaId);
+        const quality = normalizeRequestedQuality(item?.quality, { defaultQuality: "ori" }) || "ori";
+        const current = accessible.get(`${mediaId}:${quality}`);
         if (!mediaId || !existing.has(mediaId)) return { mediaId, status: "missing" };
         if (!current) return { mediaId, status: "locked" };
         return {

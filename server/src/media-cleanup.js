@@ -71,6 +71,10 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
     const candidates = [];
     for (const fileEntry of fileEntries) {
       if (!fileEntry.isFile()) {
+        if (fileEntry.isDirectory() && /^\d+$/.test(fileEntry.name)) {
+          candidates.push({ mediaId: Number(fileEntry.name), path: join(categoryDir, fileEntry.name), recursive: true });
+          continue;
+        }
         summary.skipped += 1;
         continue;
       }
@@ -102,7 +106,7 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
           continue;
         }
 
-        await fs.rm(candidate.path, { force: true });
+        await fs.rm(candidate.path, { force: true, recursive: Boolean(candidate.recursive) });
         summary.deleted += 1;
       } catch (error) {
         summary.errors += 1;

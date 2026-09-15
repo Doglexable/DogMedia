@@ -185,6 +185,7 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
   const panel = (
     <div
       className={mobile ? "premium-queue-panel premium-queue-panel--drawer" : "premium-queue-panel"}
+      onContextMenu={(event) => event.preventDefault()}
       style={mobile ? {
         ...styles.queuePanel,
         position: "static",

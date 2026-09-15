@@ -5,6 +5,7 @@ import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-moda
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
 import { createApiUnreachableError } from "../utils/playback-errors";
+import { actualMediaQuality, getStoredMediaQuality, storeMediaQuality } from "../media-quality";
 import {
   getCompletionAction,
   getQueueNavigation,
@@ -76,6 +77,11 @@ export function PlayerProvider({ children }) {
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
+  const [quality, setQuality] = useState("high");
+
+  useEffect(() => {
+    getStoredMediaQuality().then(setQuality).catch(() => {});
+  }, []);
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
   const navigation = getQueueNavigation({ length: queueTotal }, queueIndex, loopMode);
@@ -258,10 +264,10 @@ export function PlayerProvider({ children }) {
   }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent]);
   reportPlayingRef.current = reportPlaying;
 
-  const loadAudio = useCallback(async (media, autoplay, startPosition) => {
+  const loadAudio = useCallback(async (media, autoplay, startPosition, requestedQuality = quality) => {
     const localUri = offline.resolveMediaUri(media.id);
     if (!localUri && !offline.isConnected) throw new Error("This track is not available offline");
-    const sound = createAudioPlayer({ uri: localUri || mediaStreamUrl(media.id) }, { updateInterval: 500 });
+    const sound = createAudioPlayer({ uri: localUri || mediaStreamUrl(media.id, requestedQuality) }, { updateInterval: 500 });
     sound.volume = mutedRef.current ? 0 : volumeRef.current;
     sound.loop = false;
     soundRef.current = sound;
@@ -277,7 +283,22 @@ export function PlayerProvider({ children }) {
 
     if (startPosition > 0) await sound.seekTo(startPosition);
     if (autoplay) sound.play();
-  }, [offline]);
+  }, [offline, quality]);
+
+  const changeQuality = useCallback(async (value) => {
+    const nextQuality = await storeMediaQuality(value);
+    if (nextQuality === quality) return;
+    const media = currentMediaRef.current;
+    const nextPosition = positionRef.current;
+    const shouldPlay = !pausedRef.current;
+    pendingStartPositionRef.current = nextPosition;
+    setQuality(nextQuality);
+    if (media && getMediaKind(media.mime_type) === "audio" && offline.isConnected && !offline.resolveMediaUri(media.id)) {
+      await unloadSound();
+      pendingStartPositionRef.current = null;
+      await loadAudio(media, shouldPlay, nextPosition, nextQuality);
+    }
+  }, [loadAudio, offline, quality, unloadSound]);
 
   const startMedia = useCallback(async (media, options = {}) => {
     if (!media) return;
@@ -864,6 +885,11 @@ export function PlayerProvider({ children }) {
     clearQueue,
     currentKind,
     currentMedia,
+    quality,
+    actualQuality: offline.resolveMediaUri(currentMedia?.id)
+      ? currentMedia?.quality || "ori"
+      : actualMediaQuality(quality, currentMedia?.available_qualities),
+    changeQuality,
     duration,
     hasNext: navigation.hasNext,
     hasPrev: navigation.hasPrev,
@@ -902,12 +928,12 @@ export function PlayerProvider({ children }) {
     toggleShuffle,
     volume,
   }), [
-    addToQueue, advance, applyResumePosition, changeVolume, clearQueue, currentKind, currentMedia,
+    addToQueue, advance, applyResumePosition, changeQuality, changeVolume, clearQueue, currentKind, currentMedia,
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
-    setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
+    quality, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
   const libraryValue = useMemo(() => ({
