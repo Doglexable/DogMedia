@@ -1,6 +1,12 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { apiJson, assertApiReachable, mediaStreamUrl } from "../api";
+import {
+  apiJson,
+  assertApiReachable,
+  createPlaybackSessionSource,
+  heartbeatPlaybackLease,
+  releasePlaybackLease,
+} from "../api";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
@@ -57,6 +63,7 @@ export function PlayerProvider({ children }) {
   const reportProgressRef = useRef(() => {});
   const saveResumePositionForRef = useRef(() => Promise.resolve());
   const sendActiveSessionRef = useRef(() => Promise.resolve());
+  const playbackSourceRef = useRef(null);
 
   const [currentMedia, setCurrentMedia] = useState(null);
   const [paused, setPaused] = useState(true);
@@ -78,6 +85,8 @@ export function PlayerProvider({ children }) {
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
   const [quality, setQuality] = useState("high");
+  const [playbackSource, setPlaybackSource] = useState(null);
+  const [playbackAccessError, setPlaybackAccessError] = useState("");
 
   useEffect(() => {
     getStoredMediaQuality().then(setQuality).catch(() => {});
@@ -291,7 +300,28 @@ export function PlayerProvider({ children }) {
   const loadAudio = useCallback(async (media, autoplay, startPosition, requestedQuality = quality) => {
     const localUri = offline.resolveMediaUri(media.id);
     if (!localUri && !offline.isConnected) throw new Error("This track is not available offline");
-    const sound = createAudioPlayer({ uri: localUri || mediaStreamUrl(media.id, requestedQuality) }, { updateInterval: 500 });
+    const protectedQuality = requestedQuality === "ori"
+      && Array.isArray(media.available_qualities)
+      && !media.available_qualities.includes("ori")
+      ? "high"
+      : requestedQuality;
+    if (protectedQuality !== requestedQuality) {
+      setQuality(protectedQuality);
+      await storeMediaQuality(protectedQuality);
+    }
+    let source;
+    try {
+      source = localUri
+        ? { uri: localUri }
+        : await createPlaybackSessionSource(media.id, protectedQuality);
+    } catch (error) {
+      setPlaybackAccessError(error.message || "Playback is active on another device");
+      throw error;
+    }
+    playbackSourceRef.current = localUri ? null : source;
+    setPlaybackSource(localUri ? null : source);
+    setPlaybackAccessError("");
+    const sound = createAudioPlayer({ uri: source.uri, headers: source.headers }, { updateInterval: 500 });
     sound.volume = mutedRef.current ? 0 : volumeRef.current;
     sound.loop = false;
     soundRef.current = sound;
@@ -308,6 +338,26 @@ export function PlayerProvider({ children }) {
     if (startPosition > 0) await sound.seekTo(startPosition);
     if (autoplay) sound.play();
   }, [offline, quality]);
+
+  useEffect(() => {
+    if (!playbackSource?.leaseRequired) return;
+    let stopped = false;
+    const heartbeat = () => {
+      heartbeatPlaybackLease(playbackSource).catch((error) => {
+        if (stopped) return;
+        setPlaybackAccessError(error.message || "Playback is active on another device");
+        pausedRef.current = true;
+        setPaused(true);
+        soundRef.current?.pause?.();
+        videoControllerRef.current?.pause?.();
+      });
+    };
+    const interval = setInterval(heartbeat, 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [playbackSource]);
 
   const changeQuality = useCallback(async (value) => {
     const nextQuality = await storeMediaQuality(value);
@@ -380,6 +430,11 @@ export function PlayerProvider({ children }) {
   }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
 
   const stopPlayback = useCallback(async () => {
+    const activePlaybackSource = playbackSourceRef.current;
+    playbackSourceRef.current = null;
+    setPlaybackSource(null);
+    setPlaybackAccessError("");
+    releasePlaybackLease(activePlaybackSource);
     const media = currentMediaRef.current;
     const nextPosition = positionRef.current;
     const nextDuration = durationRef.current || media?.duration || 0;
@@ -892,6 +947,7 @@ export function PlayerProvider({ children }) {
   }, [sendActiveSession, startMedia]);
 
   useEffect(() => () => {
+    releasePlaybackLease(playbackSourceRef.current);
     const media = currentMediaRef.current;
     if (media) {
       saveResumePositionForRef.current(media, positionRef.current, durationRef.current || media.duration || 0);
@@ -909,6 +965,7 @@ export function PlayerProvider({ children }) {
     clearQueue,
     currentKind,
     currentMedia,
+    playbackAccessError,
     quality,
     actualQuality: offline.resolveMediaUri(currentMedia?.id)
       ? currentMedia?.quality || "ori"
@@ -953,6 +1010,7 @@ export function PlayerProvider({ children }) {
     volume,
   }), [
     addToQueue, advance, applyResumePosition, changeQuality, changeVolume, clearQueue, currentKind, currentMedia,
+    playbackAccessError,
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,

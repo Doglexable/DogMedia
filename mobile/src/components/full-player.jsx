@@ -6,7 +6,12 @@ import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatli
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { mediaStreamUrl, mediaThumbnailUrl } from "../api";
+import {
+  createPlaybackSessionSource,
+  heartbeatPlaybackLease,
+  mediaThumbnailUrl,
+  releasePlaybackLease,
+} from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getArtistLabel, getMediaFolderName, getMediaLabel, resolveMediaArtist } from "../utils/media";
 import { usePlayer } from "../context/player-context";
@@ -17,12 +22,14 @@ import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 
 function QualityControl({ player, style, styles }) {
+  const qualities = player.currentMedia?.available_qualities?.includes("ori")
+    ? ["low", "med", "high", "ori"]
+    : ["low", "med", "high"];
   return (
     <Pressable
       accessibilityLabel={`Media quality ${player.quality}, playing ${player.actualQuality}`}
       accessibilityRole="button"
       onPress={() => {
-        const qualities = ["low", "med", "high", "ori"];
         player.changeQuality(qualities[(qualities.indexOf(player.quality) + 1) % qualities.length]);
       }}
       style={[styles.qualityPill, style]}
@@ -32,8 +39,9 @@ function QualityControl({ player, style, styles }) {
   );
 }
 
-function VideoSurface({ mediaId, playerState, quality, shouldPlay, styles }) {
-  const player = useVideoPlayer({ uri: mediaStreamUrl(mediaId, quality) });
+function VideoSurface({ playerState, source, shouldPlay, styles }) {
+  const nativeSource = useMemo(() => ({ uri: source.uri, headers: source.headers }), [source.headers, source.uri]);
+  const player = useVideoPlayer(nativeSource);
 
   useEventListener(player, "playingChange", ({ isPlaying }) => {
     playerState.reportVideoPlaying(isPlaying);
@@ -479,7 +487,42 @@ export function FullPlayer({ navigation }) {
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState("");
   const [sleepOpen, setSleepOpen] = useState(false);
+  const [protectedSource, setProtectedSource] = useState(null);
+  const [protectedSourceError, setProtectedSourceError] = useState("");
   const media = player.currentMedia;
+
+  useEffect(() => {
+    let cancelled = false;
+    setProtectedSource(null);
+    setProtectedSourceError("");
+    if (!media || media.mime_type?.startsWith("audio/")) return () => { cancelled = true; };
+    const protectedQuality = player.quality === "ori" && !media.available_qualities?.includes("ori")
+      ? "high"
+      : player.quality;
+    createPlaybackSessionSource(media.id, protectedQuality)
+      .then((source) => { if (!cancelled) setProtectedSource(source); })
+      .catch((error) => { if (!cancelled) setProtectedSourceError(error.message); });
+    return () => { cancelled = true; };
+  }, [media?.id, media?.mime_type, player.quality]);
+
+  useEffect(() => {
+    if (!protectedSource?.leaseRequired) return;
+    let stopped = false;
+    const heartbeat = () => {
+      heartbeatPlaybackLease(protectedSource).catch((error) => {
+        if (stopped) return;
+        setProtectedSourceError(error.message || "Playback is active on another device");
+        setProtectedSource(null);
+        player.pause?.();
+      });
+    };
+    const interval = setInterval(heartbeat, 10_000);
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+      releasePlaybackLease(protectedSource);
+    };
+  }, [player.pause, protectedSource]);
 
   useEffect(() => {
     const unsubscribe = navigation?.addListener?.("beforeRemove", () => {
@@ -558,17 +601,21 @@ export function FullPlayer({ navigation }) {
         />
         <QualityControl player={player} style={[styles.visualQuality, { top: insets.top + spacing.md }]} styles={styles} />
         <View style={styles.visualStage}>
-          {isVideo && (
+          {(protectedSourceError || player.playbackAccessError) && (
+            <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: spacing.lg }}>
+              {protectedSourceError || player.playbackAccessError}
+            </Text>
+          )}
+          {isVideo && protectedSource && (
             <VideoSurface
               key={`${media.id}-${player.quality}`}
-              mediaId={media.id}
               playerState={player}
-              quality={player.quality}
+              source={protectedSource}
               shouldPlay={!player.paused}
               styles={styles}
             />
           )}
-          {isImage && <Image source={{ uri: mediaStreamUrl(media.id, player.quality) }} style={styles.image} resizeMode="contain" />}
+          {isImage && protectedSource && <Image source={protectedSource} style={styles.image} resizeMode="contain" />}
           {isVideo && (
             <ResumePrompt
               darkSurface

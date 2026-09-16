@@ -1,6 +1,6 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, createPlaybackSession, heartbeatPlaybackLease, releasePlaybackLease } from "../api";
 import { MiniPlayer } from "./global-player/mini-player";
 import {
   cleanMediaText,
@@ -12,6 +12,7 @@ import { hiddenMediaStyle, playerStyles as styles } from "./global-player/player
 import {
   LOOP_MODES,
   PAUSE_CACHE_TTL_MS,
+  getAutoQueueEndpoint,
   getCategoryQuery as categoryQuery,
   getCompletionAction,
   getMediaMeta as mediaMeta,
@@ -91,6 +92,7 @@ export function GlobalPlayerProvider({ children }) {
   const lastTriggerRef = useRef("user");
   const pauseStartedAtRef = useRef(null);
   const pauseDropTimerRef = useRef(null);
+  const playbackSessionIdRef = useRef(null);
   const currentMediaRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   currentMediaRef.current = currentMedia;
@@ -122,6 +124,8 @@ export function GlobalPlayerProvider({ children }) {
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
   const [quality, setQuality] = useState(readMediaQuality);
+  const [streamSrc, setStreamSrc] = useState("");
+  const [playbackAccessError, setPlaybackAccessError] = useState("");
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -131,7 +135,6 @@ export function GlobalPlayerProvider({ children }) {
   const isVideo = currentMime.startsWith("video/");
   const isImage = currentMime.startsWith("image/");
   const actualQuality = actualMediaQuality(quality, currentMedia?.available_qualities);
-  const streamSrc = currentMedia ? `/api/media/${currentMedia.id}/stream?quality=${quality}` : "";
   const thumbSrc = currentMedia ? `/api/media/${currentMedia.id}/thumbnail` : "";
   const meta = mediaMeta(currentMime);
   const hasQueueNext = queueTotal > 0 && queueIndex < queueTotal - 1;
@@ -162,6 +165,61 @@ export function GlobalPlayerProvider({ children }) {
   useEffect(() => {
     window.localStorage.setItem(PLAYER_MUTED_KEY, String(muted));
   }, [muted]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStreamSrc("");
+    setPlaybackAccessError("");
+    if (!currentMedia) return () => controller.abort();
+    if (quality === "ori"
+      && Array.isArray(currentMedia.available_qualities)
+      && !currentMedia.available_qualities.includes("ori")) {
+      window.localStorage.setItem(MEDIA_QUALITY_STORAGE_KEY, "high");
+      setQuality("high");
+      return () => controller.abort();
+    }
+
+    createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
+      .then((session) => {
+        playbackSessionIdRef.current = session.sessionId;
+        setStreamSrc(session.streamUrl);
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError") {
+          setShouldAutoPlay(false);
+          setPaused(true);
+          setPlaybackAccessError(error.message);
+        }
+      });
+
+    return () => controller.abort();
+  }, [currentMedia?.id, quality]);
+
+  useEffect(() => {
+    if (!playbackSessionIdRef.current || !currentMedia || isImage) return;
+    let stopped = false;
+    const heartbeat = () => {
+      const sessionId = playbackSessionIdRef.current;
+      if (!sessionId) return;
+      heartbeatPlaybackLease(sessionId).catch((error) => {
+        if (stopped || error.code !== "PLAYBACK_LEASE_LOST") return;
+        mediaRef.current?.pause?.();
+        setStreamSrc("");
+        setPaused(true);
+        setShouldAutoPlay(false);
+        setPlaybackAccessError(error.message);
+      });
+    };
+    const interval = window.setInterval(heartbeat, 10_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [currentMedia?.id, isImage, streamSrc]);
+
+  useEffect(() => () => {
+    releasePlaybackLease(playbackSessionIdRef.current);
+  }, []);
 
   const changeQuality = useCallback((nextQuality) => {
     const nextPosition = mediaRef.current?.currentTime || position || 0;
@@ -249,10 +307,8 @@ export function GlobalPlayerProvider({ children }) {
       .catch(() => {});
   }, []);
 
-  const initializeQueue = useCallback((mediaId, nextCategoryId) => {
-    const queueEndpoint = nextCategoryId
-      ? `/api/queue/auto/${nextCategoryId}?start=${mediaId}&compact=1`
-      : `/api/queue/auto?start=${mediaId}&compact=1`;
+  const initializeQueue = useCallback((mediaId, nextCategoryId = null, queueContext = null) => {
+    const queueEndpoint = getAutoQueueEndpoint(mediaId, nextCategoryId, queueContext);
 
     api(queueEndpoint, { method: "POST" })
       .then((r) => r.json())
@@ -298,16 +354,18 @@ export function GlobalPlayerProvider({ children }) {
       .catch(() => {});
   }, []);
 
-  const playMedia = useCallback((mediaItem, nextCategoryId = null) => {
+  const playMedia = useCallback((mediaItem, nextCategoryId = null, options = {}) => {
     if (!mediaItem) return;
-    setCategoryId(nextCategoryId);
+    const context = options?.context || (nextCategoryId === "liked" ? "liked" : null);
+    const resolvedCategoryId = nextCategoryId === "liked" ? null : nextCategoryId;
+    setCategoryId(resolvedCategoryId);
     resetForMedia(mediaItem, { autoplay: true });
-    initializeQueue(mediaItem.id, nextCategoryId);
+    initializeQueue(mediaItem.id, resolvedCategoryId, context);
     loadResumePosition(mediaItem.id);
 
     const isAudioMedia = mediaItem.mime_type?.startsWith("audio/");
     if (!isAudioMedia) {
-      const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+      const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
       navigate(`/media/${mediaItem.id}${search}`);
     }
   }, [initializeQueue, loadResumePosition, navigate, resetForMedia]);
@@ -315,10 +373,12 @@ export function GlobalPlayerProvider({ children }) {
   const playMediaById = useCallback((mediaId, nextCategoryId = null, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
 
-    const { autoplay = true, loadResume = true, preserveQueue = false, startPosition = 0 } = options;
+    const { autoplay = true, loadResume = true, preserveQueue = false, startPosition = 0, context = null } = options;
     const numericId = Number(mediaId);
-    setCategoryId(nextCategoryId);
-    if (!preserveQueue) initializeQueue(numericId, nextCategoryId);
+    const resolvedContext = context || (nextCategoryId === "liked" ? "liked" : null);
+    const resolvedCategoryId = nextCategoryId === "liked" ? null : nextCategoryId;
+    setCategoryId(resolvedCategoryId);
+    if (!preserveQueue) initializeQueue(numericId, resolvedCategoryId, resolvedContext);
 
     if (currentMedia?.id === numericId) {
       setShouldAutoPlay(autoplay);
@@ -335,7 +395,7 @@ export function GlobalPlayerProvider({ children }) {
       }
       const isAudioMedia = currentMedia?.mime_type?.startsWith("audio/");
       if (!isAudioMedia && location.pathname !== `/media/${numericId}`) {
-        const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+        const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
         navigate(`/media/${numericId}${search}`);
       }
       return;
@@ -351,7 +411,7 @@ export function GlobalPlayerProvider({ children }) {
         if (loadResume) loadResumePosition(mediaItem.id);
         const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
         if (!isAudioMedia && location.pathname !== `/media/${mediaItem.id}`) {
-          const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+          const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
           navigate(`/media/${mediaItem.id}${search}`);
         }
       })
@@ -464,6 +524,9 @@ export function GlobalPlayerProvider({ children }) {
   }, [loadQueueItems, queueOpen]);
 
   const stopPlayback = useCallback(() => {
+    const playbackSessionId = playbackSessionIdRef.current;
+    playbackSessionIdRef.current = null;
+    releasePlaybackLease(playbackSessionId);
     pauseStartedAtRef.current = null;
     if (pauseDropTimerRef.current) {
       clearTimeout(pauseDropTimerRef.current);
@@ -484,6 +547,8 @@ export function GlobalPlayerProvider({ children }) {
     setHasPrev(false);
     setResumePos(null);
     setQueueOpen(false);
+    setStreamSrc("");
+    setPlaybackAccessError("");
     if (isFullPlayer) navigate("/");
   }, [isFullPlayer, navigate]);
 
@@ -835,7 +900,8 @@ export function GlobalPlayerProvider({ children }) {
     if (currentMedia?.id === fullMediaId) return;
     const params = new URLSearchParams(location.search);
     const nextCategoryId = params.get("category");
-    playMediaById(fullMediaId, nextCategoryId);
+    const nextView = params.get("view");
+    playMediaById(fullMediaId, nextCategoryId, nextView === "liked" ? { context: "liked" } : {});
   }, [activeSessionChecked, currentMedia?.id, fullMediaId, isFullPlayer, location.search, playMediaById]);
 
   useEffect(() => {
@@ -1273,6 +1339,21 @@ export function GlobalPlayerProvider({ children }) {
     <PlayerLibraryContext.Provider value={libraryContextValue}>
     <PlayerContext.Provider value={contextValue}>
       {children}
+      {playbackAccessError && (
+        <div
+          role="alert"
+          style={{
+            position: "fixed", left: "50%", bottom: 84, zIndex: 1000,
+            transform: "translateX(-50%)", maxWidth: "min(92vw, 520px)",
+            padding: "12px 16px", borderRadius: 12,
+            color: "var(--text)", background: "var(--surface)",
+            border: "1px solid var(--border)", boxShadow: "0 16px 45px rgba(0,0,0,.28)",
+            fontSize: 13, fontWeight: 700, textAlign: "center",
+          }}
+        >
+          {playbackAccessError}
+        </div>
+      )}
       {currentMedia && (
         <>
           {isAudio && (

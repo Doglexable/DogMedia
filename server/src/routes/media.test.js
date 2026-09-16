@@ -229,12 +229,26 @@ describe("track order metadata", () => {
 });
 
 describe("quality-aware streaming", () => {
-  it("selects a lower ready tier, supports ranges, validates quality, and defaults to original", async () => {
+  it("requires a bound session, selects a ready tier, and serves ranges without caching", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "pfs-quality-route-"));
     await mkdir(join(dataDir, "7", "1", "v1"), { recursive: true });
     await writeFile(join(dataDir, "7", "1.mp3"), "original-media");
     await writeFile(join(dataDir, "7", "1", "v1", "med.m4a"), "medium-media");
     const app = Fastify();
+    const redisValues = new Map();
+    app.decorate("redis", {
+      async get(key) { return redisValues.get(key) || null; },
+      async set(key, value) { redisValues.set(key, value); return "OK"; },
+      async del(key) { return redisValues.delete(key) ? 1 : 0; },
+      async eval(script, keyCount, key, ...args) {
+        if (script.includes("previousSessionId")) {
+          redisValues.set(key, args[1]);
+          return [1, Number(args[2]), ""];
+        }
+        if (script.includes("lastHeartbeatAt")) return [1, Number(args[3])];
+        return 1;
+      },
+    });
     app.decorate("pg", {
       async query(sql) {
         if (sql.includes("SELECT quality, file_path") && sql.includes("media_encoding_variants")) {
@@ -246,16 +260,38 @@ describe("quality-aware streaming", () => {
         return { rows: [], rowCount: 0 };
       },
     });
-    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
     await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
 
-    const response = await app.inject({ method: "GET", url: "/api/media/1/stream?quality=high", headers: { range: "bytes=0-5" } });
+    expect((await app.inject({ method: "GET", url: "/api/media/1/stream?quality=high" })).statusCode).toBe(401);
+    const sessionResponse = await app.inject({
+      method: "POST",
+      url: "/api/media/1/playback-session",
+      payload: { quality: "high" },
+    });
+    expect(sessionResponse.statusCode).toBe(200);
+    expect(sessionResponse.json().sessionId).toBeTruthy();
+    const setCookies = Array.isArray(sessionResponse.headers["set-cookie"])
+      ? sessionResponse.headers["set-cookie"]
+      : [sessionResponse.headers["set-cookie"]];
+    expect(setCookies.join("; ")).toContain("HttpOnly");
+    const cookie = setCookies.find((value) => value.startsWith("pfs_stream_1="))?.split(";")[0];
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/media/1/stream?quality=high",
+      headers: { range: "bytes=0-5", cookie, "x-viewer-id": sessionResponse.json().viewerId },
+    });
     expect(response.statusCode).toBe(206);
     expect(response.headers["x-media-quality"]).toBe("med");
     expect(response.headers["content-type"]).toContain("audio/mp4");
+    expect(response.headers["cache-control"]).toBe("private, no-store, max-age=0");
+    expect(response.headers["cross-origin-resource-policy"]).toBe("same-origin");
     expect(response.body).toBe("medium");
     expect((await app.inject({ method: "GET", url: "/api/media/1/stream?quality=ultra" })).statusCode).toBe(400);
-    expect((await app.inject({ method: "GET", url: "/api/media/1/stream" })).headers["x-media-quality"]).toBe("ori");
+    expect((await app.inject({ method: "POST", url: "/api/media/1/playback-session", payload: { quality: "ori" } })).statusCode).toBe(403);
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
   });

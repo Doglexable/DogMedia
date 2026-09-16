@@ -9,6 +9,47 @@ export function api(path, options = {}) {
   return fetch(apiUrl(path), { ...options, credentials: "include" });
 }
 
+export async function createPlaybackSession(mediaId, quality = "high", { signal } = {}) {
+  const response = await api(`/api/media/${Number(mediaId)}/playback-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ quality }),
+    signal,
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.streamUrl) {
+    const error = new Error(data?.error || "Could not create a protected playback session");
+    error.code = data?.code;
+    error.retryAfter = data?.retryAfter;
+    throw error;
+  }
+  return data;
+}
+
+export async function heartbeatPlaybackLease(sessionId) {
+  const response = await api("/api/playback/lease/heartbeat", {
+    method: "POST",
+    headers: { "X-Playback-Session": sessionId },
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(data?.error || "Playback lease could not be renewed");
+    error.code = data?.code;
+    error.retryAfter = data?.retryAfter;
+    throw error;
+  }
+  return data;
+}
+
+export async function releasePlaybackLease(sessionId) {
+  if (!sessionId) return;
+  await api("/api/playback/lease", {
+    method: "DELETE",
+    headers: { "X-Playback-Session": sessionId },
+    keepalive: true,
+  }).catch(() => {});
+}
+
 export async function readJsonArray(response, fallbackMessage = "Request failed") {
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.error || fallbackMessage);

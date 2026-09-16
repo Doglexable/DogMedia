@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getArtistLabel,
+  getAutoQueueEndpoint,
   getCompletionAction,
   getMediaMeta,
   getQueueBoundaryParams,
@@ -216,6 +217,26 @@ describe("resolveMediaArtist", () => {
     expect(resolveMediaArtist({ title: "Untitled", mime_type: "audio/mp3" })).toBe("Unknown artist");
     expect(resolveMediaArtist(null)).toBe("Unknown artist");
     expect(resolveMediaArtist(null, "Custom Fallback")).toBe("Custom Fallback");
+  });
+});
+
+describe("getAutoQueueEndpoint", () => {
+  it("resolves to likes endpoint when context is liked", () => {
+    expect(getAutoQueueEndpoint(42, null, "liked")).toBe("/api/queue/auto/likes?start=42&compact=1");
+  });
+
+  it("resolves to likes endpoint when categoryId is liked", () => {
+    expect(getAutoQueueEndpoint(42, "liked")).toBe("/api/queue/auto/likes?start=42&compact=1");
+  });
+
+  it("resolves to category auto-queue endpoint when categoryId is provided", () => {
+    expect(getAutoQueueEndpoint(42, 7)).toBe("/api/queue/auto/7?start=42&compact=1");
+    expect(getAutoQueueEndpoint(42, "15")).toBe("/api/queue/auto/15?start=42&compact=1");
+  });
+
+  it("resolves to global auto-queue endpoint when neither categoryId nor liked context is provided", () => {
+    expect(getAutoQueueEndpoint(42)).toBe("/api/queue/auto?start=42&compact=1");
+    expect(getAutoQueueEndpoint(42, null, null)).toBe("/api/queue/auto?start=42&compact=1");
   });
 });
 

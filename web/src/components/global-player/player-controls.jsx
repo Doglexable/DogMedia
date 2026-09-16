@@ -230,6 +230,10 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
   }, [open]);
 
   const activeOption = QUALITY_OPTIONS.find((opt) => opt.value === quality) || QUALITY_OPTIONS[0];
+  const visibleOptions = Array.isArray(currentMedia?.available_qualities)
+    && !currentMedia.available_qualities.includes("ori")
+    ? QUALITY_OPTIONS.filter((option) => option.value !== "ori")
+    : QUALITY_OPTIONS;
   const isModified = quality !== "ori";
   const activeBitrate = getQualityBitrateLabel(actualQuality || quality, currentMedia);
   const title = `Quality: ${activeOption.label}${activeBitrate ? ` (${activeBitrate})` : ""}${actualQuality && actualQuality !== quality ? ` (Playing ${actualQuality})` : ""}`;
@@ -269,7 +273,7 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
           )}
         </div>
         <div className="player-quality-presets">
-          {QUALITY_OPTIONS.map((opt) => {
+          {visibleOptions.map((opt) => {
             const isSelected = opt.value === quality;
             const bitrateLabel = getQualityBitrateLabel(opt.value, currentMedia);
             return (

@@ -1,0 +1,556 @@
+/* Site Editorial Footer --------------------------------------------------- */
+
+.site-editorial-footer {
+  position: relative;
+  width: 100%;
+  border-top: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in srgb, var(--card-bg) 35%, transparent) 100%
+    );
+  color: var(--text);
+  font-family: var(--font-body);
+  overflow-x: clip;
+}
+
+.site-footer-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: clamp(3rem, 6vw, 5.5rem) clamp(1.25rem, 3.5vw, 2.5rem) calc(var(--player-height, 104px) + clamp(2rem, 4vw, 3.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2.5rem, 5vw, 4rem);
+}
+
+/* 1. Main Sitemap Grid ---------------------------------------------------- */
+
+.site-footer-sitemap {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr;
+  gap: clamp(2rem, 3.5vw, 3.5rem);
+  align-items: start;
+}
+
+.site-footer-brand-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 380px;
+}
+
+.site-footer-brand-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  color: var(--text);
+  width: fit-content;
+  border-radius: var(--radius-sm, 10px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.site-footer-brand-header:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+.site-footer-brand-header:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.site-footer-brand-logo {
+  border-radius: 9px;
+  display: block;
+  object-fit: cover;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.site-footer-brand-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.site-footer-brand-tagline {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+.site-footer-brand-desc {
+  margin: 0;
+  font-size: var(--fs-sm, 0.8125rem);
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.site-footer-ethos-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.site-footer-tag {
+  font-family: var(--font-data);
+  font-size: var(--fs-xs, 0.6875rem);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--card-border) 80%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 60%, transparent);
+  color: var(--muted);
+  user-select: none;
+}
+
+/* Nav Columns */
+
+.site-footer-nav-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.site-footer-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: default;
+}
+
+.site-footer-col-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs, 0.6875rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+
+.site-footer-col-toggle-icon {
+  display: none; /* hidden on desktop */
+  font-size: 0.75rem;
+  color: var(--muted);
+  transition: transform 200ms ease;
+}
+
+.site-footer-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.site-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--fs-sm, 0.8125rem);
+  font-weight: 500;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+  text-decoration: none;
+  border-radius: 4px;
+  width: fit-content;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.site-footer-link:hover {
+  color: var(--primary);
+  transform: translateX(2px);
+}
+
+.site-footer-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.site-footer-ext-icon {
+  font-size: 0.65rem;
+  opacity: 0.65;
+  transition: opacity 160ms ease;
+}
+
+.site-footer-link:hover .site-footer-ext-icon {
+  opacity: 1;
+}
+
+/* 2. Platform / Utility Row ------------------------------------------------ */
+
+.site-footer-utilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-md, 16px);
+  border: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 65%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.site-footer-util-label {
+  font-family: var(--font-display);
+  font-size: var(--fs-xs, 0.6875rem);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 0.5rem;
+  user-select: none;
+}
+
+.site-footer-util-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font-size: var(--fs-xs, 0.6875rem);
+  font-weight: 600;
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 50%, transparent);
+  transition: all 160ms ease;
+  user-select: none;
+  cursor: pointer;
+}
+
+.site-footer-util-item:hover:not(.site-footer-util-item--static) {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-solid));
+  transform: translateY(-1px);
+}
+
+.site-footer-util-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.site-footer-util-item--static {
+  cursor: default;
+  color: var(--muted);
+}
+
+/* 3. Divider & Social Bar ------------------------------------------------- */
+
+.site-footer-divider {
+  border: none;
+  height: 1px;
+  background: color-mix(in srgb, var(--card-border) 75%, transparent);
+  margin: 0;
+  width: 100%;
+}
+
+.site-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.site-footer-bar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm, 0.8125rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 6px;
+}
+
+.site-footer-bar-brand:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.site-footer-bar-brand img {
+  border-radius: 5px;
+}
+
+.site-footer-socials {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.site-footer-social-link {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--card-border) 80%, transparent);
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  color: var(--muted);
+  text-decoration: none;
+  transition: all 180ms ease;
+}
+
+.site-footer-social-link:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--card-border));
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.site-footer-social-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 4. Oversized Brand Wordmark --------------------------------------------- */
+
+.site-footer-wordmark-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  user-select: none;
+  pointer-events: none;
+  padding: clamp(1rem, 3.5vw, 3rem) 0 clamp(0.5rem, 1.5vw, 1.5rem);
+}
+
+.site-footer-wordmark {
+  display: block;
+  font-family: var(--font-display);
+  font-size: clamp(3.25rem, 13.8vw, 11.5rem);
+  font-weight: 800;
+  line-height: 0.82;
+  letter-spacing: -0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-align: center;
+  color: color-mix(in srgb, var(--text) 7.5%, transparent);
+  transition: color 240ms ease;
+}
+
+/* 5. Fine Print ----------------------------------------------------------- */
+
+.site-footer-fine-print {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: var(--fs-xs, 0.6875rem);
+  line-height: 1.6;
+  color: var(--muted);
+  border-top: 1px solid color-mix(in srgb, var(--card-border) 45%, transparent);
+  padding-top: 1.5rem;
+}
+
+.site-footer-fine-print-statement {
+  font-style: italic;
+  letter-spacing: 0.01em;
+}
+
+.site-footer-fine-print-id {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* Info Dialog / Modal ----------------------------------------------------- */
+
+.site-footer-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--modal-overlay, var(--bg)) 85%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.site-footer-modal-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--surface-solid);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md, 16px);
+  padding: 2rem;
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--text) 22%, transparent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.site-footer-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.site-footer-modal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.site-footer-modal-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-xs, 0.6875rem);
+  font-family: var(--font-data);
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.site-footer-modal-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--card-bg) 80%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 140ms ease;
+}
+
+.site-footer-modal-close:hover {
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.site-footer-modal-close:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.site-footer-modal-body {
+  font-size: var(--fs-sm, 0.8125rem);
+  line-height: 1.65;
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  white-space: pre-line;
+}
+
+/* Responsive Breakpoints -------------------------------------------------- */
+
+@media (max-width: 1024px) {
+  .site-footer-sitemap {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .site-footer-brand-col {
+    grid-column: 1 / -1;
+    max-width: 100%;
+    margin-bottom: 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .site-footer-container {
+    padding-bottom: calc(var(--player-height, 184px) + 72px + env(safe-area-inset-bottom, 0px));
+    gap: 2rem;
+  }
+
+  .site-footer-sitemap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .site-footer-brand-col {
+    margin-bottom: 1rem;
+    gap: 1rem;
+  }
+
+  .site-footer-nav-col {
+    border-bottom: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+    padding-bottom: 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .site-footer-col-header {
+    cursor: pointer;
+    padding: 0.5rem 0;
+  }
+
+  .site-footer-col-toggle-icon {
+    display: block;
+  }
+
+  .site-footer-col-toggle-icon--open {
+    transform: rotate(180deg);
+  }
+
+  .site-footer-nav-list {
+    display: none;
+    padding-top: 0.25rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .site-footer-nav-list--open {
+    display: flex;
+  }
+
+  .site-footer-utilities {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .site-footer-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .site-footer-fine-print {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* Reduced motion support -------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .site-editorial-footer * {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+}

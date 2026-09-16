@@ -32,6 +32,16 @@ export function getCategoryQuery(categoryId) {
   return categoryId ? `?category=${categoryId}` : "";
 }
 
+export function getAutoQueueEndpoint(mediaId, categoryId = null, context = null) {
+  if (context === "liked" || categoryId === "liked") {
+    return `/api/queue/auto/likes?start=${mediaId}&compact=1`;
+  }
+  if (categoryId) {
+    return `/api/queue/auto/${categoryId}?start=${mediaId}&compact=1`;
+  }
+  return `/api/queue/auto?start=${mediaId}&compact=1`;
+}
+
 export function getNextLoopMode(mode) {
   const index = LOOP_MODES.indexOf(mode);
   return LOOP_MODES[(index + 1) % LOOP_MODES.length];

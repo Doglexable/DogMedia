@@ -939,6 +939,7 @@ export default function Admin() {
   const [editArtists, setEditArtists] = useState("");
   const [editTrackOrder, setEditTrackOrder] = useState("");
   const [editDuration, setEditDuration] = useState("");
+  const [editOfflineAllowed, setEditOfflineAllowed] = useState(false);
   const [editFile, setEditFile] = useState(null);
   const [editLyrics, setEditLyrics] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -1134,6 +1135,7 @@ export default function Admin() {
     setEditArtists(media.artists || "");
     setEditTrackOrder(media.track_order == null ? "" : String(media.track_order));
     setEditDuration(media.duration == null ? "" : String(media.duration));
+    setEditOfflineAllowed(Boolean(media.offline_allowed));
     setEditFile(null);
     setEditLyrics(null);
     setEditProgress(null);
@@ -1147,6 +1149,7 @@ export default function Admin() {
     setEditArtists("");
     setEditTrackOrder("");
     setEditDuration("");
+    setEditOfflineAllowed(false);
     setEditFile(null);
     setEditLyrics(null);
     setEditProgress(null);
@@ -1552,6 +1555,7 @@ export default function Admin() {
           track_order: editTrackOrder ? Number.parseInt(editTrackOrder, 10) : null,
           description: editDescription || "",
           duration: editDuration ? Math.floor(Number.parseFloat(editDuration)) : null,
+          offline_allowed: editOfflineAllowed,
         }),
       });
 
@@ -2439,6 +2443,20 @@ export default function Admin() {
                       />
                       <p style={styles.helpText}>Leave blank to clear the stored duration; replacing the file can detect it again.</p>
                     </div>
+
+                    {editingMedia.mime_type?.startsWith("audio/") && (
+                      <label className="admin-protection-option">
+                        <input
+                          type="checkbox"
+                          checked={editOfflineAllowed}
+                          onChange={(event) => setEditOfflineAllowed(event.target.checked)}
+                        />
+                        <span>
+                          <strong>Allow offline download</strong>
+                          <small>Keep disabled for stream-only media. Enable only when this audio may be stored in the mobile app.</small>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 </section>
 

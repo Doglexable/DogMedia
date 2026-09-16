@@ -3,9 +3,11 @@ const CACHE_NAME = `${CACHE_PREFIX}v1`;
 const APP_SHELL = [
   "/site.webmanifest",
   "/favicon.ico",
-  "/android-chrome-192x192.png",
-  "/android-chrome-512x512.png",
+  "/favicon.svg",
+  "/favicon-96x96.png",
   "/apple-touch-icon.png",
+  "/web-app-manifest-192x192.png",
+  "/web-app-manifest-512x512.png",
 ];
 
 async function precacheAppShell() {

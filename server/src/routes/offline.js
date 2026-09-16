@@ -77,7 +77,7 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
      FROM media_assets m
      JOIN accessible_categories ac ON ac.id = m.category_id
      LEFT JOIN media_lyrics ml ON ml.media_id = m.id
-     WHERE m.mime_type LIKE 'audio/%'${filter}
+     WHERE m.mime_type LIKE 'audio/%' AND m.offline_allowed = TRUE${filter}
      ORDER BY ac.order_parts,
               ac.id,
               (m.track_order IS NULL)::int,

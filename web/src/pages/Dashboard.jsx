@@ -12,6 +12,7 @@ import { MediaTypePills } from "../components/dashboard/media-type-pills";
 import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
 import { formatDuration } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
+import MagicBento from "../components/MagicBento";
 
 const NOW_PLAYING_POLL_MS = 10000;
 const NOW_PLAYING_TICK_MS = 1000;
@@ -894,7 +895,11 @@ export default function Dashboard() {
   );
 
   const playMedia = useCallback((item) => {
-    playMediaAction?.(item, libraryView === "liked" ? null : selectedCategory);
+    playMediaAction?.(
+      item,
+      libraryView === "liked" ? "liked" : selectedCategory,
+      libraryView === "liked" ? { context: "liked" } : {}
+    );
   }, [libraryView, playMediaAction, selectedCategory]);
 
   const createShare = useCallback(() => {
@@ -1105,48 +1110,65 @@ export default function Dashboard() {
                 {nowPlaying.length} active
               </span>
             </div>
-            <div style={styles.nowPlayingGrid}>
-              {nowPlaying.map((s, i) => {
+            <MagicBento
+              items={nowPlaying}
+              bentoLayout={nowPlaying.length >= 4}
+              enableStars={true}
+              enableSpotlight={true}
+              enableBorderGlow={true}
+              enableTilt={false}
+              enableMagnetism={false}
+              renderCard={(s, i) => {
                 const stateLabels = playbackStateLabels(s);
                 const displayPosition = playbackDisplayPosition(s, nowPlayingRenderNow);
                 const progressPercent = playbackProgressPercent(displayPosition, s.duration);
                 const title = s.title || `Media #${s.mediaId}`;
 
                 return (
-                  <article key={`${s.ip}-${s.mediaId}-${i}`} style={styles.nowPlayingCard}>
-                    <div style={styles.nowPlayingCardHeader}>
-                      <span style={styles.ipBadge}>{s.ip}</span>
-                      <span style={styles.nowPlayingStatus(s.action)}>
-                        <span style={styles.statusDot(s.action)} />
+                  <article key={`${s.ip}-${s.mediaId}-${i}`} className="magic-bento-now-playing" aria-label={`Now playing: ${title}`}>
+                    <div className="magic-bento-now-playing__top">
+                      <span className="magic-bento-now-playing__ip">{s.ip}</span>
+                      <span
+                        className={`magic-bento-now-playing__status magic-bento-now-playing__status--${s.action === "play" ? "play" : "pause"}`}
+                      >
+                        <span className="magic-bento-now-playing__dot" />
                         {s.action}
                       </span>
                     </div>
-                    <div>
-                      <h3 aria-label={title} style={styles.nowPlayingTitle} className="now-playing-card-title">
+
+                    <div className="magic-bento-now-playing__body">
+                      <h3 aria-label={title} className="magic-bento-now-playing__title now-playing-card-title">
                         {title}
                       </h3>
-                      <p style={styles.cardSubtitle}>Media #{s.mediaId}</p>
+                      <p className="magic-bento-now-playing__sub">Media #{s.mediaId}</p>
                     </div>
-                    <div style={styles.nowPlayingProgress}>
-                      <div style={styles.nowPlayingMeta}>
+
+                    <div className="magic-bento-now-playing__progress">
+                      <div className="magic-bento-now-playing__meta">
                         <span>{fmtDur(displayPosition)}</span>
                         <span>{fmtDur(s.duration)}</span>
                       </div>
-                      <div style={styles.nowPlayingProgressTrack} aria-hidden="true">
-                        <div style={styles.nowPlayingProgressFill(progressPercent)} />
+                      <div className="magic-bento-now-playing__track" aria-hidden="true">
+                        <div
+                          className="magic-bento-now-playing__fill"
+                          style={{ width: `${progressPercent}%` }}
+                        />
                       </div>
                     </div>
+
                     {stateLabels.length > 0 && (
-                      <div style={styles.nowPlayingBadges}>
+                      <div className="magic-bento-now-playing__badges">
                         {stateLabels.map((label) => (
-                          <span key={label} style={styles.stateBadge}>{label}</span>
+                          <span key={label} className="magic-bento-now-playing__badge">
+                            {label}
+                          </span>
                         ))}
                       </div>
                     )}
                   </article>
                 );
-              })}
-            </div>
+              }}
+            />
           </section>
         )}
       </main>

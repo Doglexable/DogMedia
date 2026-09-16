@@ -1,12 +1,12 @@
 @import "tailwindcss";
 :root {
   color-scheme: light;
-  --bg: #f4f4f7;
-  --text: #18181b;
-  --card-bg: rgba(255, 255, 255, 0.82);
-  --card-border: rgba(24, 24, 27, 0.1);
+  --bg: #f5f4f1;
+  --text: #101116;
+  --card-bg: rgba(255, 255, 255, 0.78);
+  --card-border: rgba(16, 17, 22, 0.12);
   --primary: #e11d48;
-  --muted: #71717a;
+  --muted: #696d77;
   --modal-overlay: rgba(0, 0, 0, 0.6);
   --modal-bg: #ffffff;
   --modal-text: #222;
@@ -85,20 +85,20 @@
   object-fit: contain;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.18));
 }
-.global-sidebar-brand strong,
-.global-sidebar-brand small {
+.global-sidebar-brand strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.global-sidebar-brand strong {
   font-size: var(--fs-sm);
 }
 .global-sidebar-brand small {
+  display: block;
   margin-top: 2px;
   color: var(--muted);
   font-size: var(--fs-xs);
+  line-height: 1.35;
+  white-space: normal;
 }
 .global-sidebar-nav {
   display: grid;
@@ -1671,23 +1671,23 @@
 }
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #09090b;
-  --text: #f4f4f5;
-  --card-bg: rgba(24, 24, 27, 0.82);
-  --card-border: rgba(255, 255, 255, 0.1);
-  --primary: #3b82f6;
-  --muted: #a1a1aa;
+  --bg: #101116;
+  --text: #f4f3f0;
+  --card-bg: rgba(29, 30, 37, 0.82);
+  --card-border: rgba(255, 255, 255, 0.11);
+  --primary: #e11d48;
+  --muted: #a1a3ad;
   --modal-overlay: rgba(0, 0, 0, 0.8);
   --modal-bg: #1e1e1e;
   --modal-text: #e0e0e0;
   --modal-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  --code-bg: #2a2a2a;
-  --code-border: #444;
+  --code-bg: #16171c;
+  --code-border: #30313a;
   --warning-bg: #3d2e00;
   --warning-text: #ffc107;
   --warning-border: #664d00;
-  --table-border: #444;
-  --table-border-light: #333;
+  --table-border: #34353d;
+  --table-border-light: #282931;
   --success-bg: #1e3a2f;
   --success-text: #5cd487;
   --success-border: #2d6a4f;
@@ -1699,6 +1699,11 @@
   --color-card-border: var(--card-border);
   --color-primary: var(--primary);
   --color-muted: var(--muted);
+  --color-vault-ink: var(--vault-ink);
+  --color-vault-paper: var(--vault-paper);
+  --color-vault-rose: var(--vault-rose);
+  --color-vault-white: var(--vault-white);
+  --color-playback-signal: var(--playback-signal);
   --color-modal-overlay: var(--modal-overlay);
   --color-modal-bg: var(--modal-bg);
   --color-modal-text: var(--modal-text);

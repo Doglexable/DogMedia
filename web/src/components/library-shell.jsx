@@ -17,6 +17,7 @@ import {
 import { ThemeToggle } from "../App";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiUrl, readJsonArray } from "../api";
+import { SiteFooter } from "./site-footer";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -271,7 +272,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
       <aside className={`global-sidebar${open ? " global-sidebar--open" : ""}`} aria-label="Library navigation">
         <Link to="/" className="global-sidebar-brand" onClick={close}>
           <img
-            src="/android-chrome-192x192.png"
+            src="/web-app-manifest-192x192.png"
             alt=""
             className="global-sidebar-brand-mark"
             width="42"
@@ -280,7 +281,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           />
           <span className="min-w-0">
             <strong>DogMedia</strong>
-            <small>Private media vault</small>
+            <small title="Your media. Your space. Your story. Your rhythm.">Your media. Your space. Your story. Your rhythm.</small>
           </span>
         </Link>
 
@@ -417,7 +418,10 @@ export function LibraryShell({ access, children }) {
     <LibraryContext.Provider value={{ categories, categoriesLoading, refreshCategories: loadCategories }}>
       <div className={isImmersiveRoute ? "global-app-shell global-app-shell--fullscreen-player" : "global-app-shell"}>
         {!isImmersiveRoute && <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />}
-        <div className="global-app-content">{children}</div>
+        <div className="global-app-content">
+          {children}
+          {!isImmersiveRoute && <SiteFooter access={access} />}
+        </div>
       </div>
     </LibraryContext.Provider>
   );

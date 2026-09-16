@@ -70,6 +70,7 @@ describe("playback pause cache helpers", () => {
 function createMockRedis(initialKeys = {}) {
   const store = new Map(Object.entries(initialKeys));
   const zsets = new Map();
+  const expiresAt = new Map();
 
   return {
     async get(key) {
@@ -80,7 +81,26 @@ function createMockRedis(initialKeys = {}) {
       return "OK";
     },
     async del(key) {
+      expiresAt.delete(key);
       store.delete(key);
+      return 1;
+    },
+    async pttl(key) {
+      return expiresAt.has(key) ? expiresAt.get(key) - Date.now() : -1;
+    },
+    async eval(script, keyCount, key, ...args) {
+      if (script.includes("lastHeartbeatAt")) {
+        const current = store.has(key) ? JSON.parse(store.get(key)) : null;
+        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1]) return [0, -2];
+        current.lastHeartbeatAt = Number(args[2]);
+        store.set(key, JSON.stringify(current));
+        expiresAt.set(key, Date.now() + Number(args[3]));
+        return [1, Number(args[3])];
+      }
+      const current = store.has(key) ? JSON.parse(store.get(key)) : null;
+      if (!current || current.viewerId !== args[0] || (args[1] && current.sessionId !== args[1])) return 0;
+      store.delete(key);
+      expiresAt.delete(key);
       return 1;
     },
     async mget(keys) {
@@ -387,6 +407,83 @@ describe("playback active cache routes", () => {
     expect(res.statusCode).toBe(200);
     expect(capturedQuery).toContain("m.mime_type LIKE 'video/%'");
 
+    await app.close();
+  });
+});
+
+describe("exclusive playback lease routes", () => {
+  it("renews and releases a lease only for its bound viewer and session", async () => {
+    const viewerId = "viewer_aaaaaaaaaaaaaaaaaaaa";
+    const sessionId = "session_aaaaaaaaaaaaaaaaaaa";
+    const redis = createMockRedis({
+      [`stream:session:${sessionId}`]: JSON.stringify({ viewerId, leaseRequired: true }),
+      "stream:exclusive:standard": JSON.stringify({ viewerId, sessionId, mediaId: 42, platform: "web" }),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/api/playback/lease/heartbeat",
+      headers: { "x-playback-session": sessionId, "x-viewer-id": "viewer_bbbbbbbbbbbbbbbbbbbb" },
+    });
+    expect(denied.statusCode).toBe(401);
+
+    const heartbeat = await app.inject({
+      method: "POST",
+      url: "/api/playback/lease/heartbeat",
+      headers: { "x-playback-session": sessionId, "x-viewer-id": viewerId },
+    });
+    expect(heartbeat.statusCode).toBe(200);
+    expect(heartbeat.json()).toMatchObject({ ok: true });
+
+    const status = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: { "x-viewer-id": viewerId },
+    });
+    expect(status.json()).toMatchObject({ state: "owned", mediaId: 42 });
+
+    const released = await app.inject({
+      method: "DELETE",
+      url: "/api/playback/lease",
+      headers: { "x-playback-session": sessionId, "x-viewer-id": viewerId },
+    });
+    expect(released.json()).toEqual({ ok: true, released: true });
+    expect(await redis.get("stream:exclusive:standard")).toBeNull();
+    expect(await redis.get(`stream:session:${sessionId}`)).toBeNull();
+    await app.close();
+  });
+
+  it("keeps active-playing state separate for two devices behind the same IP", async () => {
+    const redis = createMockRedis();
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [{ id: 42, title: "Track" }] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.20";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    for (const viewerId of ["viewer_aaaaaaaaaaaaaaaaaaaa", "viewer_bbbbbbbbbbbbbbbbbbbb"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/playback/active",
+        headers: { "x-viewer-id": viewerId },
+        payload: { mediaId: 42, action: "play", position: 0, duration: 120 },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    expect(await redis.get("playback:active:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeTruthy();
+    expect(await redis.get("playback:active:viewer_bbbbbbbbbbbbbbbbbbbb")).toBeTruthy();
     await app.close();
   });
 });

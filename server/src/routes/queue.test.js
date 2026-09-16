@@ -49,6 +49,13 @@ describe("automatic queue ordering", () => {
       expect(sql).toContain("m.id");
     }
   );
+
+  it("orders /api/queue/auto/likes by liked_at DESC and filters by client_ip", async () => {
+    const sql = await autoQueueSql("/api/queue/auto/likes?start=8");
+    expect(sql).toContain("FROM liked_music l");
+    expect(sql).toContain("ORDER BY l.liked_at DESC");
+    expect(sql).toContain("l.client_ip = $2::inet");
+  });
 });
 
 describe("category queue append", () => {
@@ -104,6 +111,59 @@ describe("category queue append", () => {
     expect(queries[0].sql).toContain("ORDER BY ac.order_parts");
     expect(queries[0].sql).toContain("COALESCE(m.track_order, 0)");
     expect(queries[0].sql).not.toContain("lower(m.title)");
+    await app.close();
+  });
+
+  it("appends liked audio without duplicating queued media", async () => {
+    let queue = [99, 2];
+    let currentIndex = 0;
+    const queries = [];
+    const redis = {
+      async lrange() { return queue.map(String); },
+      async get() { return String(currentIndex); },
+      multi() {
+        let nextQueue = [...queue];
+        let nextIndex = currentIndex;
+        const chain = {
+          del(key) {
+            if (key.startsWith("queue:index:")) nextIndex = 0;
+            else nextQueue = [];
+            return chain;
+          },
+          rpush(_key, ...ids) { nextQueue.push(...ids.map(Number)); return chain; },
+          set(_key, index) { nextIndex = Number(index); return chain; },
+          async exec() { queue = nextQueue; currentIndex = nextIndex; return []; },
+        };
+        return chain;
+      },
+    };
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        queries.push({ sql, params });
+        if (sql.includes("WITH ORDINALITY")) {
+          return { rows: params[1].map((id) => ({ id })) };
+        }
+        return { rows: [{ id: 5 }, { id: 2 }, { id: 6 }] };
+      },
+    });
+    app.decorate("redis", redis);
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const response = await app.inject({ method: "POST", url: "/api/queue/items/likes" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      queue: [99, 2, 5, 6],
+      currentIndex: 0,
+      addedCount: 2,
+    });
+    expect(queries[0].sql).toContain("FROM liked_music l");
+    expect(queries[0].sql).toContain("ORDER BY l.liked_at DESC");
     await app.close();
   });
 });

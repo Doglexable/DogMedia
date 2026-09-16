@@ -9,12 +9,26 @@ import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } f
 import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
 import { enqueueEncoding, retryFailedEncoding } from "../encoding-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
+import {
+  acquireExclusiveLease,
+  createPlaybackSession,
+  readPlaybackSessionId,
+  readViewerId,
+  refreshExclusiveLease,
+  requiresExclusiveLease,
+  resolveViewerId,
+  revokePlaybackSession,
+  setPlaybackSessionCookie,
+  setViewerCookie,
+  validatePlaybackSession,
+} from "../playback-session.js";
 
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
 const CHUNK_SIZE = 512 * 1024;
 const CHUNK_UPLOAD_DIR = join(UPLOAD_TMP_DIR, "chunked");
+const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
 const ACCESSIBLE_CATEGORY_TREE_SQL = `
   WITH RECURSIVE accessible_categories AS (
     SELECT
@@ -50,7 +64,10 @@ const MEDIA_ENCODING_FIELDS = `
         AND variant.quality = requested.quality AND variant.status = 'ready'
     )
     ORDER BY requested.position
-  ) || ARRAY['ori']::text[] AS available_qualities,
+  ) || CASE
+    WHEN split_part(m.mime_type, '/', 1) = 'image' OR $1 >= ${ORIGINAL_QUALITY_MIN_TIER} THEN ARRAY['ori']::text[]
+    ELSE ARRAY[]::text[]
+  END AS available_qualities,
   COALESCE((
     SELECT jsonb_object_agg(variant.quality, jsonb_build_object(
       'status', variant.status, 'attempts', variant.attempts, 'error', variant.last_error,
@@ -90,18 +107,14 @@ function extFromFilename(filename, fallback = "bin") {
   return (parts.length > 1 ? parts.pop() : fallback).toLowerCase();
 }
 
-function applyNoDownloadHeaders(reply, { revalidate = false, maxAge = 0, etag = null } = {}) {
+function applyNoDownloadHeaders(reply, { etag = null } = {}) {
   reply.header("Content-Disposition", "inline");
-  if (etag) {
-    reply.header("ETag", etag);
-    reply.header("Cache-Control", maxAge > 0 ? `private, max-age=${maxAge}` : "private, no-cache");
-  } else {
-    reply.header("Cache-Control", revalidate ? "private, no-cache" : "no-store, private, max-age=0");
-    if (!revalidate) {
-      reply.header("Pragma", "no-cache");
-      reply.header("Expires", "0");
-    }
-  }
+  if (etag) reply.header("ETag", etag);
+  reply.header("Cache-Control", "private, no-store, max-age=0");
+  reply.header("Pragma", "no-cache");
+  reply.header("Expires", "0");
+  reply.header("Cross-Origin-Resource-Policy", "same-origin");
+  reply.header("Referrer-Policy", "no-referrer");
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("X-Download-Options", "noopen");
 }
@@ -621,9 +634,7 @@ export default async function (fastify, options = {}) {
       [request.accessTier, id]
     );
     if (rows.length === 0) {
-      const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [id]);
-      if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
-      return reply.code(403).send({ error: "Access denied" });
+      return reply.code(404).send({ error: "Not found" });
     }
     return rows[0];
   });
@@ -937,10 +948,14 @@ export default async function (fastify, options = {}) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
-    const { title, description, duration, artists, track_order: trackOrder } = request.body;
+    const { title, description, duration, artists, track_order: trackOrder, offline_allowed: offlineAllowed } = request.body;
     const hasArtists = Object.hasOwn(request.body || {}, "artists");
     const hasDuration = Object.hasOwn(request.body || {}, "duration");
     const hasTrackOrder = Object.hasOwn(request.body || {}, "track_order");
+    const hasOfflineAllowed = Object.hasOwn(request.body || {}, "offline_allowed");
+    if (hasOfflineAllowed && typeof offlineAllowed !== "boolean") {
+      return reply.code(400).send({ error: "offline_allowed must be a boolean" });
+    }
     if (hasTrackOrder && hasTrackOrderValue(trackOrder) && parseTrackOrder(trackOrder) === null) {
       return reply.code(400).send({ error: "Track order must be a positive integer" });
     }
@@ -949,8 +964,8 @@ export default async function (fastify, options = {}) {
     const normalizedDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0 ? parsedDuration : null;
     const normalizedTrackOrder = parseTrackOrder(trackOrder);
     const { rows } = await fastify.pg.query(
-      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END, track_order = CASE WHEN $7 THEN $8 ELSE track_order END WHERE id = $9 RETURNING *",
-      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, hasTrackOrder, normalizedTrackOrder, id]
+      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END, track_order = CASE WHEN $7 THEN $8 ELSE track_order END, offline_allowed = CASE WHEN $9 THEN $10 ELSE offline_allowed END WHERE id = $11 RETURNING *",
+      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, hasTrackOrder, normalizedTrackOrder, hasOfflineAllowed, offlineAllowed, id]
     );
     if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
     return rows[0];
@@ -976,9 +991,88 @@ export default async function (fastify, options = {}) {
     return reply.code(204).send();
   });
 
+  fastify.post("/:id/playback-session", async (request, reply) => {
+    const { id } = request.params;
+    const requestedQuality = normalizeRequestedQuality(request.body?.quality, { defaultQuality: "high" });
+    if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
+
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id, m.duration, m.mime_type, m.source_version
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.id = $2`,
+      [request.accessTier, id]
+    );
+    if (rows.length === 0) return reply.code(404).send({ error: "Media not found" });
+
+    const media = rows[0];
+    const protectedMedia = media.mime_type?.startsWith("audio/") || media.mime_type?.startsWith("video/");
+    if (protectedMedia && requestedQuality === "ori" && request.accessTier < ORIGINAL_QUALITY_MIN_TIER) {
+      return reply.code(403).send({ error: "Original quality requires admin access" });
+    }
+
+    const viewerId = resolveViewerId(request);
+    const leaseRequired = requiresExclusiveLease(request.accessTier, media.mime_type);
+    const created = await createPlaybackSession(fastify.redis, {
+      mediaId: media.id,
+      clientIp: request.clientIp || request.ip,
+      accessTier: request.accessTier,
+      viewerId,
+      leaseRequired,
+      quality: requestedQuality,
+      sourceVersion: media.source_version,
+      duration: media.duration,
+    });
+    if (leaseRequired) {
+      let lease;
+      try {
+        lease = await acquireExclusiveLease(fastify.redis, {
+          viewerId,
+          sessionId: created.sessionId,
+          mediaId: media.id,
+          clientIp: request.clientIp || request.ip,
+          platform: request.headers["x-viewer-id"] ? "mobile" : "web",
+        });
+      } catch (error) {
+        await revokePlaybackSession(fastify.redis, created.sessionId).catch(() => {});
+        request.log.error({ error }, "exclusive playback lease acquisition failed");
+        return reply.code(503).send({ code: "PLAYBACK_LEASE_UNAVAILABLE", error: "Playback protection is temporarily unavailable" });
+      }
+      if (!lease.acquired) {
+        await revokePlaybackSession(fastify.redis, created.sessionId);
+        return reply.code(409).send({
+          code: "PLAYBACK_IN_USE",
+          error: "Media is currently playing on another device",
+          retryAfter: lease.retryAfter,
+        });
+      }
+      if (lease.previousSessionId && lease.previousSessionId !== created.sessionId) {
+        await revokePlaybackSession(fastify.redis, lease.previousSessionId).catch(() => {});
+      }
+    }
+    request.log.info({
+      mediaId: Number(media.id),
+      quality: requestedQuality,
+      clientIp: request.clientIp || request.ip,
+      expiresAt: created.session.expiresAt,
+    }, "protected playback session created");
+    setPlaybackSessionCookie(request, reply, media.id, created.sessionId, created.ttlSeconds);
+    setViewerCookie(request, reply, viewerId);
+    reply.header("Cache-Control", "no-store");
+    return {
+      streamUrl: `/api/media/${media.id}/stream?quality=${encodeURIComponent(requestedQuality)}`,
+      sessionId: created.sessionId,
+      viewerId,
+      leaseRequired,
+      expiresAt: new Date(created.session.expiresAt).toISOString(),
+      quality: requestedQuality,
+    };
+  });
+
   fastify.get("/:id/stream", async (request, reply) => {
     const { id } = request.params;
-    const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "ori" });
+    const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "high" });
     if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
@@ -987,13 +1081,35 @@ export default async function (fastify, options = {}) {
        WHERE m.id = $2`,
       [request.accessTier, id]
     );
-    if (rows.length === 0) {
-      const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [id]);
-      if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
-      return reply.code(403).send({ error: "Access denied" });
-    }
+    if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
 
     const media = rows[0];
+    const sessionId = readPlaybackSessionId(request, id);
+    const viewerId = readViewerId(request);
+    const validation = await validatePlaybackSession(fastify.redis, sessionId, {
+      mediaId: id,
+      clientIp: request.clientIp || request.ip,
+      accessTier: request.accessTier,
+      viewerId,
+      quality: requestedQuality,
+      sourceVersion: media.source_version,
+    });
+    if (!validation.valid) {
+      reply.header("Cache-Control", "no-store");
+      return reply.code(401).send({ error: "A valid playback session is required" });
+    }
+    if (validation.session.leaseRequired) {
+      const lease = await refreshExclusiveLease(fastify.redis, viewerId, sessionId);
+      if (!lease.refreshed) {
+        reply.header("Cache-Control", "no-store");
+        return reply.code(409).send({
+          code: "PLAYBACK_LEASE_LOST",
+          error: "Playback access is no longer active on this device",
+          retryAfter: lease.retryAfter,
+        });
+      }
+    }
+
     let actualQuality = "ori";
     let selectedPath = media.file_path;
     let selectedMime = media.mime_type;
@@ -1011,6 +1127,10 @@ export default async function (fastify, options = {}) {
         selectedMime = selected.mime_type;
       }
     }
+    const protectedMedia = media.mime_type?.startsWith("audio/") || media.mime_type?.startsWith("video/");
+    if (protectedMedia && actualQuality === "ori" && request.accessTier < ORIGINAL_QUALITY_MIN_TIER) {
+      return reply.code(409).send({ error: "A protected encoded rendition is not ready" });
+    }
     const filePath = join(dataDir, selectedPath);
 
     let fileStats;
@@ -1018,6 +1138,9 @@ export default async function (fastify, options = {}) {
       fileStats = await stat(filePath);
     } catch {
       if (actualQuality === "ori") return reply.code(404).send({ error: "File not found on disk" });
+      if (protectedMedia && request.accessTier < ORIGINAL_QUALITY_MIN_TIER) {
+        return reply.code(409).send({ error: "A protected encoded rendition is not ready" });
+      }
       actualQuality = "ori";
       selectedPath = media.file_path;
       selectedMime = media.mime_type;
@@ -1033,7 +1156,7 @@ export default async function (fastify, options = {}) {
     const resolvedFilePath = join(dataDir, selectedPath);
     const contentType = selectedMime || mimeFromExt(resolvedFilePath);
     const etag = `"${id}-${media.source_version || 1}-${fileSize}-${actualQuality}"`;
-    applyNoDownloadHeaders(reply, { etag, maxAge: 86400 });
+    applyNoDownloadHeaders(reply, { etag });
     reply.header("Accept-Ranges", "bytes");
     reply.header("X-Media-Quality", actualQuality);
 

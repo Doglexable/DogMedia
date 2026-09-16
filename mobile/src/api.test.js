@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_REACHABILITY_TIMEOUT_MS, assertApiReachable } from "./api.js";
+import { API_REACHABILITY_TIMEOUT_MS, assertApiReachable, createPlaybackSessionSource } from "./api.js";
+
+vi.mock("expo-secure-store", () => ({
+  getItemAsync: vi.fn().mockResolvedValue(null),
+  setItemAsync: vi.fn().mockResolvedValue(undefined),
+}));
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -35,5 +40,27 @@ describe("API reachability", () => {
     const rejection = expect(probe).rejects.toMatchObject({ code: "API_UNREACHABLE" });
     await vi.advanceTimersByTimeAsync(API_REACHABILITY_TIMEOUT_MS);
     await rejection;
+  });
+});
+
+describe("protected playback", () => {
+  it("returns a native media source with the opaque session header", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      streamUrl: "/api/media/9/stream?quality=med",
+      sessionId: "opaque-session",
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      leaseRequired: true,
+    }), { headers: { "Content-Type": "application/json" }, status: 200 })));
+
+    await expect(createPlaybackSessionSource(9, "med")).resolves.toEqual({
+      uri: expect.stringContaining("/api/media/9/stream?quality=med"),
+      headers: {
+        "X-Playback-Session": "opaque-session",
+        "X-Viewer-ID": "viewer_aaaaaaaaaaaaaaaaaaaa",
+      },
+      sessionId: "opaque-session",
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      leaseRequired: true,
+    });
   });
 });

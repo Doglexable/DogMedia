@@ -76,6 +76,7 @@ describe("offline routes", () => {
     expect(response.json().items[0]).toMatchObject({ id: 1, category_id: 7, track_order: 3, byteSize: 13, hasLyrics: true, liked: true });
     expect(response.json().items[0].fileVersion).toMatch(/^13:\d+$/);
     expect(queries[0].sql).toContain("m.mime_type LIKE 'audio/%'");
+    expect(queries[0].sql).toContain("m.offline_allowed = TRUE");
     expect(queries[0].sql).toContain("m.category_id = $3");
     expect(queries[0].sql).toContain("ORDER BY ac.order_parts");
     expect(queries[0].sql).toContain("COALESCE(m.track_order, 0)");

@@ -20,6 +20,12 @@ import mobileReleaseRoutes from "./routes/mobile-release.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
+const ALLOWED_ORIGINS = new Set(
+  String(process.env.PFS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
 
 const app = Fastify({
   logger: true,
@@ -27,7 +33,11 @@ const app = Fastify({
 });
 
 await app.register(cors, {
-  origin: true,
+  origin(origin, callback) {
+    callback(null, !origin || ALLOWED_ORIGINS.has(origin));
+  },
+  credentials: true,
+  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID"],
   exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range"],
 });
 await app.register(multipart, {

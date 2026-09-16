@@ -8,7 +8,6 @@
   --vault-ink: #101116;
   --vault-paper: #f5f4f1;
   --vault-rose: #e11d48;
-  --vault-steel: #737782;
   --vault-white: #ffffff;
   --playback-signal: var(--vault-rose);
   --font-display: "Space Grotesk Variable", "Arial Narrow", sans-serif;
@@ -33,6 +32,7 @@
 [data-theme="dark"] {
   --bg: var(--vault-ink);
   --text: #f4f3f0;
+  --primary: var(--vault-rose);
   --card-bg: rgba(29, 30, 37, 0.82);
   --card-border: rgba(255, 255, 255, 0.11);
   --muted: #a1a3ad;
@@ -107,17 +107,6 @@ textarea {
   padding: 14px 16px;
 }
 
-.global-sidebar-brand::after {
-  position: absolute;
-  right: 16px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--playback-signal);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--playback-signal) 12%, transparent), 0 0 20px var(--playback-signal);
-  content: "";
-}
-
 .global-sidebar-brand-mark {
   width: 40px;
   height: 40px;
@@ -134,8 +123,10 @@ textarea {
 .global-sidebar-brand small {
   font-size: 0.63rem;
   font-weight: 650;
-  letter-spacing: 0.075em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .global-sidebar-nav {

@@ -280,6 +280,42 @@ export default async function (fastify) {
     );
   });
 
+  fastify.post("/items/likes", async (request, reply) => {
+    const ip = request.clientIp || request.ip;
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id
+       FROM liked_music l
+       JOIN media_assets m ON m.id = l.media_id
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE l.client_ip = $2::inet
+         AND m.mime_type LIKE 'audio/%'
+       ORDER BY l.liked_at DESC, m.id`,
+      [request.accessTier, ip]
+    );
+
+    if (rows.length === 0) {
+      return reply.code(404).send({ error: "No liked audio available" });
+    }
+
+    const likedIds = rows.map((row) => Number(row.id));
+    const { key, idxKey, revisionKey } = queueKeys(request);
+    const state = await readQueueState(fastify.redis, key, idxKey);
+    const queuedIds = new Set(state.queue);
+    const addedIds = likedIds.filter((id) => !queuedIds.has(id));
+    const nextQueue = [...state.queue, ...addedIds];
+    const nextIndex = await replaceQueue(
+      fastify.redis,
+      key,
+      idxKey,
+      nextQueue,
+      state.currentMediaId
+    );
+    if (addedIds.length > 0) await bumpQueueRevision(fastify.redis, revisionKey);
+    const result = await queueResult(fastify, request, nextQueue, nextIndex);
+    return { ...result, addedCount: addedIds.length };
+  });
+
   fastify.post("/items/category/:categoryId", async (request, reply) => {
     const categoryId = normalizeStartId(request.params.categoryId);
     if (categoryId === null || categoryId < 1) {
@@ -386,6 +422,34 @@ export default async function (fastify) {
     await fastify.redis.del(key, idxKey);
     if (state.queue.length > 0) await bumpQueueRevision(fastify.redis, revisionKey);
     return queueResult(fastify, request, [], 0, state.currentMediaId !== null);
+  });
+
+  fastify.post("/auto/likes", async (request, reply) => {
+    const startId = normalizeStartId(request.query.start);
+    const ip = request.clientIp || request.ip;
+
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id
+       FROM liked_music l
+       JOIN media_assets m ON m.id = l.media_id
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE l.client_ip = $2::inet
+         AND m.mime_type LIKE 'audio/%'
+       ORDER BY l.liked_at DESC, m.id`,
+      [request.accessTier, ip]
+    );
+
+    if (rows.length === 0) {
+      return reply.code(404).send({ error: "No liked media available" });
+    }
+
+    const ids = rows.map((r) => r.id);
+    const { key, idxKey, revisionKey } = queueKeys(request);
+    const currentIndex = await replaceQueue(fastify.redis, key, idxKey, ids, startId);
+    await bumpQueueRevision(fastify.redis, revisionKey);
+
+    return queueResult(fastify, request, ids, currentIndex);
   });
 
   fastify.post("/auto/:categoryId", async (request, reply) => {

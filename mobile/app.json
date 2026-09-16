@@ -53,7 +53,8 @@
         }
       ],
       "expo-sharing",
-      "expo-image"
+      "expo-image",
+      "expo-secure-store"
     ]
   }
 }
