@@ -6,6 +6,9 @@ import {
   faCloudArrowUp,
   faDownload,
   faFileShield,
+  faFilm,
+  faFolderOpen,
+  faMusic,
   faMobileScreenButton,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
@@ -14,6 +17,7 @@ import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
+import "./admin-media-import.css";
 
 const FALLBACK_CHUNK_SIZE = 512 * 1024;
 
@@ -686,13 +690,20 @@ function getRelativeDir(file) {
   return lastSlash > -1 ? relativePath.slice(0, lastSlash) : "";
 }
 
-function titleFromStem(stem) {
+export function titleFromStem(stem) {
   return stem
     .replace(/^[\d\s._-]+/, "")
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase()) || stem;
+}
+
+export function trackOrderFromStem(stem) {
+  const match = String(stem || "").trim().match(/^(\d{1,3})(?:\s*[._-]|\s+)/);
+  if (!match) return null;
+  const value = Number.parseInt(match[1], 10);
+  return Number.isInteger(value) && value >= 1 ? value : null;
 }
 
 function isAudioImportFile(file) {
@@ -707,7 +718,7 @@ function isLyricsFile(file) {
   return getExt(file.name) === "json";
 }
 
-function buildBatchItems(files) {
+export function buildBatchItems(files) {
   const folders = new Map();
 
   for (const file of files) {
@@ -748,6 +759,7 @@ function buildBatchItems(files) {
       items.push({
         key: `${folderName}/${stem}`,
         title: titleFromStem(stem),
+        trackOrder: trackOrderFromStem(stem),
         file,
         lyrics: folder.lyrics.get(stem) || null,
         thumbnail: folder.cover,
@@ -813,7 +825,7 @@ async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, upl
   return sentBytes;
 }
 
-async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
+async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", contentKind = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
   const lyrics = await readLyricsFile(lyricsFile);
   const initRes = await api("/api/media/uploads", {
     method: "POST",
@@ -825,6 +837,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
       artists,
       track_order: trackOrder,
       duration,
+      content_kind: contentKind,
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
@@ -1001,18 +1014,18 @@ export default function Admin() {
   const [creatingCategory, setCreatingCategory] = useState(false);
 
   const [mediaModalCategoryId, setMediaModalCategoryId] = useState(null);
+  const [mediaWorkspaceTab, setMediaWorkspaceTab] = useState("collection");
+  const [videoKind, setVideoKind] = useState("episode");
   const [categoryMedia, setCategoryMedia] = useState([]);
   const [mediaTitle, setMediaTitle] = useState("");
   const [mediaDescription, setMediaDescription] = useState("");
-  const [mediaArtists, setMediaArtists] = useState("");
-  const [mediaTrackOrder, setMediaTrackOrder] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaThumb, setMediaThumb] = useState(null);
   const [categoryCoverFile, setCategoryCoverFile] = useState(null);
   const [updatingCategoryCover, setUpdatingCategoryCover] = useState(false);
-  const [mediaLyrics, setMediaLyrics] = useState(null);
-  const [mediaDuration, setMediaDuration] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
+  const [batchArtist, setBatchArtist] = useState("");
+  const [batchOverrides, setBatchOverrides] = useState({});
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [uploadingBatch, setUploadingBatch] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1114,6 +1127,12 @@ export default function Admin() {
   }, [mediaModalCategoryId]);
 
   const batchItems = useMemo(() => buildBatchItems(batchFiles), [batchFiles]);
+  const batchHasInvalidRows = useMemo(() => batchItems.some((item) => {
+    const override = batchOverrides[item.key] || {};
+    const title = String(override.title ?? item.title).trim();
+    const trackOrder = override.trackOrder ?? item.trackOrder ?? "";
+    return !title || (String(trackOrder).trim() !== "" && (!/^\d+$/.test(String(trackOrder)) || Number(trackOrder) < 1));
+  }), [batchItems, batchOverrides]);
   const batchSummary = useMemo(() => ({
     files: batchFiles.length,
     tracks: batchItems.length,
@@ -1154,18 +1173,18 @@ export default function Admin() {
     setMessage(null);
     setCategoryModalOpen(false);
     setMediaModalCategoryId(String(categoryId));
+    setMediaWorkspaceTab("collection");
+    setVideoKind("episode");
     setCategoryMedia([]);
     setMediaTitle("");
     setMediaDescription("");
-    setMediaArtists("");
-    setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
     setCategoryCoverFile(null);
     setUpdatingCategoryCover(false);
-    setMediaLyrics(null);
-    setMediaDuration("");
     setBatchFiles([]);
+    setBatchArtist("");
+    setBatchOverrides({});
     setEditingMedia(null);
     clearFileInputs();
     setSelectedCategoryId(String(categoryId));
@@ -1177,15 +1196,13 @@ export default function Admin() {
     setLoadingMedia(false);
     setMediaTitle("");
     setMediaDescription("");
-    setMediaArtists("");
-    setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
     setCategoryCoverFile(null);
     setUpdatingCategoryCover(false);
-    setMediaLyrics(null);
-    setMediaDuration("");
     setBatchFiles([]);
+    setBatchArtist("");
+    setBatchOverrides({});
     setUploadingBatch(false);
     setEditingMedia(null);
     clearFileInputs();
@@ -1369,20 +1386,13 @@ export default function Admin() {
     event.preventDefault();
 
     if (!mediaModalCategoryId || !mediaTitle.trim() || !mediaFile) {
-      setMessage({ type: "error", text: "Category, title, and file are required." });
+      setMessage({ type: "error", text: "Category, video title, and video file are required." });
       return;
     }
 
-    if (mediaDuration) {
-      const parsedDuration = Number.parseFloat(mediaDuration);
-      if (!Number.isFinite(parsedDuration) || parsedDuration < 0) {
-        setMessage({ type: "error", text: "Duration must be a valid non-negative number." });
-        return;
-      }
-    }
-
-    if (mediaTrackOrder && (!/^\d+$/.test(mediaTrackOrder) || Number.parseInt(mediaTrackOrder, 10) < 1)) {
-      setMessage({ type: "error", text: "Track order must be a positive integer." });
+    const videoExtension = getExt(mediaFile.name);
+    if (!mediaFile.type.startsWith("video/") && !["mp4", "mkv", "webm", "mov", "avi"].includes(videoExtension)) {
+      setMessage({ type: "error", text: "Choose a supported video file." });
       return;
     }
 
@@ -1395,25 +1405,22 @@ export default function Admin() {
         categoryId: mediaModalCategoryId,
         title: mediaTitle.trim(),
         description: mediaDescription,
-        artists: mediaArtists,
-        trackOrder: mediaTrackOrder,
-        duration: mediaDuration ? String(Math.floor(Number.parseFloat(mediaDuration))) : "",
+        artists: "",
+        trackOrder: "",
+        duration: "",
+        contentKind: videoKind === "episode" ? "video_episode" : videoKind === "film" ? "film" : "video",
         file: mediaFile,
-        lyricsFile: mediaLyrics,
+        lyricsFile: null,
         thumbnail: mediaThumb,
         onProgress: setUploadProgress,
       });
       setCategoryMedia((prev) => orderMedia([...prev, created]));
       setMediaTitle("");
       setMediaDescription("");
-      setMediaArtists("");
-      setMediaTrackOrder("");
       setMediaFile(null);
       setMediaThumb(null);
-      setMediaLyrics(null);
-      setMediaDuration("");
       clearFileInputs();
-      setMessage({ type: "success", text: `"${created.title}" uploaded successfully.` });
+      setMessage({ type: "success", text: `"${created.title}" uploaded successfully. Encoding has been queued.` });
     } catch (error) {
       setMessage({ type: "error", text: error.message });
     } finally {
@@ -1452,9 +1459,13 @@ export default function Admin() {
 
     for (const [itemIndex, item] of batchItems.entries()) {
       try {
+        const override = batchOverrides[item.key] || {};
         const created = await uploadMediaInChunks({
           categoryId: mediaModalCategoryId,
-          title: item.title,
+          title: String(override.title || item.title).trim(),
+          artists: batchArtist,
+          trackOrder: override.trackOrder ?? item.trackOrder ?? "",
+          contentKind: "music",
           file: item.file,
           lyricsFile: item.lyrics,
           thumbnail: null,
@@ -1474,6 +1485,8 @@ export default function Admin() {
 
     if (failures.length === 0) {
       setBatchFiles([]);
+      setBatchArtist("");
+      setBatchOverrides({});
       clearFileInputs();
       setMessage({ type: "success", text: `Imported ${createdItems.length} track${createdItems.length === 1 ? "" : "s"}.` });
     } else {
@@ -2003,49 +2016,46 @@ export default function Admin() {
               </div>
             )}
 
-            <section style={{ ...styles.panel, marginBottom: 16 }}>
-              <div style={styles.panelHeader}>
-                <h3 style={styles.cardTitle}>Category cover</h3>
-                <p style={styles.cardSubtitle}>
-                  {activeMediaCategory?.cover_path
-                    ? "Replace the shared artwork used by every media item in this category."
-                    : "Add shared artwork for every media item in this category."}
-                </p>
-              </div>
-              <form style={styles.panelBody} onSubmit={handleUpdateCategoryCover}>
-                <div className="admin-category-cover-controls">
-                  <div className="admin-category-cover-field">
-                    <label style={styles.label} htmlFor="admin-category-cover-file">
-                      {activeMediaCategory?.cover_path ? "Replace folder cover" : "Folder cover"}
-                    </label>
-                    <input
-                      id="admin-category-cover-file"
-                      type="file"
-                      accept="image/*"
-                      onChange={(event) => setCategoryCoverFile(event.target.files[0] || null)}
-                      style={styles.fileInput}
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="admin-category-cover-submit"
-                    disabled={updatingCategoryCover || !categoryCoverFile || !activeMediaCategory}
-                    style={styles.button("primary", updatingCategoryCover || !categoryCoverFile || !activeMediaCategory)}
-                  >
-                    {updatingCategoryCover && <span style={styles.spinner} />}
-                    {updatingCategoryCover ? "Updating..." : "Update cover"}
-                  </button>
-                </div>
-                <p style={{ ...styles.helpText, marginBottom: 0 }}>
-                  Images are converted to WebP and replace the category's current shared cover.
-                </p>
-              </form>
-            </section>
+            <div className="admin-media-tabs" role="tablist" aria-label="Media workspace">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mediaWorkspaceTab === "collection"}
+                className={mediaWorkspaceTab === "collection" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"}
+                onClick={() => setMediaWorkspaceTab("collection")}
+              >
+                <FontAwesomeIcon icon={faFolderOpen} />
+                <span>Collection</span>
+                <small>{categoryMedia.length} items</small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mediaWorkspaceTab === "video"}
+                className={mediaWorkspaceTab === "video" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"}
+                onClick={() => setMediaWorkspaceTab("video")}
+              >
+                <FontAwesomeIcon icon={faFilm} />
+                <span>Upload video</span>
+                <small>Anime or film</small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mediaWorkspaceTab === "album"}
+                className={mediaWorkspaceTab === "album" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"}
+                onClick={() => setMediaWorkspaceTab("album")}
+              >
+                <FontAwesomeIcon icon={faMusic} />
+                <span>Import album</span>
+                <small>Music and lyrics</small>
+              </button>
+            </div>
 
-            <div className="admin-modal-grid" style={styles.modalGrid}>
+            {mediaWorkspaceTab === "collection" && (
               <section style={styles.panel}>
                 <div style={styles.panelHeader}>
-                  <h3 style={styles.cardTitle}>Existing Media</h3>
+                  <h3 style={styles.cardTitle}>Collection</h3>
                   <p style={styles.cardSubtitle}>
                     {activeMediaCategory
                       ? `Stored in ${activeMediaCategory.path || activeMediaCategory.name}`
@@ -2076,7 +2086,7 @@ export default function Admin() {
                     <div style={{ ...styles.emptyState, padding: "18px 8px" }}>
                       <div style={styles.emptyIcon}>🎞️</div>
                       <div style={{ fontWeight: 700, color: "var(--text)" }}>No media in this category</div>
-                      <p style={{ marginTop: 6, marginBottom: 0 }}>Use the upload form on the right to add the first item.</p>
+                      <p style={{ marginTop: 6, marginBottom: 0 }}>Choose Upload video or Import album to add the first item.</p>
                     </div>
                   ) : (
                     <div style={styles.mediaList}>
@@ -2116,189 +2126,148 @@ export default function Admin() {
                   )}
                 </div>
               </section>
+            )}
 
+            {mediaWorkspaceTab === "video" && (
               <section style={styles.panel}>
                 <div style={styles.panelHeader}>
-                  <h3 style={styles.cardTitle}>Upload Media</h3>
-                  <p style={styles.cardSubtitle}>This upload will always target the selected category.</p>
+                  <h3 style={styles.cardTitle}>Upload anime or film</h3>
+                  <p style={styles.cardSubtitle}>Choose the source first, then confirm the information viewers will see.</p>
                 </div>
                 <div style={styles.panelBody}>
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Category</label>
-                    <div
-                      style={{
-                        ...styles.input,
-                        display: "flex",
-                        alignItems: "center",
-                        minHeight: 42,
-                        cursor: "default",
-                        background: "var(--bg)",
-                      }}
-                    >
-                      {activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "No category selected"}
-                    </div>
-                  </div>
-
                   <form onSubmit={handleUploadMedia}>
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>Title</label>
-                      <input
-                        style={styles.input}
-                        value={mediaTitle}
-                        onChange={(event) => setMediaTitle(event.target.value)}
-                        placeholder="My Video"
-                      />
+                    <div className="admin-import-destination">
+                      <span>Upload destination</span>
+                      <strong>{activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "No category selected"}</strong>
                     </div>
 
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Artists{" "}
-                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
-                      </label>
-                      <input
-                        style={styles.input}
-                        value={mediaArtists}
-                        onChange={(event) => setMediaArtists(event.target.value)}
-                        placeholder="Unknown Artist"
-                      />
-                    </div>
-
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Track Order{" "}
-                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        style={styles.input}
-                        value={mediaTrackOrder}
-                        onChange={(event) => setMediaTrackOrder(event.target.value)}
-                        placeholder="Read from audio metadata"
-                      />
-                    </div>
-
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Description{" "}
-                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
-                      </label>
-                      <textarea
-                        style={styles.textarea}
-                        value={mediaDescription}
-                        onChange={(event) => setMediaDescription(event.target.value)}
-                        placeholder="A short description..."
-                      />
-                    </div>
-
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>File</label>
+                    <div className="admin-import-step">
+                      <div className="admin-import-step-heading">
+                        <span>1</span>
+                        <div>
+                          <h4>Choose a video</h4>
+                          <p>MP4, MKV, WebM, MOV, and AVI are accepted.</p>
+                        </div>
+                      </div>
                       <input
                         id="admin-media-file"
                         type="file"
-                        accept="video/*,audio/*,image/*"
-                        onChange={(event) => setMediaFile(event.target.files[0] || null)}
+                        accept="video/*,.mkv,.avi"
+                        onChange={(event) => {
+                          const file = event.target.files[0] || null;
+                          setMediaFile(file);
+                          if (file && !mediaTitle.trim()) setMediaTitle(titleFromStem(getStem(file.name)));
+                        }}
                         style={styles.fileInput}
                       />
+                      {mediaFile && <p className="admin-selected-file">{mediaFile.name} · {formatBytes(mediaFile.size)}</p>}
                     </div>
 
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Folder cover{" "}
-                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
-                      </label>
-                      <input
-                        id="admin-media-thumb"
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => setMediaThumb(event.target.files[0] || null)}
-                        style={styles.fileInput}
-                      />
-                      <p style={styles.helpText}>
-                        Shared by every item in this category. It only fills an empty cover; use Category cover above to replace it later.
-                      </p>
+                    <div className="admin-import-step">
+                      <div className="admin-import-step-heading">
+                        <span>2</span>
+                        <div>
+                          <h4>Describe the video</h4>
+                          <p>Pick the label that matches how this video should appear.</p>
+                        </div>
+                      </div>
+                      <div className="admin-kind-options" role="radiogroup" aria-label="Video kind">
+                        {[{ value: "episode", label: "Anime episode" }, { value: "film", label: "Film" }, { value: "other", label: "Other video" }].map((option) => (
+                          <label key={option.value} className={videoKind === option.value ? "admin-kind-option admin-kind-option--active" : "admin-kind-option"}>
+                            <input type="radio" name="video-kind" value={option.value} checked={videoKind === option.value} onChange={() => setVideoKind(option.value)} />
+                            <span>{option.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="admin-import-fields">
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>Display title</label>
+                          <input style={styles.input} value={mediaTitle} onChange={(event) => setMediaTitle(event.target.value)} placeholder={videoKind === "episode" ? "S01E01 — Episode title" : "Film title"} />
+                        </div>
+                        <div style={styles.fieldGroup}>
+                          <label style={styles.label}>Synopsis <span className="admin-optional">(optional)</span></label>
+                          <textarea style={styles.textarea} value={mediaDescription} onChange={(event) => setMediaDescription(event.target.value)} placeholder="A short description for this video..." />
+                        </div>
+                      </div>
                     </div>
 
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Synchronized Lyrics{" "}
-                        <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(Whisper JSON, optional)</span>
-                      </label>
-                      <input
-                        id="admin-media-lyrics"
-                        type="file"
-                        accept="application/json,.json"
-                        onChange={(event) => setMediaLyrics(event.target.files[0] || null)}
-                        style={styles.fileInput}
-                      />
+                    <div className="admin-import-step">
+                      <div className="admin-import-step-heading">
+                        <span>3</span>
+                        <div>
+                          <h4>Add artwork</h4>
+                          <p>This poster belongs to the uploaded video. A frame is extracted when no image is selected.</p>
+                        </div>
+                      </div>
+                      <input id="admin-media-thumb" type="file" accept="image/*" onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
                     </div>
 
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>
-                        Duration <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(seconds, optional)</span>
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        style={styles.input}
-                        value={mediaDuration}
-                        onChange={(event) => setMediaDuration(event.target.value)}
-                        placeholder="180"
-                      />
+                    <div className="admin-import-footer">
+                      <div>
+                        <strong>{mediaFile ? mediaFile.name : "No video selected"}</strong>
+                        <span>Duration will be detected automatically.</span>
+                      </div>
+                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || !mediaFile || !mediaTitle.trim()} style={styles.button("primary", uploadingMedia || !activeMediaCategory || !mediaFile || !mediaTitle.trim())}>
+                        {uploadingMedia && <span style={styles.spinner} />}
+                        {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : videoKind === "episode" ? "Upload episode" : videoKind === "film" ? "Upload film" : "Upload video"}
+                      </button>
                     </div>
-
-                    <button
-                      type="submit"
-                      disabled={uploadingMedia || !activeMediaCategory}
-                      style={styles.button("primary", uploadingMedia || !activeMediaCategory)}
-                    >
-                      {uploadingMedia && <span style={styles.spinner} />}
-                      {uploadingMedia
-                        ? `Uploading${uploadProgress === null ? "..." : ` ${uploadProgress}%`}`
-                        : "Upload Media"}
-                    </button>
                   </form>
+                </div>
+              </section>
+            )}
 
-                  <div style={styles.divider} />
-
+            {mediaWorkspaceTab === "album" && (
+              <div className="admin-album-workspace">
+                <section style={styles.panel}>
+                  <div style={styles.panelHeader}>
+                    <h3 style={styles.cardTitle}>Import a music album</h3>
+                    <p style={styles.cardSubtitle}>Choose a folder or loose tracks, review the manifest, then import them together.</p>
+                  </div>
+                  <div style={styles.panelBody}>
+                    <div className="admin-import-destination">
+                      <span>Album destination</span>
+                      <strong>{activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "No category selected"}</strong>
+                    </div>
                   <form onSubmit={handleUploadBatch}>
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>Music Folder Import</label>
-                      <input
-                        id="admin-media-batch-folder"
-                        type="file"
-                        multiple
-                        webkitdirectory=""
-                        directory=""
-                        accept="audio/*,image/*,application/json,.flac,.wav,.m4a,.mp3,.ogg,.opus,.aac,.json"
-                        onChange={(event) => setBatchFiles(Array.from(event.target.files || []))}
-                        style={styles.fileInput}
-                      />
-                      <p style={styles.helpText}>
-                        Select an album folder. Its front/cover image is uploaded once for the category; matching JSON lyrics are attached per track.
-                      </p>
+                    <div className="admin-import-step">
+                      <div className="admin-import-step-heading">
+                        <span>1</span>
+                        <div><h4>Choose the music</h4><p>A folder may include cover artwork and matching Whisper JSON lyrics.</p></div>
+                      </div>
+                      <div className="admin-source-options">
+                        <input id="admin-media-batch-folder" className="admin-source-input" type="file" multiple webkitdirectory="" directory="" accept="audio/*,image/*,application/json,.flac,.wav,.m4a,.mp3,.ogg,.opus,.aac,.json" onChange={(event) => { setBatchFiles(Array.from(event.target.files || [])); setBatchOverrides({}); }} />
+                        <label className="admin-source-option" htmlFor="admin-media-batch-folder">
+                          <FontAwesomeIcon icon={faMusic} />
+                          <strong>Choose album folder</strong>
+                          <span>Best for a complete album</span>
+                        </label>
+                        <input id="admin-media-batch-files" className="admin-source-input" type="file" multiple accept="audio/*,image/*,application/json,.flac,.wav,.m4a,.mp3,.ogg,.opus,.aac,.json" onChange={(event) => { setBatchFiles(Array.from(event.target.files || [])); setBatchOverrides({}); }} />
+                        <label className="admin-source-option" htmlFor="admin-media-batch-files">
+                          <FontAwesomeIcon icon={faCloudArrowUp} />
+                          <strong>Choose music files</strong>
+                          <span>For one or more loose tracks</span>
+                        </label>
+                      </div>
                     </div>
 
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>Music Files Import</label>
-                      <input
-                        id="admin-media-batch-files"
-                        type="file"
-                        multiple
-                        accept="audio/*,image/*,application/json,.flac,.wav,.m4a,.mp3,.ogg,.opus,.aac,.json"
-                        onChange={(event) => setBatchFiles(Array.from(event.target.files || []))}
-                        style={styles.fileInput}
-                      />
-                      <p style={styles.helpText}>
-                        Use this for loose files. This also creates new media rows in the selected category.
-                      </p>
+                    <div className="admin-import-step">
+                      <div className="admin-import-step-heading">
+                        <span>2</span>
+                        <div><h4>Set shared album details</h4><p>Leave the artist blank to read it from each audio file.</p></div>
+                      </div>
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Album artist <span className="admin-optional">(optional)</span></label>
+                        <input style={styles.input} value={batchArtist} onChange={(event) => setBatchArtist(event.target.value)} placeholder="Use embedded artist metadata" />
+                      </div>
                     </div>
 
                     {batchFiles.length > 0 && (
-                      <div style={styles.fieldGroup}>
-                        <label style={styles.label}>Import Preview</label>
+                      <div className="admin-import-step">
+                        <div className="admin-import-step-heading">
+                          <span>3</span>
+                          <div><h4>Review the track manifest</h4><p>Correct titles or track numbers before the import starts.</p></div>
+                        </div>
                         <div className="admin-batch-summary" style={styles.batchSummary}>
                           <div style={styles.batchSummaryItem}>
                             <div style={styles.batchSummaryLabel}>Tracks</div>
@@ -2320,24 +2289,16 @@ export default function Admin() {
                         {batchItems.length === 0 ? (
                           <p style={styles.helpText}>No audio files found in that selection.</p>
                         ) : (
-                          <div style={styles.batchPreview}>
+                          <div className="admin-track-manifest">
+                            <div className="admin-track-manifest-head"><span>No.</span><span>Title</span><span>File</span></div>
                             {batchItems.map((item) => (
-                              <div key={item.key} style={styles.batchItem}>
-                                <div style={{ minWidth: 0 }}>
-                                  <div style={styles.batchTitle} title={item.title}>
-                                    {item.title}
-                                  </div>
-                                  <div style={styles.batchMeta} title={item.file.webkitRelativePath || item.file.name}>
-                                    {item.file.webkitRelativePath || item.file.name}
-                                    {` · ${formatBytes(item.file.size)}`}
-                                    {item.thumbnail ? ` · cover ${item.thumbnail.name}` : " · no cover"}
-                                    {item.lyrics ? ` · lyrics ${item.lyrics.name}` : " · no lyrics"}
-                                  </div>
+                              <div key={item.key} className="admin-track-row">
+                                <input aria-label={`Track number for ${item.title}`} type="number" min="1" value={batchOverrides[item.key]?.trackOrder ?? item.trackOrder ?? ""} onChange={(event) => setBatchOverrides((current) => ({ ...current, [item.key]: { ...current[item.key], trackOrder: event.target.value } }))} placeholder="—" />
+                                <input aria-label={`Title for ${item.title}`} value={batchOverrides[item.key]?.title ?? item.title} onChange={(event) => setBatchOverrides((current) => ({ ...current, [item.key]: { ...current[item.key], title: event.target.value } }))} />
+                                <div className="admin-track-file" title={item.file.webkitRelativePath || item.file.name}>
+                                  <strong>{getExt(item.file.name).toUpperCase()} · {formatBytes(item.file.size)}</strong>
+                                  <span>{item.lyrics ? "Lyrics matched" : "No lyrics"}{item.skippedCount ? ` · ${item.skippedCount} duplicate ignored` : ""}</span>
                                 </div>
-                                <span style={styles.batchBadge}>
-                                  {getExt(item.file.name).toUpperCase()}
-                                  {item.skippedCount ? ` +${item.skippedCount}` : ""}
-                                </span>
                               </div>
                             ))}
                           </div>
@@ -2345,20 +2306,37 @@ export default function Admin() {
                       </div>
                     )}
 
-                    <button
-                      type="submit"
-                      disabled={uploadingBatch || !activeMediaCategory || batchItems.length === 0}
-                      style={styles.button("secondary", uploadingBatch || !activeMediaCategory || batchItems.length === 0)}
-                    >
-                      {uploadingBatch && <span style={styles.spinner} />}
-                      {uploadingBatch
-                        ? `Importing${batchProgress === null ? "..." : ` ${batchProgress}%`}`
-                        : "Import Tracks"}
-                    </button>
+                    <div className="admin-import-footer">
+                      <div><strong>{batchItems.length} track{batchItems.length === 1 ? "" : "s"}</strong><span>{formatBytes(batchSummary.bytes)} ready to import</span></div>
+                      <button type="submit" disabled={uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows} style={styles.button("primary", uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows)}>
+                        {uploadingBatch && <span style={styles.spinner} />}
+                        {uploadingBatch ? `Importing ${batchProgress ?? 0}%` : `Import ${batchItems.length} track${batchItems.length === 1 ? "" : "s"}`}
+                      </button>
+                    </div>
                   </form>
                 </div>
               </section>
-            </div>
+
+                <section style={styles.panel}>
+                  <div style={styles.panelHeader}>
+                    <h3 style={styles.cardTitle}>Album artwork</h3>
+                    <p style={styles.cardSubtitle}>{activeMediaCategory?.cover_path ? "Replace the shared cover for this category." : "A cover.jpg or folder.jpg is detected automatically, or choose one manually."}</p>
+                  </div>
+                  <form style={styles.panelBody} onSubmit={handleUpdateCategoryCover}>
+                    <div className="admin-category-cover-controls">
+                      <div className="admin-category-cover-field">
+                        <label style={styles.label} htmlFor="admin-category-cover-file">Cover image</label>
+                        <input id="admin-category-cover-file" type="file" accept="image/*" onChange={(event) => setCategoryCoverFile(event.target.files[0] || null)} style={styles.fileInput} />
+                      </div>
+                      <button type="submit" disabled={updatingCategoryCover || !categoryCoverFile || !activeMediaCategory} style={styles.button("secondary", updatingCategoryCover || !categoryCoverFile || !activeMediaCategory)}>
+                        {updatingCategoryCover && <span style={styles.spinner} />}
+                        {updatingCategoryCover ? "Updating..." : "Update artwork"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              </div>
+            )}
           </Modal>
         )}
 

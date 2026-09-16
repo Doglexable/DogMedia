@@ -260,3 +260,45 @@ describe("quality-aware streaming", () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 });
+
+describe("media artwork", () => {
+  it("prefers an item poster and falls back to the category cover", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-media-artwork-"));
+    await mkdir(join(dataDir, "7", "1"), { recursive: true });
+    await writeFile(join(dataDir, "7", "1", "cover.webp"), "item-cover");
+    await writeFile(join(dataDir, "7", "front.webp"), "category-cover");
+
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("FROM media_assets m")) {
+          const id = Number(params.at(-1));
+          return {
+            rows: [{
+              id,
+              category_id: 7,
+              thumbnail_path: id === 1 ? "7/1/cover.webp" : null,
+            }],
+            rowCount: 1,
+          };
+        }
+        if (sql.startsWith("SELECT cover_path FROM categories")) {
+          return { rows: [{ cover_path: "7/front.webp" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+
+    const itemResponse = await app.inject({ method: "GET", url: "/api/media/1/thumbnail" });
+    const fallbackResponse = await app.inject({ method: "GET", url: "/api/media/2/thumbnail" });
+    expect(itemResponse.statusCode).toBe(200);
+    expect(itemResponse.body).toBe("item-cover");
+    expect(fallbackResponse.statusCode).toBe(200);
+    expect(fallbackResponse.body).toBe("category-cover");
+
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+});

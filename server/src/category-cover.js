@@ -27,6 +27,26 @@ export async function normalizeCategoryCover({ categoryId, dataDir, inputPath })
   }
 }
 
+export async function normalizeMediaCover({ categoryId, mediaId, dataDir, inputPath }) {
+  const mediaDir = join(dataDir, String(categoryId), String(mediaId));
+  await mkdir(mediaDir, { recursive: true });
+  const outputPath = join(mediaDir, "cover.webp");
+  const temporaryPath = join(mediaDir, `.cover-${randomUUID()}.webp`);
+  try {
+    await execFileAsync("ffmpeg", [
+      "-y", "-i", inputPath,
+      "-vf", "scale='if(gt(iw,ih),min(900,iw),-2)':'if(gt(iw,ih),-2,min(900,ih))':force_original_aspect_ratio=decrease",
+      "-frames:v", "1", "-c:v", "libwebp", "-quality", "84", temporaryPath,
+    ]);
+    const result = await stat(temporaryPath);
+    if (!result.size) throw new Error("Generated media cover is empty");
+    await rename(temporaryPath, outputPath);
+    return `${categoryId}/${mediaId}/cover.webp`;
+  } finally {
+    await unlink(temporaryPath).catch(() => {});
+  }
+}
+
 export function sendCoverFile({ request, reply, filePath, stats }) {
   const etag = `W/\"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}\"`;
   reply.header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");

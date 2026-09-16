@@ -6,7 +6,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
-import { normalizeCategoryCover, sendCoverFile } from "../category-cover.js";
+import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
 import { enqueueEncoding, retryFailedEncoding } from "../encoding-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 
@@ -169,6 +169,16 @@ function normalizeOptionalText(value) {
   return trimmed || null;
 }
 
+function normalizeContentKind(value, mimeType) {
+  const normalized = normalizeOptionalText(value);
+  if (mimeType?.startsWith("audio/")) return "music";
+  if (mimeType?.startsWith("video/")) {
+    return ["video_episode", "film", "video"].includes(normalized) ? normalized : "video";
+  }
+  if (mimeType?.startsWith("image/")) return "image";
+  return null;
+}
+
 export function parseTrackOrder(value) {
   if (typeof value === "number") {
     return Number.isInteger(value) && value >= 1 ? value : null;
@@ -328,9 +338,22 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   const detectedTags = mimeType.startsWith("audio/") ? await probeMediaTags(filePath, request.log) : {};
   const artists = providedArtists || detectedTags.artists || null;
   const trackOrder = resolveTrackOrder(providedTrackOrder, detectedTags.trackOrder);
+  const contentKind = normalizeContentKind(fields.content_kind, mimeType);
 
   let coverPath = categoryRows[0].cover_path;
-  if (!coverPath) {
+  let thumbnailPath = null;
+  if (mimeType.startsWith("video/") || mimeType.startsWith("image/")) {
+    try {
+      thumbnailPath = await normalizeMediaCover({
+        categoryId: fields.category_id,
+        mediaId,
+        dataDir: DATA_DIR,
+        inputPath: thumbUpload?.tempPath || filePath,
+      });
+    } catch (err) {
+      request.log.debug({ err }, "uploaded media did not provide a usable item cover");
+    }
+  } else if (!coverPath) {
     try {
       coverPath = await normalizeCategoryCover({
         categoryId: fields.category_id,
@@ -344,15 +367,15 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   }
   await cleanupUploads(thumbUpload);
 
-  if (categoryRows[0].parent_id !== null && !coverPath) {
+  if (categoryRows[0].parent_id !== null && !coverPath && !thumbnailPath) {
     await unlink(filePath).catch(() => {});
     await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [mediaId]);
     return reply.code(400).send({ error: "A non-root category containing media must have a cover" });
   }
 
   const { rows: updated } = await fastify.pg.query(
-    "UPDATE media_assets SET file_path = $1, mime_type = $2, duration = $3, artists = $4, track_order = $5 WHERE id = $6 RETURNING *",
-    [`${fields.category_id}/${storedName}`, mimeType, detectedDuration, artists, trackOrder, mediaId]
+    "UPDATE media_assets SET file_path = $1, mime_type = $2, duration = $3, artists = $4, track_order = $5, thumbnail_path = $6, content_kind = $7 WHERE id = $8 RETURNING *",
+    [`${fields.category_id}/${storedName}`, mimeType, detectedDuration, artists, trackOrder, thumbnailPath, contentKind, mediaId]
   );
 
   if (lyrics) {
@@ -387,11 +410,13 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
   let nextMimeType = existing.mime_type;
   let nextDuration = existing.duration;
   let nextArtists = existing.artists;
+  let nextAbsoluteFilePath = null;
 
   if (mainFileUpload) {
     const ext = extFromFilename(mainFileUpload.filename);
     const storedName = `${mediaId}.${ext}`;
     const absoluteFilePath = join(categoryDir, storedName);
+    nextAbsoluteFilePath = absoluteFilePath;
     const previousFilePath = join(DATA_DIR, existing.file_path);
 
     await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(absoluteFilePath));
@@ -421,15 +446,34 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
          mime_type = $2,
          duration = COALESCE($3, duration),
          artists = $4,
-         source_version = source_version + CASE WHEN $6 THEN 1 ELSE 0 END
-     WHERE id = $5
+         content_kind = $5,
+         source_version = source_version + CASE WHEN $7 THEN 1 ELSE 0 END
+     WHERE id = $6
      RETURNING *`,
-    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), mediaId, Boolean(mainFileUpload)]
+    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), normalizeContentKind(existing.content_kind, nextMimeType), mediaId, Boolean(mainFileUpload)]
   );
 
   if (mainFileUpload) {
     await rm(join(categoryDir, String(mediaId)), { recursive: true, force: true }).catch(() => {});
     await fastify.pg.query("DELETE FROM media_encoding_variants WHERE media_id = $1 AND source_version <> $2", [mediaId, updatedRows[0].source_version]);
+    let thumbnailPath = null;
+    if ((nextMimeType?.startsWith("video/") || nextMimeType?.startsWith("image/")) && nextAbsoluteFilePath) {
+      try {
+        thumbnailPath = await normalizeMediaCover({
+          categoryId: existing.category_id,
+          mediaId,
+          dataDir: DATA_DIR,
+          inputPath: nextAbsoluteFilePath,
+        });
+      } catch (err) {
+        request.log.debug({ err }, "replacement media did not provide a usable item cover");
+      }
+    }
+    const { rows: artworkRows } = await fastify.pg.query(
+      "UPDATE media_assets SET thumbnail_path = $1 WHERE id = $2 RETURNING *",
+      [thumbnailPath, mediaId]
+    );
+    if (artworkRows[0]) updatedRows[0] = artworkRows[0];
     await enqueueEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId, sourceVersion: updatedRows[0].source_version });
   }
 
@@ -643,6 +687,7 @@ export default async function (fastify, options = {}) {
       artists = "",
       track_order = "",
       duration = "",
+      content_kind = "",
       fileName,
       fileSize,
       fileType = "",
@@ -691,6 +736,7 @@ export default async function (fastify, options = {}) {
         artists,
         track_order,
         duration,
+        content_kind,
       },
       file: fileName
         ? {
@@ -1037,8 +1083,9 @@ export default async function (fastify, options = {}) {
     }
 
     const { rows: categories } = await fastify.pg.query("SELECT cover_path FROM categories WHERE id = $1", [rows[0].category_id]);
-    if (!categories[0]?.cover_path) return reply.code(404).send({ error: "No thumbnail available" });
-    const coverFile = join(dataDir, categories[0].cover_path);
+    const selectedCover = rows[0].thumbnail_path || categories[0]?.cover_path;
+    if (!selectedCover) return reply.code(404).send({ error: "No thumbnail available" });
+    const coverFile = join(dataDir, selectedCover);
     try {
       return sendCoverFile({ request, reply, filePath: coverFile, stats: await stat(coverFile) });
     } catch {

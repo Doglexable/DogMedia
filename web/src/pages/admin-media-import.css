@@ -1,0 +1,380 @@
+.admin-media-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg) 88%, var(--card-bg));
+}
+
+.admin-media-tab {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 2px 9px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-media-tab > svg {
+  grid-row: 1 / span 2;
+}
+
+.admin-media-tab > span {
+  overflow: hidden;
+  color: inherit;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-media-tab > small {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-media-tab:hover {
+  color: var(--text);
+}
+
+.admin-media-tab--active {
+  border-color: var(--card-border);
+  background: var(--card-bg);
+  color: var(--primary);
+  box-shadow: 0 8px 24px rgba(20, 20, 26, 0.07);
+}
+
+.admin-import-destination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 4%, var(--bg));
+}
+
+.admin-import-destination span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.admin-import-destination strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-import-step {
+  padding: 20px 0;
+  border-top: 1px solid var(--card-border);
+}
+
+.admin-import-step-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin-bottom: 14px;
+}
+
+.admin-import-step-heading > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--font-data);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.admin-import-step-heading h4,
+.admin-import-step-heading p {
+  margin: 0;
+}
+
+.admin-import-step-heading h4 {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+
+.admin-import-step-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.admin-selected-file {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-family: var(--font-data);
+  font-size: var(--fs-xs);
+}
+
+.admin-kind-options,
+.admin-source-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.admin-kind-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-kind-option--active {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--card-border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+  color: var(--text);
+}
+
+.admin-kind-option input {
+  accent-color: var(--primary);
+}
+
+.admin-import-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.admin-optional {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.admin-import-footer {
+  position: sticky;
+  bottom: -18px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 4px -16px -16px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--bg));
+  backdrop-filter: blur(18px);
+}
+
+.admin-import-footer div {
+  min-width: 0;
+}
+
+.admin-import-footer strong,
+.admin-import-footer span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-import-footer strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.admin-import-footer span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.admin-album-workspace {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-source-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-source-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.admin-source-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 11px;
+  align-items: center;
+  min-height: 84px;
+  padding: 14px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 42%, var(--card-border));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--primary) 4%, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.admin-source-option:hover {
+  border-style: solid;
+  background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+}
+
+.admin-source-option > svg {
+  grid-row: 1 / span 2;
+  color: var(--primary);
+  font-size: 1.15rem;
+}
+
+.admin-source-option strong {
+  font-size: var(--fs-sm);
+}
+
+.admin-source-option span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.admin-source-input:focus-visible + .admin-source-option,
+.admin-source-option:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.admin-track-manifest {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+}
+
+.admin-track-manifest-head,
+.admin-track-row {
+  display: grid;
+  grid-template-columns: 70px minmax(160px, 1fr) minmax(150px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-track-manifest-head {
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.admin-track-row {
+  padding: 9px 10px;
+  border-top: 1px solid var(--card-border);
+}
+
+.admin-track-row input {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.admin-track-file {
+  min-width: 0;
+}
+
+.admin-track-file strong,
+.admin-track-file span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-track-file strong {
+  color: var(--text);
+  font-family: var(--font-data);
+  font-size: 0.68rem;
+}
+
+.admin-track-file span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+@media (max-width: 700px) {
+  .admin-media-tabs,
+  .admin-kind-options,
+  .admin-source-options,
+  .admin-import-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-media-tab {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .admin-media-tab > svg {
+    grid-row: auto;
+  }
+
+  .admin-track-manifest {
+    overflow-x: auto;
+  }
+
+  .admin-track-manifest-head,
+  .admin-track-row {
+    min-width: 540px;
+  }
+
+  .admin-import-destination,
+  .admin-import-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-import-destination strong {
+    text-align: left;
+  }
+
+  .admin-import-footer button {
+    width: 100%;
+  }
+}
