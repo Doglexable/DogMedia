@@ -453,9 +453,15 @@ export default async function (fastify) {
 
   fastify.post("/next", async (request, reply) => {
     const { key, idxKey, revisionKey } = queueKeys(request);
+    const ip = request.clientIp || request.ip;
+    const rawTrigger = request.body?.trigger || request.query?.trigger;
+    const trigger = rawTrigger === "system" ? "system" : "user";
+    if (typeof fastify.redis.set === "function") {
+      await fastify.redis.set(`queue:trigger:${ip}`, trigger, "EX", 86400).catch(() => {});
+    }
 
     const len = await fastify.redis.llen(key);
-    if (len === 0) return { mediaId: null };
+    if (len === 0) return { mediaId: null, trigger };
 
     let idx = parseInt((await fastify.redis.get(idxKey)) || "0", 10);
     if (!Number.isInteger(idx) || idx < 0) idx = 0;
@@ -467,17 +473,30 @@ export default async function (fastify) {
     const mediaId = await fastify.redis.lindex(key, idx);
     const numericMediaId = mediaId ? parseInt(mediaId, 10) : null;
     if (String(request.query?.compact || "") === "1") {
-      return { mediaId: numericMediaId, total: len, currentIndex: idx, currentMediaId: numericMediaId, revision: await queueRevision(fastify.redis, revisionKey) };
+      return {
+        mediaId: numericMediaId,
+        total: len,
+        currentIndex: idx,
+        currentMediaId: numericMediaId,
+        revision: await queueRevision(fastify.redis, revisionKey),
+        trigger,
+      };
     }
-    return { mediaId: numericMediaId };
+    return { mediaId: numericMediaId, trigger };
   });
 
   fastify.post("/prev", async (request, reply) => {
     const { key, idxKey, revisionKey } = queueKeys(request);
+    const ip = request.clientIp || request.ip;
+    const rawTrigger = request.body?.trigger || request.query?.trigger;
+    const trigger = rawTrigger === "system" ? "system" : "user";
+    if (typeof fastify.redis.set === "function") {
+      await fastify.redis.set(`queue:trigger:${ip}`, trigger, "EX", 86400).catch(() => {});
+    }
 
     let idx = parseInt((await fastify.redis.get(idxKey)) || "0", 10);
     if (!Number.isInteger(idx) || idx < 0) idx = 0;
-    if (idx <= 0) return { mediaId: null };
+    if (idx <= 0) return { mediaId: null, trigger };
 
     idx -= 1;
     await fastify.redis.set(idxKey, idx);
@@ -487,9 +506,16 @@ export default async function (fastify) {
     const numericMediaId = mediaId ? parseInt(mediaId, 10) : null;
     if (String(request.query?.compact || "") === "1") {
       const total = await fastify.redis.llen(key);
-      return { mediaId: numericMediaId, total, currentIndex: idx, currentMediaId: numericMediaId, revision: await queueRevision(fastify.redis, revisionKey) };
+      return {
+        mediaId: numericMediaId,
+        total,
+        currentIndex: idx,
+        currentMediaId: numericMediaId,
+        revision: await queueRevision(fastify.redis, revisionKey),
+        trigger,
+      };
     }
-    return { mediaId: numericMediaId };
+    return { mediaId: numericMediaId, trigger };
   });
 
   fastify.post("/select", async (request, reply) => {
@@ -497,6 +523,10 @@ export default async function (fastify) {
     if (selectedId === null) return reply.code(400).send({ error: "mediaId is required" });
 
     const { key, idxKey, revisionKey } = queueKeys(request);
+    const ip = request.clientIp || request.ip;
+    if (typeof fastify.redis.set === "function") {
+      await fastify.redis.set(`queue:trigger:${ip}`, "user", "EX", 86400).catch(() => {});
+    }
     const queue = (await fastify.redis.lrange(key, 0, -1)).map(Number);
     const idx = queue.indexOf(selectedId);
 
@@ -508,6 +538,7 @@ export default async function (fastify) {
     await bumpQueueRevision(fastify.redis, revisionKey);
     return {
       mediaId: selectedId,
+      trigger: "user",
       ...(await queueResult(fastify, request, queue, idx)),
     };
   });

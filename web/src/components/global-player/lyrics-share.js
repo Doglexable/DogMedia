@@ -1,3 +1,5 @@
+import { resolveMediaArtist } from "./player-utils";
+
 export const MAX_SHARED_LYRICS = 5;
 export const LYRICS_CARD = Object.freeze({ cssWidth: 360, cssHeight: 640, pixelRatio: 3 });
 
@@ -55,7 +57,7 @@ export function sanitizeLyricsFilename(title) {
 
 export function getLyricsShareMetadata(media, artworkUrl = null) {
   const title = typeof media?.title === "string" && media.title.trim() ? media.title.trim() : "Untitled track";
-  const artists = typeof media?.artists === "string" && media.artists.trim() ? media.artists.trim() : "Unknown artist";
+  const artists = resolveMediaArtist(media, "Unknown artist");
   return { title, artists, artworkUrl: artworkUrl || null };
 }
 

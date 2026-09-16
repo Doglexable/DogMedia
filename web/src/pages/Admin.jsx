@@ -650,19 +650,19 @@ function Modal({ title, subtitle, children, onClose, width = 960 }) {
 function clearFileInputs() {
   const mediaInput = document.getElementById("admin-media-file");
   const thumbInput = document.getElementById("admin-media-thumb");
+  const categoryCoverInput = document.getElementById("admin-category-cover-file");
   const lyricsInput = document.getElementById("admin-media-lyrics");
   const batchFolderInput = document.getElementById("admin-media-batch-folder");
   const batchFilesInput = document.getElementById("admin-media-batch-files");
   const editFileInput = document.getElementById("admin-edit-media-file");
-  const editThumbInput = document.getElementById("admin-edit-media-thumb");
   const editLyricsInput = document.getElementById("admin-edit-media-lyrics");
   if (mediaInput) mediaInput.value = "";
   if (thumbInput) thumbInput.value = "";
+  if (categoryCoverInput) categoryCoverInput.value = "";
   if (lyricsInput) lyricsInput.value = "";
   if (batchFolderInput) batchFolderInput.value = "";
   if (batchFilesInput) batchFilesInput.value = "";
   if (editFileInput) editFileInput.value = "";
-  if (editThumbInput) editThumbInput.value = "";
   if (editLyricsInput) editLyricsInput.value = "";
 }
 
@@ -1008,6 +1008,8 @@ export default function Admin() {
   const [mediaTrackOrder, setMediaTrackOrder] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaThumb, setMediaThumb] = useState(null);
+  const [categoryCoverFile, setCategoryCoverFile] = useState(null);
+  const [updatingCategoryCover, setUpdatingCategoryCover] = useState(false);
   const [mediaLyrics, setMediaLyrics] = useState(null);
   const [mediaDuration, setMediaDuration] = useState("");
   const [batchFiles, setBatchFiles] = useState([]);
@@ -1023,7 +1025,6 @@ export default function Admin() {
   const [editTrackOrder, setEditTrackOrder] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editFile, setEditFile] = useState(null);
-  const [editThumb, setEditThumb] = useState(null);
   const [editLyrics, setEditLyrics] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editProgress, setEditProgress] = useState(null);
@@ -1160,6 +1161,8 @@ export default function Admin() {
     setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
+    setCategoryCoverFile(null);
+    setUpdatingCategoryCover(false);
     setMediaLyrics(null);
     setMediaDuration("");
     setBatchFiles([]);
@@ -1178,6 +1181,8 @@ export default function Admin() {
     setMediaTrackOrder("");
     setMediaFile(null);
     setMediaThumb(null);
+    setCategoryCoverFile(null);
+    setUpdatingCategoryCover(false);
     setMediaLyrics(null);
     setMediaDuration("");
     setBatchFiles([]);
@@ -1195,7 +1200,6 @@ export default function Admin() {
     setEditTrackOrder(media.track_order == null ? "" : String(media.track_order));
     setEditDuration(media.duration == null ? "" : String(media.duration));
     setEditFile(null);
-    setEditThumb(null);
     setEditLyrics(null);
     setEditProgress(null);
     clearFileInputs();
@@ -1209,7 +1213,6 @@ export default function Admin() {
     setEditTrackOrder("");
     setEditDuration("");
     setEditFile(null);
-    setEditThumb(null);
     setEditLyrics(null);
     setEditProgress(null);
     clearFileInputs();
@@ -1220,6 +1223,29 @@ export default function Admin() {
     const data = await res.json();
     setCategories(Array.isArray(data) ? data : []);
     await refreshGlobalCategories();
+  };
+
+  const handleUpdateCategoryCover = async (event) => {
+    event.preventDefault();
+    if (!mediaModalCategoryId || !categoryCoverFile) {
+      setMessage({ type: "error", text: "Choose an image for the category cover." });
+      return;
+    }
+
+    setUpdatingCategoryCover(true);
+    setMessage(null);
+    try {
+      await uploadCategoryCover(mediaModalCategoryId, categoryCoverFile);
+      await refreshCategories();
+      setCategoryCoverFile(null);
+      const input = document.getElementById("admin-category-cover-file");
+      if (input) input.value = "";
+      setMessage({ type: "success", text: `Updated the cover for "${activeMediaCategory?.path || activeMediaCategory?.name || "the selected category"}".` });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setUpdatingCategoryCover(false);
+    }
   };
 
   const handleCreateCategory = async (event) => {
@@ -1544,10 +1570,6 @@ export default function Admin() {
       if (!res.ok) throw new Error(await readApiError(res, "Edit failed"));
 
       let updated = await res.json();
-      if (editThumb) {
-        await uploadCategoryCover(editingMedia.category_id, editThumb);
-        await refreshCategories();
-      }
       if (editFile || editLyrics) {
         setEditProgress(0);
         updated = await replaceMediaFilesInChunks({
@@ -1638,28 +1660,9 @@ export default function Admin() {
               <div className="admin-vault-note" style={styles.headerNote}>Categories, media, and app distribution</div>
             </div>
           </div>
-          <div style={styles.headerActions}>
+          {/* <div style={styles.headerActions}>
             <ThemeToggle style={styles.button("secondary")} />
-            <button type="button" style={styles.button("secondary")} onClick={() => openCategoryModal("")}>
-              Add Category
-            </button>
-            <button
-              type="button"
-              style={styles.button("secondary", !selectedCategory)}
-              disabled={!selectedCategory}
-              onClick={() => openCategoryModal(selectedCategory?.id)}
-            >
-              Add Child
-            </button>
-            <button
-              type="button"
-              style={styles.button("primary", !selectedCategory)}
-              disabled={!selectedCategory}
-              onClick={() => openMediaModal(selectedCategory.id)}
-            >
-              Add Media
-            </button>
-          </div>
+          </div> */}
         </header>
 
         <main className="app-main admin-vault-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
@@ -1988,8 +1991,57 @@ export default function Admin() {
             title={activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "Selected Category"}
             subtitle="Manage existing media and upload directly into the selected category."
             width={1120}
-            onClose={closeMediaModal}
+            onClose={updatingCategoryCover ? () => {} : closeMediaModal}
           >
+            {message && (
+              <div
+                role={message.type === "error" ? "alert" : "status"}
+                style={{ ...styles.notice(message.type), marginBottom: 16 }}
+              >
+                <span>{message.type === "error" ? "⚠️" : "✅"}</span>
+                <span>{message.text}</span>
+              </div>
+            )}
+
+            <section style={{ ...styles.panel, marginBottom: 16 }}>
+              <div style={styles.panelHeader}>
+                <h3 style={styles.cardTitle}>Category cover</h3>
+                <p style={styles.cardSubtitle}>
+                  {activeMediaCategory?.cover_path
+                    ? "Replace the shared artwork used by every media item in this category."
+                    : "Add shared artwork for every media item in this category."}
+                </p>
+              </div>
+              <form style={styles.panelBody} onSubmit={handleUpdateCategoryCover}>
+                <div className="admin-category-cover-controls">
+                  <div className="admin-category-cover-field">
+                    <label style={styles.label} htmlFor="admin-category-cover-file">
+                      {activeMediaCategory?.cover_path ? "Replace folder cover" : "Folder cover"}
+                    </label>
+                    <input
+                      id="admin-category-cover-file"
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => setCategoryCoverFile(event.target.files[0] || null)}
+                      style={styles.fileInput}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="admin-category-cover-submit"
+                    disabled={updatingCategoryCover || !categoryCoverFile || !activeMediaCategory}
+                    style={styles.button("primary", updatingCategoryCover || !categoryCoverFile || !activeMediaCategory)}
+                  >
+                    {updatingCategoryCover && <span style={styles.spinner} />}
+                    {updatingCategoryCover ? "Updating..." : "Update cover"}
+                  </button>
+                </div>
+                <p style={{ ...styles.helpText, marginBottom: 0 }}>
+                  Images are converted to WebP and replace the category's current shared cover.
+                </p>
+              </form>
+            </section>
+
             <div className="admin-modal-grid" style={styles.modalGrid}>
               <section style={styles.panel}>
                 <div style={styles.panelHeader}>
@@ -2164,7 +2216,7 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>
-                        Shared by every item in this category. It only fills an empty cover; edit the category cover to replace it later.
+                        Shared by every item in this category. It only fills an empty cover; use Category cover above to replace it later.
                       </p>
                     </div>
 
@@ -2313,7 +2365,7 @@ export default function Admin() {
         {editingMedia && (
           <Modal
             title={`Edit ${editingMedia.title}`}
-            subtitle="Update metadata, replace the source, manage the shared folder cover, and inspect encoding."
+            subtitle="Update metadata, replace the source or lyrics, and inspect encoding."
             width={820}
             onClose={savingEdit ? () => {} : closeEditMediaModal}
           >
@@ -2417,18 +2469,6 @@ export default function Admin() {
                         style={styles.fileInput}
                       />
                       <p style={styles.helpText}>Large files upload in chunks. If you replace this, the old media file is removed.</p>
-                    </div>
-
-                    <div style={styles.fieldGroup}>
-                      <label style={styles.label}>Replace folder cover</label>
-                      <input
-                        id="admin-edit-media-thumb"
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => setEditThumb(event.target.files[0] || null)}
-                        style={styles.fileInput}
-                      />
-                      <p style={styles.helpText}>This updates the shared cover for every media item in this category.</p>
                     </div>
 
                     <div style={styles.fieldGroup}>

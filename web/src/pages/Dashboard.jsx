@@ -8,6 +8,7 @@ import { api, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
+import { MediaTypePills } from "../components/dashboard/media-type-pills";
 import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
 import { formatDuration } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
@@ -678,6 +679,7 @@ export default function Dashboard() {
   const player = useGlobalPlayerLibrary();
   const [searchParams] = useSearchParams();
   const [media, setMedia] = useState([]);
+  const [mediaType, setMediaType] = useState("all");
   const [nextCursor, setNextCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -720,6 +722,7 @@ export default function Dashboard() {
     const params = new URLSearchParams({ limit: "50", view: libraryView });
     if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
     api(`/api/media/browse?${params.toString()}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not load media");
@@ -740,7 +743,7 @@ export default function Dashboard() {
         }
       });
     return () => controller.abort();
-  }, [debouncedSearch, selectedCategory, libraryView]);
+  }, [debouncedSearch, selectedCategory, libraryView, mediaType]);
 
   const loadMoreMedia = useCallback(() => {
     if (!nextCursor || loadingMore || loadingMoreRef.current) return;
@@ -749,6 +752,7 @@ export default function Dashboard() {
     const params = new URLSearchParams({ limit: "50", view: libraryView, cursor: nextCursor });
     if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setLoadingMore(true);
     api(`/api/media/browse?${params.toString()}`)
       .then(async (response) => {
@@ -770,7 +774,7 @@ export default function Dashboard() {
           setLoadingMore(false);
         }
       });
-  }, [debouncedSearch, libraryView, loadingMore, nextCursor, selectedCategory]);
+  }, [debouncedSearch, libraryView, loadingMore, mediaType, nextCursor, selectedCategory]);
 
   useEffect(() => {
     api("/api/likes/share")
@@ -783,6 +787,7 @@ export default function Dashboard() {
     let cancelled = false;
     const params = new URLSearchParams({ view: libraryView });
     if (selectedCategory) params.set("category_id", selectedCategory);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
 
     api(`/api/playback/dashboard?${params.toString()}`)
       .then((response) => {
@@ -797,7 +802,7 @@ export default function Dashboard() {
       });
 
     return () => { cancelled = true; };
-  }, [libraryView, selectedCategory]);
+  }, [libraryView, mediaType, selectedCategory]);
 
   useEffect(() => {
     if (tier < 100) return;
@@ -998,6 +1003,7 @@ export default function Dashboard() {
           </div>
         )}
 
+        <MediaTypePills value={mediaType} onChange={setMediaType} />
 
         {libraryView === "liked" && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1079,7 +1085,11 @@ export default function Dashboard() {
         ) : loaded && (
           <div style={styles.emptyState}>
             <EmptyLibraryMark />
-            <p>No media yet in this category.</p>
+            <p>
+              {mediaType !== "all"
+                ? `No ${mediaType === "audio" ? "music" : mediaType} items found.`
+                : "No media yet in this category."}
+            </p>
           </div>
         )}
 

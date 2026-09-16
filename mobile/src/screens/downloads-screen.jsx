@@ -5,8 +5,7 @@ import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { useOffline } from "../context/offline-context";
 import { usePlayer } from "../context/player-context";
 import { mediaThumbnailUrl } from "../api";
-import { alpha, radii, spacing, useTheme } from "../theme";
-import { formatDuration, getArtistLabel } from "../utils/media";
+import { formatDuration, resolveMediaArtist } from "../utils/media";
 
 function formatBytes(value) {
   const bytes = Number(value) || 0;
@@ -22,7 +21,7 @@ function DownloadRow({ item, onPlay, onRefreshAssets, onRemove, onRedownload, st
       <Image source={{ uri: item.thumbnailUri || mediaThumbnailUrl(item.mediaId) }} style={styles.cover} />
       <View style={styles.rowCopy}>
         <Text numberOfLines={1} style={styles.title}>{item.title}</Text>
-        <Text numberOfLines={1} style={styles.meta}>{getArtistLabel(item.artists)} · {formatDuration(item.duration)}</Text>
+        <Text numberOfLines={1} style={styles.meta}>{resolveMediaArtist(item)} · {formatDuration(item.duration)}</Text>
         <Text style={[styles.status, item.status !== "ready" && styles.statusWarning]}>{item.status === "ready" ? formatBytes(item.byteSize) : item.status}</Text>
       </View>
       <View style={styles.rowActions}>

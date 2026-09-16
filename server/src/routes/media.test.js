@@ -95,6 +95,53 @@ describe("media browsing and ranges", () => {
     expect(captured.params).toEqual([3, "192.168.1.5", 7, "%rock\\%\\_%", 11]);
     await app.close();
   });
+
+  it("applies media type filter for audio, video, photo, and rejects invalid types", async () => {
+    let capturedSql = "";
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql) {
+        capturedSql = sql;
+        return { rows: [] };
+      },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    // Audio / Music
+    const audioRes = await app.inject({ method: "GET", url: "/api/media/browse?type=audio" });
+    expect(audioRes.statusCode).toBe(200);
+    expect(capturedSql).toContain("m.mime_type LIKE 'audio/%'");
+
+    const musicRes = await app.inject({ method: "GET", url: "/api/media/browse?type=music" });
+    expect(musicRes.statusCode).toBe(200);
+    expect(capturedSql).toContain("m.mime_type LIKE 'audio/%'");
+
+    // Video
+    const videoRes = await app.inject({ method: "GET", url: "/api/media/browse?type=video" });
+    expect(videoRes.statusCode).toBe(200);
+    expect(capturedSql).toContain("m.mime_type LIKE 'video/%'");
+
+    // Photo / Image
+    const photoRes = await app.inject({ method: "GET", url: "/api/media/browse?type=photo" });
+    expect(photoRes.statusCode).toBe(200);
+    expect(capturedSql).toContain("m.mime_type LIKE 'image/%'");
+
+    // All
+    const allRes = await app.inject({ method: "GET", url: "/api/media/browse?type=all" });
+    expect(allRes.statusCode).toBe(200);
+    expect(capturedSql).not.toContain("m.mime_type LIKE");
+
+    // Invalid type
+    const invalidRes = await app.inject({ method: "GET", url: "/api/media/browse?type=unknown_format" });
+    expect(invalidRes.statusCode).toBe(400);
+    expect(invalidRes.json().error).toBe("Invalid type filter");
+
+    await app.close();
+  });
 });
 
 describe("track order metadata", () => {

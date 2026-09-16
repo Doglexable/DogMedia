@@ -192,3 +192,64 @@ describe("queue windows", () => {
     await app.close();
   });
 });
+
+describe("queue next/prev trigger tracking", () => {
+  it("records system trigger and returns trigger in response", async () => {
+    let storedTrigger = null;
+    const queue = [10, 20, 30];
+    let idx = 0;
+    const redis = {
+      async llen() { return queue.length; },
+      async get(key) {
+        if (key.startsWith("queue:index:")) return String(idx);
+        if (key.startsWith("queue:trigger:")) return storedTrigger;
+        return "0";
+      },
+      async set(key, val) {
+        if (key.startsWith("queue:index:")) idx = Number(val);
+        if (key.startsWith("queue:trigger:")) storedTrigger = String(val);
+        return "OK";
+      },
+      async lindex(_key, i) { return String(queue[i]); },
+      async incr() { return 1; },
+    };
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const resSystem = await app.inject({
+      method: "POST",
+      url: "/api/queue/next?compact=1",
+      payload: { trigger: "system" },
+    });
+    expect(resSystem.statusCode).toBe(200);
+    expect(resSystem.json()).toMatchObject({ mediaId: 20, trigger: "system" });
+    expect(storedTrigger).toBe("system");
+
+    const resUser = await app.inject({
+      method: "POST",
+      url: "/api/queue/next?compact=1",
+      payload: { trigger: "user" },
+    });
+    expect(resUser.statusCode).toBe(200);
+    expect(resUser.json()).toMatchObject({ mediaId: 30, trigger: "user" });
+    expect(storedTrigger).toBe("user");
+
+    const resPrev = await app.inject({
+      method: "POST",
+      url: "/api/queue/prev?compact=1",
+      payload: { trigger: "system" },
+    });
+    expect(resPrev.statusCode).toBe(200);
+    expect(resPrev.json()).toMatchObject({ mediaId: 20, trigger: "system" });
+    expect(storedTrigger).toBe("system");
+
+    await app.close();
+  });
+});
+

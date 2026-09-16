@@ -45,8 +45,9 @@ export function PlayerBar({
         />
         <TrackInfo
           album={album}
-          artist={currentMedia?.artist}
+          artists={currentMedia?.artists || currentMedia?.artist}
           currentMedia={currentMedia}
+          media={currentMedia}
           onOpenFull={onOpenFull}
           title={currentMedia?.title}
         />

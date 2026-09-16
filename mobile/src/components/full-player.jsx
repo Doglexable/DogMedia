@@ -8,7 +8,7 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useWindowDimensi
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mediaStreamUrl, mediaThumbnailUrl } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { formatDuration, getArtistLabel, getMediaLabel } from "../utils/media";
+import { formatDuration, getArtistLabel, getMediaFolderName, getMediaLabel, resolveMediaArtist } from "../utils/media";
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
@@ -471,7 +471,8 @@ export function FullPlayer({ navigation }) {
   const { colors, resolvedMode, shadow } = useTheme();
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const styles = useMemo(() => makeStyles(colors, resolvedMode, shadow), [colors, resolvedMode, shadow]);
+  const isShort = height < 680;
+  const styles = useMemo(() => makeStyles(colors, resolvedMode, shadow, isShort), [colors, resolvedMode, shadow, isShort]);
   const [progressWidth, setProgressWidth] = useState(1);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetTab, setSheetTab] = useState("lyrics");
@@ -480,7 +481,19 @@ export function FullPlayer({ navigation }) {
   const [sleepOpen, setSleepOpen] = useState(false);
   const media = player.currentMedia;
 
+  useEffect(() => {
+    const unsubscribe = navigation?.addListener?.("beforeRemove", () => {
+      if (media?.mime_type && !media.mime_type.startsWith("audio/")) {
+        player.pause?.();
+      }
+    });
+    return unsubscribe;
+  }, [media?.mime_type, navigation, player]);
+
   const closePlayer = () => {
+    if (media?.mime_type && !media.mime_type.startsWith("audio/")) {
+      player.pause?.();
+    }
     if (navigation.canGoBack?.()) {
       navigation.goBack();
       return;
@@ -530,7 +543,7 @@ export function FullPlayer({ navigation }) {
   const remaining = Math.max((player.duration || media.duration || 0) - player.position, 0);
   const isLiked = player.isLiked(media.id);
   const muted = player.muted || player.volume <= 0;
-  const coverSize = Math.max(150, Math.min(width - spacing.lg * 5, height < 720 ? 178 : 230));
+  const coverSize = Math.max(120, Math.min(width - spacing.lg * 4, isShort ? 140 : height < 740 ? 178 : 230));
   const sheetHeight = Math.min(Math.max(height * 0.6, 330), 560);
   const thumbnailUri = offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id);
 
@@ -608,7 +621,7 @@ export function FullPlayer({ navigation }) {
         <Image source={{ uri: thumbnailUri }} style={[styles.cover, { width: coverSize, height: coverSize }]} />
         <Text style={styles.album} numberOfLines={1}>{getLastFolderName(media)}</Text>
         <Text style={styles.title} numberOfLines={2}>{media.title}</Text>
-        <Text style={styles.artist} numberOfLines={1}>{getArtistLabel(media.artists)}</Text>
+        <Text style={styles.artist} numberOfLines={1}>{resolveMediaArtist(media)}</Text>
       </View>
 
       <View style={styles.controlZone}>
@@ -643,10 +656,10 @@ export function FullPlayer({ navigation }) {
             player={player}
             playButtonStyle={styles.play}
             playIconColor={colors.bg}
-            playIconSize={30}
+            playIconSize={isShort ? 24 : 30}
             style={styles.transportControls}
             transportIconColor={colors.text}
-            transportIconSize={24}
+            transportIconSize={isShort ? 20 : 24}
           />
           <PlayerIconButton
             accessibilityLabel={player.loopMode === "none" ? "Enable repeat" : `Repeat ${player.loopMode} enabled`}
@@ -736,15 +749,15 @@ export function FullPlayer({ navigation }) {
   );
 }
 
-const makeStyles = (colors, resolvedMode, shadow) => {
+const makeStyles = (colors, resolvedMode, shadow, isShort) => {
   const isLight = resolvedMode === "light";
 
   return StyleSheet.create({
   shell: {
     flex: 1,
     backgroundColor: colors.bg,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
+    paddingHorizontal: isShort ? spacing.md : spacing.lg,
+    gap: isShort ? spacing.sm : spacing.md,
   },
   bg: {
     ...StyleSheet.absoluteFillObject,
@@ -766,7 +779,7 @@ const makeStyles = (colors, resolvedMode, shadow) => {
   },
   cover: {
     borderRadius: radii.lg,
-    marginBottom: spacing.sm,
+    marginBottom: isShort ? 4 : spacing.sm,
     ...shadow.soft,
   },
   album: {
@@ -776,8 +789,8 @@ const makeStyles = (colors, resolvedMode, shadow) => {
   title: {
     color: colors.text,
     textAlign: "center",
-    fontSize: 27,
-    lineHeight: 31,
+    fontSize: isShort ? 22 : 27,
+    lineHeight: isShort ? 26 : 31,
     fontWeight: "900",
   },
   artist: {
@@ -835,9 +848,9 @@ const makeStyles = (colors, resolvedMode, shadow) => {
     gap: spacing.sm,
   },
   play: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: isShort ? 58 : 68,
+    height: isShort ? 58 : 68,
+    borderRadius: isShort ? 29 : 34,
     backgroundColor: colors.text,
   },
   transportControls: {

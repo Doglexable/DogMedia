@@ -48,7 +48,7 @@ const SpotlightCard = ({ children, className = "", spotlightColor = "rgba(255, 2
           opacity,
           background: `radial-gradient(circle at ${position.x}px ${position.y}px, ${spotlightColor}, transparent 68%)`
         }} />
-      <div className="relative z-1">{children}</div>
+      <div className="relative z-1 w-full h-full">{children}</div>
     </div>
   );
 };

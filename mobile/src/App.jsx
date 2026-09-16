@@ -1,4 +1,4 @@
-import { NavigationContainer, DarkTheme, DefaultTheme } from "@react-navigation/native";
+import { NavigationContainer, DarkTheme, DefaultTheme, createNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -9,7 +9,7 @@ import { ActivityIndicator, Animated, Easing, Image, StyleSheet, Text, View } fr
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson } from "./api";
-import { PlayerProvider } from "./context/player-context";
+import { PlayerProvider, usePlayer } from "./context/player-context";
 import { OfflineProvider, useOffline } from "./context/offline-context";
 import { AccessDeniedScreen } from "./screens/access-denied-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
@@ -208,6 +208,34 @@ function Tabs() {
   );
 }
 
+export const navigationRef = createNavigationContainerRef();
+
+function NonAudioPlayerAutoNavigator() {
+  const player = usePlayer();
+  const lastNavigatedMediaIdRef = useRef(null);
+
+  useEffect(() => {
+    const currentMedia = player?.currentMedia;
+    if (!currentMedia?.id) {
+      lastNavigatedMediaIdRef.current = null;
+      return;
+    }
+
+    const isAudio = currentMedia.mime_type?.startsWith("audio/");
+    if (!isAudio && lastNavigatedMediaIdRef.current !== currentMedia.id) {
+      lastNavigatedMediaIdRef.current = currentMedia.id;
+      if (navigationRef.isReady()) {
+        const currentRoute = navigationRef.getCurrentRoute();
+        if (currentRoute?.name !== "Player") {
+          navigationRef.navigate("Player");
+        }
+      }
+    }
+  }, [player?.currentMedia]);
+
+  return null;
+}
+
 function AppShell() {
   const { colors, resolvedMode } = useTheme();
   const navigationTheme = useMemo(() => {
@@ -226,12 +254,13 @@ function AppShell() {
   }, [colors, resolvedMode]);
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <StatusBar style={resolvedMode === "dark" ? "light" : "dark"} />
       <BottomSheetModalProvider>
         <OfflineProvider>
           <AccessGuard>
             <PlayerProvider>
+              <NonAudioPlayerAutoNavigator />
               <Stack.Navigator screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="Tabs" component={Tabs} />
                 <Stack.Screen name="Player" component={PlayerScreen} />

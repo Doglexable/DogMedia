@@ -1,8 +1,29 @@
 import { buildDashboardSummary } from "../playback-dashboard-summary.js";
 
-const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
+export const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
+export const PAUSE_CACHE_TTL_SECONDS = 30 * 60;
+export const ACTIVE_PLAYING_TTL_SECONDS = 300;
+export const PAUSE_MAX_IDLE_MS = PAUSE_CACHE_TTL_SECONDS * 1000;
 const DASHBOARD_LOOKBACK_DAYS = 90;
 const ACTIVE_INDEX_KEY = "playback:active:index";
+
+export function normalizeTrigger(value) {
+  if (value === "system" || value === "user") return value;
+  return "user";
+}
+
+export function isSessionPauseExpired(session, now = Date.now()) {
+  if (!session) return false;
+  const isPaused = session.action === "pause" || session.state === "paused";
+  if (!isPaused) return false;
+
+  const pauseTimestamp = session.pausedAt
+    ? new Date(session.pausedAt).getTime()
+    : new Date(session.timestamp).getTime();
+
+  if (!Number.isFinite(pauseTimestamp)) return false;
+  return (now - pauseTimestamp) >= PAUSE_MAX_IDLE_MS;
+}
 
 function getRedis(fastify) {
   if (!fastify.redis) throw new Error("Redis plugin must be registered before playback routes");
@@ -60,17 +81,34 @@ function normalizeLoopMode(value) {
 }
 
 function buildPlaybackEvent(request, body = {}) {
-  const { mediaId, action, position, duration, title, loopMode, shuffleEnabled } = body;
+  const {
+    mediaId,
+    action,
+    position,
+    duration,
+    title,
+    loopMode,
+    shuffleEnabled,
+    trigger,
+    nextTrigger,
+    source,
+    pausedAt,
+  } = body;
+  const resolvedTrigger = normalizeTrigger(trigger || nextTrigger || source);
+  const nowIso = new Date().toISOString();
   return {
     mediaId: normalizeMediaId(mediaId),
     title,
     action,
+    state: action === "pause" ? "paused" : (action === "play" ? "playing" : action),
     position: normalizeNonNegativeInt(position),
     duration: normalizeNonNegativeInt(duration),
     loopMode: normalizeLoopMode(loopMode),
     shuffleEnabled: Boolean(shuffleEnabled),
+    trigger: resolvedTrigger,
+    pausedAt: action === "pause" ? (pausedAt || nowIso) : null,
     ip: request.clientIp || request.ip,
-    timestamp: new Date().toISOString(),
+    timestamp: nowIso,
   };
 }
 
@@ -313,7 +351,7 @@ async function getWrappedFromRedis(fastify, from, to) {
   return { totalPlayTime, totalPlays, topMedia, timeline };
 }
 
-async function getDashboardSummaryFromDb(fastify, request, { view, categoryId }) {
+async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, type = "all" }) {
   const params = [request.accessTier, DASHBOARD_LOOKBACK_DAYS];
   let likedJoin = "";
   let whereSql = "";
@@ -327,6 +365,14 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId })
   if (categoryId !== null) {
     params.push(categoryId);
     whereSql += ` AND m.category_id = $${params.length}`;
+  }
+
+  if (type === "audio" || type === "music") {
+    whereSql += " AND m.mime_type LIKE 'audio/%'";
+  } else if (type === "video") {
+    whereSql += " AND m.mime_type LIKE 'video/%'";
+  } else if (type === "photo" || type === "image") {
+    whereSql += " AND m.mime_type LIKE 'image/%'";
   }
 
   const { rows } = await fastify.pg.query(
@@ -432,8 +478,11 @@ async function getCachedDashboardSummary(fastify, request) {
   const redis = getRedis(fastify);
   const view = normalizeDashboardView(request.query.view);
   const categoryId = normalizePositiveMediaId(request.query.category_id);
+  const rawType = typeof request.query?.type === "string" ? request.query.type.toLowerCase().trim() : "";
+  const type = ["audio", "music", "video", "photo", "image"].includes(rawType) ? rawType : "all";
   const ownerPart = view === "liked" ? `:${request.clientIp || request.ip}` : "";
-  const cacheKey = `playback:dashboard:v4:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${ownerPart}`;
+  const typePart = type !== "all" ? `:type:${type}` : "";
+  const cacheKey = `playback:dashboard:v4:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${typePart}${ownerPart}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) {
@@ -441,7 +490,7 @@ async function getCachedDashboardSummary(fastify, request) {
   }
 
   try {
-    const summary = await getDashboardSummaryFromDb(fastify, request, { view, categoryId });
+    const summary = await getDashboardSummaryFromDb(fastify, request, { view, categoryId, type });
     await redis.set(cacheKey, JSON.stringify(summary), "EX", DASHBOARD_CACHE_TTL_SECONDS);
     return { ...summary, cached: false };
   } catch (err) {
@@ -502,27 +551,101 @@ export default async function (fastify) {
       return reply.code(400).send({ error: "Invalid playback action" });
     }
 
+    const redis = getRedis(fastify);
+    const ip = request.clientIp || request.ip;
+    const activeKey = `playback:active:${ip}`;
+
+    if (normalizedAction === "end") {
+      const multi = redis.multi();
+      multi.del(activeKey);
+      multi.zrem(ACTIVE_INDEX_KEY, ip);
+      await multi.exec();
+      return { ok: true, dropped: true };
+    }
+
+    let existingSession = null;
+    try {
+      const raw = await redis.get(activeKey);
+      if (raw) existingSession = JSON.parse(raw);
+    } catch {}
+
     const event = buildPlaybackEvent(request, {
       ...request.body,
       action: normalizedAction,
+      pausedAt: request.body?.pausedAt
+        || (normalizedAction === "pause" && existingSession?.action === "pause" ? existingSession.pausedAt : undefined),
     });
-    const redis = getRedis(fastify);
+
+    if (!request.body?.trigger && !request.body?.nextTrigger && !request.body?.source) {
+      try {
+        const queueTrigger = await redis.get(`queue:trigger:${ip}`);
+        if (queueTrigger === "system" || queueTrigger === "user") {
+          event.trigger = queueTrigger;
+        } else if (existingSession?.trigger) {
+          event.trigger = existingSession.trigger;
+        }
+      } catch {
+        if (existingSession?.trigger) {
+          event.trigger = existingSession.trigger;
+        }
+      }
+    }
+
+    if (isSessionPauseExpired(event)) {
+      const multi = redis.multi();
+      multi.del(activeKey);
+      multi.zrem(ACTIVE_INDEX_KEY, ip);
+      await multi.exec();
+      return { ok: true, dropped: true, reason: "pause_timeout" };
+    }
+
+    const ttlSeconds = event.action === "pause" ? PAUSE_CACHE_TTL_SECONDS : ACTIVE_PLAYING_TTL_SECONDS;
     const multi = redis.multi();
-    multi.set(`playback:active:${event.ip}`, JSON.stringify(event), "EX", 300);
-    multi.zadd(ACTIVE_INDEX_KEY, Date.now() + 300_000, event.ip);
+    multi.set(activeKey, JSON.stringify(event), "EX", ttlSeconds);
+    multi.zadd(ACTIVE_INDEX_KEY, Date.now() + (ttlSeconds * 1000), ip);
     await multi.exec();
 
-    return { ok: true };
+    return { ok: true, trigger: event.trigger, state: event.state };
   });
 
   fastify.get("/active", async (request) => {
     const redis = getRedis(fastify);
-    const key = `playback:active:${request.clientIp || request.ip}`;
+    const ip = request.clientIp || request.ip;
+    const key = `playback:active:${ip}`;
     const raw = await redis.get(key);
     if (!raw) return { active: null };
 
-    const [active] = await hydrateSessionTitles(fastify, [JSON.parse(raw)]);
+    let session;
+    try {
+      session = JSON.parse(raw);
+    } catch {
+      await redis.del(key);
+      await redis.zrem(ACTIVE_INDEX_KEY, ip);
+      return { active: null };
+    }
+
+    if (isSessionPauseExpired(session)) {
+      fastify.log.info({ ip, mediaId: session.mediaId, trigger: session.trigger }, "Dropping paused playback cache (> 30 min)");
+      const multi = redis.multi();
+      multi.del(key);
+      multi.zrem(ACTIVE_INDEX_KEY, ip);
+      await multi.exec();
+      return { active: null, dropped: true, reason: "pause_timeout" };
+    }
+
+    const [active] = await hydrateSessionTitles(fastify, [session]);
     return { active };
+  });
+
+  fastify.delete("/active", async (request) => {
+    const redis = getRedis(fastify);
+    const ip = request.clientIp || request.ip;
+    const key = `playback:active:${ip}`;
+    const multi = redis.multi();
+    multi.del(key);
+    multi.zrem(ACTIVE_INDEX_KEY, ip);
+    await multi.exec();
+    return { ok: true, dropped: true };
   });
 
   fastify.get("/resume/:mediaId", async (request) => {
@@ -591,8 +714,18 @@ export default async function (fastify) {
 
     for (let i = 0; i < keys.length; i++) {
       if (!values[i]) continue;
-      const data = JSON.parse(values[i]);
+      let data;
+      try {
+        data = JSON.parse(values[i]);
+      } catch {
+        continue;
+      }
       const ip = ips[i];
+      if (isSessionPauseExpired(data, now)) {
+        await redis.del(`playback:active:${ip}`);
+        await redis.zrem(ACTIVE_INDEX_KEY, ip);
+        continue;
+      }
       sessions.push({ ip, ...data });
     }
 

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { apiJson, mediaThumbnailUrl } from "../api";
 import { CategoryChips } from "../components/category-chips";
+import { MediaTypePills } from "../components/media-type-pills";
 import { MediaCard } from "../components/media-card";
 import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { usePlayerLibrary } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { radii, spacing, useTheme } from "../theme";
-import { getArtistLabel } from "../utils/media";
+import { resolveMediaArtist } from "../utils/media";
 import { getPlaybackErrorPresentation } from "../utils/playback-errors";
 
 function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
@@ -62,9 +63,12 @@ export function DashboardScreen({ navigation }) {
   const player = usePlayerLibrary();
   const offline = useOffline();
   const { colors, shadow } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, shadow), [colors, shadow]);
+  const { width: windowWidth } = useWindowDimensions();
+  const isCompact = windowWidth < 380;
+  const styles = useMemo(() => makeStyles(colors, shadow, isCompact), [colors, shadow, isCompact]);
   const [categories, setCategories] = useState([]);
   const [media, setMedia] = useState([]);
+  const [mediaType, setMediaType] = useState("all");
   const [summary, setSummary] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [search, setSearch] = useState("");
@@ -86,6 +90,7 @@ export function DashboardScreen({ navigation }) {
     const params = new URLSearchParams({ limit: "50", view: "all" });
     if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setMedia([]);
     setNextCursor(null);
     return apiJson(`/api/media/browse?${params.toString()}`, { signal })
@@ -100,7 +105,7 @@ export function DashboardScreen({ navigation }) {
         setMedia([]);
         setNotice("Could not load media.");
       });
-  }, [debouncedSearch, selectedCategory]);
+  }, [debouncedSearch, mediaType, selectedCategory]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return;
@@ -108,6 +113,7 @@ export function DashboardScreen({ navigation }) {
     const params = new URLSearchParams({ limit: "50", view: "all", cursor: nextCursor });
     if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setLoadingMore(true);
     apiJson(`/api/media/browse?${params.toString()}`)
       .then((data) => {
@@ -120,15 +126,16 @@ export function DashboardScreen({ navigation }) {
       })
       .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
       .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
-  }, [debouncedSearch, loadingMore, nextCursor, selectedCategory]);
+  }, [debouncedSearch, loadingMore, mediaType, nextCursor, selectedCategory]);
 
   const loadSummary = useCallback(() => {
     const params = new URLSearchParams({ view: "all" });
     if (selectedCategory) params.set("category_id", selectedCategory);
+    if (mediaType && mediaType !== "all") params.set("type", mediaType);
     apiJson(`/api/playback/dashboard?${params.toString()}`)
       .then(setSummary)
       .catch(() => setSummary(null));
-  }, [selectedCategory]);
+  }, [mediaType, selectedCategory]);
 
   useEffect(() => {
     loadCategories();
@@ -228,7 +235,11 @@ export function DashboardScreen({ navigation }) {
           style={styles.search}
         />
 
-        <CategoryChips categories={categories} selectedId={selectedCategory} onSelect={setSelectedCategory} />
+        <MediaTypePills value={mediaType} onChange={setMediaType} />
+
+        {categories.length > 0 && (
+          <CategoryChips categories={categories} selectedId={selectedCategory} onSelect={setSelectedCategory} />
+        )}
 
         {selectedCategory && (
           <Pressable accessibilityRole="button" onPress={confirmFolderDownload} style={styles.downloadFolder}>
@@ -240,7 +251,7 @@ export function DashboardScreen({ navigation }) {
 
         {!debouncedSearch && <View style={styles.quickHeader}>
           <Text style={styles.sectionTitle}>Quick access</Text>
-          {featured?.artists && <Text style={styles.quickMeta}>{getArtistLabel(featured.artists)}</Text>}
+          {featured && <Text style={styles.quickMeta}>{resolveMediaArtist(featured, "Featured")}</Text>}
         </View>}
         {!debouncedSearch && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
           {quickAccess.map((item) => (
@@ -267,7 +278,7 @@ export function DashboardScreen({ navigation }) {
   );
 }
 
-const makeStyles = (colors, shadow) => StyleSheet.create({
+const makeStyles = (colors, shadow, isCompact) => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -302,8 +313,8 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   },
   heading: {
     color: colors.text,
-    fontSize: 38,
-    lineHeight: 40,
+    fontSize: isCompact ? 28 : 38,
+    lineHeight: isCompact ? 32 : 40,
     fontWeight: "900",
   },
   subhead: {
@@ -341,9 +352,9 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   featured: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.lg,
-    minHeight: 220,
-    padding: spacing.lg,
+    gap: isCompact ? spacing.md : spacing.lg,
+    minHeight: isCompact ? 180 : 220,
+    padding: isCompact ? spacing.md : spacing.lg,
     borderRadius: radii.xl,
     backgroundColor: colors.card,
     ...shadow.soft,
@@ -361,14 +372,14 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   },
   featuredTitle: {
     color: colors.text,
-    fontSize: 30,
-    lineHeight: 31,
+    fontSize: isCompact ? 22 : 30,
+    lineHeight: isCompact ? 26 : 31,
     fontWeight: "900",
   },
   featuredDescription: {
     color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: isCompact ? 12 : 13,
+    lineHeight: isCompact ? 16 : 18,
     fontWeight: "700",
   },
   featuredAction: {
@@ -383,8 +394,8 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
     backgroundColor: colors.primary,
   },
   featuredImage: {
-    width: 118,
-    height: 118,
+    width: isCompact ? 96 : 118,
+    height: isCompact ? 96 : 118,
     borderRadius: radii.lg,
     backgroundColor: colors.surface,
   },

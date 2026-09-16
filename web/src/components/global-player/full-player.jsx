@@ -18,9 +18,9 @@ import {
 import { AmbientArtwork } from "./ambient-artwork";
 import { PlayerBar } from "./player-bar";
 import { QualityControl, SleepTimerControl } from "./player-controls";
-import { NowPlayingSidebar } from "./now-playing-sidebar";
-import { getArtistLabel } from "./media-artists";
 import { FullscreenLyrics } from "./lyrics-panel";
+import { getArtistLabel, resolveMediaArtist } from "./media-artists";
+import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getLoopButtonTitle, getMediaFolderName } from "./player-utils";
 
@@ -51,7 +51,7 @@ export function FullPlayer({
 }) {
   if (isAudio) {
     const album = getMediaFolderName(currentMedia) || "Library";
-    const artist = getArtistLabel(currentMedia.artists);
+    const artist = resolveMediaArtist(currentMedia, album);
     const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
     const max = Math.max(duration || currentMedia.duration || 0, position, 1);
     const remaining = Math.max((duration || currentMedia.duration || 0) - position, 0);
@@ -131,7 +131,11 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faBookmark} />
               </button>
-              <SleepTimerControl remainingSeconds={sleepTimerRemaining} onSetSleepTimer={onSetSleepTimer} />
+              <SleepTimerControl
+                remainingSeconds={sleepTimerRemaining}
+                onSetSleepTimer={onSetSleepTimer}
+                variant="fullscreen"
+              />
               <button
                 type="button"
                 className={queueOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -234,6 +238,55 @@ export function FullPlayer({
     );
   }
 
+  if (isVideo) {
+    return (
+      <VideoPlayer
+        autoPlay={autoPlay}
+        currentMedia={currentMedia}
+        duration={duration}
+        hasNext={hasNext}
+        hasPrev={hasPrev}
+        liked={liked}
+        loopMode={loopMode}
+        mediaRef={mediaRef}
+        meta={meta}
+        muted={muted}
+        paused={paused}
+        position={position}
+        queueOpen={queueOpen}
+        resumePos={resumePos}
+        shuffleEnabled={shuffleEnabled}
+        sleepTimerRemaining={sleepTimerRemaining}
+        streamSrc={streamSrc}
+        thumbFailed={thumbFailed}
+        thumbSrc={thumbSrc}
+        volume={volume}
+        quality={quality}
+        actualQuality={actualQuality}
+        onChangeQuality={onChangeQuality}
+        onAdvance={onAdvance}
+        onChangeVolume={onChangeVolume}
+        onEnded={onEnded}
+        onLoadedMetadata={onLoadedMetadata}
+        onCloseFull={onCloseFull}
+        onOpenQueue={onOpenQueue}
+        onPause={onPause}
+        onPlay={onPlay}
+        onPreventMenu={onPreventMenu}
+        onResume={onResume}
+        onSeek={onSeek}
+        onThumbError={onThumbError}
+        onTimeUpdate={onTimeUpdate}
+        onToggleLoop={onToggleLoop}
+        onToggleMute={onToggleMute}
+        onToggleShuffle={onToggleShuffle}
+        onToggle={onToggle}
+        onToggleLike={onToggleLike}
+        onSetSleepTimer={onSetSleepTimer}
+      />
+    );
+  }
+
   return (
     <div className="premium-app-shell" onContextMenu={onPreventMenu} style={styles.fullPage}>
       <button
@@ -249,48 +302,9 @@ export function FullPlayer({
         <span style={{ ...styles.fullMediaBadge, marginLeft: "auto" }}>{meta.label}</span>
       </header>
 
-      <main className="full-player-layout">
+      <main className="full-player-layout full-player-layout--no-sidebar">
         <div className="full-player-stage">
-          {isAudio && (
-            <div className="full-player-audio-shell">
-              <AmbientArtwork
-                src={thumbSrc}
-                alt={currentMedia.title}
-                className="full-player-audio-artwork"
-                onError={onThumbError}
-                onContextMenu={onPreventMenu}
-                fallback={
-                  <span className="full-player-audio-fallback">
-                    <FontAwesomeIcon icon={meta.icon} className="full-player-audio-fallback-icon" />
-                    <span className="full-player-audio-fallback-title">{currentMedia.title}</span>
-                  </span>
-                }
-              />
-            </div>
-          )}
-
-          {isVideo && (
-            <video
-              ref={mediaRef}
-              src={streamSrc}
-              controls={false}
-              controlsList="nodownload noplaybackrate"
-              disablePictureInPicture
-              disableRemotePlayback
-              preload="metadata"
-              autoPlay={autoPlay}
-              muted={muted || volume <= 0}
-              className="full-player-video"
-              onContextMenu={onPreventMenu}
-              onPlay={onPlay}
-              onPause={onPause}
-              onTimeUpdate={onTimeUpdate}
-              onLoadedMetadata={onLoadedMetadata}
-              onEnded={onEnded}
-            />
-          )}
-
-          {isImage && (
+          {isImage ? (
             <img
               src={streamSrc}
               alt={currentMedia.title}
@@ -298,23 +312,13 @@ export function FullPlayer({
               draggable={false}
               className="full-player-image"
             />
+          ) : (
+            <div className="full-player-audio-fallback">
+              <FontAwesomeIcon icon={meta.icon} className="full-player-audio-fallback-icon" />
+              <span className="full-player-audio-fallback-title">{currentMedia.title}</span>
+            </div>
           )}
         </div>
-
-        <NowPlayingSidebar
-          currentMedia={currentMedia}
-          duration={duration}
-          isAudio={isAudio}
-          isImage={isImage}
-          meta={meta}
-          onPreventMenu={onPreventMenu}
-          onSeek={onSeek}
-          onThumbError={onThumbError}
-          position={position}
-          streamSrc={streamSrc}
-          thumbFailed={thumbFailed}
-          thumbSrc={thumbSrc}
-        />
       </main>
 
       {resumePos !== null && (

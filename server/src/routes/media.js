@@ -454,9 +454,19 @@ export default async function (fastify, options = {}) {
     `;
     const params = [request.accessTier];
 
+    const rawType = request.query?.type != null ? String(request.query.type).toLowerCase().trim() : "";
+    const type = ["audio", "music", "video", "photo", "image"].includes(rawType) ? rawType : "all";
+
     if (category_id) {
       query += " AND m.category_id = $2";
       params.push(category_id);
+    }
+    if (type === "audio" || type === "music") {
+      query += " AND m.mime_type LIKE 'audio/%'";
+    } else if (type === "video") {
+      query += " AND m.mime_type LIKE 'video/%'";
+    } else if (type === "photo" || type === "image") {
+      query += " AND m.mime_type LIKE 'image/%'";
     }
     query += ` ORDER BY ac.order_parts,
                         ac.id,
@@ -485,6 +495,11 @@ export default async function (fastify, options = {}) {
     if (request.query?.cursor && !cursor) {
       return reply.code(400).send({ error: "Invalid cursor" });
     }
+    const rawType = request.query?.type != null ? String(request.query.type).toLowerCase().trim() : "";
+    if (rawType && !["all", "audio", "music", "video", "photo", "image"].includes(rawType)) {
+      return reply.code(400).send({ error: "Invalid type filter" });
+    }
+    const type = ["audio", "music", "video", "photo", "image"].includes(rawType) ? rawType : "all";
 
     const params = [request.accessTier, request.clientIp || request.ip];
     const clauses = [];
@@ -494,6 +509,13 @@ export default async function (fastify, options = {}) {
     }
     if (view === "liked") {
       clauses.push("lm.media_id IS NOT NULL");
+    }
+    if (type === "audio" || type === "music") {
+      clauses.push("m.mime_type LIKE 'audio/%'");
+    } else if (type === "video") {
+      clauses.push("m.mime_type LIKE 'video/%'");
+    } else if (type === "photo" || type === "image") {
+      clauses.push("m.mime_type LIKE 'image/%'");
     }
     if (search) {
       const escapedSearch = search.replace(/[\\%_]/g, "\\$&");

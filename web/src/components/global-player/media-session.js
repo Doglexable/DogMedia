@@ -1,4 +1,4 @@
-import { getMediaFolder } from "./player-utils";
+import { getMediaFolder, resolveMediaArtist } from "./player-utils";
 
 const UNKNOWN_ARTIST_LABELS = new Set(["unknown", "unknown artist"]);
 
@@ -17,8 +17,12 @@ export function cleanMediaText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function getAudioArtist(artists) {
-  const value = cleanMediaText(artists);
+export function getAudioArtist(mediaOrArtists) {
+  if (mediaOrArtists && typeof mediaOrArtists === "object") {
+    const resolved = resolveMediaArtist(mediaOrArtists, "");
+    return UNKNOWN_ARTIST_LABELS.has(resolved.toLowerCase()) ? "" : resolved;
+  }
+  const value = cleanMediaText(mediaOrArtists);
   return UNKNOWN_ARTIST_LABELS.has(value.toLowerCase()) ? "" : value;
 }
 
@@ -28,9 +32,13 @@ export function getMediaSessionMetadata(media, { isAudio, mediaLabel, origin }) 
     ? [{ src: new URL(`/api/media/${mediaId}/thumbnail`, origin).href }]
     : [];
 
+  const artist = isAudio
+    ? (getAudioArtist(media) || getAudioArtist(media?.artists))
+    : cleanMediaText(mediaLabel);
+
   return {
     title: cleanMediaText(media?.title) || "Untitled",
-    artist: isAudio ? getAudioArtist(media?.artists) : cleanMediaText(mediaLabel),
+    artist,
     album: getMediaFolder(media) || "Library",
     artwork,
   };

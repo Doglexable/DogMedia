@@ -101,6 +101,30 @@ export function PlayerProvider({ children }) {
     setQueueTotal(queueTotalRef.current);
     setQueueOffset(queueOffsetRef.current);
     setQueueRevision(queueRevisionRef.current);
+    if (currentMediaRef.current) {
+      const match = items.find((item) => Number(item.id) === Number(currentMediaRef.current.id));
+      if (match) {
+        let updated = false;
+        const isUnknown = (val) => !val || ["unknown", "unknown artist"].includes(String(val).trim().toLowerCase());
+        const matchArtist = match.artists || match.artist;
+        if (isUnknown(enriched.artists) && !isUnknown(matchArtist)) {
+          enriched.artists = matchArtist;
+          updated = true;
+        }
+        if (!enriched.category_name && match.category_name) {
+          enriched.category_name = match.category_name;
+          updated = true;
+        }
+        if (!enriched.category_path && match.category_path) {
+          enriched.category_path = match.category_path;
+          updated = true;
+        }
+        if (updated) {
+          currentMediaRef.current = enriched;
+          setCurrentMedia(enriched);
+        }
+      }
+    }
     return data;
   }, []);
 

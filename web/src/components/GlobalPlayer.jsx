@@ -11,11 +11,13 @@ import {
 import { hiddenMediaStyle, playerStyles as styles } from "./global-player/player-styles";
 import {
   LOOP_MODES,
+  PAUSE_CACHE_TTL_MS,
   getCategoryQuery as categoryQuery,
   getCompletionAction,
   getMediaMeta as mediaMeta,
   getNextLoopMode as nextLoopMode,
   getQueueBoundaryParams,
+  isPauseTimeoutExpired,
 } from "./global-player/player-utils";
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
 
@@ -45,7 +47,7 @@ function getDocumentTitle(media, isAudioMedia) {
   const title = cleanMediaText(media.title);
   if (!title) return DEFAULT_DOCUMENT_TITLE;
 
-  const artist = isAudioMedia ? getAudioArtist(media.artists) : "";
+  const artist = isAudioMedia ? getAudioArtist(media) : "";
   return artist
     ? `${title} by ${artist} - ${DEFAULT_DOCUMENT_TITLE}`
     : `${title} - ${DEFAULT_DOCUMENT_TITLE}`;
@@ -86,6 +88,9 @@ export function GlobalPlayerProvider({ children }) {
   const nowPlayingPauseTimerRef = useRef(null);
   const nowPlayingPauseControllerRef = useRef(null);
   const mediaSessionActionsRef = useRef(null);
+  const lastTriggerRef = useRef("user");
+  const pauseStartedAtRef = useRef(null);
+  const pauseDropTimerRef = useRef(null);
   const currentMediaRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   currentMediaRef.current = currentMedia;
@@ -299,7 +304,13 @@ export function GlobalPlayerProvider({ children }) {
     resetForMedia(mediaItem, { autoplay: true });
     initializeQueue(mediaItem.id, nextCategoryId);
     loadResumePosition(mediaItem.id);
-  }, [initializeQueue, loadResumePosition, resetForMedia]);
+
+    const isAudioMedia = mediaItem.mime_type?.startsWith("audio/");
+    if (!isAudioMedia) {
+      const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+      navigate(`/media/${mediaItem.id}${search}`);
+    }
+  }, [initializeQueue, loadResumePosition, navigate, resetForMedia]);
 
   const playMediaById = useCallback((mediaId, nextCategoryId = null, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
@@ -322,6 +333,11 @@ export function GlobalPlayerProvider({ children }) {
           mediaRef.current.play().catch(() => {});
         }
       }
+      const isAudioMedia = currentMedia?.mime_type?.startsWith("audio/");
+      if (!isAudioMedia && location.pathname !== `/media/${numericId}`) {
+        const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+        navigate(`/media/${numericId}${search}`);
+      }
       return;
     }
 
@@ -333,9 +349,14 @@ export function GlobalPlayerProvider({ children }) {
         if (loadSeqRef.current !== seq) return;
         resetForMedia(mediaItem, { autoplay, startPosition });
         if (loadResume) loadResumePosition(mediaItem.id);
+        const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
+        if (!isAudioMedia && location.pathname !== `/media/${mediaItem.id}`) {
+          const search = nextCategoryId ? `?category=${nextCategoryId}` : "";
+          navigate(`/media/${mediaItem.id}${search}`);
+        }
       })
       .catch(() => {});
-  }, [currentMedia?.id, initializeQueue, loadResumePosition, resetForMedia]);
+  }, [currentMedia?.id, currentMedia?.mime_type, initializeQueue, loadResumePosition, location.pathname, navigate, resetForMedia]);
 
   const sendPlaybackEvent = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0) => {
     if (!mediaItem) return;
@@ -355,8 +376,11 @@ export function GlobalPlayerProvider({ children }) {
     }).catch(() => {});
   }, [loopMode, shuffleEnabled]);
 
-  const sendNowPlayingImmediately = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0, signal) => {
+  const sendNowPlayingImmediately = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0, signal, extra = {}) => {
     if (!mediaItem) return;
+
+    const trigger = extra.trigger || lastTriggerRef.current || "user";
+    const pausedAt = action === "pause" ? (extra.pausedAt || pauseStartedAtRef.current || new Date().toISOString()) : null;
 
     return api("/api/playback/active", {
       method: "POST",
@@ -370,6 +394,8 @@ export function GlobalPlayerProvider({ children }) {
         duration: Math.floor(nextDuration || mediaItem.duration || 0),
         loopMode,
         shuffleEnabled,
+        trigger,
+        pausedAt,
       }),
     }).catch(() => {});
   }, [loopMode, shuffleEnabled]);
@@ -383,12 +409,12 @@ export function GlobalPlayerProvider({ children }) {
     nowPlayingPauseControllerRef.current = null;
   }, []);
 
-  const sendNowPlaying = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0) => {
+  const sendNowPlaying = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0, extra = {}) => {
     if (!mediaItem) return;
 
     cancelPendingNowPlayingPause();
     if (action !== "pause") {
-      sendNowPlayingImmediately(mediaItem, action, nextPosition, nextDuration);
+      sendNowPlayingImmediately(mediaItem, action, nextPosition, nextDuration, undefined, extra);
       return;
     }
 
@@ -396,7 +422,7 @@ export function GlobalPlayerProvider({ children }) {
       nowPlayingPauseTimerRef.current = null;
       const controller = new AbortController();
       nowPlayingPauseControllerRef.current = controller;
-      sendNowPlayingImmediately(mediaItem, action, nextPosition, nextDuration, controller.signal)
+      sendNowPlayingImmediately(mediaItem, action, nextPosition, nextDuration, controller.signal, extra)
         ?.finally(() => {
           if (nowPlayingPauseControllerRef.current === controller) {
             nowPlayingPauseControllerRef.current = null;
@@ -438,6 +464,11 @@ export function GlobalPlayerProvider({ children }) {
   }, [loadQueueItems, queueOpen]);
 
   const stopPlayback = useCallback(() => {
+    pauseStartedAtRef.current = null;
+    if (pauseDropTimerRef.current) {
+      clearTimeout(pauseDropTimerRef.current);
+      pauseDropTimerRef.current = null;
+    }
     if (mediaRef.current) {
       mediaRef.current.pause();
       mediaRef.current.removeAttribute("src");
@@ -455,6 +486,31 @@ export function GlobalPlayerProvider({ children }) {
     setQueueOpen(false);
     if (isFullPlayer) navigate("/");
   }, [isFullPlayer, navigate]);
+
+  useEffect(() => {
+    if (!paused || !currentMedia) {
+      if (pauseDropTimerRef.current) {
+        clearTimeout(pauseDropTimerRef.current);
+        pauseDropTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (!pauseDropTimerRef.current) {
+      pauseDropTimerRef.current = setTimeout(() => {
+        pauseDropTimerRef.current = null;
+        api("/api/playback/active", { method: "DELETE" }).catch(() => {});
+        stopPlayback();
+      }, PAUSE_CACHE_TTL_MS);
+    }
+
+    return () => {
+      if (pauseDropTimerRef.current) {
+        clearTimeout(pauseDropTimerRef.current);
+        pauseDropTimerRef.current = null;
+      }
+    };
+  }, [currentMedia, paused, stopPlayback]);
 
   const pausePlaybackForSleepTimer = useCallback(() => {
     setShouldAutoPlay(false);
@@ -683,9 +739,18 @@ export function GlobalPlayerProvider({ children }) {
       .then((data) => {
         if (cancelled) return;
         const active = data.active;
-        const canRestore = active?.mediaId && (active.action === "play" || active.action === "pause");
+        if (!active) return;
+        const isPaused = active.action === "pause" || active.state === "paused";
+        if (isPaused && isPauseTimeoutExpired(active.pausedAt || active.timestamp)) {
+          api("/api/playback/active", { method: "DELETE" }).catch(() => {});
+          return;
+        }
 
+        const canRestore = active.mediaId && (active.action === "play" || active.action === "pause");
         if (!canRestore) return;
+
+        if (active.trigger) lastTriggerRef.current = active.trigger;
+        if (isPaused) pauseStartedAtRef.current = active.pausedAt || active.timestamp;
 
         const startPosition = Math.floor(active.position || 0);
         setLoopMode(LOOP_MODES.includes(active.loopMode) ? active.loopMode : "none");
@@ -707,6 +772,8 @@ export function GlobalPlayerProvider({ children }) {
             duration: Math.floor(active.duration || 0),
             loopMode: LOOP_MODES.includes(active.loopMode) ? active.loopMode : "none",
             shuffleEnabled: Boolean(active.shuffleEnabled),
+            trigger: active.trigger || "user",
+            pausedAt: active.pausedAt || active.timestamp || new Date().toISOString(),
           }),
         }).catch(() => {});
       })
@@ -784,8 +851,14 @@ export function GlobalPlayerProvider({ children }) {
   }, [categoryId, currentMedia, navigate]);
 
   const closeFullPlayer = useCallback(() => {
+    if (!isAudio) {
+      if (mediaRef.current && !mediaRef.current.paused) {
+        mediaRef.current.pause();
+      }
+      setPaused(true);
+    }
     navigate("/");
-  }, [navigate]);
+  }, [isAudio, navigate]);
 
   const togglePlayback = useCallback(() => {
     if (isImage) {
@@ -805,30 +878,32 @@ export function GlobalPlayerProvider({ children }) {
   const playQueueMedia = useCallback((mediaItem, options = {}) => {
     if (!mediaItem) return;
 
-    const { skipCurrent = true, closeQueue = true } = options;
+    const { skipCurrent = true, closeQueue = true, trigger = "user" } = options;
+    lastTriggerRef.current = trigger;
     const previousMedia = currentMedia;
     const previousPosition = mediaRef.current?.currentTime || position || 0;
     const previousDuration = mediaRef.current?.duration || duration || previousMedia?.duration || 0;
 
     if (previousMedia && previousMedia.id !== mediaItem.id && skipCurrent) {
       sendPlaybackEvent(previousMedia, "skip", previousPosition, previousDuration);
-      sendNowPlaying(previousMedia, "skip", previousPosition, previousDuration);
+      sendNowPlaying(previousMedia, "skip", previousPosition, previousDuration, { trigger });
     }
 
     api("/api/queue/select?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mediaId: Number(mediaItem.id) }),
+      body: JSON.stringify({ mediaId: Number(mediaItem.id), trigger }),
     })
       .then((r) => r.json())
       .then((data) => {
         resetForMedia(mediaItem, { autoplay: true });
         loadResumePosition(mediaItem.id);
-        sendNowPlaying(mediaItem, "play", 0, mediaItem.duration || 0);
+        sendNowPlaying(mediaItem, "play", 0, mediaItem.duration || 0, { trigger });
         applyCompactQueueResponse(data);
         if (queueOpen) refreshQueue().catch(() => {});
         if (closeQueue) setQueueOpen(false);
-        if (isFullPlayer) {
+        const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
+        if (isFullPlayer || !isAudioMedia) {
           navigate(`/media/${mediaItem.id}${categoryQuery(categoryId)}`);
         }
       })
@@ -867,7 +942,7 @@ export function GlobalPlayerProvider({ children }) {
       .then((data) => {
         const mediaId = data.items?.[0]?.id;
         if (mediaId) {
-          playQueueId(mediaId, { skipCurrent: options.skipCurrent !== false, closeQueue: false });
+          playQueueId(mediaId, { skipCurrent: options.skipCurrent !== false, closeQueue: false, ...options });
         } else if (mediaRef.current) {
           mediaRef.current.currentTime = 0;
           setPosition(0);
@@ -878,29 +953,38 @@ export function GlobalPlayerProvider({ children }) {
   }, [playQueueId, queueTotal]);
 
   const advance = useCallback((dir, options = {}) => {
+    const trigger = options.trigger || "user";
+    lastTriggerRef.current = trigger;
+
     if (loopMode === "queue" && queueTotal > 1) {
       if (dir === "next" && !hasLinearNext) {
-        playQueueBoundary(false, options);
+        playQueueBoundary(false, { ...options, trigger });
         return;
       }
 
       if (dir === "prev" && !hasLinearPrev) {
-        playQueueBoundary(true, options);
+        playQueueBoundary(true, { ...options, trigger });
         return;
       }
     }
 
-    const endpoint = dir === "next" ? "/api/queue/next?compact=1" : "/api/queue/prev?compact=1";
+    const endpoint = dir === "next"
+      ? `/api/queue/next?compact=1&trigger=${trigger}`
+      : `/api/queue/prev?compact=1&trigger=${trigger}`;
     const previousMedia = currentMedia;
     const previousPosition = mediaRef.current?.currentTime || position || 0;
     const previousDuration = mediaRef.current?.duration || duration || previousMedia?.duration || 0;
 
     if (previousMedia && options.skipCurrent !== false) {
       sendPlaybackEvent(previousMedia, "skip", previousPosition, previousDuration);
-      sendNowPlaying(previousMedia, "skip", previousPosition, previousDuration);
+      sendNowPlaying(previousMedia, "skip", previousPosition, previousDuration, { trigger });
     }
 
-    api(endpoint, { method: "POST" })
+    api(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trigger }),
+    })
       .then((r) => r.json())
       .then((data) => {
         applyCompactQueueResponse(data);
@@ -910,8 +994,9 @@ export function GlobalPlayerProvider({ children }) {
           .then((nextMedia) => {
             resetForMedia(nextMedia);
             loadResumePosition(nextMedia.id);
-            sendNowPlaying(nextMedia, "play", 0, nextMedia.duration || 0);
-            if (isFullPlayer) {
+            sendNowPlaying(nextMedia, "play", 0, nextMedia.duration || 0, { trigger });
+            const isAudioMedia = nextMedia?.mime_type?.startsWith("audio/");
+            if (isFullPlayer || !isAudioMedia) {
               navigate(`/media/${nextMedia.id}${categoryQuery(categoryId)}`);
             }
             if (queueOpen) return refreshQueue().catch(() => {});
@@ -960,14 +1045,21 @@ export function GlobalPlayerProvider({ children }) {
   const handlePlay = useCallback(() => {
     const nextPosition = mediaRef.current?.currentTime || 0;
     const nextDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
+    pauseStartedAtRef.current = null;
+    if (pauseDropTimerRef.current) {
+      clearTimeout(pauseDropTimerRef.current);
+      pauseDropTimerRef.current = null;
+    }
     setPaused(false);
     setShouldAutoPlay(true);
     sendPlaybackEvent(currentMedia, "play", nextPosition, nextDuration);
-    sendNowPlaying(currentMedia, "play", nextPosition, nextDuration);
+    sendNowPlaying(currentMedia, "play", nextPosition, nextDuration, { trigger: lastTriggerRef.current || "user" });
   }, [currentMedia, duration, sendNowPlaying, sendPlaybackEvent]);
 
   const handlePause = useCallback(() => {
     const nextPosition = mediaRef.current?.currentTime || 0;
+    const now = new Date().toISOString();
+    pauseStartedAtRef.current = now;
     setPaused(true);
     setShouldAutoPlay(false);
     saveResumePosition(nextPosition, true);
@@ -975,7 +1067,8 @@ export function GlobalPlayerProvider({ children }) {
       currentMedia,
       "pause",
       nextPosition,
-      mediaRef.current?.duration || duration || currentMedia?.duration || 0
+      mediaRef.current?.duration || duration || currentMedia?.duration || 0,
+      { trigger: lastTriggerRef.current || "user", pausedAt: now }
     );
     sendPlaybackEvent(
       currentMedia,
@@ -1042,12 +1135,12 @@ export function GlobalPlayerProvider({ children }) {
     }
 
     if (action === "advance") {
-      advance("next", { skipCurrent: false });
+      advance("next", { skipCurrent: false, trigger: "system" });
       return;
     }
 
     if (action === "wrap") {
-      playQueueBoundary(false, { skipCurrent: false });
+      playQueueBoundary(false, { skipCurrent: false, trigger: "system" });
       return;
     }
 
@@ -1102,8 +1195,8 @@ export function GlobalPlayerProvider({ children }) {
         }
         seek(details.seekTime);
       },
-      previoustrack: () => advance("prev"),
-      nexttrack: () => advance("next"),
+      previoustrack: () => advance("prev", { trigger: "user" }),
+      nexttrack: () => advance("next", { trigger: "user" }),
     };
   });
 
@@ -1277,7 +1370,7 @@ export function GlobalPlayerProvider({ children }) {
               onToggleLike={() => toggleLike(currentMedia)}
             />
             </Suspense>
-          ) : (
+          ) : isAudio ? (
             <MiniPlayer
               currentMedia={currentMedia}
               duration={duration}
@@ -1311,7 +1404,7 @@ export function GlobalPlayerProvider({ children }) {
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
             />
-          )}
+          ) : null}
         </>
       )}
       {queueOpen && (

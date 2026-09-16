@@ -23,7 +23,7 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
 }) {
   const containerRef = useRef(null);
   const sentinelRef = useRef(null);
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 0));
   const [scrollMargin, setScrollMargin] = useState(0);
 
   // Measure container width and document-relative scroll margin
@@ -56,10 +56,14 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
     };
   }, []);
 
-  const columns = Math.max(1, Math.floor((width + GAP) / (MIN_CARD_WIDTH + GAP)));
+  const isMobile = width > 0 ? width <= 640 : (typeof window !== "undefined" && window.innerWidth <= 640);
+  const gap = isMobile ? 8 : GAP;
+  const columns = isMobile ? 1 : Math.max(1, Math.floor((width + gap) / (MIN_CARD_WIDTH + gap)));
   const rowCount = Math.ceil(items.length / columns);
-  const cardWidth = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_CARD_WIDTH;
-  const estimatedRowHeight = Math.round(cardWidth + CARD_EXTRA_HEIGHT);
+  const cardWidth = width > 0 ? (width - gap * (columns - 1)) / columns : MIN_CARD_WIDTH;
+  // On mobile (<=640px), cards are styled as horizontal rows with ~72px height + gap (8px) = ~80px.
+  // On desktop, cards are vertical with square cover + body content.
+  const estimatedRowHeight = isMobile ? 80 : Math.round(cardWidth + CARD_EXTRA_HEIGHT);
 
   const virtualizer = useWindowVirtualizer({
     count: rowCount,
@@ -112,11 +116,12 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
           <div
             key={virtualRow.key}
             data-index={virtualRow.index}
+            ref={virtualizer.measureElement}
             style={{
               display: "flex",
-              gap: GAP,
+              gap,
               left: 0,
-              paddingBottom: GAP,
+              paddingBottom: gap,
               position: "absolute",
               top: 0,
               transform: `translateY(${virtualRow.start - scrollMargin}px)`,
@@ -125,7 +130,14 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
             }}
           >
             {rowItems.map((item) => (
-              <div key={item.id} style={{ flex: `0 0 ${cardWidth}px`, minWidth: 0 }}>
+              <div
+                key={item.id}
+                style={{
+                  flex: isMobile ? "1 1 100%" : `0 0 ${cardWidth}px`,
+                  minWidth: 0,
+                  width: isMobile ? "100%" : undefined,
+                }}
+              >
                 <MediaCard
                   item={item}
                   isActive={Number(activeId) === Number(item.id)}

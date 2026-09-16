@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMemo, useState } from "react";
 import { mediaThumbnailUrl } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { formatDuration, getMediaFolderName, getMediaLabel } from "../utils/media";
+import { formatDuration, getMediaLabel, resolveMediaArtist } from "../utils/media";
 import { useOffline } from "../context/offline-context";
 
 function QueueSheetAction({ colors, icon, label, onPress, styles }) {
@@ -82,7 +82,7 @@ export function MediaCard({ compact = false, item, liked = false, onPlayNext, on
         />
         <View style={styles.copy}>
           <Text style={styles.title} numberOfLines={compact ? 1 : 2}>{item.title}</Text>
-          <Text style={styles.meta} numberOfLines={1}>{item.artists || getMediaFolderName(item)}</Text>
+          <Text style={styles.meta} numberOfLines={1}>{resolveMediaArtist(item)}</Text>
           <View style={styles.footer}>
             <Text style={styles.kind}>{getMediaLabel(item.mime_type)}</Text>
             <Text style={styles.duration}>{formatDuration(item.duration)}</Text>

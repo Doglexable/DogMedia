@@ -76,18 +76,55 @@ function formatSleepTimer(seconds) {
     : `0:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
-export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer }) {
+export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer, variant = "ghost" }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   const active = remainingSeconds > 0;
   const label = active ? `Sleep timer ${formatSleepTimer(remainingSeconds)} remaining` : "Sleep timer";
 
+  const buttonClass = variant === "fullscreen"
+    ? `fullscreen-player-icon-button ${active ? "fullscreen-player-icon-button--active" : ""}`
+    : variant === "video-ctrl"
+      ? `video-player-ctrl-btn ${active ? "video-player-ctrl-btn--active" : ""}`
+      : `player-ghost-button ${active ? "text-[var(--primary)]" : "text-muted"}`;
+
   return (
-    <div className={active ? "player-sleep-control player-sleep-control--active" : "player-sleep-control"}>
+    <div
+      ref={containerRef}
+      className={`player-sleep-control ${active ? "player-sleep-control--active" : ""} ${variant === "fullscreen" ? "player-sleep-control--fullscreen" : ""} ${variant === "video-ctrl" ? "player-sleep-control--video-ctrl" : ""} ${open ? "player-sleep-control--open" : ""}`}
+    >
       <button
         type="button"
-        className="player-ghost-button"
+        className={buttonClass}
         aria-label={label}
         aria-pressed={active}
+        aria-expanded={open}
+        aria-haspopup="dialog"
         title={label}
+        onClick={() => setOpen((prev) => !prev)}
       >
         <FontAwesomeIcon icon={faAlarmClock} />
         {active && <span className="player-sleep-badge">{formatSleepTimer(remainingSeconds)}</span>}
@@ -99,7 +136,10 @@ export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer }) {
               type="button"
               key={minutes}
               className="player-sleep-preset"
-              onClick={() => onSetSleepTimer(minutes)}
+              onClick={() => {
+                onSetSleepTimer(minutes);
+                setOpen(false);
+              }}
             >
               {minutes}m
             </button>
@@ -108,7 +148,10 @@ export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer }) {
         <button
           type="button"
           className="player-sleep-clear"
-          onClick={() => onSetSleepTimer(0)}
+          onClick={() => {
+            onSetSleepTimer(0);
+            setOpen(false);
+          }}
           disabled={!active}
           title="Clear sleep timer"
           aria-label="Clear sleep timer"
@@ -171,8 +214,19 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
         setOpen(false);
       }
     }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [open]);
 
   const activeOption = QUALITY_OPTIONS.find((opt) => opt.value === quality) || QUALITY_OPTIONS[0];
@@ -182,12 +236,14 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
 
   const buttonClass = variant === "fullscreen"
     ? `fullscreen-player-icon-button ${isModified ? "fullscreen-player-icon-button--active" : ""}`
-    : `player-ghost-button ${isModified ? "text-[var(--primary)]" : "text-muted"}`;
+    : variant === "video-ctrl"
+      ? `video-player-ctrl-btn ${isModified ? "video-player-ctrl-btn--active" : ""}`
+      : `player-ghost-button ${isModified ? "text-[var(--primary)]" : "text-muted"}`;
 
   return (
     <div
       ref={containerRef}
-      className={`player-quality-control ${variant === "fullscreen" ? "player-quality-control--fullscreen" : ""} ${open ? "player-quality-control--open" : ""}`}
+      className={`player-quality-control ${variant === "fullscreen" ? "player-quality-control--fullscreen" : ""} ${variant === "video-ctrl" ? "player-quality-control--video-ctrl" : ""} ${open ? "player-quality-control--open" : ""}`}
     >
       <button
         type="button"
@@ -252,25 +308,64 @@ function getVolumeIcon(volume, muted) {
 export function VolumeControl({ isImage, muted, volume, onChangeVolume, onToggleMute }) {
   if (isImage) return null;
 
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event) {
+      if (containerRef.current && !containerRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   const volumePercent = Math.round(volume * 100);
   const effectivePercent = muted ? 0 : volumePercent;
+  const label = muted || volume <= 0 ? "Volume (Muted)" : `Volume ${effectivePercent}%`;
 
   return (
     <div
-      className={muted || volume <= 0 ? "player-volume-control player-volume-control--muted" : "player-volume-control"}
+      ref={containerRef}
+      className={`player-volume-control ${muted || volume <= 0 ? "player-volume-control--muted" : ""} ${open ? "player-volume-control--open" : ""}`}
       style={{ "--player-volume-percent": `${effectivePercent}%` }}
     >
       <button
         type="button"
         className="player-volume-button"
-        aria-label={muted || volume <= 0 ? "Unmute" : "Mute"}
+        aria-label={label}
         aria-pressed={muted || volume <= 0}
-        onClick={onToggleMute}
-        title={muted || volume <= 0 ? "Unmute" : "Mute"}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title={label}
+        onClick={() => setOpen((prev) => !prev)}
+        onDoubleClick={onToggleMute}
       >
         <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
       </button>
-      <div className="player-volume-popover">
+      <div className="player-volume-popover" role="dialog" aria-label="Volume controls">
+        <button
+          type="button"
+          className="player-volume-popover-mute"
+          aria-label={muted || volume <= 0 ? "Unmute" : "Mute"}
+          title={muted || volume <= 0 ? "Unmute" : "Mute"}
+          onClick={onToggleMute}
+        >
+          <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
+        </button>
         <input
           type="range"
           className="player-volume-range"
@@ -283,6 +378,7 @@ export function VolumeControl({ isImage, muted, volume, onChangeVolume, onToggle
           title={`Volume ${effectivePercent}%`}
           onChange={(event) => onChangeVolume(Number(event.target.value) / 100)}
         />
+        <span className="player-volume-percent-label">{effectivePercent}%</span>
       </div>
     </div>
   );

@@ -31,16 +31,16 @@ const makeStyles = (colors) => StyleSheet.create({
   chip: {
     maxWidth: 160,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.sm,
-    backgroundColor: colors.card,
+    paddingVertical: 7,
+    borderRadius: 9999,
+    backgroundColor: "rgba(255, 255, 255, 0.07)",
   },
   active: {
     backgroundColor: colors.primary,
   },
   label: {
     color: colors.muted,
-    fontWeight: "900",
+    fontWeight: "700",
     fontSize: 12,
   },
   activeLabel: {

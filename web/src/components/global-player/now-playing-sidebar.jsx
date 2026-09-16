@@ -10,7 +10,7 @@ import {
   faFolder,
   faHardDrive,
 } from "@fortawesome/free-solid-svg-icons";
-import { getArtistLabel } from "./media-artists";
+import { getArtistLabel, resolveMediaArtist } from "./media-artists";
 import { LyricsPanel } from "./lyrics-panel";
 import { formatDuration, getMediaFolder, getMediaFolderName } from "./player-utils";
 
@@ -80,8 +80,8 @@ export function NowPlayingSidebar({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const mediaDuration = duration || currentMedia.duration;
-  const artist = isAudio ? getArtistLabel(currentMedia.artists) : meta.label;
   const album = getMediaFolderName(currentMedia) || "Library";
+  const artist = isAudio ? resolveMediaArtist(currentMedia, album) : meta.label;
   const folder = getMediaFolder(currentMedia) || "Uncategorized";
   const artworkSrc = isImage ? streamSrc : thumbSrc;
   const description = currentMedia.description?.trim();
