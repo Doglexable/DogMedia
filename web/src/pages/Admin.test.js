@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBatchItems, titleFromStem, trackOrderFromStem } from "./Admin";
+import { buildBatchItems, buildVideoItems, titleFromStem, trackOrderFromStem, videoOrderFromStem } from "./admin-import-utils";
 
 function file(name, { path = name, type = "audio/flac", size = 100 } = {}) {
   return { name, webkitRelativePath: path, type, size };
@@ -25,5 +25,28 @@ describe("admin album import", () => {
     expect(items[0].file.name).toBe("01 - The Brave.flac");
     expect(items[0].lyrics.name).toBe("01 - The Brave.json");
     expect(items[0].thumbnail.name).toBe("cover.jpg");
+  });
+});
+
+describe("admin video import", () => {
+  it.each([
+    ["Frieren S01E03", 3],
+    ["Frieren Episode 12", 12],
+    ["Part-04", 4],
+    ["05 - Finale", 5],
+  ])("detects an episode order from %s", (name, expected) => {
+    expect(videoOrderFromStem(name)).toBe(expected);
+  });
+
+  it("sorts a multi-video selection naturally and supplies fallback order", () => {
+    const items = buildVideoItems([
+      file("Episode 10.mkv", { type: "video/x-matroska", size: 100 }),
+      file("Special.mkv", { type: "video/x-matroska", size: 100 }),
+      file("Episode 2.mkv", { type: "video/x-matroska", size: 100 }),
+      file("cover.jpg", { type: "image/jpeg", size: 10 }),
+    ]);
+
+    expect(items.map((item) => item.file.name)).toEqual(["Episode 2.mkv", "Special.mkv", "Episode 10.mkv"]);
+    expect(items.map((item) => item.trackOrder)).toEqual([2, 3, 10]);
   });
 });

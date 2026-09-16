@@ -17,6 +17,7 @@ import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
+import { buildBatchItems, buildVideoItems, getExt } from "./admin-import-utils";
 import "./admin-media-import.css";
 
 const FALLBACK_CHUNK_SIZE = 512 * 1024;
@@ -670,108 +671,6 @@ function clearFileInputs() {
   if (editLyricsInput) editLyricsInput.value = "";
 }
 
-const AUDIO_IMPORT_PRIORITY = ["flac", "wav", "m4a", "mp3", "ogg", "opus", "aac"];
-const COVER_BASENAMES = new Set(["cover", "front-cover", "front_cover", "front", "folder", "albumart", "album-art"]);
-
-function getExt(fileName) {
-  const parts = String(fileName || "").split(".");
-  return parts.length > 1 ? parts.pop().toLowerCase() : "";
-}
-
-function getStem(fileName) {
-  const name = String(fileName || "").split("/").pop();
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(0, dot) : name;
-}
-
-function getRelativeDir(file) {
-  const relativePath = file.webkitRelativePath || file.name;
-  const lastSlash = relativePath.lastIndexOf("/");
-  return lastSlash > -1 ? relativePath.slice(0, lastSlash) : "";
-}
-
-export function titleFromStem(stem) {
-  return stem
-    .replace(/^[\d\s._-]+/, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (char) => char.toUpperCase()) || stem;
-}
-
-export function trackOrderFromStem(stem) {
-  const match = String(stem || "").trim().match(/^(\d{1,3})(?:\s*[._-]|\s+)/);
-  if (!match) return null;
-  const value = Number.parseInt(match[1], 10);
-  return Number.isInteger(value) && value >= 1 ? value : null;
-}
-
-function isAudioImportFile(file) {
-  return file.type.startsWith("audio/") || AUDIO_IMPORT_PRIORITY.includes(getExt(file.name));
-}
-
-function isCoverFile(file) {
-  return file.type.startsWith("image/") && COVER_BASENAMES.has(getStem(file.name).toLowerCase());
-}
-
-function isLyricsFile(file) {
-  return getExt(file.name) === "json";
-}
-
-export function buildBatchItems(files) {
-  const folders = new Map();
-
-  for (const file of files) {
-    const folderName = getRelativeDir(file);
-    if (!folders.has(folderName)) {
-      folders.set(folderName, { cover: null, lyrics: new Map(), tracks: new Map() });
-    }
-
-    const folder = folders.get(folderName);
-    if (isCoverFile(file)) {
-      folder.cover = folder.cover || file;
-      continue;
-    }
-
-    if (isLyricsFile(file)) {
-      folder.lyrics.set(getStem(file.name), file);
-      continue;
-    }
-
-    if (!isAudioImportFile(file)) continue;
-
-    const stem = getStem(file.name);
-    if (!folder.tracks.has(stem)) {
-      folder.tracks.set(stem, []);
-    }
-    folder.tracks.get(stem).push(file);
-  }
-
-  const items = [];
-  for (const [folderName, folder] of folders) {
-    for (const [stem, candidates] of folder.tracks) {
-      const sorted = [...candidates].sort((a, b) => {
-        const aRank = AUDIO_IMPORT_PRIORITY.indexOf(getExt(a.name));
-        const bRank = AUDIO_IMPORT_PRIORITY.indexOf(getExt(b.name));
-        return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank);
-      });
-      const file = sorted[0];
-      items.push({
-        key: `${folderName}/${stem}`,
-        title: titleFromStem(stem),
-        trackOrder: trackOrderFromStem(stem),
-        file,
-        lyrics: folder.lyrics.get(stem) || null,
-        thumbnail: folder.cover,
-        folderName,
-        skippedCount: Math.max(0, sorted.length - 1),
-      });
-    }
-  }
-
-  return items.sort((a, b) => a.key.localeCompare(b.key));
-}
-
 async function readApiError(res, fallback) {
   const text = await res.text().catch(() => "");
   if (!text) return fallback;
@@ -1017,9 +916,9 @@ export default function Admin() {
   const [mediaWorkspaceTab, setMediaWorkspaceTab] = useState("collection");
   const [videoKind, setVideoKind] = useState("episode");
   const [categoryMedia, setCategoryMedia] = useState([]);
-  const [mediaTitle, setMediaTitle] = useState("");
   const [mediaDescription, setMediaDescription] = useState("");
-  const [mediaFile, setMediaFile] = useState(null);
+  const [videoFiles, setVideoFiles] = useState([]);
+  const [videoOverrides, setVideoOverrides] = useState({});
   const [mediaThumb, setMediaThumb] = useState(null);
   const [categoryCoverFile, setCategoryCoverFile] = useState(null);
   const [updatingCategoryCover, setUpdatingCategoryCover] = useState(false);
@@ -1030,6 +929,9 @@ export default function Admin() {
   const [uploadingBatch, setUploadingBatch] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
+  const [reorderingVideos, setReorderingVideos] = useState(false);
+  const [videoOrderDraft, setVideoOrderDraft] = useState({});
+  const [savingVideoOrder, setSavingVideoOrder] = useState(false);
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [editingMedia, setEditingMedia] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -1127,6 +1029,18 @@ export default function Admin() {
   }, [mediaModalCategoryId]);
 
   const batchItems = useMemo(() => buildBatchItems(batchFiles), [batchFiles]);
+  const videoItems = useMemo(() => buildVideoItems(videoFiles), [videoFiles]);
+  const videoHasInvalidRows = useMemo(() => {
+    const orders = [];
+    const invalid = videoItems.some((item) => {
+      const override = videoOverrides[item.key] || {};
+      const title = String(override.title ?? item.title).trim();
+      const trackOrder = String(override.trackOrder ?? item.trackOrder).trim();
+      orders.push(trackOrder);
+      return !title || !/^\d+$/.test(trackOrder) || Number(trackOrder) < 1;
+    });
+    return invalid || new Set(orders).size !== orders.length;
+  }, [videoItems, videoOverrides]);
   const batchHasInvalidRows = useMemo(() => batchItems.some((item) => {
     const override = batchOverrides[item.key] || {};
     const title = String(override.title ?? item.title).trim();
@@ -1176,15 +1090,17 @@ export default function Admin() {
     setMediaWorkspaceTab("collection");
     setVideoKind("episode");
     setCategoryMedia([]);
-    setMediaTitle("");
     setMediaDescription("");
-    setMediaFile(null);
+    setVideoFiles([]);
+    setVideoOverrides({});
     setMediaThumb(null);
     setCategoryCoverFile(null);
     setUpdatingCategoryCover(false);
     setBatchFiles([]);
     setBatchArtist("");
     setBatchOverrides({});
+    setReorderingVideos(false);
+    setVideoOrderDraft({});
     setEditingMedia(null);
     clearFileInputs();
     setSelectedCategoryId(String(categoryId));
@@ -1194,15 +1110,17 @@ export default function Admin() {
     setMediaModalCategoryId(null);
     setCategoryMedia([]);
     setLoadingMedia(false);
-    setMediaTitle("");
     setMediaDescription("");
-    setMediaFile(null);
+    setVideoFiles([]);
+    setVideoOverrides({});
     setMediaThumb(null);
     setCategoryCoverFile(null);
     setUpdatingCategoryCover(false);
     setBatchFiles([]);
     setBatchArtist("");
     setBatchOverrides({});
+    setReorderingVideos(false);
+    setVideoOrderDraft({});
     setUploadingBatch(false);
     setEditingMedia(null);
     clearFileInputs();
@@ -1385,14 +1303,13 @@ export default function Admin() {
   const handleUploadMedia = async (event) => {
     event.preventDefault();
 
-    if (!mediaModalCategoryId || !mediaTitle.trim() || !mediaFile) {
-      setMessage({ type: "error", text: "Category, video title, and video file are required." });
+    if (!mediaModalCategoryId || videoItems.length === 0) {
+      setMessage({ type: "error", text: "Choose a category and at least one supported video file." });
       return;
     }
 
-    const videoExtension = getExt(mediaFile.name);
-    if (!mediaFile.type.startsWith("video/") && !["mp4", "mkv", "webm", "mov", "avi"].includes(videoExtension)) {
-      setMessage({ type: "error", text: "Choose a supported video file." });
+    if (videoHasInvalidRows) {
+      setMessage({ type: "error", text: "Every video needs a title and a positive order number." });
       return;
     }
 
@@ -1400,32 +1317,90 @@ export default function Admin() {
     setUploadProgress(0);
     setMessage(null);
 
+    const createdItems = [];
+    const failures = [];
+    for (const [itemIndex, item] of videoItems.entries()) {
+      const override = videoOverrides[item.key] || {};
+      try {
+        const created = await uploadMediaInChunks({
+          categoryId: mediaModalCategoryId,
+          title: String(override.title ?? item.title).trim(),
+          description: mediaDescription,
+          artists: "",
+          trackOrder: override.trackOrder ?? item.trackOrder,
+          duration: "",
+          contentKind: videoKind === "episode" ? "video_episode" : videoKind === "film" ? "film" : "video",
+          file: item.file,
+          lyricsFile: null,
+          thumbnail: mediaThumb,
+          onProgress: (progress) => {
+            setUploadProgress(Math.round(((itemIndex + progress / 100) / videoItems.length) * 100));
+          },
+        });
+        createdItems.push(created);
+      } catch (error) {
+        failures.push(`${item.file.name}: ${error.message}`);
+      }
+    }
+
     try {
-      const created = await uploadMediaInChunks({
-        categoryId: mediaModalCategoryId,
-        title: mediaTitle.trim(),
-        description: mediaDescription,
-        artists: "",
-        trackOrder: "",
-        duration: "",
-        contentKind: videoKind === "episode" ? "video_episode" : videoKind === "film" ? "film" : "video",
-        file: mediaFile,
-        lyricsFile: null,
-        thumbnail: mediaThumb,
-        onProgress: setUploadProgress,
-      });
-      setCategoryMedia((prev) => orderMedia([...prev, created]));
-      setMediaTitle("");
+      if (createdItems.length > 0) {
+        const nextMedia = orderMedia([...categoryMedia, ...createdItems]);
+        setCategoryMedia(nextMedia);
+        const videos = nextMedia.filter((item) => item.mime_type?.startsWith("video/"));
+        setVideoOrderDraft(Object.fromEntries(videos.map((item, index) => [item.id, String(item.track_order || index + 1)])));
+        setReorderingVideos(true);
+        setMediaWorkspaceTab("collection");
+      }
       setMediaDescription("");
-      setMediaFile(null);
+      setVideoFiles([]);
+      setVideoOverrides({});
       setMediaThumb(null);
       clearFileInputs();
-      setMessage({ type: "success", text: `"${created.title}" uploaded successfully. Encoding has been queued.` });
-    } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      setMessage(failures.length === 0
+        ? { type: "success", text: `${createdItems.length} video${createdItems.length === 1 ? "" : "s"} uploaded. Review their playback order below.` }
+        : { type: "error", text: `Uploaded ${createdItems.length}, failed ${failures.length}. ${failures.slice(0, 2).join(" ")}` });
     } finally {
       setUploadingMedia(false);
       setUploadProgress(null);
+    }
+  };
+
+  const openVideoOrdering = () => {
+    const videos = orderMedia(categoryMedia.filter((item) => item.mime_type?.startsWith("video/")));
+    setVideoOrderDraft(Object.fromEntries(videos.map((item, index) => [item.id, String(item.track_order || index + 1)])));
+    setReorderingVideos(true);
+    setMessage(null);
+  };
+
+  const handleSaveVideoOrder = async () => {
+    const videos = categoryMedia.filter((item) => item.mime_type?.startsWith("video/"));
+    const orders = videos.map((item) => Number.parseInt(videoOrderDraft[item.id], 10));
+    if (orders.some((value) => !Number.isInteger(value) || value < 1) || new Set(orders).size !== orders.length) {
+      setMessage({ type: "error", text: "Use a unique positive order number for every video." });
+      return;
+    }
+
+    setSavingVideoOrder(true);
+    setMessage(null);
+    try {
+      const updated = await Promise.all(videos.map(async (item) => {
+        const response = await api(`/api/media/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ track_order: videoOrderDraft[item.id] }),
+        });
+        if (!response.ok) throw new Error(await readApiError(response, `Could not reorder ${item.title}`));
+        return response.json();
+      }));
+      const updatedById = new Map(updated.map((item) => [Number(item.id), item]));
+      setCategoryMedia((current) => orderMedia(current.map((item) => updatedById.get(Number(item.id)) || item)));
+      setReorderingVideos(false);
+      setMessage({ type: "success", text: "Video order saved." });
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setSavingVideoOrder(false);
     }
   };
 
@@ -2065,17 +2040,22 @@ export default function Admin() {
                 <div style={styles.panelBody}>
                   <div style={{ ...styles.actionRow, justifyContent: "space-between", marginBottom: 14 }}>
                     <p style={{ ...styles.helpText, margin: 0 }}>
-                      Track numbers are read from embedded audio metadata and can also be edited manually.
+                      Music uses embedded track numbers. Videos can be arranged manually after upload.
                     </p>
-                    <button
-                      type="button"
-                      disabled={scanningTrackOrders}
-                      style={styles.button("secondary", scanningTrackOrders)}
-                      onClick={handleScanTrackOrders}
-                    >
-                      {scanningTrackOrders && <span style={styles.spinner} />}
-                      {scanningTrackOrders ? "Scanning..." : "Scan All Track Orders"}
-                    </button>
+                    <div style={styles.actionRow}>
+                      {categoryMedia.some((item) => item.mime_type?.startsWith("video/")) && !reorderingVideos && (
+                        <button type="button" style={styles.button("secondary")} onClick={openVideoOrdering}>Order videos</button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={scanningTrackOrders}
+                        style={styles.button("secondary", scanningTrackOrders)}
+                        onClick={handleScanTrackOrders}
+                      >
+                        {scanningTrackOrders && <span style={styles.spinner} />}
+                        {scanningTrackOrders ? "Scanning..." : "Scan music order"}
+                      </button>
+                    </div>
                   </div>
                   {loadingMedia ? (
                     <div style={{ ...styles.emptyState, padding: "18px 8px" }}>
@@ -2092,6 +2072,18 @@ export default function Admin() {
                     <div style={styles.mediaList}>
                       {categoryMedia.map((media) => (
                         <div key={media.id} className="admin-media-item" style={styles.mediaItem}>
+                          {reorderingVideos && media.mime_type?.startsWith("video/") && (
+                            <label className="admin-video-order-field">
+                              <span>Order</span>
+                              <input
+                                type="number"
+                                min="1"
+                                value={videoOrderDraft[media.id] ?? ""}
+                                onChange={(event) => setVideoOrderDraft((current) => ({ ...current, [media.id]: event.target.value }))}
+                                aria-label={`Playback order for ${media.title}`}
+                              />
+                            </label>
+                          )}
                           <div style={{ minWidth: 0 }}>
                             <div style={styles.mediaTitle} title={media.title}>
                               {media.title}
@@ -2105,6 +2097,8 @@ export default function Admin() {
                             </div>
                           </div>
                           <div className="admin-media-actions" style={styles.rowActions}>
+                            {reorderingVideos && media.mime_type?.startsWith("video/") ? null : (
+                              <>
                             <button
                               type="button"
                               style={styles.button("secondary")}
@@ -2119,9 +2113,23 @@ export default function Admin() {
                             >
                               Delete
                             </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {reorderingVideos && (
+                    <div className="admin-order-actions">
+                      <p>Use unique numbers. Lower numbers play first.</p>
+                      <div style={styles.actionRow}>
+                        <button type="button" disabled={savingVideoOrder} style={styles.button("secondary", savingVideoOrder)} onClick={() => setReorderingVideos(false)}>Cancel</button>
+                        <button type="button" disabled={savingVideoOrder} style={styles.button("primary", savingVideoOrder)} onClick={handleSaveVideoOrder}>
+                          {savingVideoOrder && <span style={styles.spinner} />}
+                          {savingVideoOrder ? "Saving..." : "Save video order"}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2145,30 +2153,30 @@ export default function Admin() {
                       <div className="admin-import-step-heading">
                         <span>1</span>
                         <div>
-                          <h4>Choose a video</h4>
-                          <p>MP4, MKV, WebM, MOV, and AVI are accepted.</p>
+                          <h4>Choose videos</h4>
+                          <p>Select one film or many anime episodes. MP4, MKV, WebM, MOV, and AVI are accepted.</p>
                         </div>
                       </div>
                       <input
                         id="admin-media-file"
                         type="file"
+                        multiple
                         accept="video/*,.mkv,.avi"
                         onChange={(event) => {
-                          const file = event.target.files[0] || null;
-                          setMediaFile(file);
-                          if (file && !mediaTitle.trim()) setMediaTitle(titleFromStem(getStem(file.name)));
+                          setVideoFiles(Array.from(event.target.files || []));
+                          setVideoOverrides({});
                         }}
                         style={styles.fileInput}
                       />
-                      {mediaFile && <p className="admin-selected-file">{mediaFile.name} · {formatBytes(mediaFile.size)}</p>}
+                      {videoItems.length > 0 && <p className="admin-selected-file">{videoItems.length} video selected · {formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))}</p>}
                     </div>
 
                     <div className="admin-import-step">
                       <div className="admin-import-step-heading">
                         <span>2</span>
                         <div>
-                          <h4>Describe the video</h4>
-                          <p>Pick the label that matches how this video should appear.</p>
+                          <h4>Describe the batch</h4>
+                          <p>The selected type and optional synopsis are applied to every video.</p>
                         </div>
                       </div>
                       <div className="admin-kind-options" role="radiogroup" aria-label="Video kind">
@@ -2179,24 +2187,43 @@ export default function Admin() {
                           </label>
                         ))}
                       </div>
-                      <div className="admin-import-fields">
-                        <div style={styles.fieldGroup}>
-                          <label style={styles.label}>Display title</label>
-                          <input style={styles.input} value={mediaTitle} onChange={(event) => setMediaTitle(event.target.value)} placeholder={videoKind === "episode" ? "S01E01 — Episode title" : "Film title"} />
-                        </div>
-                        <div style={styles.fieldGroup}>
-                          <label style={styles.label}>Synopsis <span className="admin-optional">(optional)</span></label>
-                          <textarea style={styles.textarea} value={mediaDescription} onChange={(event) => setMediaDescription(event.target.value)} placeholder="A short description for this video..." />
-                        </div>
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Shared synopsis <span className="admin-optional">(optional)</span></label>
+                        <textarea style={styles.textarea} value={mediaDescription} onChange={(event) => setMediaDescription(event.target.value)} placeholder="A short description applied to every selected video..." />
                       </div>
                     </div>
 
+                    {videoItems.length > 0 && (
+                      <div className="admin-import-step">
+                        <div className="admin-import-step-heading">
+                          <span>3</span>
+                          <div>
+                            <h4>Review titles and initial order</h4>
+                            <p>Episode numbers are read from names such as S01E03, Episode 03, or 03-title. You can reorder everything again after upload.</p>
+                          </div>
+                        </div>
+                        <div className="admin-track-manifest">
+                          <div className="admin-track-manifest-head"><span>Order</span><span>Title</span><span>File</span></div>
+                          {videoItems.map((item) => (
+                            <div key={item.key} className="admin-track-row">
+                              <input aria-label={`Initial order for ${item.title}`} type="number" min="1" value={videoOverrides[item.key]?.trackOrder ?? item.trackOrder} onChange={(event) => setVideoOverrides((current) => ({ ...current, [item.key]: { ...current[item.key], trackOrder: event.target.value } }))} />
+                              <input aria-label={`Title for ${item.title}`} value={videoOverrides[item.key]?.title ?? item.title} onChange={(event) => setVideoOverrides((current) => ({ ...current, [item.key]: { ...current[item.key], title: event.target.value } }))} />
+                              <div className="admin-track-file" title={item.file.name}>
+                                <strong>{getExt(item.file.name).toUpperCase()} · {formatBytes(item.file.size)}</strong>
+                                <span>{item.file.name}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="admin-import-step">
                       <div className="admin-import-step-heading">
-                        <span>3</span>
+                        <span>4</span>
                         <div>
-                          <h4>Add artwork</h4>
-                          <p>This poster belongs to the uploaded video. A frame is extracted when no image is selected.</p>
+                          <h4>Add shared artwork</h4>
+                          <p>The image is copied to every uploaded video. A frame is extracted from each video when left empty.</p>
                         </div>
                       </div>
                       <input id="admin-media-thumb" type="file" accept="image/*" onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
@@ -2204,12 +2231,12 @@ export default function Admin() {
 
                     <div className="admin-import-footer">
                       <div>
-                        <strong>{mediaFile ? mediaFile.name : "No video selected"}</strong>
-                        <span>Duration will be detected automatically.</span>
+                        <strong>{videoItems.length} video{videoItems.length === 1 ? "" : "s"}</strong>
+                        <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · duration detected automatically</span>
                       </div>
-                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || !mediaFile || !mediaTitle.trim()} style={styles.button("primary", uploadingMedia || !activeMediaCategory || !mediaFile || !mediaTitle.trim())}>
+                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows)}>
                         {uploadingMedia && <span style={styles.spinner} />}
-                        {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : videoKind === "episode" ? "Upload episode" : videoKind === "film" ? "Upload film" : "Upload video"}
+                        {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : `Upload ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`}
                       </button>
                     </div>
                   </form>
