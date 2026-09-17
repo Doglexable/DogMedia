@@ -13,15 +13,13 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faChevronRight,
-  faFolder,
-  faFolderOpen,
-  faFolderPlus,
-  faGripVertical,
-  faPhotoFilm,
-  faTrash,
-} from "@fortawesome/free-solid-svg-icons";
+import { faChevronRight } from "@fortawesome/free-solid-svg-icons/faChevronRight";
+import { faFolder } from "@fortawesome/free-solid-svg-icons/faFolder";
+import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
+import { faFolderPlus } from "@fortawesome/free-solid-svg-icons/faFolderPlus";
+import { faGripVertical } from "@fortawesome/free-solid-svg-icons/faGripVertical";
+import { faPhotoFilm } from "@fortawesome/free-solid-svg-icons/faPhotoFilm";
+import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 
 function ordered(items) {
   return [...items].sort((a, b) =>
@@ -117,7 +115,9 @@ function TreeRow({
         </button>
         <button
           type="button"
-          aria-label={hasChildren ? `${expanded ? "Collapse" : "Expand"} ${category.name}` : undefined}
+          aria-label={hasChildren
+            ? `${expanded ? "Collapse" : "Expand"} ${category.name}`
+            : `${category.name} has no subcategories`}
           disabled={!hasChildren}
           className="grid h-7 w-6 shrink-0 place-items-center border-0 bg-transparent text-muted disabled:opacity-0"
           onClick={(event) => {

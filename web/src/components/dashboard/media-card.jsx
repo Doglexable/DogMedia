@@ -1,7 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookmark } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 
 function getMimeMeta(mime) {
   if (typeof mime !== "string") return { icon: "📁", label: "File", color: "#888" };

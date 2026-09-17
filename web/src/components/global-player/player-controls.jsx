@@ -1,22 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faAlarmClock,
-  faBackwardStep,
-  faForwardStep,
-  faInfinity,
-  faList,
-  faPause,
-  faPlay,
-  faRepeat,
-  faShuffle,
-  faSliders,
-  faUpRightFromSquare,
-  faVolumeHigh,
-  faVolumeLow,
-  faVolumeXmark,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faAlarmClock } from "@fortawesome/free-solid-svg-icons/faAlarmClock";
+import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
+import { faForwardStep } from "@fortawesome/free-solid-svg-icons/faForwardStep";
+import { faInfinity } from "@fortawesome/free-solid-svg-icons/faInfinity";
+import { faList } from "@fortawesome/free-solid-svg-icons/faList";
+import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { faRepeat } from "@fortawesome/free-solid-svg-icons/faRepeat";
+import { faShuffle } from "@fortawesome/free-solid-svg-icons/faShuffle";
+import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
+import { faUpRightFromSquare } from "@fortawesome/free-solid-svg-icons/faUpRightFromSquare";
+import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
+import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
+import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { getLoopButtonTitle } from "./player-utils";
 
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];

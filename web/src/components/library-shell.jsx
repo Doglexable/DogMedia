@@ -1,20 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faBars,
-  faChartSimple,
-  faDownload,
-  faEllipsis,
-  faFolder,
-  faFolderOpen,
-  faGear,
-  faBookmark,
-  faHouse,
-  faNetworkWired,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
-import { ThemeToggle } from "../App";
+import { faBars } from "@fortawesome/free-solid-svg-icons/faBars";
+import { faChartSimple } from "@fortawesome/free-solid-svg-icons/faChartSimple";
+import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons/faEllipsis";
+import { faFolder } from "@fortawesome/free-solid-svg-icons/faFolder";
+import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
+import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faHouse } from "@fortawesome/free-solid-svg-icons/faHouse";
+import { faNetworkWired } from "@fortawesome/free-solid-svg-icons/faNetworkWired";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
+import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiUrl, readJsonArray } from "../api";
 import { SiteFooter } from "./site-footer";
@@ -172,7 +170,14 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const tier = access?.tier ?? 0;
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
-  const [wrappedAvailable, setWrappedAvailable] = useState(true);
+  const [wrappedAvailable, setWrappedAvailable] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return sessionStorage.getItem("wrapped_available") === "true";
+    } catch {
+      return false;
+    }
+  });
   const [categoryMenu, setCategoryMenu] = useState(null);
   const [queueNotice, setQueueNotice] = useState("");
   const params = new URLSearchParams(location.search);
@@ -232,8 +237,16 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         if (!response.ok) throw new Error("Wrapped access request failed");
         return response.json();
       })
-      .then((status) => setWrappedAvailable(status?.available !== false))
-      .catch(() => setWrappedAvailable(true));
+      .then((status) => {
+        const available = status?.available !== false;
+        try {
+          sessionStorage.setItem("wrapped_available", String(available));
+        } catch {
+          // ignore storage failure
+        }
+        setWrappedAvailable(available);
+      })
+      .catch(() => setWrappedAvailable(false));
   }, []);
 
   useEffect(() => {
@@ -419,7 +432,9 @@ export function LibraryShell({ access, children }) {
       <div className={isImmersiveRoute ? "global-app-shell global-app-shell--fullscreen-player" : "global-app-shell"}>
         {!isImmersiveRoute && <GlobalSidebar access={access} categories={categories} categoriesLoading={categoriesLoading} />}
         <div className="global-app-content">
-          {children}
+          <div className="global-app-main-area">
+            {children}
+          </div>
           {!isImmersiveRoute && <SiteFooter access={access} />}
         </div>
       </div>

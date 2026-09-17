@@ -1,5 +1,5 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookmark } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
 import { PlayerModeControls, QualityControl, QueueButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
@@ -42,6 +42,7 @@ export function PlayerBar({
           src={artSrc}
           alt={currentMedia?.title}
           onClick={onOpenFull}
+          priority
         />
         <TrackInfo
           album={album}

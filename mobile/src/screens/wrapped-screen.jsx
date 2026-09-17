@@ -237,7 +237,10 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
         <Artwork media={lead} style={StyleSheet.absoluteFillObject} fallbackStyle={styles.storyArtworkFallback} fallbackTextStyle={styles.openingFallbackText} />
         <View style={styles.openingShade} />
         <View style={[styles.openingCopy, { padding: 26 * scale }]}>
-          <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+          <View style={styles.kickerRow}>
+            <Image source={require("../../assets/logo.png")} style={styles.kickerLogo} />
+            <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+          </View>
           <Text style={[styles.openingTitle, { fontSize: 54 * scale, lineHeight: 50 * scale }]}>{wrappedCopy.replayTitle}</Text>
           <Text style={styles.openingText}>{getWrappedMediaTitle(lead)} set the tone.</Text>
         </View>
@@ -331,7 +334,10 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
         <View style={styles.finalArtworkFrame}>
           <Artwork media={lead} style={styles.finalArtwork} fallbackStyle={styles.storyArtworkFallback} fallbackTextStyle={styles.storyArtworkFallbackText} />
         </View>
-        <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+        <View style={styles.kickerRow}>
+          <Image source={require("../../assets/logo.png")} style={styles.kickerLogo} />
+          <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+        </View>
         <Text style={[styles.finalTitle, { fontSize: 48 * scale, lineHeight: 44 * scale, color: persona.palette?.accent || colors.primary }]}>{persona.title || "Steady Signal"}</Text>
         <View style={styles.finalStats}>
           <FinalStat label="Play time" value={fmtTime(data.totalPlayTime)} color={persona.palette?.secondary} styles={styles} />
@@ -621,7 +627,10 @@ function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) 
   return (
     <ScrollView style={styles.summaryScreen} contentContainerStyle={[styles.summaryContent, { paddingBottom: 32 + insets.bottom }]} showsVerticalScrollIndicator={false}>
       <View style={styles.summaryHero}>
-        <Text style={styles.summaryEyebrow}>All devices / {periodLabel}</Text>
+        <View style={styles.summaryHeroMeta}>
+          <Image source={require("../../assets/logo.png")} style={styles.summaryHeroLogo} />
+          <Text style={styles.summaryEyebrow}>All devices / {periodLabel}</Text>
+        </View>
         <Text style={styles.summaryHeroTitle}>Your playback pulse</Text>
         <Text style={styles.summaryHeroSubtitle}>{wrappedCopy.storyDescription}</Text>
         <View style={styles.metrics}>
@@ -686,7 +695,7 @@ function EmptyState({ copy, title }) {
   const { styles } = useWrappedTheme();
   return (
     <View style={styles.emptyState}>
-      <View style={styles.emptyMark} />
+      <Image source={require("../../assets/logo.png")} style={styles.emptyLogo} />
       <Text style={styles.emptyTitle}>{title}</Text>
       <Text style={styles.emptyCopy}>{copy}</Text>
     </View>
@@ -816,6 +825,8 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   openingSlide: { justifyContent: "flex-end", backgroundColor: colors.bg },
   openingShade: { ...StyleSheet.absoluteFillObject, top: "38%", backgroundColor: alpha(colors.text, 0.86) },
   openingCopy: { zIndex: 2, paddingBottom: 56 },
+  kickerRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  kickerLogo: { width: 18, height: 18, borderRadius: 4 },
   lightKicker: { color: colors.bg, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   openingTitle: { maxWidth: 350, marginTop: 12, color: colors.bg, fontFamily: DISPLAY_FONT, fontWeight: "900" },
   openingText: { maxWidth: 310, marginTop: 15, color: alpha(colors.bg, 0.76), fontSize: 13, lineHeight: 19, fontWeight: "700" },
@@ -886,6 +897,8 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   summaryScreen: { flex: 1 },
   summaryContent: { gap: 14, padding: spacing.lg },
   summaryHero: { gap: 6, paddingVertical: 8 },
+  summaryHeroMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  summaryHeroLogo: { width: 22, height: 22, borderRadius: 5 },
   summaryEyebrow: { color: colors.primary, fontFamily: MONO_FONT, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   summaryHeroTitle: { color: colors.text, fontFamily: DISPLAY_FONT, fontSize: 37, lineHeight: 39, fontWeight: "900" },
   summaryHeroSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: "700" },
@@ -954,6 +967,7 @@ const makeStyles = (colors, shadow) => StyleSheet.create({
   emptyNote: { color: colors.muted, fontSize: 12, lineHeight: 18, fontWeight: "700" },
   stateContent: { flexGrow: 1, justifyContent: "center", padding: spacing.lg },
   emptyState: { alignItems: "center", gap: 12, padding: 28, borderWidth: 1, borderColor: colors.cardSoft, borderRadius: 8, backgroundColor: colors.card },
+  emptyLogo: { width: 56, height: 56, borderRadius: 14 },
   emptyMark: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary },
   emptyTitle: { color: colors.text, fontSize: 23, fontWeight: "900", textAlign: "center" },
   emptyCopy: { color: colors.muted, fontSize: 13, lineHeight: 20, fontWeight: "700", textAlign: "center" },

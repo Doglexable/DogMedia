@@ -6,6 +6,19 @@ import { promisify } from "util";
 import { randomUUID } from "crypto";
 
 const execFileAsync = promisify(execFile);
+export const THUMBNAIL_WEBP_QUALITY = 90;
+const THUMBNAIL_WEBP_COMPRESSION_LEVEL = 6;
+
+function webpOutputArgs(outputPath) {
+  return [
+    "-frames:v", "1",
+    "-map_metadata", "-1",
+    "-c:v", "libwebp",
+    "-quality", String(THUMBNAIL_WEBP_QUALITY),
+    "-compression_level", String(THUMBNAIL_WEBP_COMPRESSION_LEVEL),
+    outputPath,
+  ];
+}
 
 export async function normalizeCategoryCover({ categoryId, dataDir, inputPath }) {
   const categoryDir = join(dataDir, String(categoryId));
@@ -16,7 +29,7 @@ export async function normalizeCategoryCover({ categoryId, dataDir, inputPath })
     await execFileAsync("ffmpeg", [
       "-y", "-i", inputPath,
       "-vf", "scale='if(gt(iw,ih),min(518,iw),-2)':'if(gt(iw,ih),-2,min(518,ih))':force_original_aspect_ratio=decrease",
-      "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", temporaryPath,
+      ...webpOutputArgs(temporaryPath),
     ]);
     const result = await stat(temporaryPath);
     if (!result.size) throw new Error("Generated cover is empty");
@@ -36,7 +49,7 @@ export async function normalizeMediaCover({ categoryId, mediaId, dataDir, inputP
     await execFileAsync("ffmpeg", [
       "-y", "-i", inputPath,
       "-vf", "scale='if(gt(iw,ih),min(900,iw),-2)':'if(gt(iw,ih),-2,min(900,ih))':force_original_aspect_ratio=decrease",
-      "-frames:v", "1", "-c:v", "libwebp", "-quality", "84", temporaryPath,
+      ...webpOutputArgs(temporaryPath),
     ]);
     const result = await stat(temporaryPath);
     if (!result.size) throw new Error("Generated media cover is empty");

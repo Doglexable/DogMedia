@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faArrowRotateLeft,
-  faArrowRotateRight,
-  faBackwardStep,
-  faBookmark,
-  faClone,
-  faCompress,
-  faExpand,
-  faForwardStep,
-  faMaximize,
-  faMinimize,
-  faPause,
-  faPlay,
-  faRotateLeft,
-  faVolumeHigh,
-  faVolumeLow,
-  faVolumeXmark,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faArrowRotateLeft } from "@fortawesome/free-solid-svg-icons/faArrowRotateLeft";
+import { faArrowRotateRight } from "@fortawesome/free-solid-svg-icons/faArrowRotateRight";
+import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faClone } from "@fortawesome/free-solid-svg-icons/faClone";
+import { faCompress } from "@fortawesome/free-solid-svg-icons/faCompress";
+import { faExpand } from "@fortawesome/free-solid-svg-icons/faExpand";
+import { faForwardStep } from "@fortawesome/free-solid-svg-icons/faForwardStep";
+import { faMaximize } from "@fortawesome/free-solid-svg-icons/faMaximize";
+import { faMinimize } from "@fortawesome/free-solid-svg-icons/faMinimize";
+import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
+import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
+import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
+import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import SpotlightCard from "../SpotlightCard";
 import { ShinyText } from "../ShinyText";
 import { Magnet } from "../Magnet";

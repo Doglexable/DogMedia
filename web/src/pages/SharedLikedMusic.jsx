@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBookmark, faMusic } from "@fortawesome/free-solid-svg-icons";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 

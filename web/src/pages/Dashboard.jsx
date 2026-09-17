@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faList, faPlay, faPlus } from "@fortawesome/free-solid-svg-icons";
-import { useAccess } from "../App";
+import { faList } from "@fortawesome/free-solid-svg-icons/faList";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
+import { useAccess } from "../access-context";
 import { api, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
@@ -33,6 +35,44 @@ function MediaGridSkeleton({ count = 8 }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function DashboardHomeSkeleton() {
+  return (
+    <div className="library-home" role="status" aria-label="Loading library" aria-busy="true">
+      <div
+        className="library-featured library-featured-skeleton skeleton-shimmer"
+        style={{
+          minHeight: 420,
+          borderRadius: 8,
+          border: "1px solid color-mix(in srgb, var(--primary) 28%, var(--card-border))",
+          background: "color-mix(in srgb, var(--card-bg) 92%, var(--bg))",
+        }}
+      />
+      <section className="quick-access-block" aria-hidden="true">
+        <div className="library-section-header">
+          <div>
+            <span className="skeleton-shimmer inline-block h-3 w-28 rounded" />
+            <span className="skeleton-shimmer mt-2 block h-6 w-56 rounded" />
+          </div>
+        </div>
+        <div className="quick-access-section">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div
+              key={index}
+              className="quick-access-card skeleton-shimmer"
+              style={{
+                height: 68,
+                background: "color-mix(in srgb, var(--card-bg) 80%, var(--bg))",
+                borderRadius: 8,
+              }}
+            />
+          ))}
+        </div>
+      </section>
+      <MediaGridSkeleton />
     </div>
   );
 }
@@ -78,9 +118,10 @@ function EmptySearchMark() {
   );
 }
 
-function MediaCover({ circular = false, item, size = "regular" }) {
+function MediaCover({ circular = false, item, priority = false, size = "regular" }) {
   const [failed, setFailed] = useState(false);
   const meta = getMimeMeta(item?.mime_type);
+  const isHero = size === "hero" || priority;
 
   return (
     <span className={`library-cover library-cover--${size}${circular ? " library-cover--circle" : ""}`}>
@@ -88,7 +129,8 @@ function MediaCover({ circular = false, item, size = "regular" }) {
         <img
           src={`/api/media/${item.id}/thumbnail`}
           alt=""
-          loading="lazy"
+          loading={isHero ? "eager" : "lazy"}
+          fetchPriority={isHero ? "high" : undefined}
           decoding="async"
           draggable={false}
           onContextMenu={(event) => event.preventDefault()}
@@ -248,7 +290,7 @@ function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext
           </div>
           <div className="library-featured-art">
             <div className="library-signal-disc" aria-hidden="true" />
-            <MediaCover item={item} size="hero" />
+            <MediaCover item={item} size="hero" priority />
           </div>
         </section>
       </SpotlightCard>
@@ -1024,7 +1066,11 @@ export default function Dashboard() {
         )}
 
         {mediaLoading ? (
-          <MediaGridSkeleton />
+          !normalizedSearch && libraryView !== "liked" ? (
+            <DashboardHomeSkeleton />
+          ) : (
+            <MediaGridSkeleton />
+          )
         ) : visibleMedia.length > 0 ? (
           <div className="library-home">
             {!normalizedSearch && (

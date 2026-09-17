@@ -10,9 +10,9 @@
   --vault-rose: #e11d48;
   --vault-white: #ffffff;
   --playback-signal: var(--vault-rose);
-  --font-display: "Space Grotesk Variable", "Arial Narrow", sans-serif;
-  --font-body: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-body: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-data: "Inter Variable", Inter, ui-monospace, SFMono-Regular, monospace;
   --bg: var(--vault-paper);
   --text: var(--vault-ink);
   --card-bg: rgba(255, 255, 255, 0.78);
@@ -69,10 +69,14 @@ h3,
 .global-sidebar-brand strong,
 .android-download-copy strong {
   font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 code,
-pre,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 .media-card-duration,
 .player-time,
 .fullscreen-player-time,
@@ -80,6 +84,8 @@ pre,
 .global-sidebar-access-text small,
 .wrapped-story-count {
   font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 button,
@@ -655,8 +661,8 @@ textarea {
 .full-player-info h1,
 .fullscreen-player-title {
   font-family: var(--font-display);
-  font-weight: 670;
-  letter-spacing: -0.045em;
+  font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .full-player-metadata-label,
@@ -676,8 +682,8 @@ textarea {
 .admin-vault-title {
   font-family: var(--font-display);
   font-size: 1.05rem !important;
-  font-weight: 680 !important;
-  letter-spacing: -0.035em !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em !important;
 }
 
 .admin-vault-note {

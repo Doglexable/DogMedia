@@ -3,6 +3,8 @@
 .site-editorial-footer {
   position: relative;
   width: 100%;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
   border-top: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
   background:
     linear-gradient(

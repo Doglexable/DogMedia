@@ -1,16 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faArrowUpRightFromSquare,
-  faChevronDown,
-  faCodeBranch,
-  faDesktop,
-  faGlobe,
-  faMobileScreen,
-  faServer,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons/faArrowUpRightFromSquare";
+import { faChevronDown } from "@fortawesome/free-solid-svg-icons/faChevronDown";
+import { faCodeBranch } from "@fortawesome/free-solid-svg-icons/faCodeBranch";
+import { faDesktop } from "@fortawesome/free-solid-svg-icons/faDesktop";
+import { faGlobe } from "@fortawesome/free-solid-svg-icons/faGlobe";
+import { faMobileScreen } from "@fortawesome/free-solid-svg-icons/faMobileScreen";
+import { faServer } from "@fortawesome/free-solid-svg-icons/faServer";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { apiUrl } from "../api";
 import "./site-footer.css";
 

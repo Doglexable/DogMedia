@@ -1,21 +1,18 @@
 import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faBackwardStep,
-  faBookmark,
-  faForwardStep,
-  faInfinity,
-  faList,
-  faPause,
-  faPlay,
-  faRepeat,
-  faShuffle,
-  faVolumeHigh,
-  faVolumeLow,
-  faVolumeXmark,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
-import { AmbientArtwork } from "./ambient-artwork";
+import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
+import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faForwardStep } from "@fortawesome/free-solid-svg-icons/faForwardStep";
+import { faInfinity } from "@fortawesome/free-solid-svg-icons/faInfinity";
+import { faList } from "@fortawesome/free-solid-svg-icons/faList";
+import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { faRepeat } from "@fortawesome/free-solid-svg-icons/faRepeat";
+import { faShuffle } from "@fortawesome/free-solid-svg-icons/faShuffle";
+import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
+import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
+import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { PlayerBar } from "./player-bar";
 import { QualityControl, SleepTimerControl } from "./player-controls";
 import { FullscreenLyrics } from "./lyrics-panel";

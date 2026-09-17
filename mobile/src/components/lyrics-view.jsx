@@ -36,7 +36,10 @@ function LyricsCard({ artworkFailed, cardRef, cardWidth, metadata, onArtworkErro
     <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }} style={[styles.shareCard, { width: cardWidth, height: cardHeight }]}>
       {metadata.artworkUri && !artworkFailed && <Image source={{ uri: metadata.artworkUri }} blurRadius={30} onError={onArtworkError} style={styles.shareCardBackdrop} />}
       <View style={styles.shareCardWash} />
-      <View style={styles.shareCardBrand}><View style={styles.shareCardBrandMark}><Text style={styles.shareCardBrandMarkText}>DM</Text></View><Text style={styles.shareCardBrandText}>DogMedia</Text></View>
+      <View style={styles.shareCardBrand}>
+        <Image source={require("../../assets/logo.png")} style={styles.shareCardBrandLogo} />
+        <Text style={styles.shareCardBrandText}>DogMedia</Text>
+      </View>
       <View style={styles.shareCardCopy}>
         <View style={styles.shareCardRule} />
         {selected.map((segment, index) => <Text key={`${segment.start}-${index}`} style={[styles.shareCardLine, { fontSize: cardWidth * 0.066, lineHeight: cardWidth * 0.071 }]}>{segment.text}</Text>)}
@@ -373,10 +376,11 @@ const makeStyles = (colors) => StyleSheet.create({
   shareCard: { overflow: "hidden", padding: 20, backgroundColor: "#11131c" },
   shareCardBackdrop: { ...StyleSheet.absoluteFillObject, width: "125%", height: "125%", left: "-12.5%", top: "-12.5%", opacity: 0.68 },
   shareCardWash: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(6,7,12,0.52)" },
-  shareCardBrand: { position: "relative", flexDirection: "row", alignItems: "center", gap: 7 },
+  shareCardBrand: { position: "relative", flexDirection: "row", alignItems: "center", gap: 8 },
+  shareCardBrandLogo: { width: 22, height: 22, borderRadius: 5 },
   shareCardBrandMark: { width: 25, height: 25, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.45)", borderRadius: 13 },
   shareCardBrandMarkText: { color: "#fff", fontSize: 8, fontWeight: "900" },
-  shareCardBrandText: { color: "#fff", fontSize: 11, fontWeight: "900" },
+  shareCardBrandText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
   shareCardCopy: { position: "relative", flex: 1, justifyContent: "center", paddingVertical: spacing.lg },
   shareCardRule: { width: 38, height: 4, marginBottom: spacing.md, borderRadius: 2, backgroundColor: "#fff" },
   shareCardLine: { marginBottom: 6, color: "#fff", fontWeight: "900", letterSpacing: -0.8 },

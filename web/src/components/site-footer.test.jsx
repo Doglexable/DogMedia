@@ -81,6 +81,13 @@ describe("SiteFooter", () => {
     expect(adminMarkup).toContain('href="/admin"');
   });
 
+  it("ensures site-footer.css includes content-visibility and contain-intrinsic-size for CLS prevention", () => {
+    const cssPath = path.resolve(__dirname, "./site-footer.css");
+    const css = fs.readFileSync(cssPath, "utf8");
+    expect(css).toContain("content-visibility: auto;");
+    expect(css).toContain("contain-intrinsic-size: auto 600px;");
+  });
+
   it("ensures site-footer.css does NOT contain any hardcoded hex, rgb, or hsl colors", () => {
     const cssPath = path.resolve(__dirname, "./site-footer.css");
     const css = fs.readFileSync(cssPath, "utf8");

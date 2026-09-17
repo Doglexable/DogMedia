@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faQuoteRight, faShareNodes, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
+import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
 import { api } from "../../api";
 import {
@@ -71,14 +73,24 @@ async function waitForCardAssets(node) {
   await new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
-function LyricsShareCard({ artworkFailed, cardRef, metadata, onArtworkError, selected }) {
+export function LyricsShareCard({ artworkFailed, cardRef, metadata, onArtworkError, selected }) {
   return (
     <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview">
       {metadata.artworkUrl && !artworkFailed && (
         <img className="lyrics-share-card-backdrop" src={metadata.artworkUrl} alt="" crossOrigin="anonymous" onError={onArtworkError} />
       )}
       <div className="lyrics-share-card-wash" />
-      <div className="lyrics-share-card-brand"><span>DM</span> DogMedia</div>
+      <div className="lyrics-share-card-brand">
+        <img
+          src="/web-app-manifest-192x192.png"
+          alt="DogMedia"
+          className="lyrics-share-card-logo"
+          width="26"
+          height="26"
+          crossOrigin="anonymous"
+        />
+        <span className="lyrics-share-card-brand-title">DogMedia</span>
+      </div>
       <div className="lyrics-share-card-copy">
         <div className="lyrics-share-card-rule" />
         {selected.map((segment, index) => <p key={`${segment.start}-${index}`}>{segment.text}</p>)}

@@ -1,13 +1,16 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMusic } from "@fortawesome/free-solid-svg-icons";
+import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { AmbientArtwork } from "./ambient-artwork";
 
-export function AlbumArt({ alt, onClick, src }) {
+export function AlbumArt({ alt, onClick, priority = true, src }) {
   const content = (
     <AmbientArtwork
       src={src}
       alt={alt}
+      priority={priority}
       className="ambient-artwork--player-bar h-16 w-16 shrink-0"
+      width={64}
+      height={64}
       fallback={<FontAwesomeIcon icon={faMusic} className="ambient-artwork__fallback text-xl text-muted" />}
     />
   );

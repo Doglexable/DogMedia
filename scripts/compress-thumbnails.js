@@ -1,14 +1,21 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, readdir, rename, stat, unlink } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_QUALITY = 75;
-const THUMBNAIL_SIZE = 518;
-const THUMBNAIL_PATTERN = /_thumb\.(?:jpe?g|png|webp)$/i;
-const THUMBNAIL_FILTER = `scale='if(gt(iw,ih),min(${THUMBNAIL_SIZE},iw),-2)':'if(gte(iw,ih),-2,min(${THUMBNAIL_SIZE},ih))'`;
+const DEFAULT_QUALITY = 90;
+const CATEGORY_THUMBNAIL_SIZE = 518;
+const MEDIA_THUMBNAIL_SIZE = 900;
+const THUMBNAIL_PATTERN = /(?:_thumb\.(?:jpe?g|png|webp)|(?:front|cover)\.webp)$/i;
+
+function thumbnailFilter(inputPath) {
+  const size = basename(inputPath).toLowerCase() === "cover.webp"
+    ? MEDIA_THUMBNAIL_SIZE
+    : CATEGORY_THUMBNAIL_SIZE;
+  return `scale='if(gt(iw,ih),min(${size},iw),-2)':'if(gte(iw,ih),-2,min(${size},ih))'`;
+}
 
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -32,7 +39,7 @@ async function collectThumbnails(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (entry.isDirectory() && entry.name === ".thumbnail-backups") continue;
+    if (entry.isDirectory() && /^\.?thumbnail-backups?(?:-|$)/i.test(entry.name)) continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       thumbnails.push(...await collectThumbnails(path));
@@ -74,20 +81,21 @@ async function detectWebpEncoder() {
 function compressionArgs(inputPath, outputPath, quality, webpEncoder) {
   const extension = extname(inputPath).toLowerCase();
   const common = ["-y", "-v", "error", "-i", inputPath, "-frames:v", "1", "-map_metadata", "-1"];
+  const filter = thumbnailFilter(inputPath);
 
   if (extension === ".webp") {
     if (!webpEncoder) return null;
-    return [...common, "-vf", THUMBNAIL_FILTER, "-c:v", webpEncoder, "-quality", String(quality), "-compression_level", "6", outputPath];
+    return [...common, "-vf", filter, "-c:v", webpEncoder, "-quality", String(quality), "-compression_level", "6", outputPath];
   }
 
   if (extension === ".png") {
     const maxColors = Math.max(2, Math.round(2 + (quality / 100) * 254));
-    const paletteFilter = `${THUMBNAIL_FILTER},split[source][paletteInput];[paletteInput]palettegen=max_colors=${maxColors}[palette];[source][palette]paletteuse=dither=bayer`;
+    const paletteFilter = `${filter},split[source][paletteInput];[paletteInput]palettegen=max_colors=${maxColors}[palette];[source][palette]paletteuse=dither=bayer`;
     return [...common, "-vf", paletteFilter, "-compression_level", "9", outputPath];
   }
 
   const jpegScale = Math.max(2, Math.min(31, Math.round(31 - (quality / 100) * 29)));
-  return [...common, "-vf", THUMBNAIL_FILTER, "-q:v", String(jpegScale), outputPath];
+  return [...common, "-vf", filter, "-q:v", String(jpegScale), outputPath];
 }
 
 async function compressThumbnail(inputPath, quality, sequence, webpEncoder) {
@@ -135,7 +143,7 @@ async function main() {
   const backupRoot = join(mediaRoot, ".thumbnail-backups", timestamp());
   console.log(`Found ${thumbnails.length} thumbnail(s).`);
   console.log(`Quality: ${quality}%`);
-  console.log(`Maximum dimensions: ${THUMBNAIL_SIZE}x${THUMBNAIL_SIZE}`);
+  console.log(`Maximum dimensions: category ${CATEGORY_THUMBNAIL_SIZE}px, media ${MEDIA_THUMBNAIL_SIZE}px`);
   console.log(`WebP encoder: ${webpEncoder || "not available; .webp thumbnails will be skipped"}`);
   console.log(`Backing up originals to ${backupRoot}`);
 

@@ -1,15 +1,13 @@
 import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faCalendar,
-  faChevronLeft,
-  faChevronRight,
-  faCircleInfo,
-  faClock,
-  faFile,
-  faFolder,
-  faHardDrive,
-} from "@fortawesome/free-solid-svg-icons";
+import { faCalendar } from "@fortawesome/free-solid-svg-icons/faCalendar";
+import { faChevronLeft } from "@fortawesome/free-solid-svg-icons/faChevronLeft";
+import { faChevronRight } from "@fortawesome/free-solid-svg-icons/faChevronRight";
+import { faCircleInfo } from "@fortawesome/free-solid-svg-icons/faCircleInfo";
+import { faClock } from "@fortawesome/free-solid-svg-icons/faClock";
+import { faFile } from "@fortawesome/free-solid-svg-icons/faFile";
+import { faFolder } from "@fortawesome/free-solid-svg-icons/faFolder";
+import { faHardDrive } from "@fortawesome/free-solid-svg-icons/faHardDrive";
 import { getArtistLabel, resolveMediaArtist } from "./media-artists";
 import { LyricsPanel } from "./lyrics-panel";
 import { formatDuration, getMediaFolder, getMediaFolderName } from "./player-utils";

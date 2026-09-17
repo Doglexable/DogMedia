@@ -1,4 +1,7 @@
-import { faFile, faImage, faMusic, faVideo } from "@fortawesome/free-solid-svg-icons";
+import { faFile } from "@fortawesome/free-solid-svg-icons/faFile";
+import { faImage } from "@fortawesome/free-solid-svg-icons/faImage";
+import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
+import { faVideo } from "@fortawesome/free-solid-svg-icons/faVideo";
 
 export const LOOP_MODES = ["none", "queue", "media"];
 
@@ -188,5 +191,4 @@ export function resolveMediaArtist(media, fallback = "Unknown artist") {
 
   return fallback;
 }
-
 

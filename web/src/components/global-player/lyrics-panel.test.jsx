@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { findActiveLyricsIndex, getLyricsPreview, getLyricsScrollBehavior } from "./lyrics-panel";
+import {
+  findActiveLyricsIndex,
+  getLyricsPreview,
+  getLyricsScrollBehavior,
+  LyricsShareCard,
+} from "./lyrics-panel";
 
 const segments = [
   { start: 2, end: 4, text: "First" },
@@ -37,5 +42,20 @@ describe("getLyricsPreview", () => {
     expect(getLyricsPreview(segments, 1)).toBe("Second");
     expect(getLyricsPreview(segments, -1)).toBe("First");
     expect(getLyricsPreview([], 0)).toBe("");
+  });
+});
+
+describe("LyricsShareCard", () => {
+  it("renders the DogMedia brand logo image and title", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const markup = renderToString(
+      <LyricsShareCard
+        metadata={{ title: "Sample Song", artists: "Sample Artist" }}
+        selected={[{ start: 0, text: "Line one" }]}
+      />
+    );
+    expect(markup).toContain('src="/web-app-manifest-192x192.png"');
+    expect(markup).toContain('class="lyrics-share-card-logo"');
+    expect(markup).toContain("DogMedia");
   });
 });

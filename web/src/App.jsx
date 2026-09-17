@@ -1,77 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useState, lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useState, lazy, Suspense } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { api } from "./api";
-import { GlobalPlayerProvider } from "./components/GlobalPlayer";
-import { LibraryShell } from "./components/library-shell";
+import { AccessContext } from "./access-context";
 
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Player = lazy(() => import("./pages/Player"));
-const Wrapped = lazy(() => import("./pages/Wrapped"));
-const Admin = lazy(() => import("./pages/Admin"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied"));
 const SharedLikedMusic = lazy(() => import("./pages/SharedLikedMusic"));
-
-const AccessContext = createContext(null);
-const THEME_MODES = ["system", "light", "dark"];
-
-function getStoredThemeMode() {
-  const mode = localStorage.getItem("theme") || document.documentElement.dataset.themeMode || "system";
-  return THEME_MODES.includes(mode) ? mode : "system";
-}
-
-function resolveThemeMode(mode) {
-  if (mode === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-  return mode;
-}
-
-function applyThemeMode(mode) {
-  document.documentElement.dataset.themeMode = mode;
-  document.documentElement.dataset.theme = resolveThemeMode(mode);
-  localStorage.setItem("theme", mode);
-}
-
-export function useAccess() {
-  return useContext(AccessContext);
-}
-
-export function ThemeToggle({ style, className }) {
-  const [mode, setMode] = useState(getStoredThemeMode);
-
-  useEffect(() => {
-    applyThemeMode(mode);
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const syncSystemTheme = () => {
-      if (getStoredThemeMode() === "system") {
-        document.documentElement.dataset.theme = resolveThemeMode("system");
-      }
-    };
-
-    media.addEventListener("change", syncSystemTheme);
-    return () => media.removeEventListener("change", syncSystemTheme);
-  }, []);
-
-  const toggle = useCallback(() => {
-    setMode((current) => {
-      const next = THEME_MODES[(THEME_MODES.indexOf(current) + 1) % THEME_MODES.length];
-      applyThemeMode(next);
-      return next;
-    });
-  }, []);
-
-  return (
-    <button
-      type="button"
-      className={className}
-      style={style}
-      onClick={toggle}
-      title={`Theme: ${mode}`}
-    >
-      Theme: {mode[0].toUpperCase() + mode.slice(1)}
-    </button>
-  );
-}
+const ProtectedApp = lazy(() => import("./components/protected-app"));
 
 function AccessGuard({ children }) {
   const [status, setStatus] = useState("loading");
@@ -109,34 +43,6 @@ function AccessGuard({ children }) {
   );
 }
 
-function ProtectedRoutes() {
-  const access = useAccess();
-
-  return (
-    <LibraryShell access={access}>
-      <GlobalPlayerProvider>
-        <Suspense fallback={null}>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/media/:id" element={<Player />} />
-            <Route path="/wrapped" element={<Wrapped />} />
-            <Route path="/admin" element={<Admin />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
-      </GlobalPlayerProvider>
-    </LibraryShell>
-  );
-}
-
-function ProtectedApp() {
-  return (
-    <AccessGuard>
-      <ProtectedRoutes />
-    </AccessGuard>
-  );
-}
-
 export default function App() {
   useEffect(() => {
     const handleContextMenu = (event) => {
@@ -154,7 +60,7 @@ export default function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/shared/likes/:token" element={<SharedLikedMusic />} />
-          <Route path="*" element={<ProtectedApp />} />
+          <Route path="*" element={<AccessGuard><ProtectedApp /></AccessGuard>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

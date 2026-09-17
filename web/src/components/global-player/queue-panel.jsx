@@ -3,7 +3,9 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faGripVertical, faTrash, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faGripVertical } from "@fortawesome/free-solid-svg-icons/faGripVertical";
+import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getMediaMeta } from "./player-utils";

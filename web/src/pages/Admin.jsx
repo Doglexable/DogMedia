@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faCircleCheck,
-  faCloudArrowUp,
-  faDownload,
-  faFileShield,
-  faFilm,
-  faFolderOpen,
-  faMusic,
-  faMobileScreenButton,
-  faTrash,
-} from "@fortawesome/free-solid-svg-icons";
-import { ThemeToggle, useAccess } from "../App";
+import { faCircleCheck } from "@fortawesome/free-solid-svg-icons/faCircleCheck";
+import { faCloudArrowUp } from "@fortawesome/free-solid-svg-icons/faCloudArrowUp";
+import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faFileShield } from "@fortawesome/free-solid-svg-icons/faFileShield";
+import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
+import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
+import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
+import { faMobileScreenButton } from "@fortawesome/free-solid-svg-icons/faMobileScreenButton";
+import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
+import { useAccess } from "../access-context";
+import { ThemeToggle } from "../components/theme-toggle";
 import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";

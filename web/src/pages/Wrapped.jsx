@@ -1,8 +1,6 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import {
-  faDownload,
-  faXmark,
-} from "@fortawesome/free-solid-svg-icons";
+import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { toBlob } from "html-to-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -183,7 +181,16 @@ export default function Wrapped() {
             <button type="button" aria-pressed={view === "summary"} onClick={() => setView("summary")}>Summary</button>
           </div>
         </div>
-        <span>{serverPeriodLabel} · {wrappedCopy.recapLabel}</span>
+        <div className="wrapped-viewbar-meta">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-viewbar-logo"
+            width="20"
+            height="20"
+          />
+          <span>{serverPeriodLabel} · {wrappedCopy.recapLabel}</span>
+        </div>
       </div>
 
       {view === "story" ? (
@@ -314,7 +321,7 @@ function getStoryChapterLabel(id) {
   })[id] || "Wrapped story";
 }
 
-function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrappedCopy(data) }) {
+export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrappedCopy(data) }) {
   const totals = data.totals || {};
   const rhythm = data.rhythm || {};
   const persona = data.persona || slide.persona;
@@ -326,7 +333,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
         <Artwork media={lead} className="wrapped-slide-backdrop" />
         <div className="wrapped-slide-shade" />
         <div className="wrapped-slide-copy">
-          <span className="wrapped-slide-kicker">DogMedia · {periodLabel}</span>
+          <div className="wrapped-slide-brand">
+            <img
+              src="/web-app-manifest-192x192.png"
+              alt="DogMedia"
+              className="wrapped-slide-logo"
+              width="26"
+              height="26"
+              crossOrigin="anonymous"
+            />
+            <span className="wrapped-slide-kicker">DogMedia · {periodLabel}</span>
+          </div>
           <h1>{wrappedCopy.replayTitle}</h1>
           <p>{lead ? `${getWrappedMediaTitle(lead)} set the tone.` : "Your library found its rhythm."}</p>
         </div>
@@ -337,7 +354,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   if (slide.id === "time") {
     return (
       <article className="wrapped-slide wrapped-slide--time">
-        <span className="wrapped-slide-kicker">Time in motion</span>
+        <div className="wrapped-slide-brand">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-slide-logo"
+            width="20"
+            height="20"
+            crossOrigin="anonymous"
+          />
+          <span className="wrapped-slide-kicker">Time in motion</span>
+        </div>
         <div className="wrapped-big-number">{fmtTime(data.totalPlayTime)}</div>
         <p className="wrapped-slide-lede">tracked across {formatNumber(data.totalPlays)} starts</p>
         <ActivityRibbon label={wrappedCopy.activityLabel} timeline={timeline} />
@@ -353,7 +380,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   if (slide.id === "top-media") {
     return (
       <article className="wrapped-slide wrapped-slide--top">
-        <span className="wrapped-slide-kicker">Your rotation</span>
+        <div className="wrapped-slide-brand">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-slide-logo"
+            width="20"
+            height="20"
+            crossOrigin="anonymous"
+          />
+          <span className="wrapped-slide-kicker">Your rotation</span>
+        </div>
         <h2>Five titles stayed close</h2>
         <div className="wrapped-contact-sheet">
           {(data.topMedia || []).map((media, mediaIndex) => (
@@ -371,7 +408,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   if (slide.id === "rhythm") {
     return (
       <article className="wrapped-slide wrapped-slide--rhythm">
-        <span className="wrapped-slide-kicker">Your listening clock</span>
+        <div className="wrapped-slide-brand">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-slide-logo"
+            width="20"
+            height="20"
+            crossOrigin="anonymous"
+          />
+          <span className="wrapped-slide-kicker">Your listening clock</span>
+        </div>
         <div className="wrapped-clock-value">{formatHour(rhythm.peakHour)}</div>
         <p className="wrapped-slide-lede">was your strongest hour</p>
         <div className="wrapped-rhythm-grid">
@@ -385,13 +432,23 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   }
 
   if (slide.id === "devices") {
-    const remainingDevices = Math.max((slide.totalCount || 0) - slide.items.length, 0);
+    const remainingDevices = Math.max((slide.totalCount || 0) - (slide.items?.length || 0), 0);
     return (
       <article className="wrapped-slide wrapped-slide--devices">
-        <span className="wrapped-slide-kicker">All-device contribution</span>
+        <div className="wrapped-slide-brand">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-slide-logo"
+            width="20"
+            height="20"
+            crossOrigin="anonymous"
+          />
+          <span className="wrapped-slide-kicker">All-device contribution</span>
+        </div>
         <h2>One library.<br />Every screen.</h2>
         <p className="wrapped-slide-lede">Listening time ranked across your network.</p>
-        {slide.items.length ? (
+        {slide.items?.length ? (
           <ol className="wrapped-device-story-list">
             {slide.items.map((device) => (
               <li key={device.ip}>
@@ -414,7 +471,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   if (slide.id === "persona") {
     return (
       <article className="wrapped-slide wrapped-slide--persona">
-        <span className="wrapped-slide-kicker">Your playback character</span>
+        <div className="wrapped-slide-brand">
+          <img
+            src="/web-app-manifest-192x192.png"
+            alt="DogMedia"
+            className="wrapped-slide-logo"
+            width="20"
+            height="20"
+            crossOrigin="anonymous"
+          />
+          <span className="wrapped-slide-kicker">Your playback character</span>
+        </div>
         <p className="wrapped-persona-mark" aria-hidden="true">{persona?.title?.slice(0, 1) || "S"}</p>
         <h2>{persona?.title || "Steady Signal"}</h2>
         <p className="wrapped-persona-copy">{persona?.description || "Your playback rhythm is still taking shape."}</p>
@@ -427,7 +494,17 @@ function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = getWrapp
   return (
     <article className="wrapped-slide wrapped-slide--final">
       <div className="wrapped-final-art"><Artwork media={lead} /></div>
-      <span className="wrapped-slide-kicker">DogMedia · {wrappedCopy.recapLabel}</span>
+      <div className="wrapped-slide-brand">
+        <img
+          src="/web-app-manifest-192x192.png"
+          alt="DogMedia"
+          className="wrapped-slide-logo"
+          width="26"
+          height="26"
+          crossOrigin="anonymous"
+        />
+        <span className="wrapped-slide-kicker">DogMedia · {wrappedCopy.recapLabel}</span>
+      </div>
       <h2>{persona?.title || "Steady Signal"}</h2>
       <div className="wrapped-final-stats">
         <div><strong>{fmtTime(data.totalPlayTime)}</strong><span>play time</span></div>
@@ -471,7 +548,16 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
     <div className="wrapped-summary-view">
       <section className="wrapped-hero">
         <div className="wrapped-hero-copy">
-          <p className="wrapped-eyebrow">All devices · {periodLabel}</p>
+          <div className="wrapped-hero-meta">
+            <img
+              src="/web-app-manifest-192x192.png"
+              alt="DogMedia"
+              className="wrapped-hero-logo"
+              width="24"
+              height="24"
+            />
+            <p className="wrapped-eyebrow">All devices · {periodLabel}</p>
+          </div>
           <h1>Your playback pulse</h1>
           <p className="wrapped-subtitle">{wrappedCopy.storyDescription}</p>
         </div>
@@ -548,7 +634,19 @@ function LoadingState() {
 }
 
 function EmptyState({ copy, title }) {
-  return <section className="wrapped-empty"><div className="wrapped-empty-mark" aria-hidden="true" /><h2>{title}</h2><p>{copy}</p></section>;
+  return (
+    <section className="wrapped-empty">
+      <img
+        src="/web-app-manifest-192x192.png"
+        alt="DogMedia"
+        className="wrapped-empty-logo"
+        width="64"
+        height="64"
+      />
+      <h2>{title}</h2>
+      <p>{copy}</p>
+    </section>
+  );
 }
 
 function Metric({ label, value }) {
