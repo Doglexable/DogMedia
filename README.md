@@ -282,8 +282,14 @@ a parent are **not** inherited by routes created with `register` + `prefix`.
 
 ## Redis
 
-Encoding jobs use the `media:encoding` Redis Stream. The Compose worker defaults
-to one encoder; set `ENCODING_CONCURRENCY` to raise concurrency deliberately.
+Media uploads return after the source file is persisted. Metadata probing,
+automatic artwork extraction, and the handoff to encoding run through the
+`media:finalization` Redis Stream so slow FFmpeg work does not hold the upload
+request open. Encoding jobs then use the `media:encoding` Redis Stream. The
+Compose worker defaults to one encoder; set `ENCODING_CONCURRENCY` to raise
+concurrency deliberately. Abandoned chunk sessions are removed after 30 minutes
+without activity; the interval and idle threshold can be changed with the
+`INCOMPLETE_UPLOAD_CLEANUP_*` environment variables.
 After applying migration `014`, consolidate legacy thumbnails and enqueue the
 existing library with an idempotent backfill:
 
@@ -306,6 +312,7 @@ prints conflicts and categories for which no usable cover could be found.
 | `playback:active:<ip>` | String | 5 min | Active session for now-playing dashboard, including loop/shuffle state |
 | `playback:resume:<ip>:<mediaId>` | String | 7 days | Last known position for continue-watching |
 | `music:reel-render` | Stream | — | Background FFmpeg jobs for favorite music reels |
+| `media:finalization` | Stream | — | Post-upload metadata and artwork jobs |
 | `public-music-reel:session:<id>` | String | 4 hours | Temporary public video-stream session |
 
 ## API

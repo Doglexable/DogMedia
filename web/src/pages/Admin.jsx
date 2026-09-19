@@ -1041,6 +1041,8 @@ export default function Admin() {
     });
     return invalid || new Set(orders).size !== orders.length;
   }, [videoItems, videoOverrides]);
+  const filmSelectionInvalid = videoKind === "film" && videoItems.length !== 1;
+  const filmArtworkMissing = videoKind === "film" && !mediaThumb;
   const batchHasInvalidRows = useMemo(() => batchItems.some((item) => {
     const override = batchOverrides[item.key] || {};
     const title = String(override.title ?? item.title).trim();
@@ -1307,6 +1309,16 @@ export default function Admin() {
 
     if (!mediaModalCategoryId || videoItems.length === 0) {
       setMessage({ type: "error", text: "Choose a category and at least one supported video file." });
+      return;
+    }
+
+    if (filmSelectionInvalid) {
+      setMessage({ type: "error", text: "Choose exactly one video file for a film." });
+      return;
+    }
+
+    if (filmArtworkMissing) {
+      setMessage({ type: "error", text: "Choose artwork for the film." });
       return;
     }
 
@@ -2163,7 +2175,7 @@ export default function Admin() {
                       <input
                         id="admin-media-file"
                         type="file"
-                        multiple
+                        multiple={videoKind !== "film"}
                         accept="video/*,.mkv,.avi"
                         onChange={(event) => {
                           setVideoFiles(Array.from(event.target.files || []));
@@ -2225,11 +2237,14 @@ export default function Admin() {
                       <div className="admin-import-step-heading">
                         <span>4</span>
                         <div>
-                          <h4>Add shared artwork</h4>
-                          <p>The image is copied to every uploaded video. A frame is extracted from each video when left empty.</p>
+                          <h4>{videoKind === "film" ? "Add film artwork" : "Add shared artwork"}</h4>
+                          <p>{videoKind === "film"
+                            ? "This artwork is attached to the film itself and is required. It is not used as folder artwork."
+                            : "The image is copied to every uploaded episode. A frame is extracted from each video when left empty."}</p>
                         </div>
                       </div>
-                      <input id="admin-media-thumb" type="file" accept="image/*" onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
+                      <input id="admin-media-thumb" type="file" accept="image/*" required={videoKind === "film"} onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
+                      {mediaThumb && <p className="admin-selected-file">Artwork selected · {mediaThumb.name}</p>}
                     </div>
 
                     <div className="admin-import-footer">
@@ -2237,7 +2252,7 @@ export default function Admin() {
                         <strong>{videoItems.length} video{videoItems.length === 1 ? "" : "s"}</strong>
                         <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · duration detected automatically</span>
                       </div>
-                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows)}>
+                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid || filmArtworkMissing} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid || filmArtworkMissing)}>
                         {uploadingMedia && <span style={styles.spinner} />}
                         {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : `Upload ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`}
                       </button>

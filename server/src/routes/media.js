@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from "fs";
-import { mkdir, open, readFile, rename, rm, stat, unlink, writeFile } from "fs/promises";
+import { mkdir, open, readFile, rename, rm, stat, unlink, utimes, writeFile } from "fs/promises";
 import { join } from "path";
 import { pipeline } from "stream/promises";
 import { execFile } from "child_process";
@@ -7,7 +7,9 @@ import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
-import { enqueueEncoding, retryFailedEncoding } from "../encoding-queue.js";
+import { retryFailedEncoding } from "../encoding-queue.js";
+import { enqueueMediaFinalization } from "../media-finalization-queue.js";
+import { withActiveUpload } from "../upload-cleanup.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 import {
   acquireExclusiveLease,
@@ -160,7 +162,7 @@ export function decodeBrowseCursor(value) {
   }
 }
 
-async function probeDuration(filePath, log) {
+export async function probeDuration(filePath, log) {
   try {
     const { stdout } = await execFileAsync("ffprobe", [
       "-v", "error",
@@ -347,31 +349,29 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(filePath));
   await unlink(mainFileUpload.tempPath).catch(() => {});
   const mimeType = mimeFromExt(filePath);
-  const detectedDuration = durationObj ?? (await probeDuration(filePath, request.log));
-  const detectedTags = mimeType.startsWith("audio/") ? await probeMediaTags(filePath, request.log) : {};
-  const artists = providedArtists || detectedTags.artists || null;
-  const trackOrder = resolveTrackOrder(providedTrackOrder, detectedTags.trackOrder);
+  const artists = providedArtists;
+  const trackOrder = providedTrackOrder;
   const contentKind = normalizeContentKind(fields.content_kind, mimeType);
 
   let coverPath = categoryRows[0].cover_path;
   let thumbnailPath = null;
-  if (mimeType.startsWith("video/") || mimeType.startsWith("image/")) {
+  if (thumbUpload && (mimeType.startsWith("video/") || mimeType.startsWith("image/"))) {
     try {
       thumbnailPath = await normalizeMediaCover({
         categoryId: fields.category_id,
         mediaId,
         dataDir: DATA_DIR,
-        inputPath: thumbUpload?.tempPath || filePath,
+        inputPath: thumbUpload.tempPath,
       });
     } catch (err) {
       request.log.debug({ err }, "uploaded media did not provide a usable item cover");
     }
-  } else if (!coverPath) {
+  } else if (thumbUpload && !coverPath) {
     try {
       coverPath = await normalizeCategoryCover({
         categoryId: fields.category_id,
         dataDir: DATA_DIR,
-        inputPath: thumbUpload?.tempPath || filePath,
+        inputPath: thumbUpload.tempPath,
       });
       await fastify.pg.query("UPDATE categories SET cover_path = $1 WHERE id = $2 AND cover_path IS NULL", [coverPath, fields.category_id]);
     } catch (err) {
@@ -380,22 +380,16 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   }
   await cleanupUploads(thumbUpload);
 
-  if (categoryRows[0].parent_id !== null && !coverPath && !thumbnailPath) {
-    await unlink(filePath).catch(() => {});
-    await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [mediaId]);
-    return reply.code(400).send({ error: "A non-root category containing media must have a cover" });
-  }
-
   const { rows: updated } = await fastify.pg.query(
     "UPDATE media_assets SET file_path = $1, mime_type = $2, duration = $3, artists = $4, track_order = $5, thumbnail_path = $6, content_kind = $7 WHERE id = $8 RETURNING *",
-    [`${fields.category_id}/${storedName}`, mimeType, detectedDuration, artists, trackOrder, thumbnailPath, contentKind, mediaId]
+    [`${fields.category_id}/${storedName}`, mimeType, durationObj, artists, trackOrder, thumbnailPath, contentKind, mediaId]
   );
 
   if (lyrics) {
     await upsertUploadedLyrics(fastify.pg, mediaId, lyrics);
   }
 
-  await enqueueEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId, sourceVersion: updated[0].source_version });
+  await enqueueMediaFinalization({ redis: fastify.redis, mediaId, sourceVersion: updated[0].source_version });
 
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
 }
@@ -423,13 +417,11 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
   let nextMimeType = existing.mime_type;
   let nextDuration = existing.duration;
   let nextArtists = existing.artists;
-  let nextAbsoluteFilePath = null;
 
   if (mainFileUpload) {
     const ext = extFromFilename(mainFileUpload.filename);
     const storedName = `${mediaId}.${ext}`;
     const absoluteFilePath = join(categoryDir, storedName);
-    nextAbsoluteFilePath = absoluteFilePath;
     const previousFilePath = join(DATA_DIR, existing.file_path);
 
     await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(absoluteFilePath));
@@ -438,11 +430,7 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
 
     nextFilePath = `${existing.category_id}/${storedName}`;
     nextMimeType = mimeFromExt(absoluteFilePath);
-    nextDuration = await probeDuration(absoluteFilePath, request.log);
-    if (!normalizeOptionalText(nextArtists)) {
-      const detectedTags = await probeMediaTags(absoluteFilePath, request.log);
-      nextArtists = detectedTags.artists || null;
-    }
+    nextDuration = null;
   }
 
   if (lyrics !== undefined) {
@@ -457,7 +445,7 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
     `UPDATE media_assets
      SET file_path = $1,
          mime_type = $2,
-         duration = COALESCE($3, duration),
+         duration = CASE WHEN $7 THEN $3 ELSE COALESCE($3, duration) END,
          artists = $4,
          content_kind = $5,
          source_version = source_version + CASE WHEN $7 THEN 1 ELSE 0 END
@@ -469,25 +457,12 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
   if (mainFileUpload) {
     await rm(join(categoryDir, String(mediaId)), { recursive: true, force: true }).catch(() => {});
     await fastify.pg.query("DELETE FROM media_encoding_variants WHERE media_id = $1 AND source_version <> $2", [mediaId, updatedRows[0].source_version]);
-    let thumbnailPath = null;
-    if ((nextMimeType?.startsWith("video/") || nextMimeType?.startsWith("image/")) && nextAbsoluteFilePath) {
-      try {
-        thumbnailPath = await normalizeMediaCover({
-          categoryId: existing.category_id,
-          mediaId,
-          dataDir: DATA_DIR,
-          inputPath: nextAbsoluteFilePath,
-        });
-      } catch (err) {
-        request.log.debug({ err }, "replacement media did not provide a usable item cover");
-      }
-    }
     const { rows: artworkRows } = await fastify.pg.query(
       "UPDATE media_assets SET thumbnail_path = $1 WHERE id = $2 RETURNING *",
-      [thumbnailPath, mediaId]
+      [null, mediaId]
     );
     if (artworkRows[0]) updatedRows[0] = artworkRows[0];
-    await enqueueEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId, sourceVersion: updatedRows[0].source_version });
+    await enqueueMediaFinalization({ redis: fastify.redis, mediaId, sourceVersion: updatedRows[0].source_version });
   }
 
   return reply.send({ ...updatedRows[0], has_lyrics: lyrics === undefined ? undefined : lyrics !== null });
@@ -772,7 +747,7 @@ export default async function (fastify, options = {}) {
     return reply.code(201).send({ uploadId, chunkSize: CHUNK_SIZE });
   });
 
-  fastify.post("/uploads/:uploadId/chunks", async (request, reply) => {
+  fastify.post("/uploads/:uploadId/chunks", async (request, reply) => withActiveUpload(request.params.uploadId, async () => {
     if (request.accessTier < 100) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
@@ -813,10 +788,12 @@ export default async function (fastify, options = {}) {
     }
 
     await rename(chunkUpload.tempPath, chunkPath(uploadDir, kind, index));
+    const now = new Date();
+    await utimes(uploadDir, now, now);
     return reply.code(204).send();
-  });
+  }));
 
-  fastify.post("/uploads/:uploadId/complete", async (request, reply) => {
+  fastify.post("/uploads/:uploadId/complete", async (request, reply) => withActiveUpload(request.params.uploadId, async () => {
     if (request.accessTier < 100) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
@@ -881,7 +858,7 @@ export default async function (fastify, options = {}) {
     } finally {
       await rm(uploadDir, { recursive: true, force: true });
     }
-  });
+  }));
 
   fastify.delete("/uploads/:uploadId", async (request, reply) => {
     if (request.accessTier < 100) {

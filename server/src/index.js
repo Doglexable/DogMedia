@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import postgres from "@fastify/postgres";
+import { join } from "path";
 
 import redisPlugin from "./plugins/redis.js";
 import authPlugin from "./plugins/auth.js";
@@ -21,8 +22,10 @@ import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
+import { startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
+const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
 const ALLOWED_ORIGINS = new Set(
   String(process.env.PFS_ALLOWED_ORIGINS || "")
     .split(",")
@@ -90,6 +93,10 @@ startMusicReelCleanupScheduler({
   dataDir: DATA_DIR,
   log: app.log,
   pg: app.pg,
+});
+startIncompleteUploadCleanupScheduler({
+  log: app.log,
+  uploadRoot: join(UPLOAD_TMP_DIR, "chunked"),
 });
 
 await redisPlugin(app);
