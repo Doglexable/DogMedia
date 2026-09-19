@@ -16,7 +16,7 @@ import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
-import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, getExt } from "./admin-import-utils";
+import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, getExt, summarizeEncodingStatus } from "./admin-import-utils";
 import "./admin-media-import.css";
 
 const FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
@@ -533,6 +533,38 @@ function formatBytes(bytes) {
     if (size < 1024) break;
   }
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+}
+
+function EncodingProgress({ detailed = false, status }) {
+  const summary = summarizeEncodingStatus(status);
+  if (!summary) return null;
+  return (
+    <div className={`admin-encoding-progress${detailed ? " admin-encoding-progress--detailed" : ""}`}>
+      <div className="admin-encoding-progress__header">
+        <span>{summary.label}</span>
+        <strong>{summary.percent}%</strong>
+      </div>
+      <div
+        className="admin-encoding-progress__track"
+        role="progressbar"
+        aria-label="Lower-resolution encoding progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={summary.percent}
+      >
+        <span style={{ width: `${summary.percent}%` }} />
+      </div>
+      {detailed && (
+        <div className="admin-encoding-progress__qualities">
+          {summary.qualities.map((item) => (
+            <span key={item.quality} data-status={item.status}>
+              {item.quality.toUpperCase()} · {item.status}{item.status === "processing" ? ` ${item.progress}%` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function orderCategories(categories) {
@@ -1052,6 +1084,36 @@ export default function Admin() {
 
     return () => {
       cancelled = true;
+    };
+  }, [mediaModalCategoryId]);
+
+  useEffect(() => {
+    if (mediaModalCategoryId === null) return undefined;
+    let cancelled = false;
+    let refreshing = false;
+    const refreshEncodingProgress = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const response = await api(`/api/media?category_id=${mediaModalCategoryId}`);
+        if (!response.ok) return;
+        const items = await response.json();
+        if (cancelled || !Array.isArray(items)) return;
+        const orderedItems = orderMedia(items);
+        setCategoryMedia(orderedItems);
+        setEditingMedia((current) => current
+          ? orderedItems.find((item) => Number(item.id) === Number(current.id)) || current
+          : current);
+      } catch {
+        // The normal category loader reports connection errors; polling retries quietly.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const interval = window.setInterval(refreshEncodingProgress, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, [mediaModalCategoryId]);
 
@@ -1643,7 +1705,7 @@ export default function Admin() {
     setEditingMedia((current) => ({
       ...current,
       encoding_status: Object.fromEntries(Object.entries(current.encoding_status || {}).map(([quality, value]) => [
-        quality, value.status === "failed" ? { ...value, status: "queued", attempts: 0, error: null } : value,
+        quality, value.status === "failed" ? { ...value, status: "queued", progress: 0, attempts: 0, error: null } : value,
       ])),
     }));
     setMessage({ type: "success", text: `Encoding retry queued for "${editingMedia.title}".` });
@@ -2148,6 +2210,7 @@ export default function Admin() {
                               {" · "}
                               {media.mime_type || "Unknown type"}
                             </div>
+                            <EncodingProgress status={media.encoding_status} />
                           </div>
                           <div className="admin-media-actions" style={styles.rowActions}>
                             {reorderingVideos && media.mime_type?.startsWith("video/") ? null : (
@@ -2523,11 +2586,8 @@ export default function Admin() {
                       <div style={{ marginTop: 4, color: "var(--muted)", fontSize: 12 }}>
                         {editingMedia.mime_type || "Unknown type"} · {editingMedia.duration != null ? formatDuration(editingMedia.duration) : "unknown duration"}
                       </div>
+                      <EncodingProgress detailed status={editingMedia.encoding_status} />
                       <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {["low", "med", "high"].map((quality) => {
-                          const state = editingMedia.encoding_status?.[quality]?.status || "queued";
-                          return <span key={quality} style={styles.batchBadge}>{quality.toUpperCase()} · {state}</span>;
-                        })}
                         {Object.values(editingMedia.encoding_status || {}).some((item) => item.status === "failed") && (
                           <button type="button" style={styles.button("secondary", false)} onClick={handleRetryEncoding}>Retry failed</button>
                         )}

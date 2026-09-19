@@ -85,6 +85,29 @@ export function formatUploadRemaining(seconds) {
   return `${hours}h${minutes ? ` ${minutes}m` : ""} remaining`;
 }
 
+export function summarizeEncodingStatus(status) {
+  if (!status || typeof status !== "object" || Object.keys(status).length === 0) return null;
+  const qualities = ["low", "med", "high"].map((quality) => {
+    const item = status[quality] || { status: "queued", progress: 0 };
+    const progress = ["ready", "skipped"].includes(item.status)
+      ? 100
+      : Math.max(0, Math.min(100, Number(item.progress) || 0));
+    return { quality, ...item, progress };
+  });
+  const percent = Math.round(qualities.reduce((total, item) => total + item.progress, 0) / qualities.length);
+  const processing = qualities.find((item) => item.status === "processing");
+  const failed = qualities.filter((item) => item.status === "failed").length;
+  const pending = qualities.filter((item) => ["queued", "processing"].includes(item.status)).length;
+  const label = processing
+    ? `Encoding ${processing.quality.toUpperCase()} at ${processing.progress}%`
+    : failed
+      ? `${failed} resolution${failed === 1 ? "" : "s"} failed`
+      : pending
+        ? "Waiting for encoding worker"
+        : "All resolutions ready";
+  return { failed, label, pending, percent, qualities };
+}
+
 function isAudioImportFile(file) {
   return file.type.startsWith("audio/") || AUDIO_IMPORT_PRIORITY.includes(getExt(file.name));
 }

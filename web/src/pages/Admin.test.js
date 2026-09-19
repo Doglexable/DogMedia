@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, titleFromStem, trackOrderFromStem, videoOrderFromStem } from "./admin-import-utils";
+import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, summarizeEncodingStatus, titleFromStem, trackOrderFromStem, videoOrderFromStem } from "./admin-import-utils";
 
 function file(name, { path = name, type = "audio/flac", size = 100 } = {}) {
   return { name, webkitRelativePath: path, type, size };
@@ -65,5 +65,23 @@ describe("upload time remaining", () => {
     [null, "Estimating time remaining…"],
   ])("formats %j seconds as %s", (seconds, expected) => {
     expect(formatUploadRemaining(seconds)).toBe(expected);
+  });
+});
+
+describe("encoding progress", () => {
+  it("combines lower-resolution jobs into one overall percentage", () => {
+    expect(summarizeEncodingStatus({
+      low: { status: "ready", progress: 100 },
+      med: { status: "processing", progress: 50 },
+      high: { status: "queued", progress: 0 },
+    })).toMatchObject({ percent: 50, label: "Encoding MED at 50%", pending: 2 });
+  });
+
+  it("treats skipped variants as complete and reports failures", () => {
+    expect(summarizeEncodingStatus({
+      low: { status: "skipped", progress: 0 },
+      med: { status: "ready", progress: 100 },
+      high: { status: "failed", progress: 20 },
+    })).toMatchObject({ percent: 73, label: "1 resolution failed", failed: 1 });
   });
 });

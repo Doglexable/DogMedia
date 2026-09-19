@@ -74,7 +74,8 @@ const MEDIA_ENCODING_FIELDS = `
   COALESCE((
     SELECT jsonb_object_agg(variant.quality, jsonb_build_object(
       'status', variant.status, 'attempts', variant.attempts, 'error', variant.last_error,
-      'bitrate', variant.bitrate, 'width', variant.width, 'height', variant.height
+      'bitrate', variant.bitrate, 'width', variant.width, 'height', variant.height,
+      'progress', variant.progress_percent
     ))
     FROM media_encoding_variants variant
     WHERE variant.media_id = m.id AND variant.source_version = m.source_version

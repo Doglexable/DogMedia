@@ -5,7 +5,7 @@ import {
   selectActualQuality,
   shouldCreateVariant,
 } from "./media-quality.js";
-import { ffmpegArgs } from "./encoding-worker.js";
+import { encodingProgressPercent, ffmpegArgs } from "./encoding-worker.js";
 
 describe("media quality selection", () => {
   it("keeps omitted stream requests compatible with original media", () => {
@@ -53,5 +53,14 @@ describe("encoding decisions", () => {
   it("uses bounded dimensions in video and image ffmpeg filters", () => {
     expect(ffmpegArgs({ inputPath: "in", outputPath: "out", kind: "video", preset: ENCODING_PRESETS.video.med }).join(" ")).toContain("min(720,ih)");
     expect(ffmpegArgs({ inputPath: "in", outputPath: "out", kind: "image", preset: ENCODING_PRESETS.image.med }).join(" ")).toContain("min(1280,iw)");
+  });
+});
+
+describe("encoding progress", () => {
+  it("converts ffmpeg microsecond timestamps into bounded percentages", () => {
+    expect(encodingProgressPercent("out_time_ms=30000000", 120)).toBe(25);
+    expect(encodingProgressPercent("out_time_ms=999000000", 120)).toBe(99);
+    expect(encodingProgressPercent("progress=end", 120)).toBe(100);
+    expect(encodingProgressPercent("frame=20", 120)).toBeNull();
   });
 });
