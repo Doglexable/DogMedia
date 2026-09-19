@@ -59,6 +59,31 @@ export function buildVideoItems(files) {
     .sort((a, b) => a.trackOrder - b.trackOrder || collator.compare(a.file.name, b.file.name));
 }
 
+export function estimateUploadRemaining({ elapsedMs, totalBytes, uploadedBytes }) {
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0
+    || !Number.isFinite(uploadedBytes) || uploadedBytes <= 0
+    || !Number.isFinite(totalBytes) || totalBytes <= uploadedBytes) {
+    return totalBytes <= uploadedBytes && uploadedBytes > 0
+      ? { bytesPerSecond: uploadedBytes / Math.max(elapsedMs / 1000, 0.001), remainingSeconds: 0 }
+      : null;
+  }
+  const bytesPerSecond = uploadedBytes / (elapsedMs / 1000);
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return null;
+  return {
+    bytesPerSecond,
+    remainingSeconds: Math.max(0, Math.ceil((totalBytes - uploadedBytes) / bytesPerSecond)),
+  };
+}
+
+export function formatUploadRemaining(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "Estimating time remaining…";
+  if (seconds < 60) return `${Math.max(1, Math.ceil(seconds))}s remaining`;
+  if (seconds < 60 * 60) return `${Math.ceil(seconds / 60)}m remaining`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.ceil((seconds % 3600) / 60);
+  return `${hours}h${minutes ? ` ${minutes}m` : ""} remaining`;
+}
+
 function isAudioImportFile(file) {
   return file.type.startsWith("audio/") || AUDIO_IMPORT_PRIORITY.includes(getExt(file.name));
 }

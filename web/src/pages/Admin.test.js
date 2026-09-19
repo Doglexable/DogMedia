@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBatchItems, buildVideoItems, titleFromStem, trackOrderFromStem, videoOrderFromStem } from "./admin-import-utils";
+import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, titleFromStem, trackOrderFromStem, videoOrderFromStem } from "./admin-import-utils";
 
 function file(name, { path = name, type = "audio/flac", size = 100 } = {}) {
   return { name, webkitRelativePath: path, type, size };
@@ -48,5 +48,21 @@ describe("admin video import", () => {
 
     expect(items.map((item) => item.file.name)).toEqual(["Episode 2.mkv", "Special.mkv", "Episode 10.mkv"]);
     expect(items.map((item) => item.trackOrder)).toEqual([2, 3, 10]);
+  });
+});
+
+describe("upload time remaining", () => {
+  it("estimates remaining time from measured upload throughput", () => {
+    expect(estimateUploadRemaining({ elapsedMs: 2000, uploadedBytes: 4_000_000, totalBytes: 10_000_000 }))
+      .toEqual({ bytesPerSecond: 2_000_000, remainingSeconds: 3 });
+  });
+
+  it.each([
+    [25, "25s remaining"],
+    [61, "2m remaining"],
+    [3660, "1h 1m remaining"],
+    [null, "Estimating time remaining…"],
+  ])("formats %j seconds as %s", (seconds, expected) => {
+    expect(formatUploadRemaining(seconds)).toBe(expected);
   });
 });

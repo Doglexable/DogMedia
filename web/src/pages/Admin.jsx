@@ -16,10 +16,10 @@ import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
-import { buildBatchItems, buildVideoItems, getExt } from "./admin-import-utils";
+import { buildBatchItems, buildVideoItems, estimateUploadRemaining, formatUploadRemaining, getExt } from "./admin-import-utils";
 import "./admin-media-import.css";
 
-const FALLBACK_CHUNK_SIZE = 512 * 1024;
+const FALLBACK_CHUNK_SIZE = 4 * 1024 * 1024;
 
 const styles = {
   page: {
@@ -699,7 +699,7 @@ async function uploadCategoryCover(categoryId, file) {
   return response.json();
 }
 
-async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, uploadedBytes, totalBytes }) {
+async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, startedAt, uploadedBytes, totalBytes }) {
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
   let sentBytes = uploadedBytes;
 
@@ -717,7 +717,14 @@ async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, upl
     }
 
     sentBytes += chunk.size;
-    onProgress?.(Math.min(100, Math.round((sentBytes / totalBytes) * 100)));
+    onProgress?.(
+      Math.min(100, Math.round((sentBytes / totalBytes) * 100)),
+      estimateUploadRemaining({
+        elapsedMs: performance.now() - startedAt,
+        uploadedBytes: sentBytes,
+        totalBytes,
+      })
+    );
   }
 
   return sentBytes;
@@ -753,6 +760,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
   const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
   const totalBytes = Math.max(1, file.size + (thumbnail?.size || 0));
   let uploadedBytes = 0;
+  const startedAt = performance.now();
 
   try {
     uploadedBytes = await sendFileChunks({
@@ -761,6 +769,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
       kind: "file",
       chunkSize,
       onProgress,
+      startedAt,
       uploadedBytes,
       totalBytes,
     });
@@ -772,6 +781,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
         kind: "thumbnail",
         chunkSize,
         onProgress,
+        startedAt,
         uploadedBytes,
         totalBytes,
       });
@@ -782,7 +792,6 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
       throw new Error(await readApiError(completeRes, `Upload finalization failed (${completeRes.status})`));
     }
 
-    onProgress?.(100);
     return completeRes.json();
   } catch (error) {
     await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
@@ -814,6 +823,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
   const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
   const totalBytes = Math.max(1, (file?.size || 0) + (thumbnail?.size || 0));
   let uploadedBytes = 0;
+  const startedAt = performance.now();
 
   try {
     if (file) {
@@ -823,6 +833,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
         kind: "file",
         chunkSize,
         onProgress,
+        startedAt,
         uploadedBytes,
         totalBytes,
       });
@@ -835,6 +846,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
         kind: "thumbnail",
         chunkSize,
         onProgress,
+        startedAt,
         uploadedBytes,
         totalBytes,
       });
@@ -928,6 +940,8 @@ export default function Admin() {
   const [uploadingBatch, setUploadingBatch] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [batchProgress, setBatchProgress] = useState(null);
+  const [uploadEtaSeconds, setUploadEtaSeconds] = useState(null);
+  const [batchEtaSeconds, setBatchEtaSeconds] = useState(null);
   const [reorderingVideos, setReorderingVideos] = useState(false);
   const [videoOrderDraft, setVideoOrderDraft] = useState({});
   const [savingVideoOrder, setSavingVideoOrder] = useState(false);
@@ -1042,7 +1056,6 @@ export default function Admin() {
     return invalid || new Set(orders).size !== orders.length;
   }, [videoItems, videoOverrides]);
   const filmSelectionInvalid = videoKind === "film" && videoItems.length !== 1;
-  const filmArtworkMissing = videoKind === "film" && !mediaThumb;
   const batchHasInvalidRows = useMemo(() => batchItems.some((item) => {
     const override = batchOverrides[item.key] || {};
     const title = String(override.title ?? item.title).trim();
@@ -1317,11 +1330,6 @@ export default function Admin() {
       return;
     }
 
-    if (filmArtworkMissing) {
-      setMessage({ type: "error", text: "Choose artwork for the film." });
-      return;
-    }
-
     if (videoHasInvalidRows) {
       setMessage({ type: "error", text: "Every video needs a title and a positive order number." });
       return;
@@ -1329,6 +1337,7 @@ export default function Admin() {
 
     setUploadingMedia(true);
     setUploadProgress(0);
+    setUploadEtaSeconds(null);
     setMessage(null);
 
     const createdItems = [];
@@ -1347,8 +1356,14 @@ export default function Admin() {
           file: item.file,
           lyricsFile: null,
           thumbnail: mediaThumb,
-          onProgress: (progress) => {
+          onProgress: (progress, estimate) => {
             setUploadProgress(Math.round(((itemIndex + progress / 100) / videoItems.length) * 100));
+            const remainingFilesBytes = videoItems
+              .slice(itemIndex + 1)
+              .reduce((total, nextItem) => total + nextItem.file.size + (mediaThumb?.size || 0), 0);
+            setUploadEtaSeconds(estimate
+              ? Math.ceil(estimate.remainingSeconds + remainingFilesBytes / estimate.bytesPerSecond)
+              : null);
           },
         });
         createdItems.push(created);
@@ -1377,6 +1392,7 @@ export default function Admin() {
     } finally {
       setUploadingMedia(false);
       setUploadProgress(null);
+      setUploadEtaSeconds(null);
     }
   };
 
@@ -1428,6 +1444,7 @@ export default function Admin() {
 
     setUploadingBatch(true);
     setBatchProgress(0);
+    setBatchEtaSeconds(null);
     setMessage(null);
 
     const createdItems = [];
@@ -1441,6 +1458,7 @@ export default function Admin() {
       } catch (error) {
         setUploadingBatch(false);
         setBatchProgress(null);
+        setBatchEtaSeconds(null);
         setMessage({ type: "error", text: error.message });
         return;
       }
@@ -1458,8 +1476,14 @@ export default function Admin() {
           file: item.file,
           lyricsFile: item.lyrics,
           thumbnail: null,
-          onProgress: (progress) => {
+          onProgress: (progress, estimate) => {
             setBatchProgress(Math.round(((itemIndex + progress / 100) / batchItems.length) * 100));
+            const remainingFilesBytes = batchItems
+              .slice(itemIndex + 1)
+              .reduce((total, nextItem) => total + nextItem.file.size, 0);
+            setBatchEtaSeconds(estimate
+              ? Math.ceil(estimate.remainingSeconds + remainingFilesBytes / estimate.bytesPerSecond)
+              : null);
           },
         });
         createdItems.push(created);
@@ -1487,6 +1511,7 @@ export default function Admin() {
 
     setUploadingBatch(false);
     setBatchProgress(null);
+    setBatchEtaSeconds(null);
   };
 
   const handleDeleteMedia = async (media) => {
@@ -2239,20 +2264,20 @@ export default function Admin() {
                         <div>
                           <h4>{videoKind === "film" ? "Add film artwork" : "Add shared artwork"}</h4>
                           <p>{videoKind === "film"
-                            ? "This artwork is attached to the film itself and is required. It is not used as folder artwork."
+                            ? "Optional. This artwork is attached to the film itself, not the folder. A frame is extracted automatically when left empty."
                             : "The image is copied to every uploaded episode. A frame is extracted from each video when left empty."}</p>
                         </div>
                       </div>
-                      <input id="admin-media-thumb" type="file" accept="image/*" required={videoKind === "film"} onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
+                      <input id="admin-media-thumb" type="file" accept="image/*" onChange={(event) => setMediaThumb(event.target.files[0] || null)} style={styles.fileInput} />
                       {mediaThumb && <p className="admin-selected-file">Artwork selected · {mediaThumb.name}</p>}
                     </div>
 
                     <div className="admin-import-footer">
                       <div>
                         <strong>{videoItems.length} video{videoItems.length === 1 ? "" : "s"}</strong>
-                        <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · duration detected automatically</span>
+                        <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · {uploadingMedia ? formatUploadRemaining(uploadEtaSeconds) : "duration detected automatically"}</span>
                       </div>
-                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid || filmArtworkMissing} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid || filmArtworkMissing)}>
+                      <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid)}>
                         {uploadingMedia && <span style={styles.spinner} />}
                         {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : `Upload ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`}
                       </button>
@@ -2352,7 +2377,7 @@ export default function Admin() {
                     )}
 
                     <div className="admin-import-footer">
-                      <div><strong>{batchItems.length} track{batchItems.length === 1 ? "" : "s"}</strong><span>{formatBytes(batchSummary.bytes)} ready to import</span></div>
+                      <div><strong>{batchItems.length} track{batchItems.length === 1 ? "" : "s"}</strong><span>{formatBytes(batchSummary.bytes)} · {uploadingBatch ? formatUploadRemaining(batchEtaSeconds) : "ready to import"}</span></div>
                       <button type="submit" disabled={uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows} style={styles.button("primary", uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows)}>
                         {uploadingBatch && <span style={styles.spinner} />}
                         {uploadingBatch ? `Importing ${batchProgress ?? 0}%` : `Import ${batchItems.length} track${batchItems.length === 1 ? "" : "s"}`}

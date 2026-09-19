@@ -28,7 +28,7 @@ import {
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
-const CHUNK_SIZE = 512 * 1024;
+const CHUNK_SIZE = 4 * 1024 * 1024;
 const CHUNK_UPLOAD_DIR = join(UPLOAD_TMP_DIR, "chunked");
 const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
 const ACCESSIBLE_CATEGORY_TREE_SQL = `
@@ -767,7 +767,7 @@ export default async function (fastify, options = {}) {
     const fields = {};
     let chunkUpload = null;
 
-    for await (const part of request.parts()) {
+    for await (const part of request.parts({ limits: { fileSize: CHUNK_SIZE + 1024 } })) {
       if (part.type === "file" && part.fieldname === "chunk") {
         if (chunkUpload) await unlink(chunkUpload.tempPath).catch(() => {});
         chunkUpload = await savePartToTemp(part);
