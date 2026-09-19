@@ -730,6 +730,19 @@ async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, sta
   return sentBytes;
 }
 
+async function waitForUploadCompletion(uploadId, timeoutMs = 30 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await api(`/api/media/uploads/${uploadId}/status`);
+    const status = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(status?.error || `Upload status failed (${response.status})`);
+    if (status?.status === "completed" && status.media) return status.media;
+    if (status?.status === "failed") throw new Error(status.error || "Upload processing failed");
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error("Upload processing did not finish within 30 minutes");
+}
+
 async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", contentKind = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
   const lyrics = await readLyricsFile(lyricsFile);
   const initRes = await api("/api/media/uploads", {
@@ -791,7 +804,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
     if (!completeRes.ok) {
       throw new Error(await readApiError(completeRes, `Upload finalization failed (${completeRes.status})`));
     }
-
+    if (completeRes.status === 202) return waitForUploadCompletion(uploadId);
     return completeRes.json();
   } catch (error) {
     await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
@@ -856,7 +869,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
     if (!completeRes.ok) {
       throw new Error(await readApiError(completeRes, `Replacement finalization failed (${completeRes.status})`));
     }
-
+    if (completeRes.status === 202) return waitForUploadCompletion(uploadId);
     return completeRes.json();
   } catch (error) {
     await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});

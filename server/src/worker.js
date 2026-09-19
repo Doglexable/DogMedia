@@ -4,6 +4,7 @@ import { hostname } from "os";
 import { runEncodingWorker } from "./encoding-worker.js";
 import { runMusicReelWorker } from "./music-reel-worker.js";
 import { runMediaFinalizationWorker } from "./media-finalization-worker.js";
+import { runUploadCompletionWorker } from "./upload-completion-worker.js";
 
 const dataDir = process.env.DATA_DIR || "data";
 const concurrency = Math.max(1, Number.parseInt(process.env.ENCODING_CONCURRENCY || "1", 10));
@@ -32,6 +33,17 @@ workers.push({
   promise: runMediaFinalizationWorker({
     dataDir, pg: pool, redis: finalizationRedis, signal: controller.signal,
     consumer: `${hostname()}-${process.pid}-media-finalization`, log: console,
+  }),
+});
+const uploadCompletionRedis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+workers.push({
+  redis: uploadCompletionRedis,
+  promise: runUploadCompletionWorker({
+    fastify: { pg: pool, redis: uploadCompletionRedis },
+    redis: uploadCompletionRedis,
+    signal: controller.signal,
+    consumer: `${hostname()}-${process.pid}-upload-completion`,
+    log: console,
   }),
 });
 

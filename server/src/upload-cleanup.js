@@ -7,6 +7,10 @@ export const DEFAULT_INCOMPLETE_UPLOAD_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const UPLOAD_ID_RE = /^[0-9a-f-]{36}$/i;
 const activeUploads = new Map();
 
+export function hasActiveUpload(uploadId) {
+  return activeUploads.has(uploadId);
+}
+
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -39,7 +43,7 @@ export async function withActiveUpload(uploadId, operation) {
 
 export async function cleanupIncompleteUploads({
   fs = defaultFs,
-  isActive = (uploadId) => activeUploads.has(uploadId),
+  isActive = hasActiveUpload,
   log,
   maxIdleMs = DEFAULT_INCOMPLETE_UPLOAD_MAX_IDLE_MS,
   now = Date.now(),
@@ -63,7 +67,7 @@ export async function cleanupIncompleteUploads({
     }
 
     summary.scanned += 1;
-    if (isActive(entry.name)) {
+    if (await isActive(entry.name)) {
       summary.active += 1;
       continue;
     }
@@ -94,6 +98,7 @@ export async function cleanupIncompleteUploads({
 export function startIncompleteUploadCleanupScheduler({
   cleanup = cleanupIncompleteUploads,
   env = process.env,
+  isActive,
   log,
   uploadRoot,
 }) {
@@ -108,7 +113,7 @@ export function startIncompleteUploadCleanupScheduler({
     if (running) return;
     running = true;
     try {
-      await cleanup({ log, maxIdleMs: config.maxIdleMs, uploadRoot });
+      await cleanup({ isActive, log, maxIdleMs: config.maxIdleMs, uploadRoot });
     } catch (error) {
       log?.warn?.({ err: error }, "incomplete upload cleanup failed");
     } finally {

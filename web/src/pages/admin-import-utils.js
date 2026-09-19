@@ -77,6 +77,7 @@ export function estimateUploadRemaining({ elapsedMs, totalBytes, uploadedBytes }
 
 export function formatUploadRemaining(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "Estimating time remaining…";
+  if (seconds === 0) return "Processing upload…";
   if (seconds < 60) return `${Math.max(1, Math.ceil(seconds))}s remaining`;
   if (seconds < 60 * 60) return `${Math.ceil(seconds / 60)}m remaining`;
   const hours = Math.floor(seconds / 3600);

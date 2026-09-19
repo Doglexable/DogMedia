@@ -228,6 +228,49 @@ describe("track order metadata", () => {
   });
 });
 
+describe("chunked upload completion", () => {
+  it("queues assembly and returns 202 without processing the source in the request", async () => {
+    const uploadId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const uploadDir = join("data", "tmp", "chunked", uploadId);
+    await mkdir(uploadDir, { recursive: true });
+    await writeFile(join(uploadDir, "manifest.json"), JSON.stringify({ file: { name: "film.mkv", totalChunks: 1 } }));
+
+    const values = new Map();
+    const app = Fastify();
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.decorate("redis", {
+      async get(key) { return values.get(key) || null; },
+      async set(key, value) { values.set(key, value); return "OK"; },
+      async xadd() { return "1-0"; },
+      async del(key) { values.delete(key); return 1; },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 100;
+    });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    try {
+      const complete = await app.inject({
+        method: "POST",
+        url: `/api/media/uploads/${uploadId}/complete`,
+      });
+      expect(complete.statusCode).toBe(202);
+      expect(complete.json()).toEqual({ uploadId, status: "queued" });
+
+      const status = await app.inject({
+        method: "GET",
+        url: `/api/media/uploads/${uploadId}/status`,
+      });
+      expect(status.statusCode).toBe(200);
+      expect(status.headers["cache-control"]).toBe("no-store");
+      expect(status.json()).toEqual({ status: "queued" });
+    } finally {
+      await app.close();
+      await rm(uploadDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("quality-aware streaming", () => {
   it("requires a bound session, selects a ready tier, and serves ranges without caching", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "pfs-quality-route-"));

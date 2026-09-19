@@ -10,6 +10,7 @@ import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../c
 import { retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
+import { enqueueUploadCompletion, uploadCompletionStatusKey } from "../upload-completion-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 import {
   acquireExclusiveLease,
@@ -468,6 +469,69 @@ async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mai
   return reply.send({ ...updatedRows[0], has_lyrics: lyrics === undefined ? undefined : lyrics !== null });
 }
 
+function captureReply() {
+  let statusCode = 200;
+  return {
+    code(value) {
+      statusCode = value;
+      return this;
+    },
+    send(body) {
+      return { body, statusCode };
+    },
+  };
+}
+
+export async function processChunkedMediaUpload({ fastify, log, uploadId }) {
+  const uploadDir = uploadSessionDir(uploadId);
+  if (!uploadDir) throw new Error("Invalid upload id");
+
+  const manifest = await readJson(join(uploadDir, "manifest.json"));
+  try {
+    const mainFileUpload = manifest.file
+      ? await assembleChunks({
+          uploadDir,
+          kind: "file",
+          filename: manifest.file.name,
+          totalChunks: manifest.file.totalChunks,
+        })
+      : null;
+    const thumbUpload = manifest.thumbnail
+      ? await assembleChunks({
+          uploadDir,
+          kind: "thumbnail",
+          filename: manifest.thumbnail.name,
+          totalChunks: manifest.thumbnail.totalChunks,
+        })
+      : null;
+    const reply = captureReply();
+    const request = { log };
+    const result = manifest.replaceMediaId
+      ? await replaceMediaFiles({
+          fastify,
+          request,
+          reply,
+          mediaId: manifest.replaceMediaId,
+          lyrics: manifest.lyrics,
+          mainFileUpload,
+          thumbUpload,
+        })
+      : await persistMediaUpload({
+          fastify,
+          request,
+          reply,
+          fields: manifest.fields,
+          lyrics: manifest.lyrics,
+          mainFileUpload,
+          thumbUpload,
+        });
+    if (result.statusCode >= 400) throw new Error(result.body?.error || "Upload completion failed");
+    return result.body;
+  } finally {
+    await rm(uploadDir, { recursive: true, force: true });
+  }
+}
+
 export default async function (fastify, options = {}) {
   const scanMediaTags = options.probeMediaTags || probeMediaTags;
   const dataDir = options.dataDir || DATA_DIR;
@@ -803,62 +867,37 @@ export default async function (fastify, options = {}) {
       return reply.code(400).send({ error: "Invalid upload id" });
     }
 
-    let manifest;
     try {
-      manifest = await readJson(join(uploadDir, "manifest.json"));
+      await readJson(join(uploadDir, "manifest.json"));
     } catch {
       return reply.code(404).send({ error: "Upload not found" });
     }
 
-    try {
-      const mainFileUpload = manifest.file
-        ? await assembleChunks({
-            uploadDir,
-            kind: "file",
-            filename: manifest.file.name,
-            totalChunks: manifest.file.totalChunks,
-          })
-        : null;
-
-      const thumbUpload = manifest.thumbnail
-        ? await assembleChunks({
-            uploadDir,
-            kind: "thumbnail",
-            filename: manifest.thumbnail.name,
-            totalChunks: manifest.thumbnail.totalChunks,
-          })
-        : null;
-
-      if (manifest.replaceMediaId) {
-        return await replaceMediaFiles({
-          fastify,
-          request,
-          reply,
-          mediaId: manifest.replaceMediaId,
-          lyrics: manifest.lyrics,
-          mainFileUpload,
-          thumbUpload,
-        });
+    const existingStatusRaw = await fastify.redis.get(uploadCompletionStatusKey(request.params.uploadId));
+    if (existingStatusRaw) {
+      const existingStatus = JSON.parse(existingStatusRaw);
+      if (existingStatus.status === "completed" && existingStatus.media) return existingStatus.media;
+      if (["queued", "processing"].includes(existingStatus.status)) {
+        return reply.code(202).send({ uploadId: request.params.uploadId, status: existingStatus.status });
       }
-
-      return await persistMediaUpload({
-        fastify,
-        request,
-        reply,
-        fields: manifest.fields,
-        lyrics: manifest.lyrics,
-        mainFileUpload,
-        thumbUpload,
-      });
-    } catch (err) {
-      if (err.code === "ENOENT") {
-        return reply.code(400).send({ error: "Upload is missing one or more chunks" });
-      }
-      throw err;
-    } finally {
-      await rm(uploadDir, { recursive: true, force: true });
+      return reply.code(409).send({ error: existingStatus.error || "Upload processing failed" });
     }
+
+    await enqueueUploadCompletion({ redis: fastify.redis, uploadId: request.params.uploadId });
+    return reply.code(202).send({ uploadId: request.params.uploadId, status: "queued" });
   }));
+
+  fastify.get("/uploads/:uploadId/status", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+    const uploadDir = uploadSessionDir(request.params.uploadId);
+    if (!uploadDir) return reply.code(400).send({ error: "Invalid upload id" });
+    reply.header("Cache-Control", "no-store");
+    const rawStatus = await fastify.redis.get(uploadCompletionStatusKey(request.params.uploadId));
+    if (!rawStatus) return reply.code(404).send({ error: "Upload status not found" });
+    return JSON.parse(rawStatus);
+  });
 
   fastify.delete("/uploads/:uploadId", async (request, reply) => {
     if (request.accessTier < 100) {
@@ -871,6 +910,7 @@ export default async function (fastify, options = {}) {
     }
 
     await rm(uploadDir, { recursive: true, force: true });
+    await fastify.redis.del(uploadCompletionStatusKey(request.params.uploadId));
     return reply.code(204).send();
   });
 

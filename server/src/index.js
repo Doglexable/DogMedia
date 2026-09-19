@@ -22,7 +22,8 @@ import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
-import { startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
+import { hasActiveUpload, startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
+import { uploadCompletionStatusKey } from "./upload-completion-queue.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
@@ -94,12 +95,22 @@ startMusicReelCleanupScheduler({
   log: app.log,
   pg: app.pg,
 });
+await redisPlugin(app);
 startIncompleteUploadCleanupScheduler({
   log: app.log,
   uploadRoot: join(UPLOAD_TMP_DIR, "chunked"),
+  async isActive(uploadId) {
+    if (hasActiveUpload(uploadId)) return true;
+    try {
+      const rawStatus = await app.redis.get(uploadCompletionStatusKey(uploadId));
+      const status = rawStatus ? JSON.parse(rawStatus).status : null;
+      return status === "queued" || status === "processing";
+    } catch (error) {
+      app.log.warn({ err: error, uploadId }, "could not check queued upload before cleanup");
+      return true;
+    }
+  },
 });
-
-await redisPlugin(app);
 await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
 await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
 await app.register(async function (instance) {
