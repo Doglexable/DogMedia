@@ -7,7 +7,7 @@ import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { useAccess } from "../access-context";
-import { api, readJsonArray } from "../api";
+import { api, mediaThumbnailUrl, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
@@ -124,12 +124,15 @@ function MediaCover({ circular = false, item, priority = false, size = "regular"
   const [failed, setFailed] = useState(false);
   const meta = getMimeMeta(item?.mime_type);
   const isHero = size === "hero" || priority;
+  const thumbnailSrc = mediaThumbnailUrl(item);
+
+  useEffect(() => setFailed(false), [thumbnailSrc]);
 
   return (
     <span className={`library-cover library-cover--${size}${circular ? " library-cover--circle" : ""}`}>
       {!failed && item?.id ? (
         <img
-          src={`/api/media/${item.id}/thumbnail`}
+          src={thumbnailSrc}
           alt=""
           loading={isHero ? "eager" : "lazy"}
           fetchPriority={isHero ? "high" : undefined}

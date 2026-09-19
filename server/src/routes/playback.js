@@ -391,6 +391,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
          c.parent_id,
          c.min_access_tier,
          c.name,
+         c.cover_path,
          ARRAY[c.name::text]::text[] AS path_parts
        FROM categories c
        WHERE c.parent_id IS NULL
@@ -401,6 +402,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
          c.parent_id,
          c.min_access_tier,
          c.name,
+         c.cover_path,
          ac.path_parts || c.name::text
        FROM categories c
        JOIN accessible_categories ac ON c.parent_id = ac.id
@@ -426,6 +428,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
        m.track_order,
        m.duration,
        m.mime_type,
+       COALESCE(m.thumbnail_path, ac.cover_path) AS artwork_version,
        ac.name AS category_name,
        array_to_string(ac.path_parts, ' / ') AS category_path,
        m.created_at,
@@ -479,6 +482,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
       track_order: row.track_order,
       duration: row.duration,
       mime_type: row.mime_type,
+      artwork_version: row.artwork_version,
     })),
   };
 }
@@ -491,7 +495,7 @@ async function getCachedDashboardSummary(fastify, request) {
   const type = ["audio", "music", "video", "photo", "image"].includes(rawType) ? rawType : "all";
   const ownerPart = view === "liked" ? `:${request.clientIp || request.ip}` : "";
   const typePart = type !== "all" ? `:type:${type}` : "";
-  const cacheKey = `playback:dashboard:v4:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${typePart}${ownerPart}`;
+  const cacheKey = `playback:dashboard:v5:tier:${request.accessTier}:view:${view}:category:${categoryId || "all"}${typePart}${ownerPart}`;
 
   const cached = await redis.get(cacheKey);
   if (cached) {

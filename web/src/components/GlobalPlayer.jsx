@@ -1,6 +1,6 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api, createPlaybackSession, heartbeatPlaybackLease, releasePlaybackLease } from "../api";
+import { api, createPlaybackSession, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
 import { MiniPlayer } from "./global-player/mini-player";
 import {
   cleanMediaText,
@@ -136,7 +136,7 @@ export function GlobalPlayerProvider({ children }) {
   const isVideo = currentMime.startsWith("video/");
   const isImage = currentMime.startsWith("image/");
   const actualQuality = actualMediaQuality(quality, currentMedia?.available_qualities);
-  const thumbSrc = currentMedia ? `/api/media/${currentMedia.id}/thumbnail` : "";
+  const thumbSrc = mediaThumbnailUrl(currentMedia);
   const meta = mediaMeta(currentMime);
   const hasQueueNext = queueTotal > 0 && queueIndex < queueTotal - 1;
   const hasQueuePrev = queueTotal > 0 && queueIndex > 0;

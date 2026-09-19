@@ -75,6 +75,10 @@ services:
       DATA_DIR: /app/data/media
       UPLOAD_TMP_DIR: /app/data/tmp
       ENCODING_CONCURRENCY: ${ENCODING_CONCURRENCY:-1}
+      ENCODING_SCHEDULE_ENABLED: ${ENCODING_SCHEDULE_ENABLED:-true}
+      ENCODING_SCHEDULE_HOUR: ${ENCODING_SCHEDULE_HOUR:-0}
+      ENCODING_SCHEDULE_END_HOUR: ${ENCODING_SCHEDULE_END_HOUR:-5}
+      TZ: ${TZ:-Asia/Jakarta}
       NODE_ENV: production
     volumes:
       - ./data/media:/app/data/media:Z

@@ -23,8 +23,10 @@ function webpOutputArgs(outputPath) {
 export async function normalizeCategoryCover({ categoryId, dataDir, inputPath }) {
   const categoryDir = join(dataDir, String(categoryId));
   await mkdir(categoryDir, { recursive: true });
-  const outputPath = join(categoryDir, "front.webp");
-  const temporaryPath = join(categoryDir, `.front-${randomUUID()}.webp`);
+  const version = randomUUID();
+  const filename = `front-${version}.webp`;
+  const outputPath = join(categoryDir, filename);
+  const temporaryPath = join(categoryDir, `.pending-${filename}`);
   try {
     await execFileAsync("ffmpeg", [
       "-y", "-i", inputPath,
@@ -34,7 +36,7 @@ export async function normalizeCategoryCover({ categoryId, dataDir, inputPath })
     const result = await stat(temporaryPath);
     if (!result.size) throw new Error("Generated cover is empty");
     await rename(temporaryPath, outputPath);
-    return `${categoryId}/front.webp`;
+    return `${categoryId}/${filename}`;
   } finally {
     await unlink(temporaryPath).catch(() => {});
   }
@@ -43,8 +45,10 @@ export async function normalizeCategoryCover({ categoryId, dataDir, inputPath })
 export async function normalizeMediaCover({ categoryId, mediaId, dataDir, inputPath }) {
   const mediaDir = join(dataDir, String(categoryId), String(mediaId));
   await mkdir(mediaDir, { recursive: true });
-  const outputPath = join(mediaDir, "cover.webp");
-  const temporaryPath = join(mediaDir, `.cover-${randomUUID()}.webp`);
+  const version = randomUUID();
+  const filename = `cover-${version}.webp`;
+  const outputPath = join(mediaDir, filename);
+  const temporaryPath = join(mediaDir, `.pending-${filename}`);
   try {
     await execFileAsync("ffmpeg", [
       "-y", "-i", inputPath,
@@ -54,7 +58,7 @@ export async function normalizeMediaCover({ categoryId, mediaId, dataDir, inputP
     const result = await stat(temporaryPath);
     if (!result.size) throw new Error("Generated media cover is empty");
     await rename(temporaryPath, outputPath);
-    return `${categoryId}/${mediaId}/cover.webp`;
+    return `${categoryId}/${mediaId}/${filename}`;
   } finally {
     await unlink(temporaryPath).catch(() => {});
   }
@@ -62,7 +66,7 @@ export async function normalizeMediaCover({ categoryId, mediaId, dataDir, inputP
 
 export function sendCoverFile({ request, reply, filePath, stats }) {
   const etag = `W/\"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}\"`;
-  reply.header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800");
+  reply.header("Cache-Control", "private, no-cache, max-age=0, must-revalidate");
   reply.header("Content-Disposition", "inline");
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("ETag", etag);

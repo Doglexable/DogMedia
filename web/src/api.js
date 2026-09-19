@@ -5,6 +5,15 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
+export function mediaThumbnailUrl(mediaOrId) {
+  const isMedia = mediaOrId !== null && typeof mediaOrId === "object";
+  const mediaId = Number(isMedia ? (mediaOrId.id ?? mediaOrId.mediaId) : mediaOrId);
+  if (!Number.isFinite(mediaId) || mediaId <= 0) return "";
+  const version = isMedia ? mediaOrId.artwork_version : null;
+  const query = version ? `?v=${encodeURIComponent(version)}` : "";
+  return apiUrl(`/api/media/${mediaId}/thumbnail${query}`);
+}
+
 export function api(path, options = {}) {
   return fetch(apiUrl(path), { ...options, credentials: "include" });
 }

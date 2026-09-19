@@ -43,6 +43,7 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
+      c.cover_path,
       ARRAY[c.name::text]::text[] AS path_parts,
       ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
     FROM categories c
@@ -54,6 +55,7 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
+      c.cover_path,
       ac.path_parts || c.name::text,
       ac.order_parts || COALESCE(c.sort_order, 0)
     FROM categories c
@@ -547,6 +549,7 @@ export default async function (fastify, options = {}) {
         m.*,
         ${MEDIA_ENCODING_FIELDS},
         ac.name AS category_name,
+        COALESCE(m.thumbnail_path, ac.cover_path) AS artwork_version,
         array_to_string(ac.path_parts, ' / ') AS category_path
       FROM media_assets m
       JOIN accessible_categories ac ON ac.id = m.category_id
@@ -638,6 +641,7 @@ export default async function (fastify, options = {}) {
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.*, ${MEDIA_ENCODING_FIELDS}, ac.name AS category_name,
+              COALESCE(m.thumbnail_path, ac.cover_path) AS artwork_version,
               array_to_string(ac.path_parts, ' / ') AS category_path,
               ac.order_parts AS category_order,
               (lm.media_id IS NOT NULL) AS liked
@@ -670,6 +674,7 @@ export default async function (fastify, options = {}) {
          m.*,
          ${MEDIA_ENCODING_FIELDS},
          ac.name AS category_name,
+         COALESCE(m.thumbnail_path, ac.cover_path) AS artwork_version,
          array_to_string(ac.path_parts, ' / ') AS category_path
        FROM media_assets m
        JOIN accessible_categories ac ON ac.id = m.category_id

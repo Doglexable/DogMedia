@@ -27,6 +27,7 @@ describe("category covers", () => {
     expect(first.statusCode).toBe(200);
     expect(first.body).toBe("shared-cover");
     expect(first.headers.etag).toBeTruthy();
+    expect(first.headers["cache-control"]).toBe("private, no-cache, max-age=0, must-revalidate");
     const cached = await app.inject({ method: "GET", url: "/api/categories/7/thumbnail", headers: { "if-none-match": first.headers.etag } });
     expect(cached.statusCode).toBe(304);
     const deletion = await app.inject({ method: "DELETE", url: "/api/categories/7/thumbnail" });

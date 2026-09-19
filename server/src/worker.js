@@ -8,6 +8,15 @@ import { runUploadCompletionWorker } from "./upload-completion-worker.js";
 
 const dataDir = process.env.DATA_DIR || "data";
 const concurrency = Math.max(1, Number.parseInt(process.env.ENCODING_CONCURRENCY || "1", 10));
+const scheduleEnabled = process.env.ENCODING_SCHEDULE_ENABLED !== "false";
+const parsedScheduleHour = Number.parseInt(process.env.ENCODING_SCHEDULE_HOUR || "0", 10);
+const parsedScheduleEndHour = Number.parseInt(process.env.ENCODING_SCHEDULE_END_HOUR || "5", 10);
+const scheduleHour = scheduleEnabled && Number.isInteger(parsedScheduleHour) && parsedScheduleHour >= 0 && parsedScheduleHour <= 23
+  ? parsedScheduleHour
+  : scheduleEnabled ? 0 : null;
+const scheduleEndHour = Number.isInteger(parsedScheduleEndHour) && parsedScheduleEndHour >= 0 && parsedScheduleEndHour <= 23
+  ? parsedScheduleEndHour
+  : 5;
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL || "postgres://pfs:pfs_secret@localhost:5432/pfs" });
 const controller = new AbortController();
 const workers = Array.from({ length: concurrency }, (_, index) => {
@@ -15,6 +24,8 @@ const workers = Array.from({ length: concurrency }, (_, index) => {
   return { redis, promise: runEncodingWorker({
     dataDir, pg: pool, redis, signal: controller.signal,
     consumer: `${hostname()}-${process.pid}-${index}`,
+    scheduleEndHour,
+    scheduleHour,
     log: console,
   }) };
 });

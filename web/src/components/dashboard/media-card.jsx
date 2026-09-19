@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { mediaThumbnailUrl } from "../../api";
 
 function getMimeMeta(mime) {
   if (typeof mime !== "string") return { icon: "📁", label: "File", color: "#888" };
@@ -23,6 +24,12 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
   const [menu, setMenu] = useState(null);
   const meta = getMimeMeta(item.mime_type);
   const category = item.category_path || item.category_name || "Uncategorized";
+  const thumbnailSrc = mediaThumbnailUrl(item);
+
+  useEffect(() => {
+    setImgFailed(false);
+    setImgLoaded(false);
+  }, [thumbnailSrc]);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -69,7 +76,7 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
     >
       {isHovered && !imgFailed && imgLoaded && (
         <img
-          src={`/api/media/${item.id}/thumbnail`}
+          src={thumbnailSrc}
           alt=""
           aria-hidden="true"
           loading="lazy"
@@ -81,7 +88,7 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
         <div className="media-card-cover" style={{ background: `${meta.color}18` }}>
           {!imgFailed ? (
             <img
-              src={`/api/media/${item.id}/thumbnail`}
+              src={thumbnailSrc}
               alt={item.title}
               loading="lazy"
               decoding="async"

@@ -235,9 +235,45 @@ async function ensureGroup(redis) {
   }
 }
 
-export async function runEncodingWorker({ dataDir, log, pg, redis, consumer, signal }) {
+export function isEncodingWindowOpen(now = new Date(), startHour = 0, endHour = 5) {
+  const hour = now.getHours();
+  if (startHour < endHour) return hour >= startHour && hour < endHour;
+  return hour >= startHour || hour < endHour;
+}
+
+export function millisecondsUntilEncodingWindow(now = new Date(), startHour = 0, endHour = 5) {
+  if (isEncodingWindowOpen(now, startHour, endHour)) return 0;
+  const next = new Date(now);
+  next.setHours(startHour, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+function waitForEncodingWindow(delayMs, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted || delayMs <= 0) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(finish, delayMs);
+    function finish() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", finish);
+      resolve();
+    }
+    signal?.addEventListener("abort", finish, { once: true });
+  });
+}
+
+export async function runEncodingWorker({ dataDir, log, pg, redis, consumer, signal, scheduleEndHour = 5, scheduleHour = null }) {
   await ensureGroup(redis);
   while (!signal?.aborted) {
+    if (scheduleHour !== null && !isEncodingWindowOpen(new Date(), scheduleHour, scheduleEndHour)) {
+      const delayMs = millisecondsUntilEncodingWindow(new Date(), scheduleHour, scheduleEndHour);
+      log?.info?.({ consumer, nextRunInMs: delayMs, scheduleEndHour, scheduleHour }, "resolution encoder waiting for nightly window");
+      await waitForEncodingWindow(delayMs, signal);
+      continue;
+    }
     let messages = [];
     try {
       const reclaimed = await redis.xautoclaim(ENCODING_STREAM, ENCODING_GROUP, consumer, DEFAULT_IDLE_MS, "0-0", "COUNT", 1);

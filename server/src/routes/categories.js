@@ -56,7 +56,7 @@ async function categoryExists(fastify, id) {
 
 async function getCategory(fastify, id) {
   const { rows } = await fastify.pg.query(
-    "SELECT id, parent_id, min_access_tier, sort_order FROM categories WHERE id = $1",
+    "SELECT id, parent_id, min_access_tier, sort_order, cover_path FROM categories WHERE id = $1",
     [id]
   );
   return rows[0] || null;
@@ -230,14 +230,19 @@ export default async function (fastify, options = {}) {
       } else if (part.type === "file") part.file.resume();
     }
     if (!upload) return reply.code(400).send({ error: "Thumbnail file required" });
+    let coverPath = null;
     try {
-      const coverPath = await normalizeCategoryCover({ categoryId: request.params.id, dataDir, inputPath: upload });
+      coverPath = await normalizeCategoryCover({ categoryId: request.params.id, dataDir, inputPath: upload });
       const { rows } = await fastify.pg.query(
         "UPDATE categories SET cover_path = $1 WHERE id = $2 RETURNING *",
         [coverPath, request.params.id]
       );
+      if (category.cover_path && category.cover_path !== coverPath) {
+        await unlink(join(dataDir, category.cover_path)).catch(() => {});
+      }
       return rows[0];
     } catch (error) {
+      if (coverPath) await unlink(join(dataDir, coverPath)).catch(() => {});
       request.log.warn({ err: error }, "category cover normalization failed");
       return reply.code(400).send({ error: "Thumbnail could not be converted to WebP" });
     } finally {

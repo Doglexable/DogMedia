@@ -11,6 +11,7 @@ describe("getMediaSessionMetadata", () => {
       title: "  Night Drive  ",
       artists: "The Dogs",
       category_path: "Music/Road Songs",
+      artwork_version: "42/front-new.webp",
     }, {
       isAudio: true,
       mediaLabel: "Audio",
@@ -19,7 +20,7 @@ describe("getMediaSessionMetadata", () => {
       title: "Night Drive",
       artist: "The Dogs",
       album: "Music/Road Songs",
-      artwork: [{ src: "https://media.example.test/api/media/42/thumbnail" }],
+      artwork: [{ src: "https://media.example.test/api/media/42/thumbnail?v=42%2Ffront-new.webp" }],
     });
   });
 

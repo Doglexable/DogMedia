@@ -1075,6 +1075,8 @@ export default function Admin() {
   const [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 });
   const [uploadQueueLoading, setUploadQueueLoading] = useState(false);
   const [uploadQueueError, setUploadQueueError] = useState("");
+  const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover;
+  const browserTransferActive = mediaUploadActive || uploadingRelease || savingEdit;
 
   const refreshUploadQueue = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setUploadQueueLoading(true);
@@ -1142,6 +1144,17 @@ export default function Admin() {
   useEffect(() => {
     setCategories(globalCategories);
   }, [globalCategories]);
+
+  useEffect(() => {
+    if (!browserTransferActive) return undefined;
+
+    const warnBeforeRefresh = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeRefresh);
+    return () => window.removeEventListener("beforeunload", warnBeforeRefresh);
+  }, [browserTransferActive]);
 
   useEffect(() => {
     if (!categoryModalOpen && mediaModalCategoryId === null && editingMedia === null) return;
@@ -1264,20 +1277,20 @@ export default function Admin() {
     setMediaModalCategoryId(null);
     setCategoryMedia([]);
     setLoadingMedia(false);
-    setMediaDescription("");
-    setVideoFiles([]);
-    setVideoOverrides({});
-    setMediaThumb(null);
-    setCategoryCoverFile(null);
-    setUpdatingCategoryCover(false);
-    setBatchFiles([]);
-    setBatchArtist("");
-    setBatchOverrides({});
+    if (!mediaUploadActive) {
+      setMediaDescription("");
+      setVideoFiles([]);
+      setVideoOverrides({});
+      setMediaThumb(null);
+      setCategoryCoverFile(null);
+      setBatchFiles([]);
+      setBatchArtist("");
+      setBatchOverrides({});
+      clearFileInputs();
+    }
     setReorderingVideos(false);
     setVideoOrderDraft({});
-    setUploadingBatch(false);
     setEditingMedia(null);
-    clearFileInputs();
   };
 
   const openEditMediaModal = (media) => {
@@ -1889,6 +1902,20 @@ export default function Admin() {
             </div>
           )}
 
+          {mediaUploadActive && mediaModalCategoryId === null && (
+            <div role="status" style={styles.notice("success")}>
+              <span>⬆️</span>
+              <span>
+                {uploadingMedia
+                  ? `Video upload continues in the background (${uploadProgress ?? 0}%).`
+                  : uploadingBatch
+                    ? `Album upload continues in the background (${batchProgress ?? 0}%).`
+                    : "Artwork upload continues in the background."}
+                {" Do not refresh or close this tab until the transfer finishes."}
+              </span>
+            </div>
+          )}
+
           <section className="hero-surface" style={styles.toolbar}>
             <div style={styles.toolbarCopy}>
               <div style={styles.toolbarLabel}>Selected category</div>
@@ -2212,7 +2239,7 @@ export default function Admin() {
             title={activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "Selected Category"}
             subtitle="Manage existing media and upload directly into the selected category."
             width={1120}
-            onClose={updatingCategoryCover ? () => {} : closeMediaModal}
+            onClose={closeMediaModal}
           >
             {message && (
               <div

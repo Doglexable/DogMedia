@@ -1,4 +1,5 @@
 import { getMediaFolder, resolveMediaArtist } from "./player-utils";
+import { mediaThumbnailUrl } from "../../api";
 
 const UNKNOWN_ARTIST_LABELS = new Set(["unknown", "unknown artist"]);
 
@@ -27,9 +28,9 @@ export function getAudioArtist(mediaOrArtists) {
 }
 
 export function getMediaSessionMetadata(media, { isAudio, mediaLabel, origin }) {
-  const mediaId = Number(media?.id);
-  const artwork = Number.isFinite(mediaId) && mediaId > 0
-    ? [{ src: new URL(`/api/media/${mediaId}/thumbnail`, origin).href }]
+  const thumbnailUrl = mediaThumbnailUrl(media);
+  const artwork = thumbnailUrl
+    ? [{ src: new URL(thumbnailUrl, origin).href }]
     : [];
 
   const artist = isAudio
