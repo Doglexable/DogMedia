@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import playbackRoutes, {
   isSessionPauseExpired,
   normalizeTrigger,
-  PAUSE_CACHE_TTL_SECONDS,
   PAUSE_MAX_IDLE_MS,
 } from "./playback.js";
 
@@ -76,7 +75,7 @@ function createMockRedis(initialKeys = {}) {
     async get(key) {
       return store.has(key) ? store.get(key) : null;
     },
-    async set(key, value, mode, duration) {
+    async set(key, value, _mode, _duration) {
       store.set(key, String(value));
       return "OK";
     },
@@ -127,7 +126,7 @@ function createMockRedis(initialKeys = {}) {
       }
       return removed;
     },
-    async zrangebyscore(key, min, max) {
+    async zrangebyscore(key, min, _max) {
       if (!zsets.has(key)) return [];
       const set = zsets.get(key);
       const members = [];
@@ -139,7 +138,7 @@ function createMockRedis(initialKeys = {}) {
     multi() {
       const ops = [];
       const chain = {
-        set(key, value, mode, duration) {
+        set(key, value, _mode, _duration) {
           ops.push(() => store.set(key, String(value)));
           return chain;
         },

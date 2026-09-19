@@ -844,6 +844,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (tier < 100) return;
     const poll = () => {
+      if (document.visibilityState === "hidden") return;
       api("/api/playback/now-playing")
         .then((response) => readJsonArray(response, "Could not load active sessions"))
         .then((sessions) => {
@@ -853,14 +854,20 @@ export default function Dashboard() {
         .catch(() => {});
     };
     poll();
-    const iv = setInterval(poll, NOW_PLAYING_POLL_MS);
-    return () => clearInterval(iv);
+    const interval = window.setInterval(poll, NOW_PLAYING_POLL_MS);
+    const handleVisibilityChange = () => poll();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [tier]);
 
   useEffect(() => {
     if (tier < 100 || nowPlaying.length === 0) return undefined;
 
     const tick = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
       setNowPlayingRenderNow(Date.now());
     }, NOW_PLAYING_TICK_MS);
 
@@ -875,10 +882,6 @@ export default function Dashboard() {
   const selectedCategoryInfo = selectedCategory != null
     ? categoryById.get(String(selectedCategory))
     : null;
-  const mediaCategories = useMemo(
-    () => categories.filter((category) => Number(category.media_count) > 0),
-    [categories]
-  );
   const mediaTitle = libraryView === "liked"
     ? "Favorites"
     : selectedCategoryInfo?.path || selectedCategoryInfo?.name || "All Media";

@@ -59,7 +59,7 @@ describe("upload time remaining", () => {
 
   it.each([
     [25, "25s remaining"],
-    [0, "Processing upload…"],
+    [0, "Transfer complete · waiting for worker"],
     [61, "2m remaining"],
     [3660, "1h 1m remaining"],
     [null, "Estimating time remaining…"],

@@ -10,7 +10,11 @@ import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../c
 import { retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
-import { enqueueUploadCompletion, uploadCompletionStatusKey } from "../upload-completion-queue.js";
+import {
+  enqueueUploadCompletion,
+  UPLOAD_COMPLETION_STATUS_PREFIX,
+  uploadCompletionStatusKey,
+} from "../upload-completion-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 import {
   acquireExclusiveLease,
@@ -396,7 +400,7 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
 }
 
-async function replaceMediaFiles({ fastify, request, reply, mediaId, lyrics, mainFileUpload = null, thumbUpload = null }) {
+async function replaceMediaFiles({ fastify, reply, mediaId, lyrics, mainFileUpload = null, thumbUpload = null }) {
   if (!mainFileUpload && !thumbUpload && lyrics === undefined) {
     return reply.code(400).send({ error: "Choose a replacement file, thumbnail, or lyrics file" });
   }
@@ -510,7 +514,6 @@ export async function processChunkedMediaUpload({ fastify, log, uploadId }) {
     const result = manifest.replaceMediaId
       ? await replaceMediaFiles({
           fastify,
-          request,
           reply,
           mediaId: manifest.replaceMediaId,
           lyrics: manifest.lyrics,
@@ -868,8 +871,9 @@ export default async function (fastify, options = {}) {
       return reply.code(400).send({ error: "Invalid upload id" });
     }
 
+    let manifest;
     try {
-      await readJson(join(uploadDir, "manifest.json"));
+      manifest = await readJson(join(uploadDir, "manifest.json"));
     } catch {
       return reply.code(404).send({ error: "Upload not found" });
     }
@@ -884,9 +888,82 @@ export default async function (fastify, options = {}) {
       return reply.code(409).send({ error: existingStatus.error || "Upload processing failed" });
     }
 
-    await enqueueUploadCompletion({ redis: fastify.redis, uploadId: request.params.uploadId });
+    await enqueueUploadCompletion({
+      redis: fastify.redis,
+      uploadId: request.params.uploadId,
+      metadata: {
+        title: manifest.fields?.title || manifest.file?.name || `Media #${manifest.replaceMediaId || "new"}`,
+        fileName: manifest.file?.name || manifest.thumbnail?.name || null,
+        replacementMediaId: manifest.replaceMediaId || null,
+      },
+    });
     return reply.code(202).send({ uploadId: request.params.uploadId, status: "queued" });
   }));
+
+  fastify.get("/uploads/queue", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+
+    reply.header("Cache-Control", "no-store");
+    let cursor = "0";
+    const keys = [];
+    do {
+      const result = await fastify.redis.scan(
+        cursor,
+        "MATCH",
+        `${UPLOAD_COMPLETION_STATUS_PREFIX}*`,
+        "COUNT",
+        100
+      );
+      cursor = String(result?.[0] || "0");
+      keys.push(...(result?.[1] || []));
+    } while (cursor !== "0");
+
+    const rawStatuses = [];
+    for (let index = 0; index < keys.length; index += 200) {
+      rawStatuses.push(...await fastify.redis.mget(...keys.slice(index, index + 200)));
+    }
+    const jobs = rawStatuses.flatMap((raw) => {
+      if (!raw) return [];
+      try {
+        const value = JSON.parse(raw);
+        return value?.uploadId ? [value] : [];
+      } catch {
+        return [];
+      }
+    });
+    const queuedJobs = jobs
+      .filter((job) => job.status === "queued")
+      .sort((a, b) => String(a.queuedAt || "").localeCompare(String(b.queuedAt || "")));
+    const positions = new Map(queuedJobs.map((job, index) => [job.uploadId, index + 1]));
+    const statusOrder = { processing: 0, queued: 1, failed: 2, completed: 3 };
+    const visibleJobs = jobs
+      .map((job) => {
+        const { media, ...publicJob } = job;
+        return {
+          ...publicJob,
+          mediaId: media?.id || null,
+          queuePosition: positions.get(job.uploadId) || null,
+        };
+      })
+      .sort((a, b) => {
+        const statusDifference = (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
+        if (statusDifference) return statusDifference;
+        return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+      })
+      .filter((job, index) => ["queued", "processing"].includes(job.status) || index < 50);
+
+    return {
+      jobs: visibleJobs,
+      summary: {
+        queued: jobs.filter((job) => job.status === "queued").length,
+        processing: jobs.filter((job) => job.status === "processing").length,
+        completed: jobs.filter((job) => job.status === "completed").length,
+        failed: jobs.filter((job) => job.status === "failed").length,
+      },
+    };
+  });
 
   fastify.get("/uploads/:uploadId/status", async (request, reply) => {
     if (request.accessTier < 100) {

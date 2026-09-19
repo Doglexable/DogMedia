@@ -10,7 +10,12 @@ import { processUploadCompletionJob } from "./upload-completion-worker.js";
 function fakeRedis() {
   return {
     values: [],
+    stored: new Map(),
+    async get(key) {
+      return this.stored.get(key) || null;
+    },
     async set(key, value) {
+      this.stored.set(key, value);
       this.values.push({ key, value: JSON.parse(value) });
       return "OK";
     },
@@ -32,8 +37,8 @@ describe("upload completion worker", () => {
     })).resolves.toEqual(media);
 
     expect(redis.values.map(({ value }) => value)).toEqual([
-      { status: "processing" },
-      { status: "completed", media },
+      expect.objectContaining({ status: "processing", uploadId: "upload-id" }),
+      expect.objectContaining({ status: "completed", uploadId: "upload-id", media }),
     ]);
   });
 
@@ -44,6 +49,10 @@ describe("upload completion worker", () => {
     await expect(processUploadCompletionJob({
       fastify: {}, log: {}, redis, uploadId: "upload-id",
     })).rejects.toThrow("missing chunk");
-    expect(redis.values.at(-1).value).toEqual({ status: "failed", error: "missing chunk" });
+    expect(redis.values.at(-1).value).toEqual(expect.objectContaining({
+      status: "failed",
+      uploadId: "upload-id",
+      error: "missing chunk",
+    }));
   });
 });

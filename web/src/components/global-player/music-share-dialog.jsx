@@ -112,8 +112,15 @@ export function MusicReelDialog({ favorites, onClose, singleTrack = false, initi
 
   useEffect(() => {
     if (!ACTIVE_STATUSES.has(reel.status)) return undefined;
-    const interval = window.setInterval(() => readStatus().catch(() => {}), 2000);
-    return () => window.clearInterval(interval);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "hidden") readStatus().catch(() => {});
+    };
+    const interval = window.setInterval(refreshWhenVisible, 2000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [reel.status]);
 
   const toggleTrack = (mediaId) => {

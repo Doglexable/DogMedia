@@ -21,7 +21,7 @@ import SpotlightCard from "../SpotlightCard";
 import { ShinyText } from "../ShinyText";
 import { Magnet } from "../Magnet";
 import { QualityControl, SleepTimerControl } from "./player-controls";
-import { formatDuration, getMediaFolder } from "./player-utils";
+import { formatDuration } from "./player-utils";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -37,13 +37,10 @@ export function VideoPlayer({
   hasNext,
   hasPrev,
   liked,
-  loopMode,
   mediaRef,
-  meta,
   muted,
   paused,
   position,
-  queueOpen,
   resumePos,
   sleepTimerRemaining,
   streamSrc,
@@ -56,14 +53,12 @@ export function VideoPlayer({
   onEnded,
   onLoadedMetadata,
   onCloseFull,
-  onOpenQueue,
   onPause,
   onPlay,
   onPreventMenu,
   onResume,
   onSeek,
   onTimeUpdate,
-  onToggleLoop,
   onToggleMute,
   onToggle,
   onToggleLike,
@@ -92,8 +87,6 @@ export function VideoPlayer({
   const max = Math.max(mediaDuration, position, 1);
   const playedPercent = Math.min(Math.max((position / max) * 100, 0), 100);
   const volumePercent = Math.round((muted ? 0 : volume) * 100);
-  const folder = getMediaFolder(currentMedia) || "";
-
   const showFeedbackToast = useCallback((msg, icon = null) => {
     setToast({ message: msg, icon });
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -406,7 +399,7 @@ export function VideoPlayer({
 
           {/* Center Play/Pause Button */}
           <div className="video-player-hud-center">
-            <Magnet magnetStrength={0.35} padding={60}>
+            <Magnet magnetStrength={0.35}>
               <button
                 type="button"
                 className="video-player-center-btn"

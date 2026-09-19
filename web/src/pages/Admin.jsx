@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck } from "@fortawesome/free-solid-svg-icons/faCircleCheck";
@@ -11,7 +11,6 @@ import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { faMobileScreenButton } from "@fortawesome/free-solid-svg-icons/faMobileScreenButton";
 import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 import { useAccess } from "../access-context";
-import { ThemeToggle } from "../components/theme-toggle";
 import { api, apiUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
@@ -683,6 +682,66 @@ function Modal({ title, subtitle, children, onClose, width = 960 }) {
   );
 }
 
+function formatQueueAge(value) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "just now";
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function UploadQueuePanel({ error, jobs, loading, onRefresh, summary }) {
+  const activeCount = (summary?.queued || 0) + (summary?.processing || 0);
+  return (
+    <div className="admin-upload-queue">
+      <div className="admin-upload-queue-summary">
+        <div><span>Active</span><strong>{activeCount}</strong></div>
+        <div><span>Queued</span><strong>{summary?.queued || 0}</strong></div>
+        <div><span>Completed</span><strong>{summary?.completed || 0}</strong></div>
+        <div><span>Failed</span><strong>{summary?.failed || 0}</strong></div>
+      </div>
+
+      <div className="admin-upload-queue-toolbar">
+        <p>This view follows the server worker. You may close it while processing continues.</p>
+        <button type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && <div className="admin-upload-queue-error" role="alert">{error}</div>}
+      {!error && !loading && jobs.length === 0 && (
+        <div className="admin-upload-queue-empty">No upload jobs have been recorded in the last 24 hours.</div>
+      )}
+      {jobs.length > 0 && (
+        <div className="admin-upload-queue-list">
+          {jobs.map((job) => {
+            const statusLabel = job.status === "queued"
+              ? `Queue position ${job.queuePosition || "—"} · added ${formatQueueAge(job.queuedAt)}`
+              : job.status === "processing"
+                ? `Worker is assembling and indexing · started ${formatQueueAge(job.startedAt)}`
+                : job.status === "completed"
+                  ? `Media is ready · ${formatQueueAge(job.finishedAt)}`
+                  : job.error || "Worker failed";
+            return (
+              <article className="admin-upload-queue-job" data-status={job.status} key={job.uploadId}>
+                <div className="admin-upload-queue-job-main">
+                  <strong title={job.title || job.fileName}>{job.title || job.fileName || "Untitled upload"}</strong>
+                  <span>{job.fileName || (job.replacementMediaId ? `Replacement for media #${job.replacementMediaId}` : job.uploadId)}</span>
+                </div>
+                <div className="admin-upload-queue-job-status">
+                  <strong>{job.status || "unknown"}</strong>
+                  <span>{statusLabel}</span>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function clearFileInputs() {
   const mediaInput = document.getElementById("admin-media-file");
   const thumbInput = document.getElementById("admin-media-thumb");
@@ -762,20 +821,7 @@ async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, sta
   return sentBytes;
 }
 
-async function waitForUploadCompletion(uploadId, timeoutMs = 30 * 60 * 1000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const response = await api(`/api/media/uploads/${uploadId}/status`);
-    const status = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(status?.error || `Upload status failed (${response.status})`);
-    if (status?.status === "completed" && status.media) return status.media;
-    if (status?.status === "failed") throw new Error(status.error || "Upload processing failed");
-    await new Promise((resolve) => window.setTimeout(resolve, 1000));
-  }
-  throw new Error("Upload processing did not finish within 30 minutes");
-}
-
-async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", contentKind = "", file, lyricsFile = null, thumbnail = null, onProgress }) {
+async function uploadMediaInChunks({ categoryId, title, description = "", artists = "", trackOrder = "", duration = "", contentKind = "", file, lyricsFile = null, thumbnail = null, onProgress, onWorkerQueued }) {
   const lyrics = await readLyricsFile(lyricsFile);
   const initRes = await api("/api/media/uploads", {
     method: "POST",
@@ -805,6 +851,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
   const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
   const totalBytes = Math.max(1, file.size + (thumbnail?.size || 0));
   let uploadedBytes = 0;
+  let queuedForWorker = false;
   const startedAt = performance.now();
 
   try {
@@ -820,7 +867,7 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
     });
 
     if (thumbnail) {
-      uploadedBytes = await sendFileChunks({
+      await sendFileChunks({
         uploadId,
         file: thumbnail,
         kind: "thumbnail",
@@ -836,15 +883,22 @@ async function uploadMediaInChunks({ categoryId, title, description = "", artist
     if (!completeRes.ok) {
       throw new Error(await readApiError(completeRes, `Upload finalization failed (${completeRes.status})`));
     }
-    if (completeRes.status === 202) return waitForUploadCompletion(uploadId);
-    return completeRes.json();
+    const completionResult = await completeRes.json();
+    if (completeRes.status === 202) {
+      queuedForWorker = true;
+      onWorkerQueued?.(uploadId);
+      return { uploadId, queued: true, status: completionResult.status || "queued" };
+    }
+    return { uploadId, queued: false, media: completionResult, status: "completed" };
   } catch (error) {
-    await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    if (!queuedForWorker) {
+      await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    }
     throw error;
   }
 }
 
-async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = null, thumbnail = null, onProgress }) {
+async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = null, thumbnail = null, onProgress, onWorkerQueued }) {
   const lyrics = lyricsFile ? await readLyricsFile(lyricsFile) : null;
   const initRes = await api("/api/media/uploads", {
     method: "POST",
@@ -868,6 +922,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
   const { uploadId, chunkSize = FALLBACK_CHUNK_SIZE } = await initRes.json();
   const totalBytes = Math.max(1, (file?.size || 0) + (thumbnail?.size || 0));
   let uploadedBytes = 0;
+  let queuedForWorker = false;
   const startedAt = performance.now();
 
   try {
@@ -885,7 +940,7 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
     }
 
     if (thumbnail) {
-      uploadedBytes = await sendFileChunks({
+      await sendFileChunks({
         uploadId,
         file: thumbnail,
         kind: "thumbnail",
@@ -901,10 +956,17 @@ async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFile = nu
     if (!completeRes.ok) {
       throw new Error(await readApiError(completeRes, `Replacement finalization failed (${completeRes.status})`));
     }
-    if (completeRes.status === 202) return waitForUploadCompletion(uploadId);
-    return completeRes.json();
+    const completionResult = await completeRes.json();
+    if (completeRes.status === 202) {
+      queuedForWorker = true;
+      onWorkerQueued?.(uploadId);
+      return { uploadId, queued: true, status: completionResult.status || "queued" };
+    }
+    return { uploadId, queued: false, media: completionResult, status: "completed" };
   } catch (error) {
-    await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    if (!queuedForWorker) {
+      await api(`/api/media/uploads/${uploadId}`, { method: "DELETE" }).catch(() => {});
+    }
     throw error;
   }
 }
@@ -954,9 +1016,9 @@ async function uploadAndroidRelease({ file, version, onProgress }) {
 
 export default function Admin() {
   const { tier } = useAccess();
-  const { refreshCategories: refreshGlobalCategories } = useLibrary();
+  const { categories: globalCategories, refreshCategories: refreshGlobalCategories } = useLibrary();
   const player = useGlobalPlayerLibrary();
-  const [categories, setCategories] = useState([]);
+  const [categories, setCategories] = useState(globalCategories);
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [message, setMessage] = useState(null);
   const [movingCategory, setMovingCategory] = useState(false);
@@ -1008,25 +1070,53 @@ export default function Admin() {
   const [releaseFile, setReleaseFile] = useState(null);
   const [uploadingRelease, setUploadingRelease] = useState(false);
   const [releaseProgress, setReleaseProgress] = useState(null);
+  const [uploadQueueOpen, setUploadQueueOpen] = useState(false);
+  const [uploadQueueJobs, setUploadQueueJobs] = useState([]);
+  const [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 });
+  const [uploadQueueLoading, setUploadQueueLoading] = useState(false);
+  const [uploadQueueError, setUploadQueueError] = useState("");
+
+  const refreshUploadQueue = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setUploadQueueLoading(true);
+    try {
+      const response = await api("/api/media/uploads/queue");
+      if (!response.ok) throw new Error(await readApiError(response, "Could not load the upload worker queue"));
+      const data = await response.json();
+      setUploadQueueJobs(Array.isArray(data.jobs) ? data.jobs : []);
+      setUploadQueueSummary(data.summary || { queued: 0, processing: 0, completed: 0, failed: 0 });
+      setUploadQueueError("");
+    } catch (error) {
+      setUploadQueueError(error.message);
+    } finally {
+      if (!silent) setUploadQueueLoading(false);
+    }
+  }, []);
+
+  const openUploadQueue = useCallback(() => {
+    setUploadQueueOpen(true);
+    void refreshUploadQueue();
+  }, [refreshUploadQueue]);
+
+  useEffect(() => {
+    void refreshUploadQueue({ silent: true });
+  }, [refreshUploadQueue]);
+
+  useEffect(() => {
+    const activeJobs = uploadQueueSummary.queued + uploadQueueSummary.processing;
+    if (!uploadQueueOpen && activeJobs === 0) return undefined;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshUploadQueue({ silent: true });
+    };
+    const interval = window.setInterval(refreshWhenVisible, uploadQueueOpen ? 1500 : 5000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshUploadQueue, uploadQueueOpen, uploadQueueSummary.processing, uploadQueueSummary.queued]);
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadCategories = async () => {
-      try {
-        const res = await api("/api/categories");
-        const data = await res.json();
-        if (!cancelled) {
-          setCategories(Array.isArray(data) ? data : []);
-        }
-      } catch {
-        if (!cancelled) {
-          setMessage({ type: "error", text: "Failed to load categories." });
-        }
-      }
-    };
-
-    loadCategories();
 
     const loadMobileRelease = async () => {
       try {
@@ -1048,6 +1138,10 @@ export default function Admin() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setCategories(globalCategories);
+  }, [globalCategories]);
 
   useEffect(() => {
     if (!categoryModalOpen && mediaModalCategoryId === null && editingMedia === null) return;
@@ -1084,36 +1178,6 @@ export default function Admin() {
 
     return () => {
       cancelled = true;
-    };
-  }, [mediaModalCategoryId]);
-
-  useEffect(() => {
-    if (mediaModalCategoryId === null) return undefined;
-    let cancelled = false;
-    let refreshing = false;
-    const refreshEncodingProgress = async () => {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const response = await api(`/api/media?category_id=${mediaModalCategoryId}`);
-        if (!response.ok) return;
-        const items = await response.json();
-        if (cancelled || !Array.isArray(items)) return;
-        const orderedItems = orderMedia(items);
-        setCategoryMedia(orderedItems);
-        setEditingMedia((current) => current
-          ? orderedItems.find((item) => Number(item.id) === Number(current.id)) || current
-          : current);
-      } catch {
-        // The normal category loader reports connection errors; polling retries quietly.
-      } finally {
-        refreshing = false;
-      }
-    };
-    const interval = window.setInterval(refreshEncodingProgress, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
     };
   }, [mediaModalCategoryId]);
 
@@ -1246,10 +1310,25 @@ export default function Admin() {
   };
 
   const refreshCategories = async () => {
-    const res = await api("/api/categories");
-    const data = await res.json();
-    setCategories(Array.isArray(data) ? data : []);
-    await refreshGlobalCategories();
+    const data = await refreshGlobalCategories();
+    if (!Array.isArray(data)) throw new Error("Failed to refresh categories");
+    setCategories(data);
+  };
+
+  const refreshCategoryMedia = async (fallbackItems) => {
+    try {
+      const response = await api(`/api/media?category_id=${mediaModalCategoryId}`);
+      if (!response.ok) throw new Error("Category media refresh failed");
+      const items = await response.json();
+      if (!Array.isArray(items)) throw new Error("Invalid category media response");
+      const orderedItems = orderMedia(items);
+      setCategoryMedia(orderedItems);
+      return orderedItems;
+    } catch {
+      const orderedItems = orderMedia(fallbackItems);
+      setCategoryMedia(orderedItems);
+      return orderedItems;
+    }
   };
 
   const handleUpdateCategoryCover = async (event) => {
@@ -1415,12 +1494,19 @@ export default function Admin() {
     setUploadEtaSeconds(null);
     setMessage(null);
 
-    const createdItems = [];
+    const completedItems = [];
+    let queuedCount = 0;
     const failures = [];
+    let queueShown = false;
+    const showQueueOnce = () => {
+      if (queueShown) return;
+      queueShown = true;
+      openUploadQueue();
+    };
     for (const [itemIndex, item] of videoItems.entries()) {
       const override = videoOverrides[item.key] || {};
       try {
-        const created = await uploadMediaInChunks({
+        const result = await uploadMediaInChunks({
           categoryId: mediaModalCategoryId,
           title: String(override.title ?? item.title).trim(),
           description: mediaDescription,
@@ -1431,6 +1517,7 @@ export default function Admin() {
           file: item.file,
           lyricsFile: null,
           thumbnail: mediaThumb,
+          onWorkerQueued: showQueueOnce,
           onProgress: (progress, estimate) => {
             setUploadProgress(Math.round(((itemIndex + progress / 100) / videoItems.length) * 100));
             const remainingFilesBytes = videoItems
@@ -1441,29 +1528,33 @@ export default function Admin() {
               : null);
           },
         });
-        createdItems.push(created);
+        if (result.queued) queuedCount += 1;
+        else if (result.media) completedItems.push(result.media);
       } catch (error) {
         failures.push(`${item.file.name}: ${error.message}`);
       }
     }
 
     try {
-      if (createdItems.length > 0) {
-        const nextMedia = orderMedia([...categoryMedia, ...createdItems]);
-        setCategoryMedia(nextMedia);
+      if (completedItems.length > 0) {
+        const nextMedia = await refreshCategoryMedia([...categoryMedia, ...completedItems]);
+        await refreshCategories().catch(() => {});
         const videos = nextMedia.filter((item) => item.mime_type?.startsWith("video/"));
         setVideoOrderDraft(Object.fromEntries(videos.map((item, index) => [item.id, String(item.track_order || index + 1)])));
         setReorderingVideos(true);
         setMediaWorkspaceTab("collection");
       }
-      setMediaDescription("");
-      setVideoFiles([]);
-      setVideoOverrides({});
-      setMediaThumb(null);
-      clearFileInputs();
+      if (queuedCount + completedItems.length > 0) {
+        setMediaDescription("");
+        setVideoFiles([]);
+        setVideoOverrides({});
+        setMediaThumb(null);
+        clearFileInputs();
+      }
+      const acceptedCount = queuedCount + completedItems.length;
       setMessage(failures.length === 0
-        ? { type: "success", text: `${createdItems.length} video${createdItems.length === 1 ? "" : "s"} uploaded. Review their playback order below.` }
-        : { type: "error", text: `Uploaded ${createdItems.length}, failed ${failures.length}. ${failures.slice(0, 2).join(" ")}` });
+        ? { type: "success", text: `${acceptedCount} video upload${acceptedCount === 1 ? "" : "s"} accepted.${queuedCount ? ` The worker will finish ${queuedCount} in the background.` : ""}` }
+        : { type: "error", text: `Queued ${acceptedCount}, failed ${failures.length}. ${failures.slice(0, 2).join(" ")}` });
     } finally {
       setUploadingMedia(false);
       setUploadProgress(null);
@@ -1522,8 +1613,15 @@ export default function Admin() {
     setBatchEtaSeconds(null);
     setMessage(null);
 
-    const createdItems = [];
+    const completedItems = [];
+    let queuedCount = 0;
     const failures = [];
+    let queueShown = false;
+    const showQueueOnce = () => {
+      if (queueShown) return;
+      queueShown = true;
+      openUploadQueue();
+    };
 
     const batchCover = batchItems.find((item) => item.thumbnail)?.thumbnail || null;
     if (batchCover) {
@@ -1542,7 +1640,7 @@ export default function Admin() {
     for (const [itemIndex, item] of batchItems.entries()) {
       try {
         const override = batchOverrides[item.key] || {};
-        const created = await uploadMediaInChunks({
+        const result = await uploadMediaInChunks({
           categoryId: mediaModalCategoryId,
           title: String(override.title || item.title).trim(),
           artists: batchArtist,
@@ -1551,6 +1649,7 @@ export default function Admin() {
           file: item.file,
           lyricsFile: item.lyrics,
           thumbnail: null,
+          onWorkerQueued: showQueueOnce,
           onProgress: (progress, estimate) => {
             setBatchProgress(Math.round(((itemIndex + progress / 100) / batchItems.length) * 100));
             const remainingFilesBytes = batchItems
@@ -1561,26 +1660,31 @@ export default function Admin() {
               : null);
           },
         });
-        createdItems.push(created);
+        if (result.queued) queuedCount += 1;
+        else if (result.media) completedItems.push(result.media);
       } catch (error) {
         failures.push(`${item.title}: ${error.message}`);
       }
     }
 
-    if (createdItems.length > 0) {
-      setCategoryMedia((prev) => orderMedia([...prev, ...createdItems]));
+    if (completedItems.length > 0) {
+      await refreshCategoryMedia([...categoryMedia, ...completedItems]);
+      await refreshCategories().catch(() => {});
     }
 
-    if (failures.length === 0) {
+    const acceptedCount = queuedCount + completedItems.length;
+    if (acceptedCount > 0) {
       setBatchFiles([]);
       setBatchArtist("");
       setBatchOverrides({});
       clearFileInputs();
-      setMessage({ type: "success", text: `Imported ${createdItems.length} track${createdItems.length === 1 ? "" : "s"}.` });
+    }
+    if (failures.length === 0) {
+      setMessage({ type: "success", text: `${acceptedCount} track upload${acceptedCount === 1 ? "" : "s"} accepted.${queuedCount ? ` The worker will finish ${queuedCount} in the background.` : ""}` });
     } else {
       setMessage({
         type: "error",
-        text: `Imported ${createdItems.length}, failed ${failures.length}. ${failures.slice(0, 2).join(" ")}`,
+        text: `Queued ${acceptedCount}, failed ${failures.length}. ${failures.slice(0, 2).join(" ")}`,
       });
     }
 
@@ -1673,19 +1777,28 @@ export default function Admin() {
       if (!res.ok) throw new Error(await readApiError(res, "Edit failed"));
 
       let updated = await res.json();
+      let replacementQueued = false;
       if (editFile || editLyrics) {
         setEditProgress(0);
-        updated = await replaceMediaFilesInChunks({
+        const replacement = await replaceMediaFilesInChunks({
           mediaId: editingMedia.id,
           file: editFile,
           thumbnail: null,
           lyricsFile: editLyrics,
+          onWorkerQueued: openUploadQueue,
           onProgress: setEditProgress,
         });
+        replacementQueued = replacement.queued;
+        if (replacement.media) updated = replacement.media;
       }
 
       setCategoryMedia((prev) => orderMedia(prev.map((item) => (item.id === editingMedia.id ? updated : item))));
-      setMessage({ type: "success", text: `Updated "${updated.title}".` });
+      setMessage({
+        type: "success",
+        text: replacementQueued
+          ? `Changes saved for "${updated.title}". File processing continues in the background.`
+          : `Updated "${updated.title}".`,
+      });
       closeEditMediaModal();
     } catch (error) {
       setMessage({ type: "error", text: error.message });
@@ -1789,6 +1902,11 @@ export default function Admin() {
               </div>
             </div>
             <div style={styles.actionRow}>
+              <button type="button" style={styles.button("secondary")} onClick={openUploadQueue}>
+                Upload queue{uploadQueueSummary.queued + uploadQueueSummary.processing > 0
+                  ? ` (${uploadQueueSummary.queued + uploadQueueSummary.processing})`
+                  : ""}
+              </button>
               <button type="button" style={styles.button("secondary")} onClick={() => openCategoryModal("")}>
                 Create Root
               </button>
@@ -2351,11 +2469,15 @@ export default function Admin() {
                     <div className="admin-import-footer">
                       <div>
                         <strong>{videoItems.length} video{videoItems.length === 1 ? "" : "s"}</strong>
-                        <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · {uploadingMedia ? formatUploadRemaining(uploadEtaSeconds) : "duration detected automatically"}</span>
+                        <span>{formatBytes(videoItems.reduce((total, item) => total + item.file.size, 0))} · {uploadingMedia
+                          ? uploadProgress >= 100 ? "Transfer complete · follow the worker in Upload queue" : formatUploadRemaining(uploadEtaSeconds)
+                          : "duration detected automatically"}</span>
                       </div>
                       <button type="submit" disabled={uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid} style={styles.button("primary", uploadingMedia || !activeMediaCategory || videoItems.length === 0 || videoHasInvalidRows || filmSelectionInvalid)}>
                         {uploadingMedia && <span style={styles.spinner} />}
-                        {uploadingMedia ? `Uploading ${uploadProgress ?? 0}%` : `Upload ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`}
+                        {uploadingMedia
+                          ? uploadProgress >= 100 ? "Waiting for worker" : `Uploading ${uploadProgress ?? 0}%`
+                          : `Upload ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`}
                       </button>
                     </div>
                   </form>
@@ -2453,10 +2575,14 @@ export default function Admin() {
                     )}
 
                     <div className="admin-import-footer">
-                      <div><strong>{batchItems.length} track{batchItems.length === 1 ? "" : "s"}</strong><span>{formatBytes(batchSummary.bytes)} · {uploadingBatch ? formatUploadRemaining(batchEtaSeconds) : "ready to import"}</span></div>
+                      <div><strong>{batchItems.length} track{batchItems.length === 1 ? "" : "s"}</strong><span>{formatBytes(batchSummary.bytes)} · {uploadingBatch
+                        ? batchProgress >= 100 ? "Transfer complete · follow the worker in Upload queue" : formatUploadRemaining(batchEtaSeconds)
+                        : "ready to import"}</span></div>
                       <button type="submit" disabled={uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows} style={styles.button("primary", uploadingBatch || !activeMediaCategory || batchItems.length === 0 || batchHasInvalidRows)}>
                         {uploadingBatch && <span style={styles.spinner} />}
-                        {uploadingBatch ? `Importing ${batchProgress ?? 0}%` : `Import ${batchItems.length} track${batchItems.length === 1 ? "" : "s"}`}
+                        {uploadingBatch
+                          ? batchProgress >= 100 ? "Waiting for worker" : `Importing ${batchProgress ?? 0}%`
+                          : `Import ${batchItems.length} track${batchItems.length === 1 ? "" : "s"}`}
                       </button>
                     </div>
                   </form>
@@ -2633,6 +2759,23 @@ export default function Admin() {
                 </button>
               </div>
             </form>
+          </Modal>
+        )}
+
+        {uploadQueueOpen && (
+          <Modal
+            title="Upload worker queue"
+            subtitle="Monitor files waiting for or currently handled by the background worker."
+            width={860}
+            onClose={() => setUploadQueueOpen(false)}
+          >
+            <UploadQueuePanel
+              error={uploadQueueError}
+              jobs={uploadQueueJobs}
+              loading={uploadQueueLoading}
+              onRefresh={() => refreshUploadQueue()}
+              summary={uploadQueueSummary}
+            />
           </Modal>
         )}
       </div>

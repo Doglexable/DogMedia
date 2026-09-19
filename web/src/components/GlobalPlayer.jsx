@@ -8,7 +8,7 @@ import {
   getMediaSessionMetadata,
   registerMediaSessionActionHandlers,
 } from "./global-player/media-session";
-import { hiddenMediaStyle, playerStyles as styles } from "./global-player/player-styles";
+import { hiddenMediaStyle } from "./global-player/player-styles";
 import {
   LOOP_MODES,
   PAUSE_CACHE_TTL_MS,
@@ -290,7 +290,7 @@ export function GlobalPlayerProvider({ children }) {
   }, [applyQueueWindow]);
 
   useEffect(() => {
-    const applyExternalQueueChange = (event) => {
+    const applyExternalQueueChange = () => {
       refreshQueue().catch(() => {});
     };
     window.addEventListener("queue-changed", applyExternalQueueChange);
@@ -502,7 +502,7 @@ export function GlobalPlayerProvider({ children }) {
       position,
       duration || currentMedia.duration || 0
     );
-  }, [loopMode, shuffleEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loopMode, shuffleEnabled]);
 
   const loadQueueItems = useCallback(() => {
     const seq = queueLoadSeqRef.current + 1;

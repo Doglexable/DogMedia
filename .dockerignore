@@ -32,11 +32,6 @@ data
 **/data
 **/tmp
 
-# Exclude unused generated profile-picture sizes. Keep _l_, _s_, and files
-# without a generated size suffix in the server image.
-server/src/assets/profile-picture/*_f_.*
-server/src/assets/profile-picture/*_m_.*
-
 # Mobile is not used by the server or web container images. In particular,
 # this excludes the large Expo, Gradle, CocoaPods, APK, and native build trees.
 mobile

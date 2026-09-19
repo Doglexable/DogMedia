@@ -28,8 +28,15 @@ export default function SharedMusic() {
   useEffect(loadShare, [loadShare]);
   useEffect(() => {
     if (!PROCESSING.has(state.data?.status)) return undefined;
-    const interval = window.setInterval(loadShare, 2500);
-    return () => window.clearInterval(interval);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== "hidden") loadShare();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 2500);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [loadShare, state.data?.status]);
   useEffect(() => {
     const meta = document.querySelector('meta[name="robots"]') || document.head.appendChild(document.createElement("meta"));

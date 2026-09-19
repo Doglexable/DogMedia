@@ -243,7 +243,7 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
             {upcomingItems.length > 0 && (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={upcomingItems.map((item) => Number(item.id))} strategy={verticalListSortingStrategy}>
-                  {upcomingItems.map((item, index) => (
+                  {upcomingItems.map((item) => (
                     <SortableQueueItem
                       key={item.id}
                       active={false}

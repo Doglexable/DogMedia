@@ -4,7 +4,7 @@ import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
 import { PlayerModeControls, QualityControl, QueueButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
 import { TrackInfo } from "./track-info";
-import { getMediaFolderName, getMediaMeta } from "./player-utils";
+import { getMediaFolderName } from "./player-utils";
 
 export function PlayerBar({
   currentMedia, duration, hasNext, hasPrev, isImage, liked, loopMode, onAdvance,
@@ -17,8 +17,6 @@ export function PlayerBar({
   const isAudio = Boolean(typeof currentMedia?.mime_type === "string" && currentMedia.mime_type.startsWith("audio/"));
   const artSrc = isImage ? streamSrc : thumbSrc;
   const album = getMediaFolderName(currentMedia);
-  const meta = getMediaMeta(currentMedia);
-
   const sectionCols = isMini
     ? "sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5 xl:grid-cols-[minmax(220px,1fr)_minmax(360px,1.5fr)_minmax(220px,1fr)] xl:gap-6"
     : "sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5 lg:grid-cols-[minmax(220px,1fr)_minmax(360px,1.5fr)_minmax(220px,1fr)] lg:gap-6";

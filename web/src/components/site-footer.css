@@ -243,7 +243,7 @@
   cursor: pointer;
 }
 
-.site-footer-util-item:hover:not(.site-footer-util-item--static) {
+.site-footer-util-item:hover {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary) 40%, var(--card-border));
   background: color-mix(in srgb, var(--primary) 8%, var(--surface-solid));
@@ -253,11 +253,6 @@
 .site-footer-util-item:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
-}
-
-.site-footer-util-item--static {
-  cursor: default;
-  color: var(--muted);
 }
 
 /* 3. Divider & Social Bar ------------------------------------------------- */

@@ -22,7 +22,6 @@
     "@tanstack/react-virtual": "^3.14.10",
     "gsap": "^3.15.0",
     "html-to-image": "^1.11.13",
-    "moti": "^0.30.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",

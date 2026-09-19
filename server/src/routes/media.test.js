@@ -243,6 +243,8 @@ describe("chunked upload completion", () => {
       async set(key, value) { values.set(key, value); return "OK"; },
       async xadd() { return "1-0"; },
       async del(key) { values.delete(key); return 1; },
+      async scan() { return ["0", [...values.keys()]]; },
+      async mget(...keys) { return keys.map((key) => values.get(key) || null); },
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 100;
@@ -263,7 +265,19 @@ describe("chunked upload completion", () => {
       });
       expect(status.statusCode).toBe(200);
       expect(status.headers["cache-control"]).toBe("no-store");
-      expect(status.json()).toEqual({ status: "queued" });
+      expect(status.json()).toEqual(expect.objectContaining({
+        uploadId,
+        status: "queued",
+        title: "film.mkv",
+        fileName: "film.mkv",
+      }));
+
+      const queue = await app.inject({ method: "GET", url: "/api/media/uploads/queue" });
+      expect(queue.statusCode).toBe(200);
+      expect(queue.json()).toEqual(expect.objectContaining({
+        summary: expect.objectContaining({ queued: 1, processing: 0 }),
+        jobs: [expect.objectContaining({ uploadId, status: "queued", queuePosition: 1 })],
+      }));
     } finally {
       await app.close();
       await rm(uploadDir, { recursive: true, force: true });

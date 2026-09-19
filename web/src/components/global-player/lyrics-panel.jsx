@@ -279,7 +279,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
   if (!lyrics?.segments?.length) return null;
 
   return (
-    <section className="now-playing-sidebar-section now-playing-lyrics-section">
+    <section className="now-playing-lyrics-section">
       <div className="now-playing-lyrics-heading">
         <h2>Lyrics</h2>
         <div className="lyrics-heading-actions">

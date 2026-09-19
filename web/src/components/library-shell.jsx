@@ -418,8 +418,14 @@ export function LibraryShell({ access, children }) {
     setCategoriesLoading(true);
     return api("/api/categories")
       .then((response) => readJsonArray(response, "Could not load categories"))
-      .then(setCategories)
-      .catch(() => setCategories([]))
+      .then((nextCategories) => {
+        setCategories(nextCategories);
+        return nextCategories;
+      })
+      .catch(() => {
+        setCategories([]);
+        return null;
+      })
       .finally(() => setCategoriesLoading(false));
   }, []);
 

@@ -165,12 +165,6 @@
   accent-color: var(--primary);
 }
 
-.admin-import-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 12px;
-}
-
 .admin-optional {
   font-weight: 400;
   letter-spacing: 0;
@@ -480,11 +474,172 @@
   font-size: var(--fs-xs);
 }
 
+.admin-upload-queue {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-upload-queue-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-upload-queue-summary > div {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 84%, var(--bg));
+}
+
+.admin-upload-queue-summary span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-upload-queue-summary strong {
+  color: var(--text);
+  font-family: var(--font-data);
+  font-size: 1.25rem;
+}
+
+.admin-upload-queue-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-upload-queue-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.admin-upload-queue-toolbar button {
+  padding: 8px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.admin-upload-queue-toolbar button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.admin-upload-queue-error,
+.admin-upload-queue-empty {
+  padding: 18px;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.admin-upload-queue-error {
+  border-color: var(--warning-border);
+  color: var(--warning-text);
+}
+
+.admin-upload-queue-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(58dvh, 520px);
+  overflow-y: auto;
+}
+
+.admin-upload-queue-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.42fr);
+  gap: 18px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid var(--card-border);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 88%, var(--bg));
+}
+
+.admin-upload-queue-job[data-status="processing"] {
+  border-left-color: var(--primary);
+}
+
+.admin-upload-queue-job[data-status="completed"] {
+  border-left-color: var(--success-text);
+}
+
+.admin-upload-queue-job[data-status="failed"] {
+  border-left-color: var(--warning-text);
+}
+
+.admin-upload-queue-job-main,
+.admin-upload-queue-job-status {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.admin-upload-queue-job-main strong,
+.admin-upload-queue-job-main span,
+.admin-upload-queue-job-status span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-upload-queue-job-main strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.admin-upload-queue-job-main span,
+.admin-upload-queue-job-status span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.admin-upload-queue-job-status {
+  text-align: right;
+}
+
+.admin-upload-queue-job-status strong {
+  color: var(--primary);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 @media (max-width: 700px) {
+  .admin-upload-queue-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-upload-queue-toolbar,
+  .admin-upload-queue-job {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-upload-queue-toolbar {
+    display: grid;
+  }
+
+  .admin-upload-queue-job-status {
+    text-align: left;
+  }
+
   .admin-media-tabs,
   .admin-kind-options,
-  .admin-source-options,
-  .admin-import-fields {
+  .admin-source-options {
     grid-template-columns: 1fr;
   }
 

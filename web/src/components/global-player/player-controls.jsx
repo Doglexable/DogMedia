@@ -307,9 +307,7 @@ function getVolumeIcon(volume, muted) {
   return volume < 0.5 ? faVolumeLow : faVolumeHigh;
 }
 
-export function VolumeControl({ isImage, muted, volume, onChangeVolume, onToggleMute }) {
-  if (isImage) return null;
-
+export function VolumeControl({ isImage, muted, volume = 1, onChangeVolume, onToggleMute }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -335,38 +333,41 @@ export function VolumeControl({ isImage, muted, volume, onChangeVolume, onToggle
     };
   }, [open]);
 
-  const volumePercent = Math.round(volume * 100);
+  if (isImage) return null;
+
+  const safeVolume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
+  const volumePercent = Math.round(safeVolume * 100);
   const effectivePercent = muted ? 0 : volumePercent;
-  const label = muted || volume <= 0 ? "Volume (Muted)" : `Volume ${effectivePercent}%`;
+  const label = muted || safeVolume <= 0 ? "Volume (Muted)" : `Volume ${effectivePercent}%`;
 
   return (
     <div
       ref={containerRef}
-      className={`player-volume-control ${muted || volume <= 0 ? "player-volume-control--muted" : ""} ${open ? "player-volume-control--open" : ""}`}
+      className={`player-volume-control ${muted || safeVolume <= 0 ? "player-volume-control--muted" : ""} ${open ? "player-volume-control--open" : ""}`}
       style={{ "--player-volume-percent": `${effectivePercent}%` }}
     >
       <button
         type="button"
         className="player-volume-button"
         aria-label={label}
-        aria-pressed={muted || volume <= 0}
+        aria-pressed={muted || safeVolume <= 0}
         aria-expanded={open}
         aria-haspopup="dialog"
         title={label}
         onClick={() => setOpen((prev) => !prev)}
         onDoubleClick={onToggleMute}
       >
-        <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
+        <FontAwesomeIcon icon={getVolumeIcon(safeVolume, muted)} />
       </button>
       <div className="player-volume-popover" role="dialog" aria-label="Volume controls">
         <button
           type="button"
           className="player-volume-popover-mute"
-          aria-label={muted || volume <= 0 ? "Unmute" : "Mute"}
-          title={muted || volume <= 0 ? "Unmute" : "Mute"}
+          aria-label={muted || safeVolume <= 0 ? "Unmute" : "Mute"}
+          title={muted || safeVolume <= 0 ? "Unmute" : "Mute"}
           onClick={onToggleMute}
         >
-          <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
+          <FontAwesomeIcon icon={getVolumeIcon(safeVolume, muted)} />
         </button>
         <input
           type="range"
@@ -378,7 +379,7 @@ export function VolumeControl({ isImage, muted, volume, onChangeVolume, onToggle
           aria-label="Volume"
           aria-valuetext={muted ? "Muted" : `${volumePercent}%`}
           title={`Volume ${effectivePercent}%`}
-          onChange={(event) => onChangeVolume(Number(event.target.value) / 100)}
+          onChange={(event) => onChangeVolume?.(Number(event.target.value) / 100)}
         />
         <span className="player-volume-percent-label">{effectivePercent}%</span>
       </div>

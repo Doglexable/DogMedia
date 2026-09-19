@@ -18,7 +18,7 @@ import { PlayerBar } from "./player-bar";
 import { QualityControl, SleepTimerControl } from "./player-controls";
 import { FullscreenLyrics } from "./lyrics-panel";
 import { MusicReelDialog } from "./music-share-dialog";
-import { getArtistLabel, resolveMediaArtist } from "./media-artists";
+import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getLoopButtonTitle, getMediaFolderName } from "./player-utils";
@@ -328,7 +328,7 @@ export function FullPlayer({
         <span style={{ ...styles.fullMediaBadge, marginLeft: "auto" }}>{meta.label}</span>
       </header>
 
-      <main className="full-player-layout full-player-layout--no-sidebar">
+      <main className="full-player-layout">
         <div className="full-player-stage">
           {isImage ? (
             <img

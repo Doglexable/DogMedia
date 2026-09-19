@@ -1,6 +1,5 @@
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import {
-  DEFAULT_LYRICA_REFRESH_MS,
   LyricaProviderError,
   getLyricaConfig,
   isLyricaRowFresh,

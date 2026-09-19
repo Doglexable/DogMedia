@@ -515,7 +515,7 @@ export default async function (fastify) {
     return queueResult(fastify, request, ids, currentIndex);
   });
 
-  fastify.post("/next", async (request, reply) => {
+  fastify.post("/next", async (request) => {
     const { key, idxKey, revisionKey } = queueKeys(request);
     const ip = request.clientIp || request.ip;
     const rawTrigger = request.body?.trigger || request.query?.trigger;
@@ -549,7 +549,7 @@ export default async function (fastify) {
     return { mediaId: numericMediaId, trigger };
   });
 
-  fastify.post("/prev", async (request, reply) => {
+  fastify.post("/prev", async (request) => {
     const { key, idxKey, revisionKey } = queueKeys(request);
     const ip = request.clientIp || request.ip;
     const rawTrigger = request.body?.trigger || request.query?.trigger;

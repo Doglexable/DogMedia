@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 export function Magnet({
   children,
-  padding = 40,
   magnetStrength = 0.25,
   disabled = false,
   activeTransition = "transform 0.15s cubic-bezier(0.25, 1, 0.5, 1)",
