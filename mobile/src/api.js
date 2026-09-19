@@ -2,6 +2,7 @@ import { createApiUnreachableError } from "./utils/playback-errors";
 import * as SecureStore from "expo-secure-store";
 
 const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
+const envWebBase = process.env.EXPO_PUBLIC_WEB_URL?.trim();
 export const API_REACHABILITY_TIMEOUT_MS = 2500;
 const VIEWER_ID_STORAGE_KEY = "pfs:viewer-id";
 let cachedViewerId;
@@ -18,6 +19,11 @@ async function storeViewerId(viewerId) {
 }
 
 export const API_BASE = (envApiBase || "http://localhost:3001").replace(/\/+$/, "");
+export const WEB_BASE = (envWebBase || API_BASE).replace(/\/+$/, "");
+
+export function publicShareUrl(sharePath) {
+  return `${WEB_BASE}${sharePath.startsWith("/") ? sharePath : `/${sharePath}`}`;
+}
 
 function absoluteApiUrl(path) {
   if (/^https?:\/\//i.test(path)) return path;

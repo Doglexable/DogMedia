@@ -83,13 +83,13 @@ export function LyricsShareCard({ artworkFailed, cardRef, metadata, onArtworkErr
       <div className="lyrics-share-card-brand">
         <img
           src="/web-app-manifest-192x192.png"
-          alt="DogMedia"
+          alt="Dogmedia"
           className="lyrics-share-card-logo"
           width="26"
           height="26"
           crossOrigin="anonymous"
         />
-        <span className="lyrics-share-card-brand-title">DogMedia</span>
+        <span className="lyrics-share-card-brand-title">Dogmedia</span>
       </div>
       <div className="lyrics-share-card-copy">
         <div className="lyrics-share-card-rule" />

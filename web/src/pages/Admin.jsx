@@ -1727,7 +1727,7 @@ export default function Admin() {
 
                 <div className="admin-release-status-copy">
                   <span>Current download</span>
-                  <h3>{mobileRelease?.available ? `DogMedia ${mobileRelease.version}` : "No active build"}</h3>
+                  <h3>{mobileRelease?.available ? `Dogmedia ${mobileRelease.version}` : "No active build"}</h3>
                   <p>
                     {mobileRelease?.available
                       ? `${formatBytes(mobileRelease.size)} · Published ${new Date(mobileRelease.uploadedAt).toLocaleString()}`

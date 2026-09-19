@@ -5,6 +5,7 @@ import { AccessContext } from "./access-context";
 
 const AccessDenied = lazy(() => import("./pages/AccessDenied"));
 const SharedLikedMusic = lazy(() => import("./pages/SharedLikedMusic"));
+const SharedMusic = lazy(() => import("./pages/SharedMusic"));
 const ProtectedApp = lazy(() => import("./components/protected-app"));
 
 function AccessGuard({ children }) {
@@ -60,6 +61,7 @@ export default function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/shared/likes/:token" element={<SharedLikedMusic />} />
+          <Route path="/shared/music" element={<SharedMusic />} />
           <Route path="*" element={<AccessGuard><ProtectedApp /></AccessGuard>} />
         </Routes>
       </Suspense>

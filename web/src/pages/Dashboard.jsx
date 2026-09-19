@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
+import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { useAccess } from "../access-context";
 import { api, readJsonArray } from "../api";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
@@ -15,6 +16,7 @@ import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
 import { formatDuration } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
 import MagicBento from "../components/MagicBento";
+import { MusicReelDialog } from "../components/global-player/music-share-dialog";
 
 const NOW_PLAYING_POLL_MS = 10000;
 const NOW_PLAYING_TICK_MS = 1000;
@@ -729,8 +731,7 @@ export default function Dashboard() {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [showEmptyGuide, setShowEmptyGuide] = useState(true);
   const [nowPlaying, setNowPlaying] = useState([]);
-  const [shareEnabled, setShareEnabled] = useState(false);
-  const [shareUrl, setShareUrl] = useState("");
+  const [musicReelOpen, setMusicReelOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -818,13 +819,6 @@ export default function Dashboard() {
         }
       });
   }, [debouncedSearch, libraryView, loadingMore, mediaType, nextCursor, selectedCategory]);
-
-  useEffect(() => {
-    api("/api/likes/share")
-      .then((response) => response.json())
-      .then((data) => setShareEnabled(Boolean(data.enabled)))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -944,28 +938,6 @@ export default function Dashboard() {
     );
   }, [libraryView, playMediaAction, selectedCategory]);
 
-  const createShare = useCallback(() => {
-    api("/api/likes/share", { method: "POST" })
-      .then((response) => response.json())
-      .then((data) => {
-        const url = `${window.location.origin}/shared/likes/${data.token}`;
-        setShareEnabled(true);
-        setShareUrl(url);
-        setNotice("A new secret link was generated. The previous link no longer works.");
-      })
-      .catch(() => setNotice("Could not generate a share link."));
-  }, []);
-
-  const revokeShare = useCallback(() => {
-    api("/api/likes/share", { method: "DELETE" })
-      .then(() => {
-        setShareEnabled(false);
-        setShareUrl("");
-        setNotice("Sharing has been revoked.");
-      })
-      .catch(() => setNotice("Could not revoke sharing."));
-  }, []);
-
   return (
     <div className="premium-app-shell" style={styles.page}>
       {/* ── Empty Guide Modal ── */}
@@ -1053,17 +1025,13 @@ export default function Dashboard() {
         <MediaTypePills value={mediaType} onChange={setMediaType} />
 
         {libraryView === "liked" && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button type="button" style={styles.navLink} onClick={createShare}>{shareEnabled ? "Regenerate secret link" : "Share favorites"}</button>
-            {shareEnabled && <button type="button" style={styles.navLink} onClick={revokeShare}>Revoke sharing</button>}
+          <div className="favorite-reel-callout">
+            <div><span>10 × 10 seconds</span><strong>Turn your favorites into a 4:3 music reel.</strong></div>
+            <button type="button" onClick={() => setMusicReelOpen(true)}><FontAwesomeIcon icon={faFilm} /> Build a reel</button>
           </div>
         )}
-        {libraryView === "liked" && shareUrl && (
-          <div style={{ ...styles.tableCard, padding: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <input readOnly value={shareUrl} aria-label="Secret share link" style={{ flex: "1 1 320px", padding: 9, border: "1px solid var(--card-border)", borderRadius: 7, background: "var(--bg)", color: "var(--text)" }} />
-            <button type="button" style={styles.navLink} onClick={() => navigator.clipboard?.writeText(shareUrl).then(() => setNotice("Secret link copied."))}>Copy</button>
-          </div>
-        )}
+
+        {musicReelOpen && <MusicReelDialog favorites={visibleMedia} onClose={() => setMusicReelOpen(false)} />}
 
         {mediaLoading ? (
           !normalizedSearch && libraryView !== "liked" ? (

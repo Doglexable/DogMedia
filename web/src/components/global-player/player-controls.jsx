@@ -392,7 +392,14 @@ export function TransportControls({ hasNext, hasPrev, isImage, paused, onAdvance
       <button type="button" className="player-transport-button" aria-label="Previous" disabled={!hasPrev} onClick={() => onAdvance("prev")} title="Previous">
         <FontAwesomeIcon icon={faBackwardStep} />
       </button>
-      <button type="button" className="player-play-button" aria-label={isImage ? "Open media" : paused ? "Play" : "Pause"} onClick={onToggle} title={paused ? "Play" : "Pause"}>
+      <button
+        type="button"
+        className="player-play-button"
+        aria-label={isImage ? "Open media" : paused ? "Play" : "Pause"}
+        aria-keyshortcuts={isImage ? undefined : "Space"}
+        onClick={onToggle}
+        title={isImage ? "Open media" : paused ? "Play (Space)" : "Pause (Space)"}
+      >
         <FontAwesomeIcon icon={isImage ? faUpRightFromSquare : paused ? faPlay : faPause} />
       </button>
       <button type="button" className="player-transport-button" aria-label="Next" disabled={!hasNext} onClick={() => onAdvance("next")} title="Next">

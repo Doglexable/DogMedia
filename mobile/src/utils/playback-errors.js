@@ -1,7 +1,7 @@
 export const API_UNREACHABLE = "API_UNREACHABLE";
 
 export function createApiUnreachableError() {
-  const error = new Error("The DogMedia server cannot be reached.");
+  const error = new Error("The Dogmedia server cannot be reached.");
   error.code = API_UNREACHABLE;
   return error;
 }
@@ -10,7 +10,7 @@ export function getPlaybackErrorPresentation(error) {
   if (error?.code === API_UNREACHABLE) {
     return {
       title: "Server unavailable",
-      message: "DogMedia cannot reach the configured server. Open Downloads to play files stored on this device.",
+      message: "Dogmedia cannot reach the configured server. Open Downloads to play files stored on this device.",
       actionLabel: "Open Downloads",
       route: "Downloads",
     };

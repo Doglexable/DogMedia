@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "DogMedia",
-  "short_name": "DogMedia",
+  "name": "Dogmedia",
+  "short_name": "Dogmedia",
   "description": "A private media library for streaming music, videos, and photos.",
   "lang": "en",
   "start_url": "/",
@@ -29,7 +29,7 @@
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "DogMedia private media library"
+      "label": "Dogmedia private media library"
     }
   ],
   "categories": ["entertainment", "music", "photo", "video"],

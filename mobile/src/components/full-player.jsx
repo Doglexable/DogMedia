@@ -4,12 +4,14 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal } from "@gorhom/bottom-sheet";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, Share, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   createPlaybackSessionSource,
+  apiJson,
   heartbeatPlaybackLease,
   mediaThumbnailUrl,
+  publicShareUrl,
   releasePlaybackLease,
 } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
@@ -487,6 +489,7 @@ export function FullPlayer({ navigation }) {
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState("");
   const [sleepOpen, setSleepOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [protectedSource, setProtectedSource] = useState(null);
   const [protectedSourceError, setProtectedSourceError] = useState("");
   const media = player.currentMedia;
@@ -570,6 +573,32 @@ export function FullPlayer({ navigation }) {
         if (closeOnSuccess) setSheetOpen(false);
       })
       .catch((error) => setQueueError(error.message || "Queue update failed"));
+  };
+
+  const shareMusicClip = async () => {
+    if (!media || shareBusy || !offline.isConnected) return;
+    setShareBusy(true);
+    try {
+      const clipDuration = Number(player.duration || media.duration || 0);
+      const clipStart = Math.min(Math.max(0, Number(player.position) || 0), Math.max(0, clipDuration - 10));
+      const data = await apiJson("/api/music-shares", {
+        method: "POST",
+        body: JSON.stringify({ mediaIds: [Number(media.id)], expiresInDays: 1, clipStarts: [clipStart] }),
+      });
+      const url = publicShareUrl(data.sharePath);
+      Alert.alert(
+        "Preparing the music clip",
+        `The server is rendering a downloadable 10-second video from ${formatDuration(clipStart)}. Seek to another moment before sharing to choose a different start.`,
+        [
+          { text: "Later", style: "cancel" },
+          { text: "Share link", onPress: () => Share.share({ title: media.title, message: `${media.title}\n${url}`, url }) },
+        ]
+      );
+    } catch (error) {
+      Alert.alert("Could not share music", error.message || "Try again when the server is available.");
+    } finally {
+      setShareBusy(false);
+    }
   };
 
   if (!media) {
@@ -735,6 +764,13 @@ export function FullPlayer({ navigation }) {
             icon={isLiked ? "bookmark" : "bookmark-outline"}
             iconColor={!offline.isConnected ? colors.subtle : isLiked ? colors.primary : colors.text}
             onPress={() => player.toggleLike(media)}
+          />
+          <PlayerIconButton
+            accessibilityLabel={shareBusy ? "Preparing music clip" : "Share 10 seconds from current position"}
+            disabled={!offline.isConnected || shareBusy}
+            icon="share-social"
+            iconColor={!offline.isConnected ? colors.subtle : colors.text}
+            onPress={shareMusicClip}
           />
           <SleepTimerButton
             colors={colors}
@@ -905,8 +941,9 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
   },
   actionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   qualityPill: {
     minWidth: 54,

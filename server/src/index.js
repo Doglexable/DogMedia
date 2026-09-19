@@ -14,10 +14,13 @@ import playbackRoutes from "./routes/playback.js";
 import wrappedRoutes from "./routes/wrapped.js";
 import likesRoutes from "./routes/likes.js";
 import publicLikedMusicRoutes from "./routes/public-liked-music.js";
+import publicMusicShareRoutes from "./routes/public-music-shares.js";
+import musicShareRoutes from "./routes/music-shares.js";
 import lyricsRoutes from "./routes/lyrics.js";
 import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
+import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const ALLOWED_ORIGINS = new Set(
@@ -83,14 +86,21 @@ startOrphanMediaCleanupScheduler({
   log: app.log,
   pg: app.pg,
 });
+startMusicReelCleanupScheduler({
+  dataDir: DATA_DIR,
+  log: app.log,
+  pg: app.pg,
+});
 
 await redisPlugin(app);
 await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
+await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
 await app.register(async function (instance) {
   await authPlugin(instance);
   await instance.register(checkAccessRoutes);
   await instance.register(categoriesRoutes, { prefix: "/categories" });
   await instance.register(mediaRoutes, { prefix: "/media" });
+  await instance.register(musicShareRoutes, { prefix: "/music-shares" });
   await instance.register(whitelistRoutes, { prefix: "/whitelist" });
   await instance.register(queueRoutes, { prefix: "/queue" });
   await instance.register(playbackRoutes, { prefix: "/playback" });

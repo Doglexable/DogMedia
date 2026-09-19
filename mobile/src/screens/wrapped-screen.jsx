@@ -239,7 +239,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
         <View style={[styles.openingCopy, { padding: 26 * scale }]}>
           <View style={styles.kickerRow}>
             <Image source={require("../../assets/logo.png")} style={styles.kickerLogo} />
-            <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+            <Text style={styles.lightKicker}>Dogmedia / {wrappedCopy.recapLabel}</Text>
           </View>
           <Text style={[styles.openingTitle, { fontSize: 54 * scale, lineHeight: 50 * scale }]}>{wrappedCopy.replayTitle}</Text>
           <Text style={styles.openingText}>{getWrappedMediaTitle(lead)} set the tone.</Text>
@@ -336,7 +336,7 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
         </View>
         <View style={styles.kickerRow}>
           <Image source={require("../../assets/logo.png")} style={styles.kickerLogo} />
-          <Text style={styles.lightKicker}>DogMedia / {wrappedCopy.recapLabel}</Text>
+          <Text style={styles.lightKicker}>Dogmedia / {wrappedCopy.recapLabel}</Text>
         </View>
         <Text style={[styles.finalTitle, { fontSize: 48 * scale, lineHeight: 44 * scale, color: persona.palette?.accent || colors.primary }]}>{persona.title || "Steady Signal"}</Text>
         <View style={styles.finalStats}>

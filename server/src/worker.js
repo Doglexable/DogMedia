@@ -2,6 +2,7 @@ import pg from "pg";
 import Redis from "ioredis";
 import { hostname } from "os";
 import { runEncodingWorker } from "./encoding-worker.js";
+import { runMusicReelWorker } from "./music-reel-worker.js";
 
 const dataDir = process.env.DATA_DIR || "data";
 const concurrency = Math.max(1, Number.parseInt(process.env.ENCODING_CONCURRENCY || "1", 10));
@@ -15,6 +16,15 @@ const workers = Array.from({ length: concurrency }, (_, index) => {
     log: console,
   }) };
 });
+const reelRedis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const reelWorker = {
+  redis: reelRedis,
+  promise: runMusicReelWorker({
+    dataDir, pg: pool, redis: reelRedis, signal: controller.signal,
+    consumer: `${hostname()}-${process.pid}-music-reels`, log: console,
+  }),
+};
+workers.push(reelWorker);
 
 async function shutdown() {
   controller.abort();

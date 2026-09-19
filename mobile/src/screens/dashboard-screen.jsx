@@ -222,7 +222,7 @@ export function DashboardScreen({ navigation }) {
         )}
         ListHeaderComponent={<>
         <View style={styles.header}>
-          <Text style={styles.kicker}>DogMedia</Text>
+          <Text style={styles.kicker}>Dogmedia</Text>
           <Text style={styles.heading}>Private library</Text>
           <Text style={styles.subhead}>{visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"} ready</Text>
         </View>

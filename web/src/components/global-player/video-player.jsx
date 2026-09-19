@@ -261,6 +261,7 @@ export function VideoPlayer({
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.defaultPrevented) return;
       const tag = e.target?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
 
@@ -470,6 +471,7 @@ export function VideoPlayer({
                     type="button"
                     className="video-player-ctrl-btn video-player-ctrl-btn--primary"
                     aria-label={paused ? "Play" : "Pause"}
+                    aria-keyshortcuts="Space"
                     title={paused ? "Play (Space)" : "Pause (Space)"}
                     onClick={onToggle}
                   >

@@ -192,3 +192,61 @@ export function resolveMediaArtist(media, fallback = "Unknown artist") {
   return fallback;
 }
 
+export function isSpaceKey(event) {
+  if (!event) return false;
+  if (event.ctrlKey || event.metaKey || event.altKey) return false;
+  return event.key === " " || event.key === "Spacebar" || event.code === "Space";
+}
+
+export function isEditableTarget(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName?.toLowerCase();
+  if (tag === "textarea" || tag === "select") return true;
+  if (tag === "input") {
+    const type = target.type?.toLowerCase();
+    return type !== "range";
+  }
+  return false;
+}
+
+export function isPlayPauseElement(target) {
+  if (!target) return false;
+  const el = target.closest?.("button, [role='button']") || target;
+  const shortcuts = el.getAttribute?.("aria-keyshortcuts");
+  if (shortcuts && shortcuts.toLowerCase().includes("space")) return true;
+  const label = el.getAttribute?.("aria-label")?.toLowerCase();
+  if (label === "play" || label === "pause") return true;
+  const className = typeof el.className === "string" ? el.className : "";
+  if (
+    className.includes("player-play-button") ||
+    className.includes("fullscreen-player-play") ||
+    className.includes("video-player-ctrl-btn--primary")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function shouldHandleSpaceKey(event) {
+  if (!isSpaceKey(event)) return false;
+  if (event.defaultPrevented) return false;
+  const target = event.target;
+  if (isEditableTarget(target)) return false;
+
+  if (target) {
+    const button = target.closest?.("button, [role='button']");
+    if (button && !isPlayPauseElement(button)) {
+      try {
+        if (typeof button.matches === "function" && button.matches(":focus-visible")) {
+          return false;
+        }
+      } catch {
+        // Ignore selector errors in unsupported test environments
+      }
+    }
+  }
+
+  return true;
+}
+

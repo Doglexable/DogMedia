@@ -73,5 +73,8 @@ describe("FullPlayer", () => {
     expect(markup).toContain("player-quality-control");
     expect(markup).toContain("player-sleep-control");
     expect(markup).toContain("fullscreen-player");
+    expect(markup).toContain('aria-keyshortcuts="Space"');
+    expect(markup).toContain('title="Pause (Space)"');
+    expect(markup).toContain('aria-label="Share music clip"');
   });
 });

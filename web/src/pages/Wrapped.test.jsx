@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { StorySlide } from "./Wrapped";
 
 describe("Wrapped StorySlide branding", () => {
-  it("renders the DogMedia logo in opening slide", () => {
+  it("renders the Dogmedia logo in opening slide", () => {
     const markup = renderToString(
       <StorySlide
         data={{ totalPlayTime: 120, topMedia: [{ mediaId: 1, title: "Test Track" }] }}
@@ -14,10 +14,10 @@ describe("Wrapped StorySlide branding", () => {
     );
     expect(markup).toContain('src="/web-app-manifest-192x192.png"');
     expect(markup).toContain('class="wrapped-slide-logo"');
-    expect(markup).toContain("DogMedia");
+    expect(markup).toContain("Dogmedia");
   });
 
-  it("renders the DogMedia logo in final share slide", () => {
+  it("renders the Dogmedia logo in final share slide", () => {
     const markup = renderToString(
       <StorySlide
         data={{ totalPlayTime: 120, totalPlays: 8, topMedia: [{ mediaId: 1, title: "Test Track" }] }}
@@ -28,10 +28,10 @@ describe("Wrapped StorySlide branding", () => {
     );
     expect(markup).toContain('src="/web-app-manifest-192x192.png"');
     expect(markup).toContain('class="wrapped-slide-logo"');
-    expect(markup).toContain("DogMedia");
+    expect(markup).toContain("Dogmedia");
   });
 
-  it("renders the DogMedia logo brand tag across intermediate slides", () => {
+  it("renders the Dogmedia logo brand tag across intermediate slides", () => {
     const intermediateSlides = [
       { id: "time", expectedKicker: "Time in motion" },
       { id: "top-media", expectedKicker: "Your rotation" },

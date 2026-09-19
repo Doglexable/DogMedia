@@ -1,4 +1,4 @@
-/* DogMedia vault layer ------------------------------------------------------
+/* Dogmedia vault layer ------------------------------------------------------
  * This file intentionally sits after the legacy stylesheet. It gives copied
  * React Bits components and the existing application one shared visual system
  * while feature styles are migrated out of theme.css in smaller, safe steps.

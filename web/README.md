@@ -1,4 +1,4 @@
-# DogMedia web
+# Dogmedia web
 
 The browser client is a React 19 and Vite application. Styling uses Tailwind
 CSS v4 utilities plus feature-level CSS. Runtime light, dark, and system themes

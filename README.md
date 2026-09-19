@@ -1,4 +1,4 @@
-# DogMedia
+# Dogmedia
 
 Self-hosted multimedia streaming server for photos, video, and audio. Access is
 controlled via an IP whitelist with access tiers — no user accounts, no login
@@ -30,8 +30,8 @@ Compose command, replace it with `podman-compose`.
 ### Production with Podman
 
 ```bash
-git clone https://github.com/Doglexable/DogMedia.git
-cd DogMedia
+git clone https://github.com/Doglexable/Dogmedia.git
+cd Dogmedia
 
 # Create the local configuration. This file is ignored by Git.
 cp .env.example .env
@@ -81,7 +81,7 @@ When updating an existing installation to include the background worker and cate
 # 1. Pull latest code and rebuild containers (starts the new worker service)
 podman compose up --build -d
 
-# 2. Run database migrations (applies migration 014)
+# 2. Run database migrations (applies every pending migration, including music sharing)
 podman compose exec server npm run migrate --workspace=server
 
 # 3. Consolidate category covers and backfill media encoding jobs
@@ -278,6 +278,7 @@ a parent are **not** inherited by routes created with `register` + `prefix`.
 - **media_encoding_variants** — low/medium/high derivatives and their durable
   queue status; originals remain untouched and are always the final fallback
 - **ip_whitelist** — CIDR ranges mapped to access tiers + description
+- **music_shares** — hashed, expiring, revocable links for individual audio tracks
 
 ## Redis
 
@@ -304,6 +305,8 @@ prints conflicts and categories for which no usable cover could be found.
 | `playback:events` | Sorted set | — | Timestamped event log for Wrapped |
 | `playback:active:<ip>` | String | 5 min | Active session for now-playing dashboard, including loop/shuffle state |
 | `playback:resume:<ip>:<mediaId>` | String | 7 days | Last known position for continue-watching |
+| `music:reel-render` | Stream | — | Background FFmpeg jobs for favorite music reels |
+| `public-music-reel:session:<id>` | String | 4 hours | Temporary public video-stream session |
 
 ## API
 
@@ -316,6 +319,12 @@ prints conflicts and categories for which no usable cover could be found.
 | `POST /api/media` | Tier ≥ 100 | Upload media file (multipart) |
 | `PUT /api/media/:id` | Tier ≥ 100 | Update media metadata |
 | `DELETE /api/media/:id` | Tier ≥ 100 | Delete media |
+| `GET /api/music-shares/current` | Whitelist | Read the current IP's favorite-reel render status |
+| `POST /api/music-shares` | Tier ≥ `MEDIA_SHARE_MIN_TIER` | Queue a lyric-aware 4:3 clip for one accessible track, or a reel from up to 10 favorites |
+| `DELETE /api/music-shares/current` | Whitelist | Revoke the current favorite reel |
+| `POST /api/public/music/session` | Public token | Read reel progress or exchange a ready token for a temporary video session |
+| `GET /api/public/music/session/:sessionId/stream` | Public session | Stream the rendered MP4 reel with Range support |
+| `GET /api/public/music/session/:sessionId/download` | Public session | Download the rendered MP4 reel as an attachment |
 | `GET/POST/PUT/DELETE /api/categories/:id` | Tier ≥ 100 | CRUD categories |
 | `GET/POST/DELETE /api/whitelist` | localhost | Manage whitelist entries |
 | `POST /api/queue/auto/:categoryId` | Whitelist | Fill queue with category media |

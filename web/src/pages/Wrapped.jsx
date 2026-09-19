@@ -184,7 +184,7 @@ export default function Wrapped() {
         <div className="wrapped-viewbar-meta">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-viewbar-logo"
             width="20"
             height="20"
@@ -336,13 +336,13 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
           <div className="wrapped-slide-brand">
             <img
               src="/web-app-manifest-192x192.png"
-              alt="DogMedia"
+              alt="Dogmedia"
               className="wrapped-slide-logo"
               width="26"
               height="26"
               crossOrigin="anonymous"
             />
-            <span className="wrapped-slide-kicker">DogMedia · {periodLabel}</span>
+            <span className="wrapped-slide-kicker">Dogmedia · {periodLabel}</span>
           </div>
           <h1>{wrappedCopy.replayTitle}</h1>
           <p>{lead ? `${getWrappedMediaTitle(lead)} set the tone.` : "Your library found its rhythm."}</p>
@@ -357,7 +357,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-brand">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-slide-logo"
             width="20"
             height="20"
@@ -383,7 +383,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-brand">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-slide-logo"
             width="20"
             height="20"
@@ -411,7 +411,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-brand">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-slide-logo"
             width="20"
             height="20"
@@ -438,7 +438,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-brand">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-slide-logo"
             width="20"
             height="20"
@@ -474,7 +474,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-brand">
           <img
             src="/web-app-manifest-192x192.png"
-            alt="DogMedia"
+            alt="Dogmedia"
             className="wrapped-slide-logo"
             width="20"
             height="20"
@@ -497,13 +497,13 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
       <div className="wrapped-slide-brand">
         <img
           src="/web-app-manifest-192x192.png"
-          alt="DogMedia"
+          alt="Dogmedia"
           className="wrapped-slide-logo"
           width="26"
           height="26"
           crossOrigin="anonymous"
         />
-        <span className="wrapped-slide-kicker">DogMedia · {wrappedCopy.recapLabel}</span>
+        <span className="wrapped-slide-kicker">Dogmedia · {wrappedCopy.recapLabel}</span>
       </div>
       <h2>{persona?.title || "Steady Signal"}</h2>
       <div className="wrapped-final-stats">
@@ -551,7 +551,7 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
           <div className="wrapped-hero-meta">
             <img
               src="/web-app-manifest-192x192.png"
-              alt="DogMedia"
+              alt="Dogmedia"
               className="wrapped-hero-logo"
               width="24"
               height="24"
@@ -638,7 +638,7 @@ function EmptyState({ copy, title }) {
     <section className="wrapped-empty">
       <img
         src="/web-app-manifest-192x192.png"
-        alt="DogMedia"
+        alt="Dogmedia"
         className="wrapped-empty-logo"
         width="64"
         height="64"

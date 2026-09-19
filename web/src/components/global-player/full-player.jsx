@@ -9,6 +9,7 @@ import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faRepeat } from "@fortawesome/free-solid-svg-icons/faRepeat";
 import { faShuffle } from "@fortawesome/free-solid-svg-icons/faShuffle";
+import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
 import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
 import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
@@ -16,6 +17,7 @@ import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { PlayerBar } from "./player-bar";
 import { QualityControl, SleepTimerControl } from "./player-controls";
 import { FullscreenLyrics } from "./lyrics-panel";
+import { MusicReelDialog } from "./music-share-dialog";
 import { getArtistLabel, resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
@@ -50,6 +52,7 @@ export function FullPlayer({
     const album = getMediaFolderName(currentMedia) || "Library";
     const artist = resolveMediaArtist(currentMedia, album);
     const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
+    const [shareOpen, setShareOpen] = useState(false);
     const max = Math.max(duration || currentMedia.duration || 0, position, 1);
     const remaining = Math.max((duration || currentMedia.duration || 0) - position, 0);
     const hasArtwork = Boolean(thumbSrc) && !thumbFailed;
@@ -128,6 +131,16 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faBookmark} />
               </button>
+              <button
+                type="button"
+                className={shareOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
+                aria-label="Share music clip"
+                aria-pressed={shareOpen}
+                title="Share 10-second music clip"
+                onClick={() => setShareOpen(true)}
+              >
+                <FontAwesomeIcon icon={faShareNodes} />
+              </button>
               <SleepTimerControl
                 remainingSeconds={sleepTimerRemaining}
                 onSetSleepTimer={onSetSleepTimer}
@@ -175,7 +188,14 @@ export function FullPlayer({
               <button type="button" className="fullscreen-player-transport" aria-label="Previous" disabled={!hasPrev} title="Previous" onClick={() => onAdvance("prev")}>
                 <FontAwesomeIcon icon={faBackwardStep} />
               </button>
-              <button type="button" className="fullscreen-player-play" aria-label={paused ? "Play" : "Pause"} title={paused ? "Play" : "Pause"} onClick={onToggle}>
+              <button
+                type="button"
+                className="fullscreen-player-play"
+                aria-label={paused ? "Play" : "Pause"}
+                aria-keyshortcuts="Space"
+                title={paused ? "Play (Space)" : "Pause (Space)"}
+                onClick={onToggle}
+              >
                 <FontAwesomeIcon icon={paused ? faPlay : faPause} />
               </button>
               <button type="button" className="fullscreen-player-transport" aria-label="Next" disabled={!hasNext} title="Next" onClick={() => onAdvance("next")}>
@@ -230,6 +250,15 @@ export function FullPlayer({
               Resume from {formatDuration(resumePos)}
             </button>
           </div>
+        )}
+        {shareOpen && (
+          <MusicReelDialog
+            favorites={[currentMedia]}
+            singleTrack
+            duration={duration || currentMedia.duration || 0}
+            initialStart={position}
+            onClose={() => setShareOpen(false)}
+          />
         )}
       </div>
     );

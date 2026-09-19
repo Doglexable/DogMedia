@@ -10,7 +10,7 @@ export function AccessDeniedScreen() {
   return (
     <View style={styles.screen}>
       <Text style={styles.title}>Access denied</Text>
-      <Text style={styles.copy}>This device IP is not whitelisted for DogMedia.</Text>
+      <Text style={styles.copy}>This device IP is not whitelisted for Dogmedia.</Text>
       <Text style={styles.hint}>Server: {API_BASE}</Text>
     </View>
   );

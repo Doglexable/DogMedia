@@ -293,7 +293,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
             aria-hidden="true"
           />
           <span className="min-w-0">
-            <strong>DogMedia</strong>
+            <strong>Dogmedia</strong>
             <small title="Your media. Your space. Your story. Your rhythm.">Your media. Your space. Your story. Your rhythm.</small>
           </span>
         </Link>

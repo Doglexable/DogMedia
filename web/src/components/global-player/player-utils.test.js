@@ -5,10 +5,14 @@ import {
   getCompletionAction,
   getMediaMeta,
   getQueueBoundaryParams,
+  isEditableTarget,
   isPauseTimeoutExpired,
+  isPlayPauseElement,
+  isSpaceKey,
   parseArtistFromCategory,
   parseArtistFromTitle,
   resolveMediaArtist,
+  shouldHandleSpaceKey,
 } from "./player-utils";
 
 describe("getMediaMeta", () => {
@@ -237,6 +241,116 @@ describe("getAutoQueueEndpoint", () => {
   it("resolves to global auto-queue endpoint when neither categoryId nor liked context is provided", () => {
     expect(getAutoQueueEndpoint(42)).toBe("/api/queue/auto?start=42&compact=1");
     expect(getAutoQueueEndpoint(42, null, null)).toBe("/api/queue/auto?start=42&compact=1");
+  });
+});
+
+describe("isSpaceKey", () => {
+  it("returns true for Space key representations without modifiers", () => {
+    expect(isSpaceKey({ key: " " })).toBe(true);
+    expect(isSpaceKey({ key: "Spacebar" })).toBe(true);
+    expect(isSpaceKey({ code: "Space", key: "Unidentified" })).toBe(true);
+  });
+
+  it("returns false for non-space keys or invalid events", () => {
+    expect(isSpaceKey(null)).toBe(false);
+    expect(isSpaceKey({ key: "k" })).toBe(false);
+    expect(isSpaceKey({ key: "Enter" })).toBe(false);
+  });
+
+  it("returns false if modifier keys are held", () => {
+    expect(isSpaceKey({ key: " ", ctrlKey: true })).toBe(false);
+    expect(isSpaceKey({ key: " ", metaKey: true })).toBe(false);
+    expect(isSpaceKey({ key: " ", altKey: true })).toBe(false);
+  });
+});
+
+describe("isEditableTarget", () => {
+  it("identifies input elements as editable except type=range", () => {
+    expect(isEditableTarget({ tagName: "INPUT", type: "text" })).toBe(true);
+    expect(isEditableTarget({ tagName: "INPUT", type: "search" })).toBe(true);
+    expect(isEditableTarget({ tagName: "INPUT", type: "password" })).toBe(true);
+    expect(isEditableTarget({ tagName: "INPUT", type: "range" })).toBe(false);
+  });
+
+  it("identifies textarea, select, and isContentEditable as editable", () => {
+    expect(isEditableTarget({ tagName: "TEXTAREA" })).toBe(true);
+    expect(isEditableTarget({ tagName: "SELECT" })).toBe(true);
+    expect(isEditableTarget({ tagName: "DIV", isContentEditable: true })).toBe(true);
+  });
+
+  it("identifies non-editable targets as false", () => {
+    expect(isEditableTarget(null)).toBe(false);
+    expect(isEditableTarget({ tagName: "BODY" })).toBe(false);
+    expect(isEditableTarget({ tagName: "BUTTON" })).toBe(false);
+    expect(isEditableTarget({ tagName: "DIV", isContentEditable: false })).toBe(false);
+  });
+});
+
+describe("isPlayPauseElement", () => {
+  it("identifies elements with aria-keyshortcuts='Space'", () => {
+    const el = { getAttribute: (attr) => (attr === "aria-keyshortcuts" ? "Space" : null) };
+    expect(isPlayPauseElement(el)).toBe(true);
+  });
+
+  it("identifies elements with aria-label Play or Pause", () => {
+    const playEl = { getAttribute: (attr) => (attr === "aria-label" ? "Play" : null) };
+    const pauseEl = { getAttribute: (attr) => (attr === "aria-label" ? "Pause" : null) };
+    expect(isPlayPauseElement(playEl)).toBe(true);
+    expect(isPlayPauseElement(pauseEl)).toBe(true);
+  });
+
+  it("identifies elements with player play button classes", () => {
+    expect(isPlayPauseElement({ className: "player-play-button" })).toBe(true);
+    expect(isPlayPauseElement({ className: "fullscreen-player-play" })).toBe(true);
+    expect(isPlayPauseElement({ className: "video-player-ctrl-btn video-player-ctrl-btn--primary" })).toBe(true);
+  });
+
+  it("returns false for other buttons or elements", () => {
+    const otherEl = { getAttribute: () => null, className: "player-ghost-button" };
+    expect(isPlayPauseElement(otherEl)).toBe(false);
+    expect(isPlayPauseElement(null)).toBe(false);
+  });
+});
+
+describe("shouldHandleSpaceKey", () => {
+  it("returns true for standard space key events", () => {
+    const event = { key: " ", defaultPrevented: false, target: { tagName: "BODY" } };
+    expect(shouldHandleSpaceKey(event)).toBe(true);
+  });
+
+  it("returns false when default is already prevented", () => {
+    const event = { key: " ", defaultPrevented: true, target: { tagName: "BODY" } };
+    expect(shouldHandleSpaceKey(event)).toBe(false);
+  });
+
+  it("returns false when target is an editable input or textarea", () => {
+    expect(shouldHandleSpaceKey({ key: " ", target: { tagName: "INPUT", type: "text" } })).toBe(false);
+    expect(shouldHandleSpaceKey({ key: " ", target: { tagName: "TEXTAREA" } })).toBe(false);
+  });
+
+  it("returns true when target is a range slider", () => {
+    expect(shouldHandleSpaceKey({ key: " ", target: { tagName: "INPUT", type: "range" } })).toBe(true);
+  });
+
+  it("returns true when target is the play/pause button", () => {
+    const playBtn = {
+      tagName: "BUTTON",
+      getAttribute: (attr) => (attr === "aria-keyshortcuts" ? "Space" : null),
+      matches: () => true,
+    };
+    playBtn.closest = () => playBtn;
+    expect(shouldHandleSpaceKey({ key: " ", target: playBtn })).toBe(true);
+  });
+
+  it("returns false when a non-play button has keyboard :focus-visible", () => {
+    const closeBtn = {
+      tagName: "BUTTON",
+      getAttribute: () => null,
+      className: "fullscreen-player-close",
+      matches: (selector) => selector === ":focus-visible",
+    };
+    closeBtn.closest = () => closeBtn;
+    expect(shouldHandleSpaceKey({ key: " ", target: closeBtn })).toBe(false);
   });
 });
 

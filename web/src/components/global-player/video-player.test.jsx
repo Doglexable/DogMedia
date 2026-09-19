@@ -68,6 +68,8 @@ describe("VideoPlayer", () => {
     expect(markup).toContain("/api/media/114/stream");
     expect(markup).toContain("shiny-text");
     expect(markup).toContain("magnet-wrapper");
+    expect(markup).toContain('aria-keyshortcuts="Space"');
+    expect(markup).toContain('title="Play (Space)"');
     expect(markup).not.toContain("video-player-hud-badge");
     expect(markup).not.toContain("now-playing-sidebar");
   });

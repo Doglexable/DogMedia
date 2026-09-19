@@ -62,7 +62,7 @@ function LoadingScreen() {
   };
 
   return (
-    <View style={styles.loading} accessibilityLabel="Opening DogMedia private library">
+    <View style={styles.loading} accessibilityLabel="Opening Dogmedia private library">
       <View style={styles.splashMarkWrap}>
         <Animated.View style={[styles.splashHalo, haloStyle]} />
         <Image

@@ -13,13 +13,13 @@ import { apiUrl } from "../api";
 import "./site-footer.css";
 
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
-const GITHUB_REPO_URL = "https://github.com/Doglexable/DogMedia";
+const GITHUB_REPO_URL = "https://github.com/Doglexable/Dogmedia";
 
 const MODAL_DATA = {
   privacy: {
     title: "Privacy & Ownership",
     subtitle: "Local-First Architecture",
-    body: `DogMedia is designed from the ground up for personal data sovereignty and complete privacy.
+    body: `Dogmedia is designed from the ground up for personal data sovereignty and complete privacy.
 
 • Zero Telemetry: No behavioral logging, fingerprinting, or tracking scripts.
 • Local Storage: Media files, listening habits, and metadata stay strictly inside your storage volume.
@@ -29,7 +29,7 @@ const MODAL_DATA = {
   terms: {
     title: "Terms of Use",
     subtitle: "Personal Media Space",
-    body: `DogMedia is an independent, personal media library system intended for lawful self-hosted media playback.
+    body: `Dogmedia is an independent, personal media library system intended for lawful self-hosted media playback.
 
 • Personal Collection: For organizing and playing audio, video, and photos you lawfully own or have rights to stream.
 • Self-Hosted Responsibility: You maintain server access controls, network whitelist rules, and data preservation.
@@ -38,16 +38,16 @@ const MODAL_DATA = {
   license: {
     title: "Open Source License",
     subtitle: "MIT License",
-    body: `DogMedia is free and open source software licensed under the MIT License.
+    body: `Dogmedia is free and open source software licensed under the MIT License.
 
-Copyright (c) 2026 DogMedia contributors.
+Copyright (c) 2026 Dogmedia contributors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.`,
   },
   protocol: {
     title: "Direct Streaming Protocol",
     subtitle: "Native HTTP Range Chunking",
-    body: `DogMedia implements native high-performance media chunk streaming:
+    body: `Dogmedia implements native high-performance media chunk streaming:
 
 • HTTP 206 Partial Content: Instant timeline scrubbing and precise video seeking.
 • Zero Transcode Latency: Original audio and video bitstreams are preserved without destructive compression.
@@ -178,12 +178,12 @@ export function SiteFooter({ access }) {
             <Link to="/" className="site-footer-brand-header">
               <img
                 src="/web-app-manifest-192x192.png"
-                alt="DogMedia"
+                alt="Dogmedia"
                 className="site-footer-brand-logo"
                 width="38"
                 height="38"
               />
-              <span className="site-footer-brand-title">DogMedia</span>
+              <span className="site-footer-brand-title">Dogmedia</span>
             </Link>
 
             <p className="site-footer-brand-tagline">
@@ -237,7 +237,7 @@ export function SiteFooter({ access }) {
                   href={ANDROID_APK_URL}
                   download="dogmedia-android.apk"
                   className="site-footer-link"
-                  title="Download DogMedia Android APK"
+                  title="Download Dogmedia Android APK"
                 >
                   Android App
                 </a>
@@ -467,7 +467,7 @@ export function SiteFooter({ access }) {
         <hr className="site-footer-divider" />
 
         <div className="site-footer-bar">
-          <Link to="/" className="site-footer-bar-brand" aria-label="DogMedia home">
+          <Link to="/" className="site-footer-bar-brand" aria-label="Dogmedia home">
             <img
               src="/web-app-manifest-192x192.png"
               alt=""
@@ -475,7 +475,7 @@ export function SiteFooter({ access }) {
               height="22"
               aria-hidden="true"
             />
-            <span>DogMedia</span>
+            <span>Dogmedia</span>
           </Link>
 
           <div className="site-footer-socials" aria-label="Community and social links">
@@ -519,7 +519,7 @@ export function SiteFooter({ access }) {
 
         {/* ── 5. Fine Print ── */}
         <div className="site-footer-fine-print">
-          <span>© {currentYear} DogMedia. All rights reserved.</span>
+          <span>© {currentYear} Dogmedia. All rights reserved.</span>
           <span className="site-footer-fine-print-statement">
             Your media. Your space. Your story. Your rhythm.
           </span>

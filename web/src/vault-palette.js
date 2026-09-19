@@ -1,5 +1,5 @@
 /**
- * DogMedia Vault Color Palette & Tokens
+ * Dogmedia Vault Color Palette & Tokens
  *
  * Core brand colors, atomic tokens, and semantic light/dark theme values.
  */

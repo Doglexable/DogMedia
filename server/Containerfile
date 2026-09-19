@@ -10,6 +10,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./
 COPY server ./server
+COPY web/public/favicon-96x96.png ./web/public/favicon-96x96.png
 COPY scripts ./scripts
 EXPOSE 3001
 ENV NODE_ENV=production

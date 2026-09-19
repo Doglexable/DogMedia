@@ -46,7 +46,7 @@ describe("getLyricsPreview", () => {
 });
 
 describe("LyricsShareCard", () => {
-  it("renders the DogMedia brand logo image and title", async () => {
+  it("renders the Dogmedia brand logo image and title", async () => {
     const { renderToString } = await import("react-dom/server");
     const markup = renderToString(
       <LyricsShareCard
@@ -56,6 +56,6 @@ describe("LyricsShareCard", () => {
     );
     expect(markup).toContain('src="/web-app-manifest-192x192.png"');
     expect(markup).toContain('class="lyrics-share-card-logo"');
-    expect(markup).toContain("DogMedia");
+    expect(markup).toContain("Dogmedia");
   });
 });

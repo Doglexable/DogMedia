@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import MagicBento, { BentoCardGrid } from './MagicBento';
 
 describe('MagicBento', () => {
-  it('renders default DogMedia branded cards when no items are provided', () => {
+  it('renders default Dogmedia branded cards when no items are provided', () => {
     const markup = renderToStaticMarkup(<MagicBento />);
     expect(markup).toContain('card-grid');
     expect(markup).toContain('Now Playing');

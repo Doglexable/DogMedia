@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   QualityControl,
   SleepTimerControl,
+  TransportControls,
   VolumeControl,
   formatBitrate,
   getQualityBitrateLabel,
@@ -173,6 +174,60 @@ describe("VolumeControl", () => {
     );
 
     expect(markup).toBe("");
+  });
+});
+
+describe("TransportControls", () => {
+  it("renders play button with aria-keyshortcuts='Space' and title='Play (Space)' when paused", () => {
+    const onToggle = vi.fn();
+    const markup = renderToStaticMarkup(
+      <TransportControls
+        hasNext={true}
+        hasPrev={false}
+        isImage={false}
+        paused={true}
+        onAdvance={vi.fn()}
+        onToggle={onToggle}
+      />
+    );
+
+    expect(markup).toContain('aria-keyshortcuts="Space"');
+    expect(markup).toContain('aria-label="Play"');
+    expect(markup).toContain('title="Play (Space)"');
+  });
+
+  it("renders pause button with aria-keyshortcuts='Space' and title='Pause (Space)' when playing", () => {
+    const markup = renderToStaticMarkup(
+      <TransportControls
+        hasNext={true}
+        hasPrev={true}
+        isImage={false}
+        paused={false}
+        onAdvance={vi.fn()}
+        onToggle={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain('aria-keyshortcuts="Space"');
+    expect(markup).toContain('aria-label="Pause"');
+    expect(markup).toContain('title="Pause (Space)"');
+  });
+
+  it("does not bind space shortcut to open action when media is an image", () => {
+    const markup = renderToStaticMarkup(
+      <TransportControls
+        hasNext={false}
+        hasPrev={false}
+        isImage={true}
+        paused={true}
+        onAdvance={vi.fn()}
+        onToggle={vi.fn()}
+      />
+    );
+
+    expect(markup).not.toContain('aria-keyshortcuts="Space"');
+    expect(markup).toContain('aria-label="Open media"');
+    expect(markup).toContain('title="Open media"');
   });
 });
 

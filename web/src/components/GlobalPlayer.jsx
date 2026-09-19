@@ -19,6 +19,7 @@ import {
   getNextLoopMode as nextLoopMode,
   getQueueBoundaryParams,
   isPauseTimeoutExpired,
+  shouldHandleSpaceKey,
 } from "./global-player/player-utils";
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
 
@@ -27,7 +28,7 @@ const PlayerLibraryContext = createContext(null);
 const FullPlayer = lazy(() => import("./global-player/full-player").then((module) => ({ default: module.FullPlayer })));
 const QueuePanel = lazy(() => import("./global-player/queue-panel").then((module) => ({ default: module.QueuePanel })));
 const SleepTimerCompleteDialog = lazy(() => import("./global-player/sleep-timer-complete-dialog").then((module) => ({ default: module.SleepTimerCompleteDialog })));
-const DEFAULT_DOCUMENT_TITLE = "DogMedia";
+const DEFAULT_DOCUMENT_TITLE = "Dogmedia";
 const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
 const DEFAULT_VOLUME = 0.85;
@@ -1296,6 +1297,22 @@ export function GlobalPlayerProvider({ children }) {
   }, [currentMedia, duration, isImage, paused, position]);
 
   const preventMediaMenu = useCallback((event) => event.preventDefault(), []);
+
+  useEffect(() => {
+    if (!currentMedia || isImage) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (shouldHandleSpaceKey(event)) {
+        event.preventDefault();
+        togglePlayback();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [currentMedia, isImage, togglePlayback]);
 
   const contextValue = useMemo(() => ({
     addCategoryToQueue,

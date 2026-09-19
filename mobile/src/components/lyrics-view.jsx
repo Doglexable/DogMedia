@@ -38,7 +38,7 @@ function LyricsCard({ artworkFailed, cardRef, cardWidth, metadata, onArtworkErro
       <View style={styles.shareCardWash} />
       <View style={styles.shareCardBrand}>
         <Image source={require("../../assets/logo.png")} style={styles.shareCardBrandLogo} />
-        <Text style={styles.shareCardBrandText}>DogMedia</Text>
+        <Text style={styles.shareCardBrandText}>Dogmedia</Text>
       </View>
       <View style={styles.shareCardCopy}>
         <View style={styles.shareCardRule} />
