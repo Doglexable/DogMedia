@@ -23,9 +23,13 @@ export async function probeSource(filePath) {
   const data = JSON.parse(stdout || "{}");
   const video = data.streams?.find((stream) => stream.codec_type === "video");
   const audio = data.streams?.find((stream) => stream.codec_type === "audio");
+  const audioStreamCount = data.streams?.filter((stream) => stream.codec_type === "audio").length || 0;
+  const subtitleStreamCount = data.streams?.filter((stream) => stream.codec_type === "subtitle").length || 0;
   return {
     hasAudio: Boolean(audio),
     hasVideo: Boolean(video),
+    audioStreamCount,
+    subtitleStreamCount,
     bitrate: Number(data.format?.bit_rate || video?.bit_rate || audio?.bit_rate || 0),
     duration: Number(data.format?.duration || 0),
     videoBitrate: Number(video?.bit_rate || 0),

@@ -1374,6 +1374,8 @@ export default function Admin() {
                 detail: editProgress === null ? "Saving media information." : "Uploading replacement files.",
               }
             : null;
+  const editingEncodingBusy = Object.values(editingMedia?.encoding_status || {})
+    .some((item) => item.status === "queued" || item.status === "processing");
 
   if (tier < 100) return <Navigate to="/" replace />;
 
@@ -2885,7 +2887,14 @@ export default function Admin() {
                           <button type="button" style={styles.button("secondary", false)} onClick={() => handleRetryEncoding()}>Retry failed</button>
                         )}
                         {editingMedia.mime_type?.startsWith("video/") && (
-                          <button type="button" style={styles.button("secondary", false)} onClick={() => handleRetryEncoding({ force: true })}>Re-encode video</button>
+                          <button
+                            type="button"
+                            disabled={editingEncodingBusy}
+                            style={styles.button("secondary", editingEncodingBusy)}
+                            onClick={() => handleRetryEncoding({ force: true })}
+                          >
+                            {editingEncodingBusy ? "Encoding active" : "Re-encode video"}
+                          </button>
                         )}
                       </div>
                     </div>

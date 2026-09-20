@@ -1,13 +1,23 @@
 import { join } from "path";
+import { rm, unlink } from "fs/promises";
 import { normalizeCategoryCover, normalizeMediaCover } from "./category-cover.js";
 import { enqueueEncoding } from "./encoding-queue.js";
 import { parseStreamFields } from "./encoding-worker.js";
 import { MEDIA_FINALIZATION_GROUP, MEDIA_FINALIZATION_STREAM } from "./media-finalization-queue.js";
 import { probeDuration, probeMediaTags, resolveTrackOrder } from "./routes/media.js";
+import { normalizeMatroskaSource } from "./video-source-normalization.js";
 
 const DEFAULT_IDLE_MS = 60_000;
 
-export async function processMediaFinalizationJob({ dataDir, log, mediaId, pg, redis, sourceVersion }) {
+export async function processMediaFinalizationJob({
+  dataDir,
+  log,
+  mediaId,
+  pg,
+  redis,
+  sourceVersion,
+  normalizeVideoSource = normalizeMatroskaSource,
+}) {
   const { rows } = await pg.query(
     `SELECT m.*, c.cover_path
      FROM media_assets m
@@ -15,8 +25,40 @@ export async function processMediaFinalizationJob({ dataDir, log, mediaId, pg, r
      WHERE m.id = $1`,
     [mediaId]
   );
-  const media = rows[0];
+  let media = rows[0];
+  let normalizedSource = false;
   if (!media || Number(media.source_version) !== Number(sourceVersion)) return { stale: true };
+
+  try {
+    const normalized = await normalizeVideoSource({ dataDir, media });
+    if (normalized) {
+      let sourceUpdate;
+      try {
+        sourceUpdate = await pg.query(
+          `UPDATE media_assets
+           SET file_path = $1, mime_type = $2
+           WHERE id = $3 AND source_version = $4
+           RETURNING id`,
+          [normalized.filePath, normalized.mimeType, mediaId, sourceVersion]
+        );
+      } catch (error) {
+        await rm(normalized.absolutePath, { force: true }).catch(() => {});
+        throw error;
+      }
+      if (!sourceUpdate.rows.length) {
+        await rm(normalized.absolutePath, { force: true }).catch(() => {});
+        return { stale: true };
+      }
+      await unlink(normalized.previousAbsolutePath).catch((error) => {
+        log?.warn?.({ err: error, mediaId }, "normalized video could not remove its MKV source");
+      });
+      media = { ...media, file_path: normalized.filePath, mime_type: normalized.mimeType };
+      normalizedSource = true;
+      log?.info?.({ mediaId, source: normalized.filePath }, "normalized MKV source to MP4");
+    }
+  } catch (error) {
+    log?.warn?.({ err: error, mediaId }, "MKV source normalization failed; preserving the original source");
+  }
 
   const inputPath = join(dataDir, media.file_path);
   const duration = media.duration ?? await probeDuration(inputPath, log);
@@ -63,6 +105,16 @@ export async function processMediaFinalizationJob({ dataDir, log, mediaId, pg, r
     [duration, artists, trackOrder, thumbnailPath, mediaId, sourceVersion]
   );
   if (!updated.rows.length) return { stale: true };
+
+  if (normalizedSource) {
+    await pg.query(
+      `UPDATE media_encoding_variants
+       SET status = 'queued', attempts = 0, last_error = NULL, progress_percent = 0, updated_at = NOW()
+       WHERE media_id = $1 AND source_version = $2
+         AND status IN ('ready', 'skipped', 'failed')`,
+      [mediaId, sourceVersion]
+    );
+  }
 
   await enqueueEncoding({ pg, redis, mediaId, sourceVersion });
   return { finalized: true };

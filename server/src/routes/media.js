@@ -17,6 +17,7 @@ import {
   uploadCompletionStatusKey,
 } from "../upload-completion-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
+import { shouldNormalizeMatroskaSource } from "../video-source-normalization.js";
 import {
   acquireExclusiveLease,
   createPlaybackSession,
@@ -1066,6 +1067,21 @@ export default async function (fastify, options = {}) {
   fastify.post("/:id/encoding/retry", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
     const force = request.body?.force === true;
+    if (force) {
+      const { rows } = await fastify.pg.query(
+        "SELECT id, file_path, mime_type, content_kind, source_version FROM media_assets WHERE id = $1",
+        [request.params.id]
+      );
+      if (!rows.length) return reply.code(404).send({ error: "Not found" });
+      if (shouldNormalizeMatroskaSource(rows[0])) {
+        await enqueueMediaFinalization({
+          redis: fastify.redis,
+          mediaId: rows[0].id,
+          sourceVersion: rows[0].source_version,
+        });
+        return reply.code(202).send({ status: "queued", stage: "source-normalization" });
+      }
+    }
     const retried = await retryFailedEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId: request.params.id, force });
     if (retried) return reply.code(202).send({ status: "queued" });
     const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
