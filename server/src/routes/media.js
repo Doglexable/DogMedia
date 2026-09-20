@@ -402,7 +402,16 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   return reply.code(201).send({ ...updated[0], has_lyrics: Boolean(lyrics) });
 }
 
-async function replaceMediaFiles({ fastify, reply, mediaId, lyrics, mainFileUpload = null, thumbUpload = null }) {
+export async function replaceMediaFiles({
+  fastify,
+  reply,
+  mediaId,
+  lyrics,
+  mainFileUpload = null,
+  thumbUpload = null,
+  dataDir = DATA_DIR,
+  normalizeCover = normalizeMediaCover,
+}) {
   if (!mainFileUpload && !thumbUpload && lyrics === undefined) {
     return reply.code(400).send({ error: "Choose a replacement file, thumbnail, or lyrics file" });
   }
@@ -414,23 +423,25 @@ async function replaceMediaFiles({ fastify, reply, mediaId, lyrics, mainFileUplo
   }
 
   const existing = rows[0];
-  if (thumbUpload) {
+  const replacementMimeType = mainFileUpload ? mimeFromExt(mainFileUpload.filename) : existing.mime_type;
+  if (thumbUpload && !replacementMimeType?.startsWith("video/") && !replacementMimeType?.startsWith("image/")) {
     await cleanupUploads(mainFileUpload, thumbUpload);
     return reply.code(400).send({ error: "Replace shared artwork through the category thumbnail endpoint" });
   }
-  const categoryDir = join(DATA_DIR, String(existing.category_id));
+  const categoryDir = join(dataDir, String(existing.category_id));
   await mkdir(categoryDir, { recursive: true });
 
   let nextFilePath = existing.file_path;
   let nextMimeType = existing.mime_type;
   let nextDuration = existing.duration;
   let nextArtists = existing.artists;
+  let nextThumbnailPath = existing.thumbnail_path;
 
   if (mainFileUpload) {
     const ext = extFromFilename(mainFileUpload.filename);
     const storedName = `${mediaId}.${ext}`;
     const absoluteFilePath = join(categoryDir, storedName);
-    const previousFilePath = join(DATA_DIR, existing.file_path);
+    const previousFilePath = join(dataDir, existing.file_path);
 
     await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(absoluteFilePath));
     await unlink(mainFileUpload.tempPath).catch(() => {});
@@ -439,6 +450,18 @@ async function replaceMediaFiles({ fastify, reply, mediaId, lyrics, mainFileUplo
     nextFilePath = `${existing.category_id}/${storedName}`;
     nextMimeType = mimeFromExt(absoluteFilePath);
     nextDuration = null;
+
+    await rm(join(categoryDir, String(mediaId)), { recursive: true, force: true }).catch(() => {});
+    nextThumbnailPath = null;
+  }
+
+  if (thumbUpload) {
+    nextThumbnailPath = await normalizeCover({
+      categoryId: existing.category_id,
+      mediaId,
+      dataDir,
+      inputPath: thumbUpload.tempPath,
+    });
   }
 
   if (lyrics !== undefined) {
@@ -456,24 +479,28 @@ async function replaceMediaFiles({ fastify, reply, mediaId, lyrics, mainFileUplo
          duration = CASE WHEN $7 THEN $3 ELSE COALESCE($3, duration) END,
          artists = $4,
          content_kind = $5,
-         source_version = source_version + CASE WHEN $7 THEN 1 ELSE 0 END
+         source_version = source_version + CASE WHEN $7 THEN 1 ELSE 0 END,
+         thumbnail_path = $8
      WHERE id = $6
      RETURNING *`,
-    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), normalizeContentKind(existing.content_kind, nextMimeType), mediaId, Boolean(mainFileUpload)]
+    [nextFilePath, nextMimeType, nextDuration, normalizeOptionalText(nextArtists), normalizeContentKind(existing.content_kind, nextMimeType), mediaId, Boolean(mainFileUpload), nextThumbnailPath]
   );
 
   if (mainFileUpload) {
-    await rm(join(categoryDir, String(mediaId)), { recursive: true, force: true }).catch(() => {});
     await fastify.pg.query("DELETE FROM media_encoding_variants WHERE media_id = $1 AND source_version <> $2", [mediaId, updatedRows[0].source_version]);
-    const { rows: artworkRows } = await fastify.pg.query(
-      "UPDATE media_assets SET thumbnail_path = $1 WHERE id = $2 RETURNING *",
-      [null, mediaId]
-    );
-    if (artworkRows[0]) updatedRows[0] = artworkRows[0];
     await enqueueMediaFinalization({ redis: fastify.redis, mediaId, sourceVersion: updatedRows[0].source_version });
   }
 
-  return reply.send({ ...updatedRows[0], has_lyrics: lyrics === undefined ? undefined : lyrics !== null });
+  if (thumbUpload && existing.thumbnail_path && existing.thumbnail_path !== nextThumbnailPath) {
+    await unlink(join(dataDir, existing.thumbnail_path)).catch(() => {});
+  }
+  await cleanupUploads(thumbUpload);
+
+  return reply.send({
+    ...updatedRows[0],
+    artwork_version: updatedRows[0].thumbnail_path,
+    has_lyrics: lyrics === undefined ? undefined : lyrics !== null,
+  });
 }
 
 function captureReply() {

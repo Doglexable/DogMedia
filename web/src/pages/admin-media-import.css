@@ -1,3 +1,165 @@
+.admin-folder-artwork {
+  display: grid;
+  grid-template-columns: 76px minmax(180px, 0.7fr) minmax(320px, 1fr);
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--primary) 8%, var(--card-bg)), var(--card-bg) 46%);
+}
+
+.admin-folder-artwork-visual {
+  position: relative;
+  width: 66px;
+  aspect-ratio: 1;
+  transform-origin: 50% 88%;
+}
+
+.admin-folder-artwork-image,
+.admin-folder-artwork-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--card-border));
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(20, 20, 26, 0.14);
+}
+
+.admin-folder-artwork-image {
+  object-fit: cover;
+}
+
+.admin-folder-artwork-fallback {
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg));
+  color: var(--primary);
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 800;
+}
+
+.admin-folder-artwork-tag {
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  padding: 3px 6px;
+  border: 2px solid var(--card-bg);
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-folder-artwork-copy {
+  min-width: 0;
+}
+
+.admin-folder-artwork-copy > span {
+  color: var(--primary);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-folder-artwork-copy h3,
+.admin-folder-artwork-copy p {
+  margin: 0;
+}
+
+.admin-folder-artwork-copy h3 {
+  margin-top: 2px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+
+.admin-folder-artwork-copy p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
+.admin-folder-artwork-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.admin-folder-artwork-picker {
+  display: grid;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px dashed color-mix(in srgb, var(--primary) 38%, var(--card-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  cursor: pointer;
+}
+
+.admin-folder-artwork-picker:hover {
+  border-style: solid;
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
+}
+
+.admin-folder-artwork-picker span,
+.admin-folder-artwork-picker small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-folder-artwork-picker span {
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 780;
+}
+
+.admin-folder-artwork-picker small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.admin-folder-artwork-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.admin-folder-artwork-input:focus-visible + button,
+.admin-folder-artwork:focus-within .admin-folder-artwork-picker {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@keyframes admin-folder-artwork-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  24% { transform: rotate(-3deg); }
+  52% { transform: rotate(2.5deg); }
+  76% { transform: rotate(-1.25deg); }
+}
+
+.admin-folder-artwork:hover .admin-folder-artwork-visual,
+.admin-folder-artwork:focus-within .admin-folder-artwork-visual,
+.admin-folder-artwork-image--selected {
+  animation: admin-folder-artwork-wiggle 420ms ease-out both;
+}
+
 .admin-media-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -619,6 +781,18 @@
 }
 
 @media (max-width: 700px) {
+  .admin-folder-artwork {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+
+  .admin-folder-artwork-visual {
+    width: 54px;
+  }
+
+  .admin-folder-artwork-form {
+    grid-column: 1 / -1;
+  }
+
   .admin-upload-queue-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -677,5 +851,66 @@
   .admin-order-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-folder-artwork:hover .admin-folder-artwork-visual,
+  .admin-folder-artwork:focus-within .admin-folder-artwork-visual,
+  .admin-folder-artwork-image--selected {
+    animation: none;
+  }
+}
+
+.admin-edit-artwork-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-edit-artwork-preview {
+  display: block;
+  width: 72px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.admin-edit-artwork-control {
+  min-width: 0;
+}
+
+.admin-edit-artwork-reset {
+  margin-top: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-edit-artwork-reset:hover {
+  text-decoration: underline;
+}
+
+.admin-edit-artwork-reset:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+@media (max-width: 520px) {
+  .admin-edit-artwork-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .admin-edit-artwork-preview {
+    width: 56px;
   }
 }

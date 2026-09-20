@@ -11,7 +11,7 @@ import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { faMobileScreenButton } from "@fortawesome/free-solid-svg-icons/faMobileScreenButton";
 import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 import { useAccess } from "../access-context";
-import { api, apiUrl } from "../api";
+import { api, apiUrl, mediaThumbnailUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
@@ -750,6 +750,7 @@ function clearFileInputs() {
   const batchFolderInput = document.getElementById("admin-media-batch-folder");
   const batchFilesInput = document.getElementById("admin-media-batch-files");
   const editFileInput = document.getElementById("admin-edit-media-file");
+  const editArtworkInput = document.getElementById("admin-edit-media-artwork");
   const editLyricsInput = document.getElementById("admin-edit-media-lyrics");
   if (mediaInput) mediaInput.value = "";
   if (thumbInput) thumbInput.value = "";
@@ -758,6 +759,7 @@ function clearFileInputs() {
   if (batchFolderInput) batchFolderInput.value = "";
   if (batchFilesInput) batchFilesInput.value = "";
   if (editFileInput) editFileInput.value = "";
+  if (editArtworkInput) editArtworkInput.value = "";
   if (editLyricsInput) editLyricsInput.value = "";
 }
 
@@ -1014,6 +1016,76 @@ async function uploadAndroidRelease({ file, version, onProgress }) {
   }
 }
 
+function FolderArtworkEditor({ category, file, onFileChange, onSubmit, updating }) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const currentUrl = category?.cover_path
+    ? apiUrl(`/api/categories/${category.id}/thumbnail?v=${encodeURIComponent(category.cover_path)}`)
+    : "";
+
+  useEffect(() => {
+    setPreviewFailed(false);
+    if (!file) {
+      setPreviewUrl(currentUrl);
+      return undefined;
+    }
+
+    const selectedUrl = URL.createObjectURL(file);
+    setPreviewUrl(selectedUrl);
+    return () => URL.revokeObjectURL(selectedUrl);
+  }, [currentUrl, file]);
+
+  const categoryName = category?.name || "Selected folder";
+  const showPreview = previewUrl && !previewFailed;
+
+  return (
+    <section className="admin-folder-artwork" aria-labelledby="admin-folder-artwork-title">
+      <div className="admin-folder-artwork-visual">
+        {showPreview ? (
+          <img
+            key={previewUrl}
+            className={file ? "admin-folder-artwork-image admin-folder-artwork-image--selected" : "admin-folder-artwork-image"}
+            src={previewUrl}
+            alt={`Folder artwork for ${categoryName}`}
+            onError={() => setPreviewFailed(true)}
+          />
+        ) : (
+          <span className="admin-folder-artwork-fallback" aria-hidden="true">{categoryName.slice(0, 1).toUpperCase()}</span>
+        )}
+        <span className="admin-folder-artwork-tag">Folder art</span>
+      </div>
+
+      <div className="admin-folder-artwork-copy">
+        <span>Shared attachment</span>
+        <h3 id="admin-folder-artwork-title">Folder artwork</h3>
+        <p>Used as the shared cover for this music album or anime series.</p>
+      </div>
+
+      <form className="admin-folder-artwork-form" onSubmit={onSubmit}>
+        <label className="admin-folder-artwork-picker" htmlFor="admin-category-cover-file">
+          <span>{file ? "Artwork selected" : category?.cover_path ? "Replace artwork" : "Attach artwork"}</span>
+          <small>{file?.name || "Choose a JPG, PNG, or WebP image"}</small>
+        </label>
+        <input
+          id="admin-category-cover-file"
+          className="admin-folder-artwork-input"
+          type="file"
+          accept="image/*"
+          onChange={(event) => onFileChange(event.target.files[0] || null)}
+        />
+        <button
+          type="submit"
+          disabled={updating || !file || !category}
+          style={styles.button("secondary", updating || !file || !category)}
+        >
+          {updating && <span style={styles.spinner} />}
+          {updating ? "Updating..." : "Save artwork"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 export default function Admin() {
   const { tier } = useAccess();
   const { categories: globalCategories, refreshCategories: refreshGlobalCategories } = useLibrary();
@@ -1061,6 +1133,8 @@ export default function Admin() {
   const [editDuration, setEditDuration] = useState("");
   const [editOfflineAllowed, setEditOfflineAllowed] = useState(false);
   const [editFile, setEditFile] = useState(null);
+  const [editArtwork, setEditArtwork] = useState(null);
+  const [editArtworkPreview, setEditArtworkPreview] = useState("");
   const [editLyrics, setEditLyrics] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editProgress, setEditProgress] = useState(null);
@@ -1077,6 +1151,21 @@ export default function Admin() {
   const [uploadQueueError, setUploadQueueError] = useState("");
   const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover;
   const browserTransferActive = mediaUploadActive || uploadingRelease || savingEdit;
+
+  useEffect(() => {
+    if (!editingMedia) {
+      setEditArtworkPreview("");
+      return undefined;
+    }
+    if (!editArtwork) {
+      setEditArtworkPreview(mediaThumbnailUrl(editingMedia));
+      return undefined;
+    }
+
+    const previewUrl = URL.createObjectURL(editArtwork);
+    setEditArtworkPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [editArtwork, editingMedia]);
 
   const refreshUploadQueue = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setUploadQueueLoading(true);
@@ -1303,6 +1392,7 @@ export default function Admin() {
     setEditDuration(media.duration == null ? "" : String(media.duration));
     setEditOfflineAllowed(Boolean(media.offline_allowed));
     setEditFile(null);
+    setEditArtwork(null);
     setEditLyrics(null);
     setEditProgress(null);
     clearFileInputs();
@@ -1317,6 +1407,7 @@ export default function Admin() {
     setEditDuration("");
     setEditOfflineAllowed(false);
     setEditFile(null);
+    setEditArtwork(null);
     setEditLyrics(null);
     setEditProgress(null);
     clearFileInputs();
@@ -1791,12 +1882,12 @@ export default function Admin() {
 
       let updated = await res.json();
       let replacementQueued = false;
-      if (editFile || editLyrics) {
+      if (editFile || editArtwork || editLyrics) {
         setEditProgress(0);
         const replacement = await replaceMediaFilesInChunks({
           mediaId: editingMedia.id,
           file: editFile,
-          thumbnail: null,
+          thumbnail: editArtwork,
           lyricsFile: editLyrics,
           onWorkerQueued: openUploadQueue,
           onProgress: setEditProgress,
@@ -2251,6 +2342,14 @@ export default function Admin() {
               </div>
             )}
 
+            <FolderArtworkEditor
+              category={activeMediaCategory}
+              file={categoryCoverFile}
+              onFileChange={setCategoryCoverFile}
+              onSubmit={handleUpdateCategoryCover}
+              updating={updatingCategoryCover}
+            />
+
             <div className="admin-media-tabs" role="tablist" aria-label="Media workspace">
               <button
                 type="button"
@@ -2616,24 +2715,6 @@ export default function Admin() {
                 </div>
               </section>
 
-                <section style={styles.panel}>
-                  <div style={styles.panelHeader}>
-                    <h3 style={styles.cardTitle}>Album artwork</h3>
-                    <p style={styles.cardSubtitle}>{activeMediaCategory?.cover_path ? "Replace the shared cover for this category." : "A cover.jpg or folder.jpg is detected automatically, or choose one manually."}</p>
-                  </div>
-                  <form style={styles.panelBody} onSubmit={handleUpdateCategoryCover}>
-                    <div className="admin-category-cover-controls">
-                      <div className="admin-category-cover-field">
-                        <label style={styles.label} htmlFor="admin-category-cover-file">Cover image</label>
-                        <input id="admin-category-cover-file" type="file" accept="image/*" onChange={(event) => setCategoryCoverFile(event.target.files[0] || null)} style={styles.fileInput} />
-                      </div>
-                      <button type="submit" disabled={updatingCategoryCover || !categoryCoverFile || !activeMediaCategory} style={styles.button("secondary", updatingCategoryCover || !categoryCoverFile || !activeMediaCategory)}>
-                        {updatingCategoryCover && <span style={styles.spinner} />}
-                        {updatingCategoryCover ? "Updating..." : "Update artwork"}
-                      </button>
-                    </div>
-                  </form>
-                </section>
               </div>
             )}
           </Modal>
@@ -2642,7 +2723,7 @@ export default function Admin() {
         {editingMedia && (
           <Modal
             title={`Edit ${editingMedia.title}`}
-            subtitle="Update metadata, replace the source or lyrics, and inspect encoding."
+            subtitle="Update metadata, artwork, source files, and encoding."
             width={820}
             onClose={savingEdit ? () => {} : closeEditMediaModal}
           >
@@ -2758,6 +2839,42 @@ export default function Admin() {
                       />
                       <p style={styles.helpText}>Large files upload in chunks. If you replace this, the old media file is removed.</p>
                     </div>
+
+                    {(editingMedia.mime_type?.startsWith("video/") || editingMedia.mime_type?.startsWith("image/")) && (
+                      <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Replace artwork</label>
+                        <div className="admin-edit-artwork-row">
+                          <img
+                            className="admin-edit-artwork-preview"
+                            src={editArtworkPreview}
+                            alt={`${editArtwork ? "Selected" : "Current"} artwork for ${editingMedia.title}`}
+                          />
+                          <div className="admin-edit-artwork-control">
+                            <input
+                              id="admin-edit-media-artwork"
+                              type="file"
+                              accept="image/*"
+                              onChange={(event) => setEditArtwork(event.target.files[0] || null)}
+                              style={styles.fileInput}
+                            />
+                            {editArtwork && (
+                              <button
+                                type="button"
+                                className="admin-edit-artwork-reset"
+                                onClick={() => {
+                                  setEditArtwork(null);
+                                  const input = document.getElementById("admin-edit-media-artwork");
+                                  if (input) input.value = "";
+                                }}
+                              >
+                                Keep current artwork
+                              </button>
+                            )}
+                            <p style={styles.helpText}>Choose a poster or still image. It will be resized and stored as this item’s artwork.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={styles.fieldGroup}>
                       <label style={styles.label}>Replace lyrics</label>
