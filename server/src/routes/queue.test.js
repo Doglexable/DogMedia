@@ -58,6 +58,77 @@ describe("automatic queue ordering", () => {
   });
 });
 
+describe("playlist completion suggestions", () => {
+  it("returns the next playable sibling without touching Redis", async () => {
+    const queries = [];
+    let redisCalls = 0;
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        queries.push({ sql, params });
+        return {
+          rows: [{
+            id: 22,
+            title: "The Return",
+            artists: "Dogmedia Cast",
+            duration: 180,
+            mime_type: "video/mp4",
+            category_id: 8,
+            category_name: "Episodes",
+            category_path: "Shows / Season Two / Episodes",
+            artwork_version: "covers/season-two.jpg",
+            suggested_category_id: 7,
+            suggested_category_name: "Season Two",
+            suggested_category_path: "Shows / Season Two",
+          }],
+        };
+      },
+    });
+    const redis = redisMock();
+    const originalMulti = redis.multi;
+    redis.multi = (...args) => {
+      redisCalls += 1;
+      return originalMulti(...args);
+    };
+    app.decorate("redis", redis);
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 1;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const response = await app.inject({ method: "GET", url: "/api/queue/suggestion/12?category=6" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      suggestion: {
+        category: { id: 7, name: "Season Two" },
+        media: { id: 22, title: "The Return", category_id: 8 },
+      },
+    });
+    expect(queries[0].params).toEqual([1, 12, 6]);
+    expect(queries[0].sql).toContain("COALESCE($3::integer, m.category_id)");
+    expect(queries[0].sql).toContain("sibling.parent_id IS NOT DISTINCT FROM current_item.parent_id");
+    expect(queries[0].sql).toContain("split_part(m.mime_type, '/', 1) = current_item.media_family");
+    expect(redisCalls).toBe(0);
+    await app.close();
+  });
+
+  it("returns an empty suggestion when no sibling has matching media", async () => {
+    const app = Fastify();
+    app.decorate("pg", { async query() { return { rows: [] }; } });
+    app.decorate("redis", redisMock());
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const response = await app.inject({ method: "GET", url: "/api/queue/suggestion/12" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ suggestion: null });
+    await app.close();
+  });
+});
+
 describe("category queue append", () => {
   it("appends accessible audio in track order without duplicating queued media", async () => {
     let queue = [99, 2];
@@ -312,4 +383,3 @@ describe("queue next/prev trigger tracking", () => {
     await app.close();
   });
 });
-

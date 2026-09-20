@@ -5,6 +5,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
+      COALESCE(c.sort_order, 0) AS sort_order,
+      c.cover_path,
       ARRAY[c.name::text]::text[] AS path_parts,
       ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
     FROM categories c
@@ -16,6 +18,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
       c.parent_id,
       c.min_access_tier,
       c.name,
+      COALESCE(c.sort_order, 0) AS sort_order,
+      c.cover_path,
       ac.path_parts || c.name::text,
       ac.order_parts || COALESCE(c.sort_order, 0)
     FROM categories c
@@ -143,6 +147,124 @@ function shuffled(ids) {
 }
 
 export default async function (fastify) {
+  fastify.get("/suggestion/:mediaId", async (request, reply) => {
+    const mediaId = normalizeStartId(request.params?.mediaId);
+    const requestedCategoryId = request.query?.category == null
+      ? null
+      : normalizeStartId(request.query.category);
+    if (mediaId === null) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
+    if (request.query?.category != null && requestedCategoryId === null) {
+      return reply.code(400).send({ error: "Invalid category id" });
+    }
+
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL},
+       current_item AS (
+         SELECT
+           m.id AS media_id,
+           ac.id AS category_id,
+           split_part(m.mime_type, '/', 1) AS media_family,
+           ac.parent_id,
+           ac.sort_order
+         FROM media_assets m
+         JOIN accessible_categories ac ON ac.id = COALESCE($3::integer, m.category_id)
+         WHERE m.id = $2
+       ),
+       sibling_roots AS (
+         SELECT
+           sibling.id,
+           sibling.name,
+           sibling.path_parts,
+           sibling.order_parts,
+           CASE
+             WHEN ROW(sibling.sort_order, sibling.id) > ROW(current_item.sort_order, current_item.category_id)
+               THEN 0
+             ELSE 1
+           END AS cycle_order
+         FROM accessible_categories sibling
+         CROSS JOIN current_item
+         WHERE sibling.parent_id IS NOT DISTINCT FROM current_item.parent_id
+           AND sibling.id <> current_item.category_id
+       ),
+       candidate_categories AS (
+         SELECT
+           sibling.id AS root_id,
+           sibling.name AS root_name,
+           sibling.path_parts AS root_path_parts,
+           sibling.order_parts AS root_order_parts,
+           sibling.cycle_order,
+           sibling.id AS category_id,
+           sibling.order_parts AS category_order_parts
+         FROM sibling_roots sibling
+         UNION ALL
+         SELECT
+           candidate.root_id,
+           candidate.root_name,
+           candidate.root_path_parts,
+           candidate.root_order_parts,
+           candidate.cycle_order,
+           child.id,
+           child.order_parts
+         FROM candidate_categories candidate
+         JOIN accessible_categories child ON child.parent_id = candidate.category_id
+       )
+       SELECT
+         m.id,
+         m.title,
+         m.artists,
+         m.duration,
+         m.mime_type,
+         m.category_id,
+         COALESCE(m.thumbnail_path, media_category.cover_path) AS artwork_version,
+         media_category.name AS category_name,
+         array_to_string(media_category.path_parts, ' / ') AS category_path,
+         candidate.root_id AS suggested_category_id,
+         candidate.root_name AS suggested_category_name,
+         array_to_string(candidate.root_path_parts, ' / ') AS suggested_category_path
+       FROM candidate_categories candidate
+       CROSS JOIN current_item
+       JOIN media_assets m ON m.category_id = candidate.category_id
+       JOIN accessible_categories media_category ON media_category.id = m.category_id
+       WHERE split_part(m.mime_type, '/', 1) = current_item.media_family
+       ORDER BY
+         candidate.cycle_order,
+         candidate.root_order_parts,
+         candidate.root_id,
+         candidate.category_order_parts,
+         (m.track_order IS NULL)::integer,
+         COALESCE(m.track_order, 0),
+         m.id
+       LIMIT 1`,
+      [request.accessTier, mediaId, requestedCategoryId]
+    );
+
+    const row = rows[0];
+    if (!row) return { suggestion: null };
+
+    return {
+      suggestion: {
+        category: {
+          id: Number(row.suggested_category_id),
+          name: row.suggested_category_name,
+          path: row.suggested_category_path,
+        },
+        media: {
+          id: Number(row.id),
+          title: row.title,
+          artists: row.artists,
+          duration: row.duration,
+          mime_type: row.mime_type,
+          category_id: Number(row.category_id),
+          category_name: row.category_name,
+          category_path: row.category_path,
+          artwork_version: row.artwork_version,
+        },
+      },
+    };
+  });
+
   fastify.get("/window", async (request, reply) => {
     const parsedLimit = Number.parseInt(request.query?.limit ?? "100", 10);
     if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {

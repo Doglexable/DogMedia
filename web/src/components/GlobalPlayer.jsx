@@ -28,6 +28,7 @@ const PlayerLibraryContext = createContext(null);
 const FullPlayer = lazy(() => import("./global-player/full-player").then((module) => ({ default: module.FullPlayer })));
 const QueuePanel = lazy(() => import("./global-player/queue-panel").then((module) => ({ default: module.QueuePanel })));
 const SleepTimerCompleteDialog = lazy(() => import("./global-player/sleep-timer-complete-dialog").then((module) => ({ default: module.SleepTimerCompleteDialog })));
+const PlaylistCompleteDialog = lazy(() => import("./global-player/playlist-complete-dialog").then((module) => ({ default: module.PlaylistCompleteDialog })));
 const DEFAULT_DOCUMENT_TITLE = "Dogmedia";
 const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
@@ -95,6 +96,7 @@ export function GlobalPlayerProvider({ children }) {
   const pauseDropTimerRef = useRef(null);
   const playbackSessionIdRef = useRef(null);
   const currentMediaRef = useRef(null);
+  const playlistSuggestionRequestRef = useRef(0);
   const [currentMedia, setCurrentMedia] = useState(null);
   currentMediaRef.current = currentMedia;
   const [categoryId, setCategoryId] = useState(null);
@@ -124,6 +126,7 @@ export function GlobalPlayerProvider({ children }) {
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
+  const [playlistSuggestion, setPlaylistSuggestion] = useState(null);
   const [quality, setQuality] = useState(readMediaQuality);
   const [streamSrc, setStreamSrc] = useState("");
   const [playbackAccessError, setPlaybackAccessError] = useState("");
@@ -325,6 +328,8 @@ export function GlobalPlayerProvider({ children }) {
     const nextPosition = Math.floor(startPosition || 0);
 
     setCurrentMedia(mediaItem);
+    playlistSuggestionRequestRef.current += 1;
+    setPlaylistSuggestion(null);
     setPosition(nextPosition);
     setDuration(mediaItem.duration || 0);
     setPaused(!autoplay);
@@ -539,7 +544,9 @@ export function GlobalPlayerProvider({ children }) {
       mediaRef.current.load?.();
     }
     loadSeqRef.current += 1;
+    playlistSuggestionRequestRef.current += 1;
     setCurrentMedia(null);
+    setPlaylistSuggestion(null);
     setPaused(true);
     setShouldAutoPlay(false);
     setPosition(0);
@@ -1179,6 +1186,39 @@ export function GlobalPlayerProvider({ children }) {
     }
   }, [applyResumePosition, currentMedia?.duration, shouldAutoPlay]);
 
+  const requestPlaylistSuggestion = useCallback((mediaItem, sourceCategoryId = null) => {
+    if (!mediaItem?.id || !mediaItem?.category_id) return;
+    const requestId = playlistSuggestionRequestRef.current + 1;
+    playlistSuggestionRequestRef.current = requestId;
+
+    const categoryQueryParam = sourceCategoryId ? `?category=${Number(sourceCategoryId)}` : "";
+    api(`/api/queue/suggestion/${Number(mediaItem.id)}${categoryQueryParam}`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Suggestion unavailable");
+        return response.json();
+      })
+      .then((data) => {
+        if (playlistSuggestionRequestRef.current !== requestId) return;
+        if (Number(currentMediaRef.current?.id) !== Number(mediaItem.id)) return;
+        if (!data?.suggestion) return;
+        setQueueOpen(false);
+        setPlaylistSuggestion(data.suggestion);
+      })
+      .catch(() => {});
+  }, []);
+
+  const dismissPlaylistSuggestion = useCallback(() => {
+    playlistSuggestionRequestRef.current += 1;
+    setPlaylistSuggestion(null);
+  }, []);
+
+  const playPlaylistSuggestion = useCallback(() => {
+    const suggestion = playlistSuggestion;
+    if (!suggestion?.media?.id || !suggestion?.category?.id) return;
+    setPlaylistSuggestion(null);
+    playMediaById(suggestion.media.id, suggestion.category.id, { autoplay: true });
+  }, [playMediaById, playlistSuggestion]);
+
   const handleEnded = useCallback(() => {
     const currentPosition = mediaRef.current?.currentTime || duration || currentMedia?.duration || 0;
     const currentDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
@@ -1213,7 +1253,8 @@ export function GlobalPlayerProvider({ children }) {
 
     setPaused(true);
     setShouldAutoPlay(false);
-  }, [advance, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, sendNowPlaying, sendPlaybackEvent]);
+    if (!sleepTimerCompleted) requestPlaylistSuggestion(currentMedia, categoryId);
+  }, [advance, categoryId, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, requestPlaylistSuggestion, sendNowPlaying, sendPlaybackEvent, sleepTimerCompleted]);
 
   useEffect(() => {
     if (!currentMedia || !("mediaSession" in navigator) || !("MediaMetadata" in window)) return undefined;
@@ -1528,6 +1569,15 @@ export function GlobalPlayerProvider({ children }) {
           mediaTitle={currentMedia?.title}
           onDismiss={dismissSleepTimerNotification}
           onResume={resumeAfterSleepTimer}
+        />
+        </Suspense>
+      )}
+      {playlistSuggestion && !sleepTimerCompleted && (
+        <Suspense fallback={null}>
+        <PlaylistCompleteDialog
+          suggestion={playlistSuggestion}
+          onDismiss={dismissPlaylistSuggestion}
+          onPlay={playPlaylistSuggestion}
         />
         </Suspense>
       )}
