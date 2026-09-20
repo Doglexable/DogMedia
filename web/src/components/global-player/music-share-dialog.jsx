@@ -38,6 +38,42 @@ function statusCopy(status, singleTrack = false) {
   return singleTrack ? "Turn this song into a shareable music clip." : "Choose the tracks that belong in your reel.";
 }
 
+export async function copyTextToClipboard(text, {
+  navigatorObject = globalThis.navigator,
+  documentObject = globalThis.document,
+} = {}) {
+  if (navigatorObject?.clipboard?.writeText) {
+    try {
+      await navigatorObject.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Some browsers expose Clipboard but reject it outside a trusted user gesture.
+    }
+  }
+
+  if (!documentObject?.body
+    || typeof documentObject.createElement !== "function"
+    || typeof documentObject.execCommand !== "function") return false;
+
+  const textarea = documentObject.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.opacity = "0";
+  documentObject.body.appendChild(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    return Boolean(documentObject.execCommand("copy"));
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
 export function MusicReelDialog({ favorites, onClose, singleTrack = false, initialStart = 0, duration = 0 }) {
   const trackDuration = Number(duration || favorites[0]?.duration || 0);
   const maxClipStart = Math.max(0, trackDuration - 10);
@@ -178,8 +214,8 @@ export function MusicReelDialog({ favorites, onClose, singleTrack = false, initi
     try {
       const requestedUrl = typeof providedUrl === "string" ? providedUrl : shareUrl;
       const url = requestedUrl || await createReplacementLink();
-      await navigator.clipboard.writeText(url);
-      setNotice("Link copied.");
+      const copied = await copyTextToClipboard(url);
+      setNotice(copied ? "Link copied." : "Copy is unavailable here. Select the link and copy it manually.");
     } catch (error) {
       setNotice(error.message || "Select the link and copy it manually.");
     }

@@ -5,7 +5,7 @@ import {
   selectActualQuality,
   shouldCreateVariant,
 } from "./media-quality.js";
-import { encodingProgressPercent, ffmpegArgs } from "./encoding-worker.js";
+import { encodingProgressPercent, ffmpegArgs, validateEncodedStreams } from "./encoding-worker.js";
 
 describe("media quality selection", () => {
   it("keeps omitted stream requests compatible with original media", () => {
@@ -53,6 +53,20 @@ describe("encoding decisions", () => {
   it("uses bounded dimensions in video and image ffmpeg filters", () => {
     expect(ffmpegArgs({ inputPath: "in", outputPath: "out", kind: "video", preset: ENCODING_PRESETS.video.med }).join(" ")).toContain("min(720,ih)");
     expect(ffmpegArgs({ inputPath: "in", outputPath: "out", kind: "image", preset: ENCODING_PRESETS.image.med }).join(" ")).toContain("min(1280,iw)");
+  });
+
+  it("maps MKV audio into browser-safe stereo video variants", () => {
+    const args = ffmpegArgs({ inputPath: "source.mkv", outputPath: "out.mp4", kind: "video", preset: ENCODING_PRESETS.video.med });
+    expect(args).toEqual(expect.arrayContaining([
+      "-map", "0:v:0", "0:a:0?", "-c:a", "aac", "-ac", "2", "-ar", "48000",
+    ]));
+  });
+
+  it("rejects a video rendition when source audio was lost", () => {
+    expect(() => validateEncodedStreams("video", { hasAudio: true }, { hasVideo: true, hasAudio: false }))
+      .toThrow("missing its source audio stream");
+    expect(() => validateEncodedStreams("video", { hasAudio: true }, { hasVideo: true, hasAudio: true }))
+      .not.toThrow();
   });
 });
 

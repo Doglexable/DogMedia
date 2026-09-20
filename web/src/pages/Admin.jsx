@@ -691,10 +691,50 @@ function formatQueueAge(value) {
   return `${Math.floor(seconds / 3600)}h ago`;
 }
 
-function UploadQueuePanel({ error, jobs, loading, onRefresh, summary }) {
+function BrowserTransferProgress({ compact = false, onOpenQueue, transfer }) {
+  if (!transfer) return null;
+  const numericProgress = Number(transfer.progress);
+  const progress = transfer.progress !== null && transfer.progress !== undefined && Number.isFinite(numericProgress)
+    ? Math.min(100, Math.max(0, Math.round(numericProgress)))
+    : null;
+
+  return (
+    <article className={`admin-browser-transfer${compact ? " admin-browser-transfer--compact" : ""}`} role="status" aria-live="polite">
+      <div className="admin-browser-transfer-icon" aria-hidden="true">
+        <FontAwesomeIcon icon={faCloudArrowUp} />
+      </div>
+      <div className="admin-browser-transfer-main">
+        <div className="admin-browser-transfer-heading">
+          <div>
+            <span>Browser transfer</span>
+            <strong>{transfer.title}</strong>
+          </div>
+          <b>{progress === null ? "Working" : `${progress}%`}</b>
+        </div>
+        <div
+          className={`admin-browser-transfer-track${progress === null ? " admin-browser-transfer-track--indeterminate" : ""}`}
+          role="progressbar"
+          aria-label={transfer.title}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          {...(progress === null ? {} : { "aria-valuenow": progress })}
+        >
+          <span style={progress === null ? undefined : { width: `${progress}%` }} />
+        </div>
+        <p>{transfer.detail} Do not refresh or close this tab.</p>
+      </div>
+      {!compact && onOpenQueue && (
+        <button type="button" onClick={onOpenQueue}>View queue</button>
+      )}
+    </article>
+  );
+}
+
+function UploadQueuePanel({ browserTransfer, error, jobs, loading, onRefresh, summary }) {
   const activeCount = (summary?.queued || 0) + (summary?.processing || 0);
   return (
     <div className="admin-upload-queue">
+      <BrowserTransferProgress compact transfer={browserTransfer} />
       <div className="admin-upload-queue-summary">
         <div><span>Active</span><strong>{activeCount}</strong></div>
         <div><span>Queued</span><strong>{summary?.queued || 0}</strong></div>
@@ -1311,6 +1351,29 @@ export default function Admin() {
     skipped: batchItems.reduce((sum, item) => sum + item.skippedCount, 0),
     bytes: batchItems.reduce((sum, item) => sum + (item.file?.size || 0), 0),
   }), [batchFiles, batchItems]);
+  const activeBrowserTransfer = uploadingMedia
+    ? {
+        title: `Uploading ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`,
+        progress: uploadProgress,
+        detail: uploadProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(uploadEtaSeconds),
+      }
+    : uploadingBatch
+      ? {
+          title: `Importing ${batchItems.length} music track${batchItems.length === 1 ? "" : "s"}`,
+          progress: batchProgress,
+          detail: batchProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(batchEtaSeconds),
+        }
+      : updatingCategoryCover
+        ? { title: "Updating folder artwork", progress: null, detail: "Uploading and optimizing the new cover." }
+        : uploadingRelease
+          ? { title: `Uploading Android ${releaseVersion.trim() || "release"}`, progress: releaseProgress, detail: "Sending the APK to the server." }
+          : savingEdit
+            ? {
+                title: `Updating ${editingMedia?.title || "media"}`,
+                progress: editProgress,
+                detail: editProgress === null ? "Saving media information." : "Uploading replacement files.",
+              }
+            : null;
 
   if (tier < 100) return <Navigate to="/" replace />;
 
@@ -1912,9 +1975,13 @@ export default function Admin() {
     }
   };
 
-  const handleRetryEncoding = async () => {
+  const handleRetryEncoding = async ({ force = false } = {}) => {
     if (!editingMedia) return;
-    const response = await api(`/api/media/${editingMedia.id}/encoding/retry`, { method: "POST" });
+    const response = await api(`/api/media/${editingMedia.id}/encoding/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force }),
+    });
     if (!response.ok) {
       setMessage({ type: "error", text: await readApiError(response, "Encoding retry failed") });
       return;
@@ -1922,10 +1989,10 @@ export default function Admin() {
     setEditingMedia((current) => ({
       ...current,
       encoding_status: Object.fromEntries(Object.entries(current.encoding_status || {}).map(([quality, value]) => [
-        quality, value.status === "failed" ? { ...value, status: "queued", progress: 0, attempts: 0, error: null } : value,
+        quality, force || value.status === "failed" ? { ...value, status: "queued", progress: 0, attempts: 0, error: null } : value,
       ])),
     }));
-    setMessage({ type: "success", text: `Encoding retry queued for "${editingMedia.title}".` });
+    setMessage({ type: "success", text: `${force ? "Re-encoding" : "Encoding retry"} queued for "${editingMedia.title}".` });
   };
 
   const handleUploadRelease = async (event) => {
@@ -1993,18 +2060,8 @@ export default function Admin() {
             </div>
           )}
 
-          {mediaUploadActive && mediaModalCategoryId === null && (
-            <div role="status" style={styles.notice("success")}>
-              <span>⬆️</span>
-              <span>
-                {uploadingMedia
-                  ? `Video upload continues in the background (${uploadProgress ?? 0}%).`
-                  : uploadingBatch
-                    ? `Album upload continues in the background (${batchProgress ?? 0}%).`
-                    : "Artwork upload continues in the background."}
-                {" Do not refresh or close this tab until the transfer finishes."}
-              </span>
-            </div>
+          {activeBrowserTransfer && mediaModalCategoryId === null && editingMedia === null && (
+            <BrowserTransferProgress transfer={activeBrowserTransfer} onOpenQueue={openUploadQueue} />
           )}
 
           <section className="hero-surface" style={styles.toolbar}>
@@ -2021,9 +2078,11 @@ export default function Admin() {
             </div>
             <div style={styles.actionRow}>
               <button type="button" style={styles.button("secondary")} onClick={openUploadQueue}>
-                Upload queue{uploadQueueSummary.queued + uploadQueueSummary.processing > 0
-                  ? ` (${uploadQueueSummary.queued + uploadQueueSummary.processing})`
-                  : ""}
+                Upload queue{activeBrowserTransfer
+                  ? ` · ${activeBrowserTransfer.progress === null ? "active" : `${activeBrowserTransfer.progress ?? 0}%`}`
+                  : uploadQueueSummary.queued + uploadQueueSummary.processing > 0
+                    ? ` (${uploadQueueSummary.queued + uploadQueueSummary.processing})`
+                    : ""}
               </button>
               <button type="button" style={styles.button("secondary")} onClick={() => openCategoryModal("")}>
                 Create Root
@@ -2823,7 +2882,10 @@ export default function Admin() {
                       <EncodingProgress detailed status={editingMedia.encoding_status} />
                       <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {Object.values(editingMedia.encoding_status || {}).some((item) => item.status === "failed") && (
-                          <button type="button" style={styles.button("secondary", false)} onClick={handleRetryEncoding}>Retry failed</button>
+                          <button type="button" style={styles.button("secondary", false)} onClick={() => handleRetryEncoding()}>Retry failed</button>
+                        )}
+                        {editingMedia.mime_type?.startsWith("video/") && (
+                          <button type="button" style={styles.button("secondary", false)} onClick={() => handleRetryEncoding({ force: true })}>Re-encode video</button>
                         )}
                       </div>
                     </div>
@@ -2914,6 +2976,7 @@ export default function Admin() {
             onClose={() => setUploadQueueOpen(false)}
           >
             <UploadQueuePanel
+              browserTransfer={activeBrowserTransfer}
               error={uploadQueueError}
               jobs={uploadQueueJobs}
               loading={uploadQueueLoading}

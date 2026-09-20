@@ -1,4 +1,5 @@
 import { execFile } from "child_process";
+import { existsSync } from "fs";
 import { mkdir, rename, rm, stat, writeFile } from "fs/promises";
 import { dirname, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -13,6 +14,129 @@ const HEIGHT = 720;
 const MAX_ATTEMPTS = 3;
 const IDLE_MS = 60_000;
 const DEFAULT_BRAND_ICON_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../web/public/favicon-96x96.png");
+const DEFAULT_TITLE_FONT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../assets/fonts/inter-900.woff2");
+const DEFAULT_ARTIST_FONT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../assets/fonts/inter-700.woff2");
+const DEFAULT_FONT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../assets/fonts/inter.woff2");
+
+const FALLBACK_FONT_PATHS = [
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"),
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../node_modules/@fontsource-variable/inter/files/inter-latin-standard-normal.woff2"),
+];
+
+const FALLBACK_TITLE_FONT_PATHS = [
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../node_modules/@fontsource/inter/files/inter-latin-900-normal.woff2"),
+  DEFAULT_FONT_PATH,
+  ...FALLBACK_FONT_PATHS,
+];
+
+const FALLBACK_ARTIST_FONT_PATHS = [
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2"),
+  DEFAULT_FONT_PATH,
+  ...FALLBACK_FONT_PATHS,
+];
+
+const CJK_BOLD_FONT_PATHS = [
+  "/usr/share/fonts/noto/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+];
+
+const CJK_REGULAR_FONT_PATHS = [
+  "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+  "/usr/share/fonts/noto/NotoSansCJK-Bold.ttc",
+  "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+];
+
+export function getDefaultFontPath(customPath) {
+  if (customPath && existsSync(customPath)) return customPath;
+  if (process.env.MUSIC_REEL_FONT_PATH && existsSync(process.env.MUSIC_REEL_FONT_PATH)) {
+    return process.env.MUSIC_REEL_FONT_PATH;
+  }
+  if (existsSync(DEFAULT_FONT_PATH)) return DEFAULT_FONT_PATH;
+  for (const fallback of FALLBACK_FONT_PATHS) {
+    if (existsSync(fallback)) return fallback;
+  }
+  return null;
+}
+
+export function getDefaultTitleFontPath(customPath) {
+  if (customPath && existsSync(customPath)) return customPath;
+  if (process.env.MUSIC_REEL_TITLE_FONT_PATH && existsSync(process.env.MUSIC_REEL_TITLE_FONT_PATH)) {
+    return process.env.MUSIC_REEL_TITLE_FONT_PATH;
+  }
+  if (existsSync(DEFAULT_TITLE_FONT_PATH)) return DEFAULT_TITLE_FONT_PATH;
+  for (const fallback of FALLBACK_TITLE_FONT_PATHS) {
+    if (existsSync(fallback)) return fallback;
+  }
+  return getDefaultFontPath(customPath);
+}
+
+export function getDefaultArtistFontPath(customPath) {
+  if (customPath && existsSync(customPath)) return customPath;
+  if (process.env.MUSIC_REEL_ARTIST_FONT_PATH && existsSync(process.env.MUSIC_REEL_ARTIST_FONT_PATH)) {
+    return process.env.MUSIC_REEL_ARTIST_FONT_PATH;
+  }
+  if (existsSync(DEFAULT_ARTIST_FONT_PATH)) return DEFAULT_ARTIST_FONT_PATH;
+  for (const fallback of FALLBACK_ARTIST_FONT_PATHS) {
+    if (existsSync(fallback)) return fallback;
+  }
+  return getDefaultFontPath(customPath);
+}
+
+export function containsNonLatin(text) {
+  return /[^\u0000-\u024F\u1E00-\u1EFF\u2000-\u206F\u20A0-\u20CF]/.test(String(text ?? ""));
+}
+
+export function getUnicodeFallbackFontPath({ bold = false, customPath } = {}) {
+  if (customPath && existsSync(customPath)) return customPath;
+  const envPath = bold ? process.env.MUSIC_REEL_CJK_BOLD_FONT_PATH : process.env.MUSIC_REEL_CJK_FONT_PATH;
+  if (envPath && existsSync(envPath)) return envPath;
+  if (process.env.MUSIC_REEL_CJK_FONT_PATH && existsSync(process.env.MUSIC_REEL_CJK_FONT_PATH)) {
+    return process.env.MUSIC_REEL_CJK_FONT_PATH;
+  }
+  const candidates = bold ? CJK_BOLD_FONT_PATHS : CJK_REGULAR_FONT_PATHS;
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function fontFilterArg(fontFilePath, fallbackFontName) {
+  if (fontFilePath) {
+    return `fontfile='${escapeFfmpegFilterValue(fontFilePath)}':`;
+  }
+  if (fallbackFontName) {
+    return `font='${escapeFfmpegFilterValue(fallbackFontName)}':`;
+  }
+  return "";
+}
+
+export function escapeFfmpegFilterValue(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/:/g, "\\:")
+    .replace(/%/g, "\\%")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
+
+export function formatText(text, maxLength = 45) {
+  const trimmed = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, maxLength - 1).trim()}…`;
+}
 
 export function parseReelStreamFields(values = []) {
   const result = {};
@@ -22,29 +146,91 @@ export function parseReelStreamFields(values = []) {
 
 export function reelSegmentArgs({
   audioPath, artworkPath, brandIconPath = DEFAULT_BRAND_ICON_PATH,
-  clipStart = 0, outputPath,
+  fontPath = getDefaultFontPath(),
+  titleFontPath = getDefaultTitleFontPath(),
+  artistFontPath = getDefaultArtistFontPath(),
+  cjkFontPath = getUnicodeFallbackFontPath({ bold: false }),
+  cjkBoldFontPath = getUnicodeFallbackFontPath({ bold: true }),
+  clipStart = 0,
+  title = "Unknown Title", titleFile,
+  artist = "Unknown Artist", artistFile,
+  badge = "Dogmedia", badgeFile,
+  outputPath,
 }) {
+  const resolvedFont = getDefaultFontPath(fontPath);
+  const resolvedTitleFont = getDefaultTitleFontPath(titleFontPath) || resolvedFont;
+  const resolvedArtistFont = getDefaultArtistFontPath(artistFontPath) || resolvedFont;
+  const resolvedCjk = getUnicodeFallbackFontPath({ bold: false, customPath: cjkFontPath });
+  const resolvedCjkBold = getUnicodeFallbackFontPath({ bold: true, customPath: cjkBoldFontPath });
+
   const visualInput = artworkPath
     ? ["-loop", "1", "-i", artworkPath]
-    : ["-f", "lavfi", "-i", `color=c=0x17151f:s=${WIDTH}x${HEIGHT}:r=30`];
-  const sceneFilter = artworkPath
-    ? `[1:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},boxblur=24:12[bg];` +
-      `[1:v]scale=520:520:force_original_aspect_ratio=decrease[art];` +
-      `[bg][art]overlay=(W-w)/2:(H-h)/2[scene];`
-    : "[1:v]format=rgba[scene];";
-  const videoFilter = sceneFilter +
-    `[2:v]scale=52:52:force_original_aspect_ratio=decrease[brandicon];` +
-    `[scene][brandicon]overlay=30:26,format=yuv420p,fps=30[v]`;
+    : ["-f", "lavfi", "-i", `color=c=0x121318:s=${WIDTH}x${HEIGHT}:r=30`];
+
+  let filter = artworkPath
+    ? `[1:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},boxblur=28:14[blurred];` +
+      `color=c=black@0.42:s=${WIDTH}x${HEIGHT}[scrim];` +
+      `[blurred][scrim]overlay=0:0[bg];` +
+      `color=c=black@0.55:s=400x400[artshadow];` +
+      `[1:v]scale=390:390:force_original_aspect_ratio=increase,crop=390:390,drawbox=x=0:y=0:w=iw:h=ih:color=white@0.15:t=1[art];` +
+      `[2:v]scale=38:38:force_original_aspect_ratio=decrease[brandicon];` +
+      `[bg][artshadow]overlay=(W-w)/2:95[s1];` +
+      `[s1][art]overlay=(W-w)/2:100[s2];` +
+      `[s2][brandicon]overlay=44:36[s3];`
+    : `[1:v]format=rgba[bg];` +
+      `color=c=0x1e2029:s=390x390,drawbox=x=0:y=0:w=iw:h=ih:color=white@0.12:t=1[artcard];` +
+      `[2:v]scale=120:120:force_original_aspect_ratio=decrease[largeicon];` +
+      `[artcard][largeicon]overlay=(W-w)/2:(H-h)/2[art];` +
+      `[2:v]scale=38:38:force_original_aspect_ratio=decrease[brandicon];` +
+      `[bg][art]overlay=(W-w)/2:100[s1];` +
+      `[s1][brandicon]overlay=44:36[s2];`;
+
+  let currentScene = artworkPath ? "[s3]" : "[s2]";
+
+  const badgeHasNonLatin = containsNonLatin(badge);
+  const badgeFont = badgeHasNonLatin ? (resolvedCjk || resolvedArtistFont || resolvedFont) : (resolvedArtistFont || resolvedFont);
+  const badgeFontArg = fontFilterArg(badgeFont, badgeHasNonLatin ? "Noto Sans CJK JP,sans-serif" : "Inter,sans-serif");
+  const badgeOpt = badgeFile
+    ? `textfile='${escapeFfmpegFilterValue(badgeFile)}'`
+    : (badge ? `text='${escapeFfmpegFilterValue(formatText(badge, 40))}':expansion=none` : null);
+  if (badgeOpt) {
+    filter += `${currentScene}drawtext=${badgeFontArg}${badgeOpt}:fontsize=20:fontcolor=white@0.95:shadowcolor=black@0.6:shadowx=0:shadowy=1:x=94:y=43[t1];`;
+    currentScene = "[t1]";
+  }
+
+  const titleHasNonLatin = containsNonLatin(title);
+  const titleFont = titleHasNonLatin ? (resolvedCjkBold || resolvedCjk || resolvedTitleFont) : resolvedTitleFont;
+  const titleFontArg = fontFilterArg(titleFont, titleHasNonLatin ? "Noto Sans CJK JP,sans-serif" : "Inter,sans-serif");
+  const titleOpt = titleFile
+    ? `textfile='${escapeFfmpegFilterValue(titleFile)}'`
+    : (title ? `text='${escapeFfmpegFilterValue(formatText(title, titleHasNonLatin ? 20 : 32))}':expansion=none` : null);
+  if (titleOpt) {
+    filter += `${currentScene}drawtext=${titleFontArg}${titleOpt}:fontsize=42:fontcolor=white:shadowcolor=black@0.7:shadowx=0:shadowy=2:x=(w-text_w)/2:y=516[t2];`;
+    currentScene = "[t2]";
+  }
+
+  const artistHasNonLatin = containsNonLatin(artist);
+  const artistFont = artistHasNonLatin ? (resolvedCjkBold || resolvedCjk || resolvedArtistFont) : resolvedArtistFont;
+  const artistFontArg = fontFilterArg(artistFont, artistHasNonLatin ? "Noto Sans CJK JP,sans-serif" : "Inter,sans-serif");
+  const artistOpt = artistFile
+    ? `textfile='${escapeFfmpegFilterValue(artistFile)}'`
+    : (artist ? `text='${escapeFfmpegFilterValue(formatText(artist, artistHasNonLatin ? 28 : 45))}':expansion=none` : null);
+  if (artistOpt) {
+    filter += `${currentScene}drawtext=${artistFontArg}${artistOpt}:fontsize=21:fontcolor=white@0.68:shadowcolor=black@0.6:shadowx=0:shadowy=1:x=(w-text_w)/2:y=568[t3];`;
+    currentScene = "[t3]";
+  }
+
+  filter += `${currentScene}format=yuv420p,fps=30[v]`;
 
   return [
     "-y", "-ss", String(Math.max(0, Number(clipStart) || 0)), "-i", audioPath,
     ...visualInput,
     "-loop", "1", "-i", brandIconPath,
-    "-filter_complex", videoFilter,
+    "-filter_complex", filter,
     "-map", "[v]", "-map", "0:a:0",
     "-t", String(CLIP_SECONDS),
     "-af", `afade=t=in:st=0:d=0.2,afade=t=out:st=${CLIP_SECONDS - 0.5}:d=0.5,apad=pad_dur=${CLIP_SECONDS}`,
-    "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-r", "30",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-r", "30",
     "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
     "-movflags", "+faststart", outputPath,
   ];
@@ -88,6 +274,8 @@ export async function processMusicReelJob({ dataDir, log, pg, reelId, runFfmpeg 
 
   const { rows: items } = await pg.query(
     `SELECT i.position, i.source_version, i.clip_start, m.file_path,
+            COALESCE(i.title, m.title) AS title,
+            COALESCE(i.artists, m.artists) AS artists,
             COALESCE(m.thumbnail_path, c.cover_path) AS artwork_path,
             m.source_version AS current_source_version
      FROM music_share_reel_items i
@@ -110,15 +298,49 @@ export async function processMusicReelJob({ dataDir, log, pg, reelId, runFfmpeg 
 
   try {
     const segments = [];
+    const fontPath = process.env.MUSIC_REEL_FONT_PATH || getDefaultFontPath();
+    const titleFontPath = process.env.MUSIC_REEL_TITLE_FONT_PATH || getDefaultTitleFontPath();
+    const artistFontPath = process.env.MUSIC_REEL_ARTIST_FONT_PATH || getDefaultArtistFontPath();
+    const cjkFontPath = process.env.MUSIC_REEL_CJK_FONT_PATH || getUnicodeFallbackFontPath({ bold: false });
+    const cjkBoldFontPath = process.env.MUSIC_REEL_CJK_BOLD_FONT_PATH || getUnicodeFallbackFontPath({ bold: true });
+    const brandIconPath = process.env.MUSIC_REEL_BRAND_ICON || DEFAULT_BRAND_ICON_PATH;
+
     for (let index = 0; index < items.length; index += 1) {
       if (!await reelIsActive(pg, reelId)) return { stale: true };
       const item = items[index];
       const segmentPath = join(jobDir, `${String(index + 1).padStart(2, "0")}.mp4`);
+      const titlePath = join(jobDir, `title-${index}.txt`);
+      const artistPath = join(jobDir, `artist-${index}.txt`);
+      const badgePath = join(jobDir, `badge-${index}.txt`);
+
+      const titleHasNonLatin = containsNonLatin(item.title);
+      const artistHasNonLatin = containsNonLatin(item.artists);
+      const titleText = formatText(item.title || "Unknown Title", titleHasNonLatin ? 20 : 32);
+      const artistText = formatText(item.artists || "Unknown Artist", artistHasNonLatin ? 28 : 45);
+      const badgeText = items.length > 1
+        ? `Dogmedia  •  Track ${String(index + 1).padStart(2, "0")}/${String(items.length).padStart(2, "0")}`
+        : "Dogmedia";
+
+      await writeFile(titlePath, titleText, "utf8");
+      await writeFile(artistPath, artistText, "utf8");
+      await writeFile(badgePath, badgeText, "utf8");
+
       await runFfmpeg("ffmpeg", reelSegmentArgs({
         audioPath: join(dataDir, item.file_path),
         artworkPath: item.artwork_path ? join(dataDir, item.artwork_path) : null,
-        brandIconPath: process.env.MUSIC_REEL_BRAND_ICON || DEFAULT_BRAND_ICON_PATH,
+        brandIconPath,
+        fontPath,
+        titleFontPath,
+        artistFontPath,
+        cjkFontPath,
+        cjkBoldFontPath,
         clipStart: item.clip_start,
+        title: titleText,
+        titleFile: titlePath,
+        artist: artistText,
+        artistFile: artistPath,
+        badge: badgeText,
+        badgeFile: badgePath,
         outputPath: segmentPath,
       }));
       segments.push(segmentPath);

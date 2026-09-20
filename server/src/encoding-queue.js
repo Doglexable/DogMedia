@@ -17,15 +17,16 @@ export async function enqueueEncoding({ pg, redis, mediaId, sourceVersion }) {
   }
 }
 
-export async function retryFailedEncoding({ pg, redis, mediaId }) {
+export async function retryFailedEncoding({ pg, redis, mediaId, force = false }) {
   const { rows } = await pg.query(
     `UPDATE media_encoding_variants v
      SET status = 'queued', attempts = 0, last_error = NULL, progress_percent = 0, updated_at = NOW()
      FROM media_assets m
      WHERE v.media_id = m.id AND v.media_id = $1
-       AND v.source_version = m.source_version AND v.status = 'failed'
+       AND v.source_version = m.source_version
+       AND (v.status = 'failed' OR ($2::boolean AND v.status IN ('ready', 'skipped')))
      RETURNING v.source_version`,
-    [mediaId]
+    [mediaId, force]
   );
   if (!rows.length) return false;
   if (typeof redis?.xadd === "function") {

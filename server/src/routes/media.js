@@ -1064,10 +1064,11 @@ export default async function (fastify, options = {}) {
 
   fastify.post("/:id/encoding/retry", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
-    const retried = await retryFailedEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId: request.params.id });
+    const force = request.body?.force === true;
+    const retried = await retryFailedEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId: request.params.id, force });
     if (retried) return reply.code(202).send({ status: "queued" });
     const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
-    return rowCount ? reply.code(409).send({ error: "No failed encoding variants to retry" }) : reply.code(404).send({ error: "Not found" });
+    return rowCount ? reply.code(409).send({ error: "No encoding variants to retry" }) : reply.code(404).send({ error: "Not found" });
   });
 
   fastify.put("/:id", async (request, reply) => {

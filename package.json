@@ -25,6 +25,7 @@
     "test:mobile": "npm run test --workspace=mobile"
   },
   "devDependencies": {
+    "@fontsource/inter": "^5.3.0",
     "globals": "^17.12.0"
   }
 }

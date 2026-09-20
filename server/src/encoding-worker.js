@@ -24,6 +24,8 @@ export async function probeSource(filePath) {
   const video = data.streams?.find((stream) => stream.codec_type === "video");
   const audio = data.streams?.find((stream) => stream.codec_type === "audio");
   return {
+    hasAudio: Boolean(audio),
+    hasVideo: Boolean(video),
     bitrate: Number(data.format?.bit_rate || video?.bit_rate || audio?.bit_rate || 0),
     duration: Number(data.format?.duration || 0),
     videoBitrate: Number(video?.bit_rate || 0),
@@ -54,16 +56,26 @@ export function ffmpegArgs({ inputPath, kind, outputPath, preset }) {
   ];
   if (kind === "video") return [
     "-y", "-i", inputPath,
+    "-map", "0:v:0", "-map", "0:a:0?",
     "-vf", `scale=-2:'min(${preset.height},ih)'`,
-    "-c:v", "libx264", "-preset", "medium", "-b:v", `${preset.bitrate}`,
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "medium", "-b:v", `${preset.bitrate}`,
     "-maxrate", `${preset.bitrate}`, "-bufsize", `${preset.bitrate * 2}`,
-    "-c:a", "aac", "-b:a", `${preset.audioBitrate}`, "-movflags", "+faststart", outputPath,
+    "-c:a", "aac", "-b:a", `${preset.audioBitrate}`, "-ac", "2", "-ar", "48000",
+    "-movflags", "+faststart", outputPath,
   ];
   return [
     "-y", "-i", inputPath,
     "-vf", `scale='if(gt(iw,ih),min(${preset.longEdge},iw),-2)':'if(gt(iw,ih),-2,min(${preset.longEdge},ih))':force_original_aspect_ratio=decrease`,
     "-frames:v", "1", "-c:v", "libwebp", "-quality", "82", outputPath,
   ];
+}
+
+export function validateEncodedStreams(kind, source, encoded) {
+  if (kind === "video" && !encoded.hasVideo) throw new Error("Encoded video is missing its video stream");
+  if (kind === "video" && source.hasAudio && !encoded.hasAudio) {
+    throw new Error("Encoded video is missing its source audio stream");
+  }
+  if (kind === "audio" && !encoded.hasAudio) throw new Error("Encoded audio is missing its audio stream");
 }
 
 async function markVariant(pg, { mediaId, sourceVersion, quality, status, values = {} }) {
@@ -206,9 +218,10 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
         await rm(temporaryPath, { force: true });
         return { stale: true, created, skipped };
       }
+      const encoded = await probeSource(temporaryPath);
+      validateEncodedStreams(kind, source, encoded);
       await rename(temporaryPath, outputPath);
       const outputStats = await stat(outputPath);
-      const encoded = await probeSource(outputPath);
       await markVariant(pg, {
         mediaId, sourceVersion, quality, status: "ready",
         values: { filePath: relativePath, mimeType: outputMime(kind), byteSize: outputStats.size, progressPercent: 100, ...encoded },
