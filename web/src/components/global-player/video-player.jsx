@@ -17,9 +17,7 @@ import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
 import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
-import SpotlightCard from "../SpotlightCard";
 import { ShinyText } from "../ShinyText";
-import { Magnet } from "../Magnet";
 import { QualityControl, SleepTimerControl } from "./player-controls";
 import { formatDuration } from "./player-utils";
 
@@ -338,10 +336,9 @@ export function VideoPlayer({
       <div className="video-player-ambient-glow" aria-hidden="true" />
 
       {/* Fullscreen Video Canvas Stage */}
-      <SpotlightCard
+      <div
         ref={cardRef}
         className="video-player-stage"
-        spotlightColor="rgba(225, 29, 72, 0.18)"
       >
         {/* HTML5 Video Element - Full Viewport Coverage */}
         <video
@@ -379,17 +376,15 @@ export function VideoPlayer({
           {/* Top HUD Bar */}
           <div className="video-player-hud-top" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3.5 min-w-0">
-              <Magnet magnetStrength={0.3}>
-                <button
-                  type="button"
-                  className="video-player-btn-icon"
-                  aria-label="Close fullscreen player"
-                  title="Close (Esc)"
-                  onClick={onCloseFull}
-                >
-                  <FontAwesomeIcon icon={faXmark} />
-                </button>
-              </Magnet>
+              <button
+                type="button"
+                className="video-player-btn-icon"
+                aria-label="Close fullscreen player"
+                title="Close (Esc)"
+                onClick={onCloseFull}
+              >
+                <FontAwesomeIcon icon={faXmark} />
+              </button>
 
               <h1 className="text-base font-bold text-white drop-shadow truncate max-w-2xl" title={currentMedia?.title}>
                 <ShinyText text={currentMedia?.title || "Video"} speed={4} />
@@ -399,20 +394,18 @@ export function VideoPlayer({
 
           {/* Center Play/Pause Button */}
           <div className="video-player-hud-center">
-            <Magnet magnetStrength={0.35}>
-              <button
-                type="button"
-                className="video-player-center-btn"
-                aria-label={paused ? "Play" : "Pause"}
-                title={paused ? "Play (Space)" : "Pause (Space)"}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle();
-                }}
-              >
-                <FontAwesomeIcon icon={paused ? faPlay : faPause} />
-              </button>
-            </Magnet>
+            <button
+              type="button"
+              className="video-player-center-btn"
+              aria-label={paused ? "Play" : "Pause"}
+              title={paused ? "Play (Space)" : "Pause (Space)"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
+              <FontAwesomeIcon icon={paused ? faPlay : faPause} />
+            </button>
           </div>
 
           {/* Bottom HUD Bar */}
@@ -459,82 +452,70 @@ export function VideoPlayer({
             <div className="video-player-controls-row">
               {/* Left Controls */}
               <div className="video-player-controls-group">
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn video-player-ctrl-btn--primary"
-                    aria-label={paused ? "Play" : "Pause"}
-                    aria-keyshortcuts="Space"
-                    title={paused ? "Play (Space)" : "Pause (Space)"}
-                    onClick={onToggle}
-                  >
-                    <FontAwesomeIcon icon={paused ? faPlay : faPause} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn video-player-ctrl-btn--primary"
+                  aria-label={paused ? "Play" : "Pause"}
+                  aria-keyshortcuts="Space"
+                  title={paused ? "Play (Space)" : "Pause (Space)"}
+                  onClick={onToggle}
+                >
+                  <FontAwesomeIcon icon={paused ? faPlay : faPause} />
+                </button>
 
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn"
-                    aria-label="Previous"
-                    disabled={!hasPrev}
-                    title="Previous video"
-                    onClick={() => onAdvance?.("prev")}
-                  >
-                    <FontAwesomeIcon icon={faBackwardStep} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn"
+                  aria-label="Previous"
+                  disabled={!hasPrev}
+                  title="Previous video"
+                  onClick={() => onAdvance?.("prev")}
+                >
+                  <FontAwesomeIcon icon={faBackwardStep} />
+                </button>
 
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn"
-                    aria-label="Rewind 10 seconds"
-                    title="Rewind 10s (Left Arrow)"
-                    onClick={() => handleSkipSeconds(-10)}
-                  >
-                    <FontAwesomeIcon icon={faArrowRotateLeft} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn"
+                  aria-label="Rewind 10 seconds"
+                  title="Rewind 10s (Left Arrow)"
+                  onClick={() => handleSkipSeconds(-10)}
+                >
+                  <FontAwesomeIcon icon={faArrowRotateLeft} />
+                </button>
 
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn"
-                    aria-label="Forward 10 seconds"
-                    title="Forward 10s (Right Arrow)"
-                    onClick={() => handleSkipSeconds(10)}
-                  >
-                    <FontAwesomeIcon icon={faArrowRotateRight} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn"
+                  aria-label="Forward 10 seconds"
+                  title="Forward 10s (Right Arrow)"
+                  onClick={() => handleSkipSeconds(10)}
+                >
+                  <FontAwesomeIcon icon={faArrowRotateRight} />
+                </button>
 
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn"
-                    aria-label="Next"
-                    disabled={!hasNext}
-                    title="Next video"
-                    onClick={() => onAdvance?.("next")}
-                  >
-                    <FontAwesomeIcon icon={faForwardStep} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn"
+                  aria-label="Next"
+                  disabled={!hasNext}
+                  title="Next video"
+                  onClick={() => onAdvance?.("next")}
+                >
+                  <FontAwesomeIcon icon={faForwardStep} />
+                </button>
 
                 {/* Volume Slider */}
                 <div className="video-player-volume-group">
-                  <Magnet magnetStrength={0.25}>
-                    <button
-                      type="button"
-                      className="video-player-ctrl-btn"
-                      aria-label={muted || volume <= 0 ? "Unmute (M)" : "Mute (M)"}
-                      title={muted || volume <= 0 ? "Unmute (M)" : "Mute (M)"}
-                      onClick={onToggleMute}
-                    >
-                      <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
-                    </button>
-                  </Magnet>
+                  <button
+                    type="button"
+                    className="video-player-ctrl-btn"
+                    aria-label={muted || volume <= 0 ? "Unmute (M)" : "Mute (M)"}
+                    title={muted || volume <= 0 ? "Unmute (M)" : "Mute (M)"}
+                    onClick={onToggleMute}
+                  >
+                    <FontAwesomeIcon icon={getVolumeIcon(volume, muted)} />
+                  </button>
                   <div className="video-player-volume-slider-wrap">
                     <input
                       type="range"
@@ -562,21 +543,19 @@ export function VideoPlayer({
               {/* Right Controls */}
               <div className="video-player-controls-group">
                 {/* Fit to screen / Fill screen */}
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className={`video-player-ctrl-btn ${fitMode === "cover" ? "video-player-ctrl-btn--active" : ""}`}
-                    aria-label={fitMode === "cover" ? "Fit to screen" : "Fill screen"}
-                    title={fitMode === "cover" ? "Fit to screen (Contain)" : "Fill screen (Cover)"}
-                    onClick={() => {
-                      const nextFit = fitMode === "cover" ? "contain" : "cover";
-                      setFitMode(nextFit);
-                      showFeedbackToast(nextFit === "cover" ? "Fill screen" : "Fit screen");
-                    }}
-                  >
-                    <FontAwesomeIcon icon={fitMode === "cover" ? faMinimize : faMaximize} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className={`video-player-ctrl-btn ${fitMode === "cover" ? "video-player-ctrl-btn--active" : ""}`}
+                  aria-label={fitMode === "cover" ? "Fit to screen" : "Fill screen"}
+                  title={fitMode === "cover" ? "Fit to screen (Contain)" : "Fill screen (Cover)"}
+                  onClick={() => {
+                    const nextFit = fitMode === "cover" ? "contain" : "cover";
+                    setFitMode(nextFit);
+                    showFeedbackToast(nextFit === "cover" ? "Fill screen" : "Fit screen");
+                  }}
+                >
+                  <FontAwesomeIcon icon={fitMode === "cover" ? faMinimize : faMaximize} />
+                </button>
 
                 {/* Quality */}
                 <QualityControl
@@ -619,31 +598,27 @@ export function VideoPlayer({
                 </div>
 
                 {/* Favorite */}
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className={`video-player-ctrl-btn ${liked ? "video-player-ctrl-btn--active" : ""}`}
-                    aria-label={liked ? "Remove from favorites" : "Add to favorites"}
-                    title={liked ? "Remove from favorites" : "Add to favorites"}
-                    onClick={onToggleLike}
-                  >
-                    <FontAwesomeIcon icon={faBookmark} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className={`video-player-ctrl-btn ${liked ? "video-player-ctrl-btn--active" : ""}`}
+                  aria-label={liked ? "Remove from favorites" : "Add to favorites"}
+                  title={liked ? "Remove from favorites" : "Add to favorites"}
+                  onClick={onToggleLike}
+                >
+                  <FontAwesomeIcon icon={faBookmark} />
+                </button>
 
                 {/* Picture in Picture */}
                 {canPip && (
-                  <Magnet magnetStrength={0.25}>
-                    <button
-                      type="button"
-                      className={`video-player-ctrl-btn ${isPip ? "video-player-ctrl-btn--active" : ""}`}
-                      aria-label="Picture in picture"
-                      title="Picture in Picture"
-                      onClick={togglePip}
-                    >
-                      <FontAwesomeIcon icon={faClone} />
-                    </button>
-                  </Magnet>
+                  <button
+                    type="button"
+                    className={`video-player-ctrl-btn ${isPip ? "video-player-ctrl-btn--active" : ""}`}
+                    aria-label="Picture in picture"
+                    title="Picture in Picture"
+                    onClick={togglePip}
+                  >
+                    <FontAwesomeIcon icon={faClone} />
+                  </button>
                 )}
 
                 {/* Sleep Timer */}
@@ -654,36 +629,32 @@ export function VideoPlayer({
                 />
 
                 {/* Fullscreen Button */}
-                <Magnet magnetStrength={0.25}>
-                  <button
-                    type="button"
-                    className="video-player-ctrl-btn"
-                    aria-label={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
-                    title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
-                    onClick={toggleFullscreen}
-                  >
-                    <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
-                  </button>
-                </Magnet>
+                <button
+                  type="button"
+                  className="video-player-ctrl-btn"
+                  aria-label={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+                  title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+                  onClick={toggleFullscreen}
+                >
+                  <FontAwesomeIcon icon={isFullscreen ? faCompress : faExpand} />
+                </button>
               </div>
             </div>
           </div>
         </div>
-      </SpotlightCard>
+      </div>
 
       {/* Resume Playback Prompt Banner */}
       {resumePos !== null && (
         <div className="fixed left-1/2 bottom-20 -translate-x-1/2 z-50">
-          <Magnet magnetStrength={0.2}>
-            <button
-              type="button"
-              onClick={onResume}
-              className="px-5 py-2.5 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-sm shadow-xl backdrop-blur-md flex items-center gap-2 transition-transform hover:scale-105"
-            >
-              <FontAwesomeIcon icon={faRotateLeft} />
-              Resume from {formatDuration(resumePos)}
-            </button>
-          </Magnet>
+          <button
+            type="button"
+            onClick={onResume}
+            className="px-5 py-2.5 rounded-full bg-rose-600/90 hover:bg-rose-500 text-white font-bold text-sm shadow-xl backdrop-blur-md flex items-center gap-2 transition-transform hover:scale-105"
+          >
+            <FontAwesomeIcon icon={faRotateLeft} />
+            Resume from {formatDuration(resumePos)}
+          </button>
         </div>
       )}
     </div>

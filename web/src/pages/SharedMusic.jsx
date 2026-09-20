@@ -8,33 +8,26 @@ import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { faLock } from "@fortawesome/free-solid-svg-icons/faLock";
 import { api, apiUrl } from "../api";
 import Squares from "../components/Squares";
-import SpotlightCard from "../components/SpotlightCard";
 import ShinyText from "../components/ShinyText";
 import SplitText from "../components/SplitText";
-import Magnet from "../components/Magnet";
 import "./SharedMusic.css";
 
 const PROCESSING = new Set(["queued", "processing"]);
 
-export function SharedMusicHeader({ singleTrack = true }) {
+export function SharedMusicHeader() {
   return (
     <header className="shared-music-header">
-      <Magnet magnetStrength={0.15}>
-        <a className="shared-music-brand" href="/" aria-label="Dogmedia Home">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt=""
-            className="shared-music-brand-icon"
-            width="26"
-            height="26"
-            aria-hidden="true"
-          />
-          <span className="shared-music-brand-title">Dogmedia</span>
-          <span className="shared-music-brand-tag">
-            <ShinyText text={singleTrack ? "Music Clip" : "Favorite Reel"} speed={3} />
-          </span>
-        </a>
-      </Magnet>
+      <a className="shared-music-brand" href="/" aria-label="Dogmedia Home">
+        <img
+          src="/web-app-manifest-192x192.png"
+          alt=""
+          className="shared-music-brand-icon"
+          width="26"
+          height="26"
+          aria-hidden="true"
+        />
+        <span className="shared-music-brand-title">Dogmedia</span>
+      </a>
       <div className="shared-music-privacy-badge">
         <FontAwesomeIcon icon={faShieldHalved} />
         <span>Private Stream</span>
@@ -45,9 +38,8 @@ export function SharedMusicHeader({ singleTrack = true }) {
 
 export function SharedMusicLoading() {
   return (
-    <SpotlightCard
+    <div
       className="shared-music-state-card"
-      spotlightColor="rgba(225, 29, 72, 0.22)"
       aria-live="polite"
     >
       <div className="shared-music-loading-equalizer" aria-hidden="true">
@@ -61,33 +53,29 @@ export function SharedMusicLoading() {
       <p>
         <ShinyText text="Loading chunk stream and metadata" speed={2.5} />
       </p>
-    </SpotlightCard>
+    </div>
   );
 }
 
 export function SharedMusicError({ error, onRetry }) {
   return (
-    <SpotlightCard
+    <div
       className="shared-music-state-card shared-music-state-card--error"
-      spotlightColor="rgba(239, 68, 68, 0.2)"
     >
       <FontAwesomeIcon icon={faFilm} className="shared-music-state-icon" />
       <h1>This reel is not available</h1>
       <p>{error}. Ask the sender for a new link.</p>
-      <Magnet magnetStrength={0.25}>
-        <button type="button" onClick={onRetry} className="shared-music-retry-btn">
-          <FontAwesomeIcon icon={faRotateRight} /> Try again
-        </button>
-      </Magnet>
-    </SpotlightCard>
+      <button type="button" onClick={onRetry} className="shared-music-retry-btn">
+        <FontAwesomeIcon icon={faRotateRight} /> Try again
+      </button>
+    </div>
   );
 }
 
 export function SharedReelProcessing({ status, progress = 0 }) {
   return (
-    <SpotlightCard
+    <div
       className="shared-reel-processing-card"
-      spotlightColor="rgba(225, 29, 72, 0.25)"
       aria-live="polite"
     >
       <div className="shared-reel-processing-grid">
@@ -118,7 +106,7 @@ export function SharedReelProcessing({ status, progress = 0 }) {
           </div>
         </div>
       </div>
-    </SpotlightCard>
+    </div>
   );
 }
 
@@ -126,9 +114,8 @@ export function SharedReelPlayer({ data, singleTrack }) {
   return (
     <section className="shared-reel-player" aria-label="Shared favorite music reel">
       {/* Media showcase card */}
-      <SpotlightCard
+      <div
         className="shared-reel-card shared-reel-media-card"
-        spotlightColor="rgba(225, 29, 72, 0.2)"
       >
         <div className="shared-reel-video-shell">
           <div className="shared-reel-media-glow" aria-hidden="true" />
@@ -148,12 +135,11 @@ export function SharedReelPlayer({ data, singleTrack }) {
             <span className="shared-reel-audio-hint">Direct Audio Chunks</span>
           </div>
         </div>
-      </SpotlightCard>
+      </div>
 
       {/* Information & Tracks card */}
-      <SpotlightCard
+      <div
         className="shared-reel-card shared-reel-info-card"
-        spotlightColor="rgba(169, 156, 214, 0.16)"
       >
         <div className="shared-reel-copy">
           <div className="shared-reel-kicker-pill">
@@ -198,16 +184,14 @@ export function SharedReelPlayer({ data, singleTrack }) {
           </ol>
 
           <div className="shared-reel-actions">
-            <Magnet magnetStrength={0.25} className="shared-reel-download-magnet">
-              <a
-                className="shared-reel-download-btn shared-reel-download"
-                href={apiUrl(data.downloadUrl)}
-                download
-              >
-                <FontAwesomeIcon icon={faDownload} />
-                <span>Download MP4</span>
-              </a>
-            </Magnet>
+            <a
+              className="shared-reel-download-btn"
+              href={apiUrl(data.downloadUrl)}
+              download
+            >
+              <FontAwesomeIcon icon={faDownload} />
+              <span>Download MP4</span>
+            </a>
 
             <div className="shared-reel-footer-meta">
               <FontAwesomeIcon icon={faLock} />
@@ -218,7 +202,7 @@ export function SharedReelPlayer({ data, singleTrack }) {
             </div>
           </div>
         </div>
-      </SpotlightCard>
+      </div>
     </section>
   );
 }
@@ -268,19 +252,19 @@ export default function SharedMusic() {
 
   return (
     <main className="shared-music-page shared-reel-page">
-      {/* React Bits Squares interactive canvas background */}
+      {/* Calm architectural grid background */}
       <div className="shared-music-bg-canvas">
         <Squares
-          direction="diagonal"
-          speed={0.35}
+          direction="right"
+          speed={0}
           squareSize={46}
           borderColor="rgba(255, 255, 255, 0.04)"
-          hoverFillColor="rgba(225, 29, 72, 0.16)"
+          hoverFillColor={null}
         />
       </div>
       <div className="shared-music-veil" aria-hidden="true" />
 
-      <SharedMusicHeader singleTrack={singleTrack} />
+      <SharedMusicHeader />
 
       <div className="shared-music-content">
         {state.loading ? (

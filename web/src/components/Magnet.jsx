@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 export function Magnet({
   children,
-  magnetStrength = 0.25,
-  disabled = false,
+  magnetStrength = 0,
+  disabled = true,
   activeTransition = "transform 0.15s cubic-bezier(0.25, 1, 0.5, 1)",
   inactiveTransition = "transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)",
   className = "",
@@ -45,7 +45,7 @@ export function Magnet({
     setIsActive(false);
   };
 
-  const canAnimate = !disabled && !prefersReducedMotion;
+  const canAnimate = !disabled && !prefersReducedMotion && magnetStrength > 0;
 
   return (
     <div

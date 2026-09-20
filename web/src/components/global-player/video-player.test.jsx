@@ -19,7 +19,7 @@ describe("VideoPlayer", () => {
     label: "Video",
   };
 
-  it("renders video element, ShinyText title, SpotlightCards, and metadata", () => {
+  it("renders video element, ShinyText title, controls, and metadata", () => {
     const markup = renderToStaticMarkup(
       <VideoPlayer
         autoPlay={false}
@@ -67,7 +67,7 @@ describe("VideoPlayer", () => {
     expect(markup).toContain("video-player-video");
     expect(markup).toContain("/api/media/114/stream");
     expect(markup).toContain("shiny-text");
-    expect(markup).toContain("magnet-wrapper");
+    expect(markup).not.toContain("magnet-wrapper");
     expect(markup).toContain('aria-keyshortcuts="Space"');
     expect(markup).toContain('title="Play (Space)"');
     expect(markup).not.toContain("video-player-hud-badge");

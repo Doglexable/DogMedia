@@ -9,20 +9,14 @@ import SharedMusic, {
 } from "./SharedMusic";
 
 describe("SharedMusic React Bits components", () => {
-  it("renders header with Dogmedia logo, brand title, and ShinyText badge", () => {
-    const markup = renderToString(<SharedMusicHeader singleTrack={true} />);
+  it("renders header with Dogmedia logo, brand title, and Private Stream badge", () => {
+    const markup = renderToString(<SharedMusicHeader />);
 
     expect(markup).toContain('src="/web-app-manifest-192x192.png"');
     expect(markup).toContain("Dogmedia");
-    expect(markup).toContain("Music Clip");
     expect(markup).toContain("Private Stream");
-    expect(markup).toContain("magnet-wrapper");
-  });
-
-  it("renders header with Favorite Reel badge for multi-track share", () => {
-    const markup = renderToString(<SharedMusicHeader singleTrack={false} />);
-
-    expect(markup).toContain("Favorite Reel");
+    expect(markup).not.toContain("magnet-wrapper");
+    expect(markup).not.toContain("Music Clip");
   });
 
   it("renders loading state with equalizer and ShinyText subtitle in SpotlightCard", () => {
@@ -34,7 +28,7 @@ describe("SharedMusic React Bits components", () => {
     expect(markup).toContain("Loading chunk stream and metadata");
   });
 
-  it("renders error state with retry action wrapped in Magnet and SpotlightCard", () => {
+  it("renders error state with retry action in SpotlightCard", () => {
     const markup = renderToString(
       <SharedMusicError error="This reel has expired" onRetry={() => {}} />
     );
@@ -43,7 +37,7 @@ describe("SharedMusic React Bits components", () => {
     expect(markup).toContain("This reel is not available");
     expect(markup).toContain("This reel has expired");
     expect(markup).toContain("Try again");
-    expect(markup).toContain("magnet-wrapper");
+    expect(markup).not.toContain("magnet-wrapper");
   });
 
   it("renders processing state with countdown progress and animation indicators", () => {
@@ -59,7 +53,7 @@ describe("SharedMusic React Bits components", () => {
     expect(markup).toContain("No refresh needed");
   });
 
-  it("renders showcase player with SpotlightCards, SplitText title, and Magnet download button", () => {
+  it("renders showcase player with SpotlightCards, SplitText title, and download button", () => {
     const sampleData = {
       streamUrl: "/api/public/stream/reel-10.mp4",
       downloadUrl: "/api/public/download/reel-10.mp4",
@@ -90,7 +84,7 @@ describe("SharedMusic React Bits components", () => {
     expect(markup).toContain("Anri");
     expect(markup).toContain("shared-reel-download-btn");
     expect(markup).toContain("Download MP4");
-    expect(markup).toContain("magnet-wrapper");
+    expect(markup).not.toContain("magnet-wrapper");
   });
 
   it("renders initial container page with Squares background canvas", () => {
