@@ -1,21 +1,34 @@
 import * as defaultFs from "fs/promises";
 import { join } from "path";
 
-export const DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+export const DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS = 15 * 60 * 1000;
 
-const MANAGED_MEDIA_FILE_RE = /^(\d+)(?:_thumb)?\.[^.]+$/;
+const MANAGED_MEDIA_FILE_RE = /^(\d+)(?:[-_][a-zA-Z0-9_-]+)?\.[^.]+$/;
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseNonNegativeInt(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export function getOrphanMediaCleanupConfig(env = process.env) {
+  const enabled =
+    env.MEDIA_CLEANUP_ENABLED !== "false" &&
+    env.ORPHAN_MEDIA_CLEANUP_ENABLED !== "false";
+
+  const rawGrace = env.MEDIA_CLEANUP_GRACE_MS ?? env.ORPHAN_MEDIA_CLEANUP_GRACE_MS;
+  const rawInterval = env.MEDIA_CLEANUP_INTERVAL_MS ?? env.ORPHAN_MEDIA_CLEANUP_INTERVAL_MS;
+
   return {
-    enabled: env.ORPHAN_MEDIA_CLEANUP_ENABLED !== "false",
-    graceMs: parsePositiveInt(env.ORPHAN_MEDIA_CLEANUP_GRACE_MS, DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS),
-    intervalMs: parsePositiveInt(env.ORPHAN_MEDIA_CLEANUP_INTERVAL_MS, DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS),
+    enabled,
+    graceMs: parseNonNegativeInt(rawGrace, DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS),
+    intervalMs: parsePositiveInt(rawInterval, DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS),
   };
 }
 
@@ -143,6 +156,11 @@ export function startOrphanMediaCleanupScheduler({ cleanup = cleanupOrphanMediaF
   startupTimer.unref?.();
   const intervalTimer = setInterval(run, config.intervalMs);
   intervalTimer.unref?.();
+
+  log?.info?.(
+    { intervalMs: config.intervalMs, graceMs: config.graceMs },
+    "orphan media cleanup scheduler started"
+  );
 
   return {
     run,

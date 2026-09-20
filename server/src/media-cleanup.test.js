@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS,
+  DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS,
   cleanupOrphanMediaFiles,
   getOrphanMediaCleanupConfig,
   startOrphanMediaCleanupScheduler,
@@ -74,6 +75,28 @@ describe("cleanupOrphanMediaFiles", () => {
     expect(await exists(mediaFile)).toBe(false);
     expect(await exists(thumbFile)).toBe(false);
     expect(summary).toMatchObject({ scanned: 2, deleted: 2, errors: 0 });
+  });
+
+  it("deletes orphan artwork, cover, and directory data when media record was removed", async () => {
+    const dataDir = await tempDataDir();
+    const artworkFile = await writeManagedFile(dataDir, 7, "44_artwork.webp");
+    const coverFile = await writeManagedFile(dataDir, 7, "44_cover.jpg");
+    const mediaDir = join(dataDir, "7", "44");
+    await fs.mkdir(mediaDir, { recursive: true });
+    await fs.writeFile(join(mediaDir, "cover.webp"), "cover");
+    await fs.utimes(mediaDir, new Date("2026-08-04T00:00:00.000Z"), new Date("2026-08-04T00:00:00.000Z"));
+
+    const summary = await cleanupOrphanMediaFiles({
+      dataDir,
+      graceMs: DAY_MS,
+      now: new Date("2026-08-06T00:00:00.000Z").getTime(),
+      pg: fakePg([]),
+    });
+
+    expect(await exists(artworkFile)).toBe(false);
+    expect(await exists(coverFile)).toBe(false);
+    expect(await exists(mediaDir)).toBe(false);
+    expect(summary).toMatchObject({ scanned: 3, deleted: 3, errors: 0 });
   });
 
   it("keeps media files and thumbnails when their media id exists", async () => {
@@ -151,11 +174,11 @@ describe("cleanupOrphanMediaFiles", () => {
 });
 
 describe("orphan media cleanup config and scheduler", () => {
-  it("parses env controls with daily defaults", () => {
+  it("parses env controls with hourly defaults and supports MEDIA_CLEANUP aliases", () => {
     expect(getOrphanMediaCleanupConfig({})).toEqual({
       enabled: true,
       graceMs: DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS,
-      intervalMs: DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS,
+      intervalMs: DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS,
     });
     expect(getOrphanMediaCleanupConfig({
       ORPHAN_MEDIA_CLEANUP_ENABLED: "false",
@@ -165,6 +188,15 @@ describe("orphan media cleanup config and scheduler", () => {
       enabled: false,
       graceMs: 5000,
       intervalMs: 6000,
+    });
+    expect(getOrphanMediaCleanupConfig({
+      MEDIA_CLEANUP_ENABLED: "true",
+      MEDIA_CLEANUP_GRACE_MS: "0",
+      MEDIA_CLEANUP_INTERVAL_MS: "1800000",
+    })).toEqual({
+      enabled: true,
+      graceMs: 0,
+      intervalMs: 1800000,
     });
   });
 

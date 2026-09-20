@@ -5,6 +5,8 @@ import { runEncodingWorker } from "./encoding-worker.js";
 import { runMusicReelWorker } from "./music-reel-worker.js";
 import { runMediaFinalizationWorker } from "./media-finalization-worker.js";
 import { runUploadCompletionWorker } from "./upload-completion-worker.js";
+import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
+import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 
 const dataDir = process.env.DATA_DIR || "data";
 const concurrency = Math.max(1, Number.parseInt(process.env.ENCODING_CONCURRENCY || "1", 10));
@@ -58,8 +60,21 @@ workers.push({
   }),
 });
 
+const orphanCleanup = startOrphanMediaCleanupScheduler({
+  dataDir,
+  log: console,
+  pg: pool,
+});
+const reelCleanup = startMusicReelCleanupScheduler({
+  dataDir,
+  log: console,
+  pg: pool,
+});
+
 async function shutdown() {
   controller.abort();
+  orphanCleanup?.stop();
+  reelCleanup?.stop();
   await Promise.all(workers.map(({ redis }) => redis.quit().catch(() => {})));
   await pool.end();
 }

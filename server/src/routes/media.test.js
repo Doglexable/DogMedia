@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { mkdir, mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -394,4 +394,78 @@ describe("media artwork", () => {
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
   });
+
+  it("deletes media files, thumbnails, and directory on DELETE /api/media/:id", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-delete-test-"));
+    const catDir = join(dataDir, "7");
+    const mediaDir = join(catDir, "1");
+    await mkdir(mediaDir, { recursive: true });
+    const mediaFile = join(catDir, "1.mp3");
+    const thumbFile = join(mediaDir, "cover.webp");
+    await writeFile(mediaFile, "audio");
+    await writeFile(thumbFile, "thumb");
+
+    let deletedMediaId = null;
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("SELECT file_path, category_id, thumbnail_path FROM media_assets")) {
+          return {
+            rows: [{ file_path: "7/1.mp3", category_id: 7, thumbnail_path: "7/1/cover.webp" }],
+            rowCount: 1,
+          };
+        }
+        if (sql.includes("DELETE FROM media_assets")) {
+          deletedMediaId = params[0];
+          return { rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+
+    const res = await app.inject({ method: "DELETE", url: "/api/media/1" });
+    expect(res.statusCode).toBe(204);
+    expect(deletedMediaId).toBe("1");
+
+    await expect(stat(mediaFile)).rejects.toThrow();
+    await expect(stat(thumbFile)).rejects.toThrow();
+    await expect(stat(mediaDir)).rejects.toThrow();
+
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("triggers on-demand media cleanup on POST /api/media/cleanup", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-cleanup-route-"));
+    const orphanFile = join(dataDir, "7", "99.mp3");
+    await mkdir(join(dataDir, "7"), { recursive: true });
+    await writeFile(orphanFile, "orphan-audio");
+
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("SELECT id FROM media_assets")) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/media/cleanup",
+      payload: { graceMs: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ scanned: 1, deleted: 1, errors: 0 });
+    await expect(stat(orphanFile)).rejects.toThrow();
+
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
 });
+

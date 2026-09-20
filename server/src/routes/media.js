@@ -10,6 +10,7 @@ import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../c
 import { retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
+import { cleanupOrphanMediaFiles } from "../media-cleanup.js";
 import {
   enqueueUploadCompletion,
   UPLOAD_COMPLETION_STATUS_PREFIX,
@@ -1099,19 +1100,38 @@ export default async function (fastify, options = {}) {
     return rows[0];
   });
 
+  fastify.post("/cleanup", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+    const graceMs = typeof request.body?.graceMs === "number"
+      ? request.body.graceMs
+      : 0;
+    const summary = await cleanupOrphanMediaFiles({
+      dataDir,
+      graceMs,
+      log: request.log,
+      pg: fastify.pg,
+    });
+    return reply.send(summary);
+  });
+
   fastify.delete("/:id", async (request, reply) => {
     if (request.accessTier < 100) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
     const { rows } = await fastify.pg.query(
-      "SELECT file_path, category_id FROM media_assets WHERE id = $1",
+      "SELECT file_path, category_id, thumbnail_path FROM media_assets WHERE id = $1",
       [id]
     );
     if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
 
     const filePath = join(dataDir, rows[0].file_path);
     await unlink(filePath).catch(() => {});
+    if (rows[0].thumbnail_path) {
+      await unlink(join(dataDir, rows[0].thumbnail_path)).catch(() => {});
+    }
 
     await rm(join(dataDir, String(rows[0].category_id), String(id)), { recursive: true, force: true }).catch(() => {});
 
