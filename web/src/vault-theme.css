@@ -177,6 +177,15 @@ textarea {
   color: var(--primary);
 }
 
+.global-sidebar-category-thumb {
+  border-radius: 5px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+.global-sidebar-link--active .global-sidebar-category-thumb {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 55%, transparent), 0 2px 6px rgba(0, 0, 0, 0.32);
+}
+
 .global-sidebar-heading {
   font-family: var(--font-data);
   font-size: 0.61rem;

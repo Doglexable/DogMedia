@@ -14,7 +14,7 @@ import { faNetworkWired } from "@fortawesome/free-solid-svg-icons/faNetworkWired
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
-import { api, apiUrl, readJsonArray } from "../api";
+import { api, apiUrl, categoryThumbnailUrl, readJsonArray } from "../api";
 import { SiteFooter } from "./site-footer";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
@@ -24,7 +24,7 @@ export function useLibrary() {
   return useContext(LibraryContext);
 }
 
-function SidebarLink({ active, children, icon, onClick, onContextMenu, style, to }) {
+function SidebarLink({ active, children, icon, leading, onClick, onContextMenu, style, to }) {
   return (
     <Link
       to={to}
@@ -33,7 +33,7 @@ function SidebarLink({ active, children, icon, onClick, onContextMenu, style, to
       className={`global-sidebar-link${active ? " global-sidebar-link--active" : ""}`}
       style={style}
     >
-      <FontAwesomeIcon icon={icon} className="global-sidebar-link-icon" />
+      {leading || (icon ? <FontAwesomeIcon icon={icon} className="global-sidebar-link-icon" /> : null)}
       <span className="truncate">{children}</span>
     </Link>
   );
@@ -73,7 +73,36 @@ function CategoryContextMenu({ category, menu, onAddToQueue, onClose }) {
   );
 }
 
-function CategorySidebarItem({ active, category, close, onOpenMenu }) {
+export function CategoryIcon({ category }) {
+  const [failed, setFailed] = useState(false);
+  const coverPath = category?.cover_path;
+  const coverUrl = coverPath ? categoryThumbnailUrl(category) : "";
+
+  useEffect(() => {
+    setFailed(false);
+  }, [coverUrl]);
+
+  return (
+    <span className="global-sidebar-category-icon-slot" aria-hidden="true">
+      {coverUrl && !failed ? (
+        <img
+          src={coverUrl}
+          alt=""
+          className="global-sidebar-category-thumb"
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onContextMenu={(event) => event.preventDefault()}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <FontAwesomeIcon icon={faFolder} className="global-sidebar-link-icon" />
+      )}
+    </span>
+  );
+}
+
+export function CategorySidebarItem({ active, category, close, onOpenMenu }) {
   const paddingLeft = 12 + Math.min(Number(category.depth) || 0, 4) * 14;
   return (
     <div
@@ -82,7 +111,7 @@ function CategorySidebarItem({ active, category, close, onOpenMenu }) {
     >
       <SidebarLink
         to={`/?category=${category.id}`}
-        icon={faFolder}
+        leading={<CategoryIcon category={category} />}
         active={active}
         onClick={close}
         style={{ paddingLeft }}

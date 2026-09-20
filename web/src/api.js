@@ -14,6 +14,15 @@ export function mediaThumbnailUrl(mediaOrId) {
   return apiUrl(`/api/media/${mediaId}/thumbnail${query}`);
 }
 
+export function categoryThumbnailUrl(categoryOrId) {
+  const isCategory = categoryOrId !== null && typeof categoryOrId === "object";
+  const categoryId = Number(isCategory ? categoryOrId.id : categoryOrId);
+  if (!Number.isFinite(categoryId) || categoryId <= 0) return "";
+  const coverPath = isCategory ? categoryOrId.cover_path : null;
+  const query = coverPath ? `?v=${encodeURIComponent(coverPath)}` : "";
+  return apiUrl(`/api/categories/${categoryId}/thumbnail${query}`);
+}
+
 export function api(path, options = {}) {
   return fetch(apiUrl(path), { ...options, credentials: "include" });
 }

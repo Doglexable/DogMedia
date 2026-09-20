@@ -141,6 +141,27 @@
   width: 16px;
   flex: 0 0 auto;
 }
+.global-sidebar-category-icon-slot {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+}
+.global-sidebar-category-icon-slot .global-sidebar-link-icon {
+  width: 16px;
+  height: 16px;
+}
+.global-sidebar-category-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex: 0 0 20px;
+  display: block;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
 .global-sidebar-category-row {
   position: relative;
   display: flex;

@@ -11,7 +11,7 @@ import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { faMobileScreenButton } from "@fortawesome/free-solid-svg-icons/faMobileScreenButton";
 import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 import { useAccess } from "../access-context";
-import { api, apiUrl, mediaThumbnailUrl } from "../api";
+import { api, apiUrl, categoryThumbnailUrl, mediaThumbnailUrl } from "../api";
 import { useLibrary } from "../components/library-shell";
 import { CategoryTreeDnd } from "../components/admin/category-tree-dnd";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
@@ -1059,9 +1059,7 @@ async function uploadAndroidRelease({ file, version, onProgress }) {
 function FolderArtworkEditor({ category, file, onFileChange, onSubmit, updating }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewFailed, setPreviewFailed] = useState(false);
-  const currentUrl = category?.cover_path
-    ? apiUrl(`/api/categories/${category.id}/thumbnail?v=${encodeURIComponent(category.cover_path)}`)
-    : "";
+  const currentUrl = category?.cover_path ? categoryThumbnailUrl(category) : "";
 
   useEffect(() => {
     setPreviewFailed(false);
