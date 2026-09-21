@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from "fs";
 import { mkdir, open, readFile, rename, rm, stat, unlink, utimes, writeFile } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import { pipeline } from "stream/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -114,9 +114,14 @@ function mimeFromExt(filePath) {
   return map[ext] || "application/octet-stream";
 }
 
-function extFromFilename(filename, fallback = "bin") {
+export function extFromFilename(filename, fallback = "bin") {
   const parts = String(filename || "").split(".");
-  return (parts.length > 1 ? parts.pop() : fallback).toLowerCase();
+  const raw = parts.length > 1 ? parts.pop() : fallback;
+  const sanitized = String(raw || "")
+    .replace(/\0/g, "")
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase();
+  return sanitized || (fallback ? String(fallback).toLowerCase() : "bin");
 }
 
 function applyNoDownloadHeaders(reply, { etag = null } = {}) {
@@ -354,6 +359,11 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
 
   const mediaId = rows[0].id;
   const storedName = `${mediaId}.${ext}`;
+  if (!resolve(categoryDir, storedName).startsWith(resolve(categoryDir))) {
+    await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [mediaId]);
+    await cleanupUploads(mainFileUpload, thumbUpload);
+    return reply.code(400).send({ error: "Invalid file path" });
+  }
   const filePath = join(categoryDir, storedName);
 
   await pipeline(createReadStream(mainFileUpload.tempPath), createWriteStream(filePath));
@@ -442,6 +452,10 @@ export async function replaceMediaFiles({
   if (mainFileUpload) {
     const ext = extFromFilename(mainFileUpload.filename);
     const storedName = `${mediaId}.${ext}`;
+    if (!resolve(categoryDir, storedName).startsWith(resolve(categoryDir))) {
+      await cleanupUploads(mainFileUpload, thumbUpload);
+      return reply.code(400).send({ error: "Invalid file path" });
+    }
     const absoluteFilePath = join(categoryDir, storedName);
     const previousFilePath = join(dataDir, existing.file_path);
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
-import mediaRoutes, { decodeBrowseCursor, mediaMetadataFromTags, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
+import mediaRoutes, { decodeBrowseCursor, extFromFilename, mediaMetadataFromTags, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
 
 describe("media browsing and ranges", () => {
   it("validates and clamps byte ranges", () => {
@@ -469,3 +469,20 @@ describe("media artwork", () => {
   });
 });
 
+describe("extFromFilename and path traversal prevention", () => {
+  it("sanitizes file extensions and prevents path traversal", () => {
+    expect(extFromFilename("song.mp3")).toBe("mp3");
+    expect(extFromFilename("exploit.jpg/../../evil.sh")).toBe("sh");
+    expect(extFromFilename("malicious..//\\")).toBe("bin");
+  });
+
+  it("handles multi-dot extensions, case normalization, and fallback defaults", () => {
+    expect(extFromFilename("track.FLAC")).toBe("flac");
+    expect(extFromFilename("archive.tar.gz")).toBe("gz");
+    expect(extFromFilename("noextension")).toBe("bin");
+    expect(extFromFilename("", "dat")).toBe("dat");
+    expect(extFromFilename(null, "bin")).toBe("bin");
+    expect(extFromFilename("payload.jpg/../../evil")).toBe("evil");
+    expect(extFromFilename("malicious..//\\..", "bin")).toBe("bin");
+  });
+});
