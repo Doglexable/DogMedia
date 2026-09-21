@@ -97,4 +97,32 @@ describe("mobile release routes", () => {
     expect(status.json()).toEqual({ available: false });
     await app.close();
   });
+
+  it("drains unconsumed stream and returns 400 on invalid chunk index", async () => {
+    const app = await buildApp();
+    const initRes = await app.inject({
+      method: "POST",
+      url: "/api/mobile-release/uploads",
+      payload: {
+        version: "1.0.0",
+        filename: "release.apk",
+        size: 1024 * 1024,
+        versionName: "1.0.0",
+        versionCode: 10,
+        totalChunks: 2,
+        totalBytes: 1024,
+      },
+    });
+    const { uploadId } = JSON.parse(initRes.body);
+
+    const chunk = multipartChunk(999, Buffer.alloc(100));
+    const chunkRes = await app.inject({
+      method: "POST",
+      url: `/api/mobile-release/uploads/${uploadId}/chunks`,
+      ...chunk,
+    });
+    expect(chunkRes.statusCode).toBe(400);
+    expect(JSON.parse(chunkRes.body).error).toBe("Invalid upload chunk");
+    await app.close();
+  });
 });

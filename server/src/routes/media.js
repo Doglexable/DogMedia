@@ -899,7 +899,7 @@ export default async function (fastify, options = {}) {
 
     const kind = fields.kind === "thumbnail" ? "thumbnail" : "file";
     const index = Number.parseInt(fields.index, 10);
-    const expectedChunks = kind === "thumbnail" ? manifest.thumbnail?.totalChunks : manifest.file.totalChunks;
+    const expectedChunks = kind === "thumbnail" ? manifest.thumbnail?.totalChunks : manifest.file?.totalChunks;
 
     if (!chunkUpload || !Number.isInteger(index) || index < 0 || !expectedChunks || index >= expectedChunks) {
       await cleanupUploads(chunkUpload);

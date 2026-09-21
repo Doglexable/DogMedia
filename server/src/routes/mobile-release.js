@@ -80,6 +80,9 @@ export default async function mobileReleaseRoutes(fastify, options = {}) {
     const part = await request.file({ limits: { fileSize: CHUNK_SIZE + 1024 } });
     const index = Number.parseInt(part?.fields?.index?.value, 10);
     if (!part || !Number.isInteger(index) || index < 0 || index >= manifest.totalChunks) {
+      if (part?.file) {
+        part.file.resume();
+      }
       return reply.code(400).send({ error: "Invalid upload chunk" });
     }
     await pipeline(part.file, createWriteStream(join(uploadDir, `${index}.part`)));
