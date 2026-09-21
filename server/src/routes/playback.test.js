@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import playbackRoutes, {
   isSessionPauseExpired,
   normalizeTrigger,
@@ -377,6 +377,38 @@ describe("playback active cache routes", () => {
 
     // The expired session should have been dropped from redis
     expect(await redis.get("playback:active:192.168.1.10")).toBeNull();
+
+    await app.close();
+  });
+
+  it("returns empty array and does not invoke redis.scan when no active sessions exist", async () => {
+    const scanSpy = vi.fn();
+    const redis = {
+      ...createMockRedis(),
+      scan: scanSpy,
+    };
+
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", {
+      async query() {
+        return { rows: [] };
+      },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 100;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/playback/now-playing",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+    expect(scanSpy).not.toHaveBeenCalled();
 
     await app.close();
   });
