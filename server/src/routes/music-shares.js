@@ -134,17 +134,26 @@ export default async function (fastify) {
         [ownerIp(request), hashToken(token), REEL_RETENTION_DAYS]
       );
       reel = created.rows[0];
+      const reelItems = [];
       for (const item of selected) {
         const requestedClipStart = clipStarts?.[Number(item.position) - 1];
         const clipStart = boundedClipStart(
           requestedClipStart == null ? lyricLeadInStart(item.lyrics_segments) : requestedClipStart,
           item.duration
         );
+        reelItems.push([reel.id, Number(item.position), item.id, item.source_version, clipStart, item.title, item.artists]);
+      }
+
+      if (reelItems.length > 0) {
+        const valuePlaceholders = reelItems.map((_, i) => {
+          const offset = i * 7;
+          return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+        }).join(", ");
         await client.query(
           `INSERT INTO music_share_reel_items
              (reel_id, position, media_id, source_version, clip_start, title, artists)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [reel.id, Number(item.position), item.id, item.source_version, clipStart, item.title, item.artists]
+           VALUES ${valuePlaceholders}`,
+          reelItems.flat()
         );
       }
       await client.query("COMMIT");

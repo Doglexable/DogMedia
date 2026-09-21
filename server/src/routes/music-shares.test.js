@@ -60,9 +60,9 @@ describe("music reel owner routes", () => {
     expect(insert.params[2]).toBe(1);
     expect(insert.params).not.toContain(body.token);
     const itemWrites = writes.filter((entry) => entry.sql.includes("INSERT INTO music_share_reel_items"));
-    expect(itemWrites).toHaveLength(2);
+    expect(itemWrites).toHaveLength(1);
     expect(itemWrites[0].params[4]).toBe(10);
-    expect(itemWrites[1].params[4]).toBe(0);
+    expect(itemWrites[0].params[11]).toBe(0);
     expect(queued).toHaveLength(1);
     await app.close();
   });

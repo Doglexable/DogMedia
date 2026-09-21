@@ -88,19 +88,47 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
   return rows;
 }
 
-async function resolveQualityFile(pg, row, requestedQuality) {
-  if (requestedQuality === "ori") return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+export async function fetchVariantsBatch(pg, mediaIds) {
+  const ids = [...new Set(mediaIds)].filter((id) => Number.isInteger(id) && id > 0);
+  if (!ids.length) return new Map();
   const { rows } = await pg.query(
-    `SELECT quality, file_path, mime_type FROM media_encoding_variants
-     WHERE media_id = $1 AND source_version = $2 AND status = 'ready'`,
-    [row.id, row.source_version]
+    `SELECT media_id, source_version, quality, file_path, mime_type
+     FROM media_encoding_variants
+     WHERE media_id = ANY($1::int[]) AND status = 'ready'`,
+    [ids]
   );
+  const variantsByMedia = new Map();
+  for (const row of rows) {
+    const key = `${row.media_id}:${row.source_version}`;
+    if (!variantsByMedia.has(key)) variantsByMedia.set(key, []);
+    variantsByMedia.get(key).push(row);
+  }
+  return variantsByMedia;
+}
+
+export async function resolveQualityFile(pg, row, requestedQuality, preloadedVariants = null) {
+  if (requestedQuality === "ori") return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+  const key = `${row.id}:${row.source_version}`;
+  let rows;
+  if (preloadedVariants) {
+    rows = preloadedVariants.get(key) || [];
+  } else {
+    const res = await pg.query(
+      `SELECT quality, file_path, mime_type FROM media_encoding_variants
+       WHERE media_id = $1 AND source_version = $2 AND status = 'ready'`,
+      [row.id, row.source_version]
+    );
+    rows = res.rows;
+  }
   const quality = selectActualQuality(requestedQuality, rows.map((item) => item.quality));
   const variant = rows.find((item) => item.quality === quality);
   return variant ? { path: variant.file_path, mimeType: variant.mime_type, quality } : { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
 }
 
-async function manifestItems(rows, dataDir, pg, requestedQuality = "ori") {
+export async function manifestItems(rows, dataDir, pg, requestedQuality = "ori", preloadedVariants = null) {
+  const variantsMap = requestedQuality === "ori"
+    ? null
+    : (preloadedVariants || await fetchVariantsBatch(pg, rows.map((r) => Number(r.id))));
   const items = new Array(rows.length);
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(8, rows.length) }, async () => {
@@ -109,7 +137,7 @@ async function manifestItems(rows, dataDir, pg, requestedQuality = "ori") {
       nextIndex += 1;
       const row = rows[index];
       try {
-        const selected = await resolveQualityFile(pg, row, requestedQuality);
+        const selected = await resolveQualityFile(pg, row, requestedQuality, variantsMap);
         let resolved = selected;
         let stats;
         try {
@@ -190,14 +218,26 @@ export default async function offlineRoutes(fastify, options = {}) {
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: ids });
     const rowById = new Map(rows.map((row) => [Number(row.id), row]));
     const accessible = new Map();
-    await Promise.all(requested.map(async (requestItem) => {
+    const itemsByQuality = new Map();
+    for (const requestItem of requested) {
       const mediaId = normalizeOfflineMediaId(requestItem?.mediaId);
       const row = rowById.get(mediaId);
-      if (!row) return;
+      if (!row) continue;
       const quality = normalizeRequestedQuality(requestItem?.quality, { defaultQuality: "ori" }) || "ori";
-      const items = await manifestItems([row], dataDir, fastify.pg, quality);
-      if (items[0]) accessible.set(`${mediaId}:${quality}`, items[0]);
-    }));
+      if (!itemsByQuality.has(quality)) itemsByQuality.set(quality, new Map());
+      itemsByQuality.get(quality).set(mediaId, row);
+    }
+    const needsVariants = [...itemsByQuality.keys()].some((q) => q !== "ori");
+    const variantsMap = needsVariants
+      ? await fetchVariantsBatch(fastify.pg, rows.map((r) => Number(r.id)))
+      : new Map();
+    for (const [quality, rowMap] of itemsByQuality.entries()) {
+      const targetRows = [...rowMap.values()];
+      const items = await manifestItems(targetRows, dataDir, fastify.pg, quality, variantsMap);
+      for (const item of items) {
+        accessible.set(`${item.id}:${quality}`, item);
+      }
+    }
     const { rows: existingRows } = ids.length
       ? await fastify.pg.query("SELECT id FROM media_assets WHERE id = ANY($1::int[])", [ids])
       : { rows: [] };
