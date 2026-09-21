@@ -113,6 +113,7 @@ export function PlayerProvider({ children }) {
     if (currentMediaRef.current) {
       const match = items.find((item) => Number(item.id) === Number(currentMediaRef.current.id));
       if (match) {
+        const enriched = { ...currentMediaRef.current };
         let updated = false;
         const isUnknown = (val) => !val || ["unknown", "unknown artist"].includes(String(val).trim().toLowerCase());
         const matchArtist = match.artists || match.artist;

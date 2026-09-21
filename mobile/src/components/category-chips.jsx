@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { ScrollView, Pressable, StyleSheet, Text } from "react-native";
-import { radii, spacing, useTheme } from "../theme";
+import { spacing, useTheme } from "../theme";
 
 export function CategoryChips({ categories, selectedId, onSelect }) {
   const { colors } = useTheme();
