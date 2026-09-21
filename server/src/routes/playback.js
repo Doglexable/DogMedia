@@ -756,24 +756,7 @@ export default async function (fastify) {
     const redis = getRedis(fastify);
     const now = Date.now();
     await redis.zremrangebyscore(ACTIVE_INDEX_KEY, "-inf", now);
-    let ips = await redis.zrangebyscore(ACTIVE_INDEX_KEY, now, "+inf");
-
-    // One-release bridge for sessions written before the active-session index existed.
-    if (ips.length === 0) {
-      const legacyKeys = [];
-      let cursor = "0";
-      do {
-        const result = await redis.scan(cursor, "MATCH", "playback:active:*", "COUNT", 50);
-        cursor = result[0];
-        legacyKeys.push(...result[1].filter((key) => key !== ACTIVE_INDEX_KEY));
-      } while (cursor !== "0");
-      ips = legacyKeys.map((key) => key.replace("playback:active:", ""));
-      if (ips.length > 0) {
-        const migration = redis.multi();
-        for (const ip of ips) migration.zadd(ACTIVE_INDEX_KEY, now + 300_000, ip);
-        await migration.exec();
-      }
-    }
+    const ips = await redis.zrangebyscore(ACTIVE_INDEX_KEY, now, "+inf");
 
     if (ips.length === 0) return [];
 
