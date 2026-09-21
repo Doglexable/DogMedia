@@ -8,6 +8,32 @@ import { probeDuration, probeMediaTags, resolveTrackOrder } from "./routes/media
 import { normalizeMatroskaSource } from "./video-source-normalization.js";
 
 const DEFAULT_IDLE_MS = 60_000;
+export const MAX_FINALIZATION_ATTEMPTS = 3;
+
+export async function getMessageDeliveryAttempts({
+  fields,
+  group = MEDIA_FINALIZATION_GROUP,
+  messageId,
+  redis,
+  stream = MEDIA_FINALIZATION_STREAM,
+}) {
+  const directAttempts = Number(fields?.attempts);
+  if (Number.isFinite(directAttempts) && directAttempts > 0) {
+    return directAttempts;
+  }
+  if (typeof redis?.xpending === "function") {
+    try {
+      const pending = await redis.xpending(stream, group, messageId, messageId, 1);
+      const deliveryCount = Number(pending?.[0]?.[3]);
+      if (Number.isFinite(deliveryCount) && deliveryCount > 0) {
+        return deliveryCount;
+      }
+    } catch {
+      // Ignored: fallback to 1
+    }
+  }
+  return 1;
+}
 
 export async function processMediaFinalizationJob({
   dataDir,
@@ -128,7 +154,16 @@ async function ensureGroup(redis) {
   }
 }
 
-export async function runMediaFinalizationWorker({ consumer, dataDir, log, pg, redis, signal }) {
+export async function runMediaFinalizationWorker({
+  consumer,
+  dataDir,
+  log,
+  maxAttempts = MAX_FINALIZATION_ATTEMPTS,
+  pg,
+  processJob = processMediaFinalizationJob,
+  redis,
+  signal,
+}) {
   await ensureGroup(redis);
   while (!signal?.aborted) {
     try {
@@ -147,7 +182,7 @@ export async function runMediaFinalizationWorker({ consumer, dataDir, log, pg, r
       for (const [messageId, rawFields] of messages) {
         const fields = parseStreamFields(rawFields);
         try {
-          await processMediaFinalizationJob({
+          await processJob({
             dataDir,
             log,
             mediaId: Number(fields.mediaId),
@@ -157,12 +192,40 @@ export async function runMediaFinalizationWorker({ consumer, dataDir, log, pg, r
           });
           await redis.xack(MEDIA_FINALIZATION_STREAM, MEDIA_FINALIZATION_GROUP, messageId);
         } catch (error) {
-          log?.error?.({ err: error, mediaId: fields.mediaId }, "media finalization failed");
+          const attempts = await getMessageDeliveryAttempts({
+            fields,
+            group: MEDIA_FINALIZATION_GROUP,
+            messageId,
+            redis,
+            stream: MEDIA_FINALIZATION_STREAM,
+          });
+
+          if (attempts >= maxAttempts) {
+            const logFatal = typeof log?.fatal === "function" ? log.fatal.bind(log) : log?.error?.bind(log);
+            logFatal?.(
+              { attempts, err: error, mediaId: fields.mediaId, messageId, sourceVersion: fields.sourceVersion },
+              "media finalization permanently failed after reaching max attempts"
+            );
+            await redis.xack(MEDIA_FINALIZATION_STREAM, MEDIA_FINALIZATION_GROUP, messageId);
+          } else {
+            log?.error?.(
+              { attempts, err: error, mediaId: fields.mediaId, messageId, sourceVersion: fields.sourceVersion },
+              "media finalization failed"
+            );
+          }
         }
       }
     } catch (error) {
       log?.error?.({ err: error }, "media finalization worker loop failed");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!signal?.aborted) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 1000);
+          signal?.addEventListener?.("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        });
+      }
     }
   }
 }
