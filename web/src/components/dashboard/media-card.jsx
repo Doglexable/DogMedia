@@ -5,11 +5,11 @@ import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { mediaThumbnailUrl } from "../../api";
 
 function getMimeMeta(mime) {
-  if (typeof mime !== "string") return { icon: "📁", label: "File", color: "#888" };
-  if (mime.startsWith("video/")) return { icon: "▶️", label: "Video", color: "#4a90d9" };
-  if (mime.startsWith("audio/")) return { icon: "🎵", label: "Audio", color: "#9b59b6" };
-  if (mime.startsWith("image/")) return { icon: "🖼️", label: "Photo", color: "#27ae60" };
-  return { icon: "📁", label: "File", color: "#888" };
+  if (typeof mime !== "string") return { icon: "📁", label: "File", color: "rgb(0 0 0 / 38%)" };
+  if (mime.startsWith("video/")) return { icon: "▶️", label: "Video", color: "rgb(0 0 0 / 38%)" };
+  if (mime.startsWith("audio/")) return { icon: "🎵", label: "Audio", color: "rgb(0 0 0 / 38%)" };
+  if (mime.startsWith("image/")) return { icon: "🖼️", label: "Photo", color: "rgb(0 0 0 / 38%)" };
+  return { icon: "📁", label: "File", color: "rgb(0 0 0 / 38%)" };
 }
 
 function formatCardDuration(seconds) {
