@@ -85,16 +85,22 @@ app.addHook("onResponse", async (request, reply) => {
     }, "slow request");
   }
 });
-startOrphanMediaCleanupScheduler({
-  dataDir: DATA_DIR,
-  log: app.log,
-  pg: app.pg,
-});
-startMusicReelCleanupScheduler({
-  dataDir: DATA_DIR,
-  log: app.log,
-  pg: app.pg,
-});
+if (process.env.RUN_CLEANUP_IN_SERVER === "true") {
+  const orphanCleanup = startOrphanMediaCleanupScheduler({
+    dataDir: DATA_DIR,
+    log: app.log,
+    pg: app.pg,
+  });
+  const reelCleanup = startMusicReelCleanupScheduler({
+    dataDir: DATA_DIR,
+    log: app.log,
+    pg: app.pg,
+  });
+  app.addHook("onClose", async () => {
+    orphanCleanup?.stop();
+    reelCleanup?.stop();
+  });
+}
 await redisPlugin(app);
 startIncompleteUploadCleanupScheduler({
   log: app.log,
