@@ -5,6 +5,7 @@ import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { useOffline } from "../context/offline-context";
 import { usePlayer } from "../context/player-context";
 import { mediaThumbnailUrl } from "../api";
+import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, resolveMediaArtist } from "../utils/media";
 
 function formatBytes(value) {

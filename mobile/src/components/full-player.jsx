@@ -15,7 +15,7 @@ import {
   releasePlaybackLease,
 } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { formatDuration, getArtistLabel, getMediaFolderName, getMediaLabel, resolveMediaArtist } from "../utils/media";
+import { formatDuration, getMediaLabel, resolveMediaArtist } from "../utils/media";
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
