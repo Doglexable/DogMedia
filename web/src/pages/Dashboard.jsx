@@ -13,13 +13,13 @@ import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
 import { MediaTypePills } from "../components/dashboard/media-type-pills";
 import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
+import { NowPlayingCard } from "../components/dashboard/now-playing-card";
 import { formatDuration } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
 import MagicBento from "../components/MagicBento";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
 
 const NOW_PLAYING_POLL_MS = 10000;
-const NOW_PLAYING_TICK_MS = 1000;
 
 function MediaGridSkeleton({ count = 8 }) {
   return (
@@ -77,14 +77,6 @@ function DashboardHomeSkeleton() {
       <MediaGridSkeleton />
     </div>
   );
-}
-
-function playbackStateLabels(session) {
-  const labels = [];
-  if (session.loopMode === "queue") labels.push("loop queue");
-  if (session.loopMode === "media") labels.push("loop media");
-  if (session.shuffleEnabled) labels.push("shuffle");
-  return labels;
 }
 
 function getMimeMeta(mime) {
@@ -739,7 +731,6 @@ export default function Dashboard() {
   const [mediaSearch, setMediaSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dashboardSummary, setDashboardSummary] = useState(null);
-  const [nowPlayingRenderNow, setNowPlayingRenderNow] = useState(() => Date.now());
   const browseGenerationRef = useRef(0);
   const loadingMoreRef = useRef(false);
 
@@ -852,7 +843,6 @@ export default function Dashboard() {
         .then((response) => readJsonArray(response, "Could not load active sessions"))
         .then((sessions) => {
           setNowPlaying(sessions);
-          setNowPlayingRenderNow(Date.now());
         })
         .catch(() => {});
     };
@@ -865,17 +855,6 @@ export default function Dashboard() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [tier]);
-
-  useEffect(() => {
-    if (tier < 100 || nowPlaying.length === 0) return undefined;
-
-    const tick = setInterval(() => {
-      if (document.visibilityState === "hidden") return;
-      setNowPlayingRenderNow(Date.now());
-    }, NOW_PLAYING_TICK_MS);
-
-    return () => clearInterval(tick);
-  }, [nowPlaying.length, tier]);
 
   const isEmpty = loaded && !categoriesLoading && categories.length === 0 && media.length === 0;
   const categoryById = useMemo(
@@ -1138,56 +1117,9 @@ export default function Dashboard() {
               enableBorderGlow={true}
               enableTilt={false}
               enableMagnetism={false}
-              renderCard={(s, i) => {
-                const stateLabels = playbackStateLabels(s);
-                const displayPosition = playbackDisplayPosition(s, nowPlayingRenderNow);
-                const progressPercent = playbackProgressPercent(displayPosition, s.duration);
-                const title = s.title || `Media #${s.mediaId}`;
-
-                return (
-                  <article key={`${s.ip}-${s.mediaId}-${i}`} className="magic-bento-now-playing" aria-label={`Now playing: ${title}`}>
-                    <div className="magic-bento-now-playing__top">
-                      <span className="magic-bento-now-playing__ip">{s.ip}</span>
-                      <span
-                        className={`magic-bento-now-playing__status magic-bento-now-playing__status--${s.action === "play" ? "play" : "pause"}`}
-                      >
-                        <span className="magic-bento-now-playing__dot" />
-                        {s.action}
-                      </span>
-                    </div>
-
-                    <div className="magic-bento-now-playing__body">
-                      <h3 aria-label={title} className="magic-bento-now-playing__title now-playing-card-title">
-                        {title}
-                      </h3>
-                      <p className="magic-bento-now-playing__sub">Media #{s.mediaId}</p>
-                    </div>
-
-                    <div className="magic-bento-now-playing__progress">
-                      <div className="magic-bento-now-playing__meta">
-                        <span>{fmtDur(displayPosition)}</span>
-                        <span>{fmtDur(s.duration)}</span>
-                      </div>
-                      <div className="magic-bento-now-playing__track" aria-hidden="true">
-                        <div
-                          className="magic-bento-now-playing__fill"
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {stateLabels.length > 0 && (
-                      <div className="magic-bento-now-playing__badges">
-                        {stateLabels.map((label) => (
-                          <span key={label} className="magic-bento-now-playing__badge">
-                            {label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                );
-              }}
+              renderCard={(s, i) => (
+                <NowPlayingCard session={s} index={i} key={`${s.ip}-${s.mediaId}-${i}`} />
+              )}
             />
           </section>
         )}
@@ -1197,27 +1129,3 @@ export default function Dashboard() {
   );
 }
 
-function fmtDur(s) {
-  const seconds = Math.max(0, Math.floor(Number(s) || 0));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function playbackDisplayPosition(session, nowMs) {
-  const position = Math.max(0, Math.floor(Number(session.position) || 0));
-  const duration = Math.max(0, Math.floor(Number(session.duration) || 0));
-
-  if (session.action !== "play" || duration <= 0) return position;
-
-  const timestampMs = Date.parse(session.timestamp);
-  if (!Number.isFinite(timestampMs)) return Math.min(position, duration);
-
-  const elapsedSeconds = Math.max(0, Math.floor((nowMs - timestampMs) / 1000));
-  return Math.min(position + elapsedSeconds, duration);
-}
-
-function playbackProgressPercent(position, duration) {
-  const current = Number(position) || 0;
-  const total = Number(duration) || 0;
-  if (total <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((current / total) * 100)));
-}
