@@ -20,7 +20,7 @@ honor its STOP conditions, and update your row when done.
 | [010](010-deduplicate-cleanup-schedulers.md) | Prevent duplicate concurrent execution of background cleanup schedulers | P2 | S | — | DONE |
 | [011](011-mobile-eslint-hooks.md) | Configure mobile ESLint and enable React Hooks linting | P2 | S | — | DONE |
 | [012](012-correct-agents-jwt-docs.md) | Correct misleading JWT authentication in AGENTS.md | P2 | S | — | DONE |
-| [013](013-admin-integration-tests.md) | Add component and workflow tests for Admin workspace | P2 | M | — | TODO |
+| [013](013-admin-integration-tests.md) | Add component and workflow tests for Admin workspace | P2 | M | — | DONE |
 | [014](014-decompose-admin-workspace.md) | Decompose monolithic Admin page into feature modules | P3 | L | 013 | TODO |
 
 ## Dependency notes
