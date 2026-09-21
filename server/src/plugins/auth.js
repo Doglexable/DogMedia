@@ -140,7 +140,15 @@ export default async function (fastify) {
     const clientIp = getClientIp(request);
     request.clientIp = clientIp;
 
-    if (request.url.startsWith("/api/whitelist")) {
+    const rawPath = request.url.split("?")[0];
+    let normalizedPath;
+    try {
+      normalizedPath = decodeURIComponent(rawPath);
+    } catch {
+      normalizedPath = rawPath;
+    }
+
+    if (normalizedPath === "/api/whitelist" || normalizedPath.startsWith("/api/whitelist/")) {
       if (
         clientIp !== "127.0.0.1" &&
         clientIp !== "::1" &&

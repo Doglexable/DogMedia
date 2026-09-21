@@ -1,4 +1,15 @@
 export default async function (fastify) {
+  fastify.addHook("preHandler", async (request, reply) => {
+    const clientIp = request.clientIp || request.ip;
+    if (
+      clientIp !== "127.0.0.1" &&
+      clientIp !== "::1" &&
+      clientIp !== "::ffff:127.0.0.1"
+    ) {
+      return reply.code(403).send({ error: "Only accessible from localhost" });
+    }
+  });
+
   fastify.get("/", async () => {
     const { rows } = await fastify.pg.query(
       "SELECT * FROM ip_whitelist ORDER BY cidr_range"
