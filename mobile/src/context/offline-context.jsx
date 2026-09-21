@@ -173,9 +173,11 @@ export function OfflineProvider({ children }) {
       const [events, resumes] = await Promise.all([listPlaybackOutbox(), listDirtyResumes()]);
       if (events.length || resumes.length) {
         const result = await apiJson("/api/offline/sync", { method: "POST", body: JSON.stringify({ events, resumes }) });
+        const eventsToDelete = [...(result.acceptedEventIds || []), ...(result.rejectedEventIds || [])];
+        const resumesToClear = [...(result.acceptedResumeIds || []), ...(result.rejectedResumeIds || [])];
         await Promise.all([
-          deletePlaybackOutbox(result.acceptedEventIds || []),
-          markResumesSynced(result.acceptedResumeIds || []),
+          deletePlaybackOutbox(eventsToDelete),
+          markResumesSynced(resumesToClear),
         ]);
       }
       await refresh();

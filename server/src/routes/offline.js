@@ -236,6 +236,7 @@ export default async function offlineRoutes(fastify, options = {}) {
     const clientIp = request.clientIp || request.ip;
     const acceptedEvents = events.filter((event) => allowed.has(event.mediaId));
     const acceptedEventIds = acceptedEvents.map((event) => event.clientEventId);
+    const rejectedEventIds = events.filter((e) => !allowed.has(e.mediaId)).map((e) => e.clientEventId);
     let insertedIds = new Set();
     if (acceptedEvents.length > 0) {
       const { rows: inserted } = await fastify.pg.query(
@@ -275,6 +276,7 @@ export default async function offlineRoutes(fastify, options = {}) {
     }
 
     const acceptedResumes = resumes.filter((resume) => allowed.has(resume.mediaId));
+    const rejectedResumeIds = resumes.filter((r) => !allowed.has(r.mediaId)).map((r) => r.mediaId);
     const resumeKeys = acceptedResumes.map((resume) => `playback:resume:${clientIp}:${resume.mediaId}`);
     const remoteValues = resumeKeys.length === 0
       ? []
@@ -295,6 +297,6 @@ export default async function offlineRoutes(fastify, options = {}) {
       acceptedResumeIds.push(resume.mediaId);
     }
     if (resumePipeline) await resumePipeline.exec();
-    return { acceptedEventIds, acceptedResumeIds };
+    return { acceptedEventIds, rejectedEventIds, acceptedResumeIds, rejectedResumeIds };
   });
 }
