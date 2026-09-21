@@ -1,31 +1,39 @@
 @import "tailwindcss";
 :root {
   color-scheme: light;
-  --bg: #f5f4f1;
-  --text: #101116;
-  --card-bg: rgba(255, 255, 255, 0.78);
-  --card-border: rgba(16, 17, 22, 0.12);
+  /* ── Scandinavian neutral foundation ── */
+  --bg: #f8f8f7;
+  --text: #0a0a0a;
+  --card-bg: #ffffff;
+  --card-border: rgb(0 0 0 / 10%);
+  --card-border-strong: rgb(0 0 0 / 18%);
+  --hover-fill: rgb(0 0 0 / 5%);
+  --pressed-fill: rgb(0 0 0 / 9%);
   --primary: #e11d48;
-  --muted: #696d77;
-  --modal-overlay: rgba(0, 0, 0, 0.6);
+  /* Secondary and tertiary ink (alpha over white) */
+  --ink-secondary: rgb(0 0 0 / 64%);
+  --ink-tertiary: rgb(0 0 0 / 46%);
+  --muted: rgb(0 0 0 / 54%);
+  --modal-overlay: rgba(0, 0, 0, 0.44);
   --modal-bg: #ffffff;
-  --modal-text: #222;
-  --modal-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-  --code-bg: #f5f5f5;
-  --code-border: #ddd;
-  --warning-bg: #fff3cd;
-  --warning-text: #856404;
-  --warning-border: #ffc107;
-  --table-border: #ddd;
-  --table-border-light: #eee;
-  --success-bg: #d4edda;
+  --modal-text: #0a0a0a;
+  --modal-shadow: 0 2px 18px rgb(0 0 0 / 14%);
+  --code-bg: #f4f4f4;
+  --code-border: rgb(0 0 0 / 10%);
+  --warning-bg: #fff9e6;
+  --warning-text: #7a5e00;
+  --warning-border: #e8c600;
+  --table-border: rgb(0 0 0 / 10%);
+  --table-border-light: rgb(0 0 0 / 6%);
+  --success-bg: #edf7f0;
   --success-text: #155724;
-  --success-border: #c3e6cb;
+  --success-border: rgb(0 0 0 / 10%);
   --fs-xs: 0.6875rem;
   --fs-sm: 0.8125rem;
   --fs-md: 0.9375rem;
   --fs-lg: 1.0625rem;
   --fs-xl: 1.25rem;
+  /* ── Preserved layout dimension tokens ── */
   --player-height: 104px;
   --player-grid: "track controls queue";
   --player-columns: minmax(0, 1fr) minmax(0, 1.8fr) 44px;
@@ -37,9 +45,9 @@
   --player-progress-columns: 42px minmax(90px, 1fr) 42px;
   --app-header-height: 58px;
   --global-sidebar-width: 252px;
-  --scrollbar-size: 10px;
-  --scrollbar-thumb: color-mix(in srgb, var(--muted) 42%, transparent);
-  --scrollbar-thumb-hover: color-mix(in srgb, var(--primary) 56%, var(--muted));
+  --scrollbar-size: 8px;
+  --scrollbar-thumb: rgb(0 0 0 / 18%);
+  --scrollbar-thumb-hover: var(--primary);
   --scrollbar-track: transparent;
 }
 .global-app-shell {
@@ -73,10 +81,8 @@
   flex-direction: column;
   overflow: hidden;
   border-right: 1px solid var(--card-border);
-  background: color-mix(in srgb, var(--card-bg) 94%, var(--bg));
+  background: var(--card-bg);
   color: var(--text);
-  box-shadow: 14px 0 40px rgba(0, 0, 0, 0.06);
-  backdrop-filter: blur(24px) saturate(135%);
 }
 .global-sidebar-brand {
   display: flex;
@@ -122,20 +128,20 @@
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 9px;
+  border-radius: 7px;
   color: var(--muted);
   text-decoration: none;
   font-size: var(--fs-sm);
-  font-weight: 700;
-  transition: background 150ms, color 150ms;
+  font-weight: 500;
+  transition: background 120ms ease, color 120ms ease;
 }
 .global-sidebar-link:hover {
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  background: var(--hover-fill);
   color: var(--text);
 }
 .global-sidebar-link--active {
-  background: color-mix(in srgb, var(--primary) 14%, var(--card-bg));
-  color: var(--primary);
+  background: rgb(0 0 0 / 7%);
+  color: var(--text);
 }
 .global-sidebar-link-icon {
   width: 16px;
@@ -259,11 +265,10 @@
 }
 .global-sidebar-heading {
   padding: 0 16px 8px;
-  color: var(--muted);
+  color: var(--ink-tertiary);
   font-size: var(--fs-xs);
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.06em;
 }
 .global-sidebar-categories {
   min-height: 0;
@@ -401,24 +406,17 @@
   gap: 10px;
   padding: 9px 12px;
   border: 1px solid var(--card-border);
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: 500;
   text-align: left;
-  transition: background 150ms, color 150ms, border-color 150ms;
-}
-.global-sidebar-theme-btn::before {
-  content: "🌗";
-  font-size: 1rem;
-  line-height: 1;
-  flex: 0 0 auto;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .global-sidebar-theme-btn:hover {
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
-  border-color: color-mix(in srgb, var(--primary) 30%, var(--card-border));
+  background: var(--hover-fill);
   color: var(--text);
 }
 .global-sidebar-toggle,
@@ -618,9 +616,8 @@
   }
   .mobile-categories-sheet-title {
     font-size: var(--fs-sm);
-    font-weight: 900;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    font-weight: 500;
+    letter-spacing: 0.02em;
     color: var(--muted);
   }
   .mobile-categories-sheet-close {
@@ -675,7 +672,7 @@
     color: var(--muted);
     cursor: pointer;
     font-size: 0.5rem;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.02em;
     line-height: 1;
     -webkit-tap-highlight-color: transparent;
@@ -685,7 +682,7 @@
     max-width: 64px;
   }
   .mobile-nav-theme-tab::before {
-    content: "🌗";
+    content: "◑";
     font-size: 1.1rem;
     line-height: 1;
     display: block;
@@ -698,27 +695,12 @@
 }
 .wrapped-shell {
   min-height: 100dvh;
-  background: radial-gradient(
-      circle at 16% 18%,
-      color-mix(in srgb, var(--primary) 14%, transparent),
-      transparent 32%
-    ),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
 }
 .wrapped-shell--fullscreen {
   overflow: hidden;
-  background: radial-gradient(
-      circle at 16% 12%,
-      color-mix(in srgb, var(--primary) 22%, transparent),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at 86% 82%,
-      color-mix(in srgb, var(--primary) 12%, transparent),
-      transparent 34%
-    ),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
 }
 .wrapped-page {

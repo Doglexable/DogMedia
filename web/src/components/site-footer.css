@@ -5,13 +5,8 @@
   width: 100%;
   content-visibility: auto;
   contain-intrinsic-size: auto 600px;
-  border-top: 1px solid color-mix(in srgb, var(--card-border) 70%, transparent);
-  background:
-    linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in srgb, var(--card-bg) 35%, transparent) 100%
-    );
+  border-top: 1px solid var(--card-border);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
   overflow-x: clip;
@@ -139,9 +134,8 @@
 .site-footer-col-title {
   font-family: var(--font-display);
   font-size: var(--fs-xs, 0.6875rem);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: var(--muted);
   margin: 0;
 }
@@ -182,8 +176,7 @@
 }
 
 .site-footer-link:hover {
-  color: var(--primary);
-  transform: translateX(2px);
+  color: var(--text);
 }
 
 .site-footer-link:focus-visible {
@@ -218,9 +211,8 @@
 .site-footer-util-label {
   font-family: var(--font-display);
   font-size: var(--fs-xs, 0.6875rem);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: var(--muted);
   margin-right: 0.5rem;
   user-select: none;
@@ -244,10 +236,9 @@
 }
 
 .site-footer-util-item:hover {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 40%, var(--card-border));
-  background: color-mix(in srgb, var(--primary) 8%, var(--surface-solid));
-  transform: translateY(-1px);
+  color: var(--text);
+  border-color: var(--card-border-strong, rgb(0 0 0 / 18%));
+  background: var(--hover-fill, rgb(0 0 0 / 5%));
 }
 
 .site-footer-util-item:focus-visible {
@@ -316,10 +307,8 @@
 
 .site-footer-social-link:hover {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--primary) 50%, var(--card-border));
-  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--text) 8%, transparent);
+  border-color: var(--card-border-strong, rgb(0 0 0 / 18%));
+  background: var(--hover-fill, rgb(0 0 0 / 5%));
 }
 
 .site-footer-social-link:focus-visible {
@@ -341,17 +330,17 @@
   padding: clamp(1rem, 3.5vw, 3rem) 0 clamp(0.5rem, 1.5vw, 1.5rem);
 }
 
+/* Wordmark: kept as display element but without uppercase — word-mark in natural case per Scandinavian type rules. Opacity at 6% makes it a background texture, not a text label. */
 .site-footer-wordmark {
   display: block;
   font-family: var(--font-display);
   font-size: clamp(3.25rem, 13.8vw, 11.5rem);
-  font-weight: 800;
-  line-height: 0.82;
+  font-weight: 700;
+  line-height: 0.85;
   letter-spacing: -0.045em;
-  text-transform: uppercase;
   white-space: nowrap;
   text-align: center;
-  color: color-mix(in srgb, var(--text) 7.5%, transparent);
+  color: color-mix(in srgb, var(--text) 6%, transparent);
   transition: color 240ms ease;
 }
 
@@ -427,9 +416,8 @@
   margin: 0.25rem 0 0;
   font-size: var(--fs-xs, 0.6875rem);
   font-family: var(--font-data);
-  color: var(--primary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  color: var(--muted);
+  letter-spacing: 0.06em;
 }
 
 .site-footer-modal-close {
