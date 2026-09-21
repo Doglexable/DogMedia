@@ -9,6 +9,7 @@ function redisMock() {
         del: () => chain,
         rpush: () => chain,
         set: () => chain,
+        expire: () => chain,
         exec: async () => [],
       };
       return chain;
@@ -147,6 +148,7 @@ describe("category queue append", () => {
             return chain;
           },
           rpush(_key, ...ids) { nextQueue.push(...ids.map(Number)); return chain; },
+          expire() { return chain; },
           set(_key, index) { nextIndex = Number(index); return chain; },
           async exec() { queue = nextQueue; currentIndex = nextIndex; return []; },
         };
@@ -202,6 +204,7 @@ describe("category queue append", () => {
             return chain;
           },
           rpush(_key, ...ids) { nextQueue.push(...ids.map(Number)); return chain; },
+          expire() { return chain; },
           set(_key, index) { nextIndex = Number(index); return chain; },
           async exec() { queue = nextQueue; currentIndex = nextIndex; return []; },
         };
@@ -261,6 +264,7 @@ describe("queue windows", () => {
         const chain = {
           del(key) { if (key.startsWith("queue:index:")) nextIndex = 0; else nextQueue = []; return chain; },
           rpush(_key, ...ids) { nextQueue.push(...ids.map(String)); return chain; },
+          expire() { return chain; },
           set(_key, value) { nextIndex = Number(value); return chain; },
           async exec() { queue = nextQueue; currentIndex = nextIndex; return []; },
         };
@@ -379,6 +383,53 @@ describe("queue next/prev trigger tracking", () => {
     expect(resPrev.statusCode).toBe(200);
     expect(resPrev.json()).toMatchObject({ mediaId: 20, trigger: "system" });
     expect(storedTrigger).toBe("system");
+
+    await app.close();
+  });
+});
+
+describe("queue TTL enforcement", () => {
+  it("enforces 7-day TTL on queue, index, and revision keys", async () => {
+    const expires = [];
+    const sets = [];
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("WITH ORDINALITY")) return { rows: [] };
+        return { rows: [{ id: 1 }, { id: 2 }] };
+      },
+    });
+    app.decorate("redis", {
+      multi() {
+        const chain = {
+          del: () => chain,
+          rpush: () => chain,
+          expire: (key, ttl) => { expires.push({ key, ttl }); return chain; },
+          set: (key, val, ...args) => { sets.push({ key, val, args }); return chain; },
+          exec: async () => [],
+        };
+        return chain;
+      },
+      async incr() { return 1; },
+      async expire(key, ttl) { expires.push({ key, ttl }); return 1; },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.50";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const res = await app.inject({ method: "POST", url: "/api/queue/auto/7?start=1" });
+    expect(res.statusCode).toBe(200);
+
+    const sevenDays = 7 * 24 * 60 * 60;
+    expect(expires).toContainEqual({ key: "queue:192.168.1.50", ttl: sevenDays });
+    expect(expires).toContainEqual({ key: "queue:revision:192.168.1.50", ttl: sevenDays });
+    expect(sets).toContainEqual({
+      key: "queue:index:192.168.1.50",
+      val: 0,
+      args: ["EX", sevenDays],
+    });
 
     await app.close();
   });

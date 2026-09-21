@@ -2,6 +2,7 @@ export const UPLOAD_COMPLETION_STREAM = "media:upload-completion";
 export const UPLOAD_COMPLETION_GROUP = "media-upload-completers";
 export const UPLOAD_COMPLETION_STATUS_TTL_SECONDS = 24 * 60 * 60;
 export const UPLOAD_COMPLETION_STATUS_PREFIX = "media:upload-completion:";
+export const UPLOAD_COMPLETION_ACTIVE_IDS_KEY = "media:upload-completion:active_ids";
 
 export function uploadCompletionStatusKey(uploadId) {
   return `${UPLOAD_COMPLETION_STATUS_PREFIX}${uploadId}`;
@@ -32,6 +33,16 @@ export async function writeUploadCompletionStatus(redis, uploadId, value) {
     "EX",
     UPLOAD_COMPLETION_STATUS_TTL_SECONDS
   );
+  if (value.status === "queued" || value.status === "processing") {
+    if (typeof redis.sadd === "function") {
+      await redis.sadd(UPLOAD_COMPLETION_ACTIVE_IDS_KEY, uploadId).catch(() => {});
+    }
+  }
+  if (value.status === "completed" || value.status === "failed") {
+    if (typeof redis.srem === "function") {
+      await redis.srem(UPLOAD_COMPLETION_ACTIVE_IDS_KEY, uploadId).catch(() => {});
+    }
+  }
   return next;
 }
 

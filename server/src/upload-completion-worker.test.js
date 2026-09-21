@@ -55,4 +55,20 @@ describe("upload completion worker", () => {
       error: "missing chunk",
     }));
   });
+  it("tracks and removes active upload IDs in Redis set", async () => {
+    const media = { id: 42, title: "Film" };
+    processChunkedMediaUpload.mockResolvedValue(media);
+    const redis = fakeRedis();
+    const activeSet = new Set();
+    redis.sadd = vi.fn(async (_key, id) => { activeSet.add(id); return 1; });
+    redis.srem = vi.fn(async (_key, id) => { activeSet.delete(id); return 1; });
+
+    await processUploadCompletionJob({
+      fastify: {}, log: {}, redis, uploadId: "upload-123",
+    });
+
+    expect(redis.sadd).toHaveBeenCalledWith("media:upload-completion:active_ids", "upload-123");
+    expect(redis.srem).toHaveBeenCalledWith("media:upload-completion:active_ids", "upload-123");
+    expect(activeSet.has("upload-123")).toBe(false);
+  });
 });

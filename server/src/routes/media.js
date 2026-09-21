@@ -13,7 +13,7 @@ import { withActiveUpload } from "../upload-cleanup.js";
 import { cleanupOrphanMediaFiles } from "../media-cleanup.js";
 import {
   enqueueUploadCompletion,
-  UPLOAD_COMPLETION_STATUS_PREFIX,
+  UPLOAD_COMPLETION_ACTIVE_IDS_KEY,
   uploadCompletionStatusKey,
 } from "../upload-completion-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
@@ -957,19 +957,24 @@ export default async function (fastify, options = {}) {
     }
 
     reply.header("Cache-Control", "no-store");
-    let cursor = "0";
-    const keys = [];
-    do {
-      const result = await fastify.redis.scan(
-        cursor,
-        "MATCH",
-        `${UPLOAD_COMPLETION_STATUS_PREFIX}*`,
-        "COUNT",
-        100
-      );
-      cursor = String(result?.[0] || "0");
-      keys.push(...(result?.[1] || []));
-    } while (cursor !== "0");
+    let keys = [];
+    if (typeof fastify.redis.smembers === "function") {
+      const activeIds = await fastify.redis.smembers(UPLOAD_COMPLETION_ACTIVE_IDS_KEY);
+      keys = (activeIds || []).map((id) => uploadCompletionStatusKey(id));
+    }
+
+    if (keys.length === 0) {
+      return {
+        jobs: [],
+        items: [],
+        summary: {
+          queued: 0,
+          processing: 0,
+          completed: 0,
+          failed: 0,
+        },
+      };
+    }
 
     const rawStatuses = [];
     for (let index = 0; index < keys.length; index += 200) {
@@ -1007,6 +1012,7 @@ export default async function (fastify, options = {}) {
 
     return {
       jobs: visibleJobs,
+      items: visibleJobs,
       summary: {
         queued: jobs.filter((job) => job.status === "queued").length,
         processing: jobs.filter((job) => job.status === "processing").length,

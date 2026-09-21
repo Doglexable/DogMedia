@@ -240,14 +240,34 @@ describe("chunked upload completion", () => {
     await writeFile(join(uploadDir, "manifest.json"), JSON.stringify({ file: { name: "film.mkv", totalChunks: 1 } }));
 
     const values = new Map();
+    const sets = new Map();
+    let scanCalled = false;
     const app = Fastify();
     app.decorate("pg", { query: async () => ({ rows: [] }) });
     app.decorate("redis", {
       async get(key) { return values.get(key) || null; },
       async set(key, value) { values.set(key, value); return "OK"; },
       async xadd() { return "1-0"; },
-      async del(key) { values.delete(key); return 1; },
-      async scan() { return ["0", [...values.keys()]]; },
+      async del(key) { values.delete(key); sets.delete(key); return 1; },
+      async sadd(key, ...members) {
+        if (!sets.has(key)) sets.set(key, new Set());
+        for (const m of members) sets.get(key).add(m);
+        return members.length;
+      },
+      async srem(key, ...members) {
+        const set = sets.get(key);
+        if (!set) return 0;
+        let count = 0;
+        for (const m of members) {
+          if (set.delete(m)) count++;
+        }
+        return count;
+      },
+      async smembers(key) {
+        const set = sets.get(key);
+        return set ? [...set] : [];
+      },
+      async scan() { scanCalled = true; return ["0", [...values.keys()]]; },
       async mget(...keys) { return keys.map((key) => values.get(key) || null); },
     });
     app.addHook("onRequest", async (request) => {
@@ -278,6 +298,7 @@ describe("chunked upload completion", () => {
 
       const queue = await app.inject({ method: "GET", url: "/api/media/uploads/queue" });
       expect(queue.statusCode).toBe(200);
+      expect(scanCalled).toBe(false);
       expect(queue.json()).toEqual(expect.objectContaining({
         summary: expect.objectContaining({ queued: 1, processing: 0 }),
         jobs: [expect.objectContaining({ uploadId, status: "queued", queuePosition: 1 })],

@@ -28,6 +28,8 @@ const ACCESSIBLE_CATEGORY_TREE_SQL = `
   )
 `;
 
+const QUEUE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
 function queueKeys(request) {
   const ip = request.clientIp || request.ip;
   return {
@@ -100,7 +102,11 @@ async function queueRevision(redis, revisionKey) {
 
 async function bumpQueueRevision(redis, revisionKey) {
   if (typeof redis.incr !== "function") return 0;
-  return Number(await redis.incr(revisionKey));
+  const revision = Number(await redis.incr(revisionKey));
+  if (typeof redis.expire === "function") {
+    await redis.expire(revisionKey, QUEUE_TTL_SECONDS).catch(() => {});
+  }
+  return revision;
 }
 
 async function queueResult(fastify, request, queue, currentIndex, activeRemoved = false) {
@@ -130,7 +136,8 @@ async function replaceQueue(redis, key, idxKey, ids, startId) {
 
   if (ids.length > 0) {
     multi.rpush(key, ...ids);
-    multi.set(idxKey, startIndex);
+    multi.expire(key, QUEUE_TTL_SECONDS);
+    multi.set(idxKey, startIndex, "EX", QUEUE_TTL_SECONDS);
   }
 
   await multi.exec();
