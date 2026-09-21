@@ -123,9 +123,47 @@ describe("offline routes", () => {
       },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ acceptedEventIds: [clientEventId], acceptedResumeIds: [1] });
+    expect(response.json()).toEqual({
+      acceptedEventIds: [clientEventId],
+      rejectedEventIds: [],
+      acceptedResumeIds: [1],
+      rejectedResumeIds: [],
+    });
     expect(queries.filter(({ sql }) => sql.includes("INSERT INTO playback_events"))).toHaveLength(1);
     expect(redisCommands.map(([command]) => command)).toEqual(["zadd", "set"]);
+    await app.close();
+  });
+
+  it("reports rejected events and resumes when media is deleted or inaccessible", async () => {
+    const { app, queries } = await buildApp(await fixture());
+    const validEventId = "123e4567-e89b-42d3-a456-426614174000";
+    const rejectedEventId = "223e4567-e89b-42d3-a456-426614174001";
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/offline/sync",
+      payload: {
+        events: [
+          { clientEventId: validEventId, mediaId: 1, action: "play", position: 3, duration: 30, title: "Track", occurredAt: "2026-01-02T03:04:05.000Z" },
+          { clientEventId: rejectedEventId, mediaId: 999, action: "play", position: 5, duration: 20, title: "Deleted", occurredAt: "2026-01-02T03:04:06.000Z" },
+        ],
+        resumes: [
+          { mediaId: 1, position: 9, duration: 30, updatedAt: "2026-01-02T03:05:05.000Z" },
+          { mediaId: 999, position: 5, duration: 20, updatedAt: "2026-01-02T03:05:06.000Z" },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      acceptedEventIds: [validEventId],
+      rejectedEventIds: [rejectedEventId],
+      acceptedResumeIds: [1],
+      rejectedResumeIds: [999],
+    });
+    const insertQueries = queries.filter(({ sql }) => sql.includes("INSERT INTO playback_events"));
+    expect(insertQueries).toHaveLength(1);
+    const insertedPayload = JSON.parse(insertQueries[0].params[0]);
+    expect(insertedPayload).toHaveLength(1);
+    expect(insertedPayload[0].client_event_id).toBe(validEventId);
     await app.close();
   });
 });
