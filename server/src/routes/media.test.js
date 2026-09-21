@@ -92,6 +92,10 @@ describe("media browsing and ranges", () => {
     expect(captured.sql).toContain("lm.media_id IS NOT NULL");
     expect(captured.sql).toContain("m.category_id = $3");
     expect(captured.sql).toContain("ESCAPE");
+    expect(captured.sql).toContain(
+      "lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' ' || coalesce(m.description, '')) LIKE lower($4) ESCAPE '\\'"
+    );
+    expect(captured.sql).toContain("lower(ac.name) LIKE lower($4) ESCAPE '\\'");
     expect(captured.params).toEqual([3, "192.168.1.5", 7, "%rock\\%\\_%", 11]);
     await app.close();
   });
