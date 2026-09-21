@@ -7,7 +7,7 @@ import { ENCODING_GROUP, ENCODING_STREAM } from "./encoding-queue.js";
 import { ENCODED_QUALITIES, ENCODING_PRESETS, mediaKind, shouldCreateVariant } from "./media-quality.js";
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_IDLE_MS = 60_000;
+export const DEFAULT_IDLE_MS = Number.parseInt(process.env.ENCODING_WORKER_CLAIM_IDLE_MS || "3600000", 10);
 
 export function parseStreamFields(values = []) {
   const result = {};
