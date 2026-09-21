@@ -57,6 +57,7 @@ export function PlayerProvider({ children }) {
   const lastResumeSaveRef = useRef(0);
   const lastActiveUpdateRef = useRef(0);
   const resumeLoadSequenceRef = useRef(0);
+  const audioLoadSequenceRef = useRef(0);
   const activeRestoreStartedRef = useRef(false);
   const handleEndedRef = useRef(() => {});
   const reportPlayingRef = useRef(() => {});
@@ -235,6 +236,7 @@ export function PlayerProvider({ children }) {
   }, [offline]);
 
   const unloadSound = useCallback(async () => {
+    audioLoadSequenceRef.current += 1;
     const sound = soundRef.current;
     soundRef.current = null;
     soundSubscriptionRef.current?.remove?.();
@@ -245,7 +247,11 @@ export function PlayerProvider({ children }) {
     } catch {
       // The player can already be detached while its native resource is removed.
     }
-    sound.remove();
+    try {
+      sound.remove?.();
+    } catch {
+      // The player can already be detached while its native resource is removed.
+    }
   }, []);
 
   const reportProgress = useCallback((nextPosition, nextDuration = durationRef.current) => {
@@ -298,7 +304,8 @@ export function PlayerProvider({ children }) {
   }, [saveResumePositionFor, sendActiveSession, sendPlaybackEvent]);
   reportPlayingRef.current = reportPlaying;
 
-  const loadAudio = useCallback(async (media, autoplay, startPosition, requestedQuality = quality) => {
+  const loadAudio = useCallback(async (media, autoplay = true, startPosition = 0, requestedQuality = quality) => {
+    const loadSequence = ++audioLoadSequenceRef.current;
     const localUri = offline.resolveMediaUri(media.id);
     if (!localUri && !offline.isConnected) throw new Error("This track is not available offline");
     const protectedQuality = requestedQuality === "ori"
@@ -310,21 +317,45 @@ export function PlayerProvider({ children }) {
       setQuality(protectedQuality);
       await storeMediaQuality(protectedQuality);
     }
+    if (loadSequence !== audioLoadSequenceRef.current) return;
     let source;
     try {
       source = localUri
         ? { uri: localUri }
         : await createPlaybackSessionSource(media.id, protectedQuality);
     } catch (error) {
+      if (loadSequence !== audioLoadSequenceRef.current) return;
       setPlaybackAccessError(error.message || "Playback is active on another device");
       throw error;
+    }
+    if (loadSequence !== audioLoadSequenceRef.current) {
+      releasePlaybackLease(source);
+      return;
     }
     playbackSourceRef.current = localUri ? null : source;
     setPlaybackSource(localUri ? null : source);
     setPlaybackAccessError("");
+
+    if (loadSequence !== audioLoadSequenceRef.current) {
+      releasePlaybackLease(source);
+      return;
+    }
+
     const sound = createAudioPlayer({ uri: source.uri, headers: source.headers }, { updateInterval: 500 });
     sound.volume = mutedRef.current ? 0 : volumeRef.current;
     sound.loop = false;
+    if (soundRef.current && soundRef.current !== sound) {
+      try {
+        soundSubscriptionRef.current?.remove?.();
+      } catch {}
+      soundSubscriptionRef.current = null;
+      try {
+        soundRef.current.pause?.();
+      } catch {}
+      try {
+        soundRef.current.remove?.();
+      } catch {}
+    }
     soundRef.current = sound;
     soundSubscriptionRef.current = sound.addListener("playbackStatusUpdate", (status) => {
       if (!status.isLoaded || Number(currentMediaRef.current?.id) !== Number(media.id)) return;
@@ -337,7 +368,40 @@ export function PlayerProvider({ children }) {
     });
 
     if (startPosition > 0) await sound.seekTo(startPosition);
+    if (loadSequence !== audioLoadSequenceRef.current) {
+      if (soundRef.current === sound) {
+        try {
+          soundSubscriptionRef.current?.remove?.();
+        } catch {}
+        soundSubscriptionRef.current = null;
+        soundRef.current = null;
+      }
+      try {
+        sound.pause?.();
+      } catch {}
+      try {
+        sound.remove?.();
+      } catch {}
+      return;
+    }
+
     if (autoplay) sound.play();
+    if (loadSequence !== audioLoadSequenceRef.current) {
+      if (soundRef.current === sound) {
+        try {
+          soundSubscriptionRef.current?.remove?.();
+        } catch {}
+        soundSubscriptionRef.current = null;
+        soundRef.current = null;
+      }
+      try {
+        sound.pause?.();
+      } catch {}
+      try {
+        sound.remove?.();
+      } catch {}
+      return;
+    }
   }, [offline, quality]);
 
   useEffect(() => {
@@ -431,6 +495,7 @@ export function PlayerProvider({ children }) {
   }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
 
   const stopPlayback = useCallback(async () => {
+    audioLoadSequenceRef.current += 1;
     const activePlaybackSource = playbackSourceRef.current;
     playbackSourceRef.current = null;
     setPlaybackSource(null);
