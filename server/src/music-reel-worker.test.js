@@ -4,6 +4,7 @@ import {
   formatText,
   getDefaultFontPath,
   getUnicodeFallbackFontPath,
+  IDLE_MS,
   reelSegmentArgs,
 } from "./music-reel-worker.js";
 
@@ -117,6 +118,10 @@ describe("music reel renderer", () => {
     expect(cmd).toContain("DRIVING MY LOVE");
     expect(cmd).toContain("杏里");
     expect(cmd).toMatch(/NotoSansCJK|Noto Sans CJK/);
+  });
+
+  it("configures stream claim idle timeout to 30 minutes by default", () => {
+    expect(IDLE_MS).toBe(1_800_000);
   });
 
   it("applies full-player matching typography with Inter 900 title and Inter 700 artist", () => {
