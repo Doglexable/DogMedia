@@ -8,6 +8,32 @@ import { ENCODED_QUALITIES, ENCODING_PRESETS, mediaKind, shouldCreateVariant } f
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_IDLE_MS = Number.parseInt(process.env.ENCODING_WORKER_CLAIM_IDLE_MS || "3600000", 10);
+export const MAX_ENCODING_ATTEMPTS = 3;
+
+export async function getMessageDeliveryAttempts({
+  fields,
+  group = ENCODING_GROUP,
+  messageId,
+  redis,
+  stream = ENCODING_STREAM,
+}) {
+  const directAttempts = Number(fields?.attempts);
+  if (Number.isFinite(directAttempts) && directAttempts > 0) {
+    return directAttempts;
+  }
+  if (typeof redis?.xpending === "function") {
+    try {
+      const pending = await redis.xpending(stream, group, messageId, messageId, 1);
+      const deliveryCount = Number(pending?.[0]?.[3]);
+      if (Number.isFinite(deliveryCount) && deliveryCount > 0) {
+        return deliveryCount;
+      }
+    } catch {
+      // Ignored: fallback to 1
+    }
+  }
+  return 1;
+}
 
 export function parseStreamFields(values = []) {
   const result = {};
@@ -150,7 +176,7 @@ async function updateVariantProgress(pg, { mediaId, progressPercent, quality, so
   );
 }
 
-export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVersion }) {
+export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVersion, probeSourceImpl = probeSource, runFfmpegImpl = runFfmpegWithProgress }) {
   const { rows } = await pg.query(
     "SELECT id, category_id, file_path, mime_type, source_version FROM media_assets WHERE id = $1",
     [mediaId]
@@ -166,7 +192,7 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
   }
 
   const inputPath = join(dataDir, media.file_path);
-  const source = await probeSource(inputPath);
+  const source = await probeSourceImpl(inputPath);
   const { rows: variantRows } = await pg.query(
     "SELECT quality, status FROM media_encoding_variants WHERE media_id = $1 AND source_version = $2",
     [mediaId, sourceVersion]
@@ -205,24 +231,28 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
           : preset;
       let lastReportedProgress = -1;
       let progressUpdates = Promise.resolve();
-      await runFfmpegWithProgress({
+      await runFfmpegImpl({
         args: ffmpegArgs({ inputPath, kind, outputPath: temporaryPath, preset: boundedPreset }),
         durationSeconds: source.duration,
         onProgress(progressPercent) {
           if (progressPercent < 100 && progressPercent < lastReportedProgress + 2) return;
           lastReportedProgress = progressPercent;
-          progressUpdates = progressUpdates.then(() => updateVariantProgress(pg, {
-            mediaId, progressPercent, quality, sourceVersion,
-          }));
+          progressUpdates = progressUpdates
+            .then(() => updateVariantProgress(pg, {
+              mediaId, progressPercent, quality, sourceVersion,
+            }))
+            .catch((err) => {
+              log?.warn?.({ err, mediaId, quality }, "failed to update encoding variant progress");
+            });
         },
       });
-      await progressUpdates;
+      await progressUpdates.catch(() => {});
       const current = await pg.query("SELECT source_version FROM media_assets WHERE id = $1", [mediaId]);
       if (Number(current.rows[0]?.source_version) !== Number(sourceVersion)) {
         await rm(temporaryPath, { force: true });
         return { stale: true, created, skipped };
       }
-      const encoded = await probeSource(temporaryPath);
+      const encoded = await probeSourceImpl(temporaryPath);
       validateEncodedStreams(kind, source, encoded);
       await rename(temporaryPath, outputPath);
       const outputStats = await stat(outputPath);
@@ -282,7 +312,19 @@ function waitForEncodingWindow(delayMs, signal) {
   });
 }
 
-export async function runEncodingWorker({ dataDir, log, pg, redis, consumer, signal, scheduleEndHour = 5, scheduleHour = null }) {
+export async function runEncodingWorker({
+  consumer,
+  dataDir,
+  log,
+  maxAttempts = MAX_ENCODING_ATTEMPTS,
+  pg,
+  processJob = processEncodingJob,
+  redis,
+  retryDelayFn = null,
+  scheduleEndHour = 5,
+  scheduleHour = null,
+  signal,
+}) {
   await ensureGroup(redis);
   while (!signal?.aborted) {
     if (scheduleHour !== null && !isEncodingWindowOpen(new Date(), scheduleHour, scheduleEndHour)) {
@@ -303,33 +345,69 @@ export async function runEncodingWorker({ dataDir, log, pg, redis, consumer, sig
         const fields = parseStreamFields(rawFields);
         const mediaId = Number(fields.mediaId);
         const sourceVersion = Number(fields.sourceVersion);
+        const attempts = await getMessageDeliveryAttempts({
+          fields,
+          group: ENCODING_GROUP,
+          messageId,
+          redis,
+          stream: ENCODING_STREAM,
+        });
         try {
-          await processEncodingJob({ dataDir, log, mediaId, pg, sourceVersion });
+          await processJob({ dataDir, log, mediaId, pg, sourceVersion });
           await redis.xack(ENCODING_STREAM, ENCODING_GROUP, messageId);
         } catch (error) {
-          const { rows } = await pg.query(
-            `SELECT COALESCE(MAX(attempts), 0)::int AS attempts
-             FROM media_encoding_variants WHERE media_id = $1 AND source_version = $2`,
-            [mediaId, sourceVersion]
-          );
-          const attempts = Number(rows[0]?.attempts || 0);
-          if (attempts >= 3) {
+          log?.error?.({ attempts, err: error, mediaId, sourceVersion }, "encoding job failed");
+
+          if (attempts >= maxAttempts) {
+            log?.error?.(
+              { attempts, mediaId, sourceVersion },
+              "encoding permanently failed after reaching max attempts"
+            );
+            await pg.query(
+              `UPDATE media_encoding_variants SET status = 'failed', last_error = $1, updated_at = NOW()
+               WHERE media_id = $2 AND source_version = $3 AND status != 'ready'`,
+              [error.message || "Encoding failed permanently", mediaId, sourceVersion]
+            );
             await redis.xack(ENCODING_STREAM, ENCODING_GROUP, messageId);
           } else {
-            await new Promise((resolve) => setTimeout(resolve, Math.min(2 ** attempts * 1000, 30_000)));
+            const delay = retryDelayFn ? retryDelayFn(attempts) : Math.min(2 ** attempts * 1000, 30_000);
+            if (delay > 0) {
+              await new Promise((resolve) => {
+                const timer = setTimeout(resolve, delay);
+                signal?.addEventListener?.("abort", () => {
+                  clearTimeout(timer);
+                  resolve();
+                }, { once: true });
+              });
+            }
+            if (signal?.aborted) return;
             await pg.query(
               `UPDATE media_encoding_variants SET status = 'queued', progress_percent = 0, updated_at = NOW()
                WHERE media_id = $1 AND source_version = $2 AND status = 'failed'`,
               [mediaId, sourceVersion]
             );
-            await redis.xadd(ENCODING_STREAM, "*", "mediaId", String(mediaId), "sourceVersion", String(sourceVersion));
+            await redis.xadd(
+              ENCODING_STREAM,
+              "*",
+              "mediaId", String(mediaId),
+              "sourceVersion", String(sourceVersion),
+              "attempts", String(attempts + 1)
+            );
             await redis.xack(ENCODING_STREAM, ENCODING_GROUP, messageId);
           }
         }
       }
     } catch (error) {
       log?.error?.({ err: error }, "encoding worker loop failed");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!signal?.aborted) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 1000);
+          signal?.addEventListener?.("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          }, { once: true });
+        });
+      }
     }
   }
 }
