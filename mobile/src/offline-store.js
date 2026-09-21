@@ -19,6 +19,10 @@ export function createClientEventId() {
   });
 }
 
+export function _resetOfflineDatabaseForTesting(override = null) {
+  databasePromise = override;
+}
+
 export async function getOfflineDatabase() {
   if (!databasePromise) {
     databasePromise = SQLite.openDatabaseAsync("dogmedia-offline.db").then(async (database) => {
