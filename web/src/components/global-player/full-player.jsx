@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
@@ -48,11 +48,22 @@ export function FullPlayer({
   onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
 }) {
+  const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.classList.add("player-expanded");
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.classList.remove("player-expanded");
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   if (isAudio) {
     const album = getMediaFolderName(currentMedia) || "Library";
     const artist = resolveMediaArtist(currentMedia, album);
-    const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
-    const [shareOpen, setShareOpen] = useState(false);
     const max = Math.max(duration || currentMedia.duration || 0, position, 1);
     const remaining = Math.max((duration || currentMedia.duration || 0) - position, 0);
     const hasArtwork = Boolean(thumbSrc) && !thumbFailed;

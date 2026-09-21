@@ -4,6 +4,7 @@ import {
   getAutoQueueEndpoint,
   getCompletionAction,
   getMediaMeta,
+  getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
   isEditableTarget,
   isPauseTimeoutExpired,
@@ -69,6 +70,22 @@ describe("getCompletionAction", () => {
   it("stops when loopMode is none at the end of playlist", () => {
     expect(getCompletionAction({ loopMode: "none", hasLinearNext: false, queueLength: 5 })).toBe("stop");
     expect(getCompletionAction({ loopMode: "none", hasLinearNext: false, queueLength: 0 })).toBe("stop");
+  });
+});
+
+describe("getPlaylistSuggestionRoute", () => {
+  const suggestion = { media: { id: 22 }, category: { id: 7 } };
+
+  it("moves an open full player to the suggested media and category", () => {
+    expect(getPlaylistSuggestionRoute(suggestion, true)).toBe("/media/22?category=7");
+  });
+
+  it("leaves mini-player playback on the current page", () => {
+    expect(getPlaylistSuggestionRoute(suggestion, false)).toBeNull();
+  });
+
+  it("rejects incomplete suggestions", () => {
+    expect(getPlaylistSuggestionRoute({ media: { id: 22 } }, true)).toBeNull();
   });
 });
 
@@ -353,5 +370,4 @@ describe("shouldHandleSpaceKey", () => {
     expect(shouldHandleSpaceKey({ key: " ", target: closeBtn })).toBe(false);
   });
 });
-
 

@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { FullPlayer } from "./full-player";
 
@@ -76,5 +77,12 @@ describe("FullPlayer", () => {
     expect(markup).toContain('aria-keyshortcuts="Space"');
     expect(markup).toContain('title="Pause (Space)"');
     expect(markup).toContain('aria-label="Share music clip"');
+  });
+
+  it("uses a focused viewport layer that hides the library sidebar", () => {
+    const css = readFileSync(new URL("../../theme.css", import.meta.url), "utf8");
+
+    expect(css).toContain("body.player-expanded .global-sidebar");
+    expect(css).toMatch(/\.fullscreen-player\s*\{[^}]*z-index:\s*500/s);
   });
 });

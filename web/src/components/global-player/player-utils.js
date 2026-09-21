@@ -35,6 +35,14 @@ export function getCategoryQuery(categoryId) {
   return categoryId ? `?category=${categoryId}` : "";
 }
 
+export function getPlaylistSuggestionRoute(suggestion, isFullPlayer) {
+  if (!isFullPlayer) return null;
+  const mediaId = Number(suggestion?.media?.id);
+  const categoryId = Number(suggestion?.category?.id);
+  if (!Number.isFinite(mediaId) || !Number.isFinite(categoryId)) return null;
+  return `/media/${mediaId}${getCategoryQuery(categoryId)}`;
+}
+
 export function getAutoQueueEndpoint(mediaId, categoryId = null, context = null) {
   if (context === "liked" || categoryId === "liked") {
     return `/api/queue/auto/likes?start=${mediaId}&compact=1`;
@@ -249,4 +257,3 @@ export function shouldHandleSpaceKey(event) {
 
   return true;
 }
-

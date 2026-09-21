@@ -17,6 +17,7 @@ import {
   getCompletionAction,
   getMediaMeta as mediaMeta,
   getNextLoopMode as nextLoopMode,
+  getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
   isPauseTimeoutExpired,
   shouldHandleSpaceKey,
@@ -127,13 +128,15 @@ export function GlobalPlayerProvider({ children }) {
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
   const [playlistSuggestion, setPlaylistSuggestion] = useState(null);
+  const [playerExpanded, setPlayerExpanded] = useState(false);
   const [quality, setQuality] = useState(readMediaQuality);
   const [streamSrc, setStreamSrc] = useState("");
   const [playbackAccessError, setPlaybackAccessError] = useState("");
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
-  const isFullPlayer = Number.isFinite(fullMediaId);
+  const isRouteFullPlayer = Number.isFinite(fullMediaId);
+  const isFullPlayer = isRouteFullPlayer || playerExpanded;
   const currentMime = typeof currentMedia?.mime_type === "string" ? currentMedia.mime_type : "";
   const isAudio = currentMime.startsWith("audio/");
   const isVideo = currentMime.startsWith("video/");
@@ -555,10 +558,11 @@ export function GlobalPlayerProvider({ children }) {
     setHasPrev(false);
     setResumePos(null);
     setQueueOpen(false);
+    setPlayerExpanded(false);
     setStreamSrc("");
     setPlaybackAccessError("");
-    if (isFullPlayer) navigate("/");
-  }, [isFullPlayer, navigate]);
+    if (isRouteFullPlayer) navigate("/");
+  }, [isRouteFullPlayer, navigate]);
 
   useEffect(() => {
     if (!paused || !currentMedia) {
@@ -904,13 +908,13 @@ export function GlobalPlayerProvider({ children }) {
   }, [applyResumePosition]);
 
   useEffect(() => {
-    if (!isFullPlayer || !activeSessionChecked) return;
+    if (!isRouteFullPlayer || !activeSessionChecked) return;
     if (currentMedia?.id === fullMediaId) return;
     const params = new URLSearchParams(location.search);
     const nextCategoryId = params.get("category");
     const nextView = params.get("view");
     playMediaById(fullMediaId, nextCategoryId, nextView === "liked" ? { context: "liked" } : {});
-  }, [activeSessionChecked, currentMedia?.id, fullMediaId, isFullPlayer, location.search, playMediaById]);
+  }, [activeSessionChecked, currentMedia?.id, fullMediaId, isRouteFullPlayer, location.search, playMediaById]);
 
   useEffect(() => {
     return () => {
@@ -921,8 +925,8 @@ export function GlobalPlayerProvider({ children }) {
 
   const openFullPlayer = useCallback(() => {
     if (!currentMedia) return;
-    navigate(`/media/${currentMedia.id}${categoryQuery(categoryId)}`);
-  }, [categoryId, currentMedia, navigate]);
+    setPlayerExpanded(true);
+  }, [currentMedia]);
 
   const closeFullPlayer = useCallback(() => {
     if (!isAudio) {
@@ -931,8 +935,9 @@ export function GlobalPlayerProvider({ children }) {
       }
       setPaused(true);
     }
-    navigate("/");
-  }, [isAudio, navigate]);
+    setPlayerExpanded(false);
+    if (isRouteFullPlayer) navigate("/");
+  }, [isAudio, isRouteFullPlayer, navigate]);
 
   const togglePlayback = useCallback(() => {
     if (isImage) {
@@ -977,12 +982,12 @@ export function GlobalPlayerProvider({ children }) {
         if (queueOpen) refreshQueue().catch(() => {});
         if (closeQueue) setQueueOpen(false);
         const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
-        if (isFullPlayer || !isAudioMedia) {
+        if (isRouteFullPlayer || !isAudioMedia) {
           navigate(`/media/${mediaItem.id}${categoryQuery(categoryId)}`);
         }
       })
       .catch(() => {});
-  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, isFullPlayer, loadResumePosition, navigate, position, queueOpen, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
+  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, isRouteFullPlayer, loadResumePosition, navigate, position, queueOpen, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
 
   const playQueueId = useCallback((mediaId, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
@@ -1070,7 +1075,7 @@ export function GlobalPlayerProvider({ children }) {
             loadResumePosition(nextMedia.id);
             sendNowPlaying(nextMedia, "play", 0, nextMedia.duration || 0, { trigger });
             const isAudioMedia = nextMedia?.mime_type?.startsWith("audio/");
-            if (isFullPlayer || !isAudioMedia) {
+            if (isRouteFullPlayer || !isAudioMedia) {
               navigate(`/media/${nextMedia.id}${categoryQuery(categoryId)}`);
             }
             if (queueOpen) return refreshQueue().catch(() => {});
@@ -1078,7 +1083,7 @@ export function GlobalPlayerProvider({ children }) {
           });
       })
       .catch(() => {});
-  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isFullPlayer, loadResumePosition, loopMode, navigate, playQueueBoundary, position, queueOpen, queueTotal, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
+  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isRouteFullPlayer, loadResumePosition, loopMode, navigate, playQueueBoundary, position, queueOpen, queueTotal, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
 
   const seek = useCallback((eventOrValue) => {
     const nextPosition = Number(eventOrValue?.target ? eventOrValue.target.value : eventOrValue);
@@ -1216,8 +1221,10 @@ export function GlobalPlayerProvider({ children }) {
     const suggestion = playlistSuggestion;
     if (!suggestion?.media?.id || !suggestion?.category?.id) return;
     setPlaylistSuggestion(null);
+    const suggestionRoute = getPlaylistSuggestionRoute(suggestion, isRouteFullPlayer);
+    if (suggestionRoute) navigate(suggestionRoute);
     playMediaById(suggestion.media.id, suggestion.category.id, { autoplay: true });
-  }, [playMediaById, playlistSuggestion]);
+  }, [isRouteFullPlayer, navigate, playMediaById, playlistSuggestion]);
 
   const handleEnded = useCallback(() => {
     const currentPosition = mediaRef.current?.currentTime || duration || currentMedia?.duration || 0;

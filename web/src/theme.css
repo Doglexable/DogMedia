@@ -84,6 +84,15 @@
   background: var(--card-bg);
   color: var(--text);
 }
+body.player-expanded .global-sidebar,
+body.player-expanded .global-sidebar-toggle,
+body.player-expanded .global-sidebar-backdrop {
+  visibility: hidden;
+  pointer-events: none;
+}
+body.player-expanded .global-app-content {
+  margin-left: 0;
+}
 .global-sidebar-brand {
   display: flex;
   min-height: var(--app-header-height);
@@ -3594,7 +3603,7 @@ body {
 .fullscreen-player {
   position: fixed;
   inset: 0;
-  z-index: 260;
+  z-index: 500;
   min-height: 100dvh;
   overflow: hidden;
   background: radial-gradient(
