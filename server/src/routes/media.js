@@ -652,8 +652,11 @@ export default async function (fastify, options = {}) {
     if (search) {
       const escapedSearch = search.replace(/[\\%_]/g, "\\$&");
       params.push(`%${escapedSearch}%`);
-      clauses.push(`lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' '
-        || coalesce(m.description, '') || ' ' || ac.name) LIKE lower($${params.length}) ESCAPE '\\'`);
+      const searchParamIndex = params.length;
+      clauses.push(`(
+        lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' ' || coalesce(m.description, '')) LIKE lower($${searchParamIndex}) ESCAPE '\\'
+        OR lower(ac.name) LIKE lower($${searchParamIndex}) ESCAPE '\\'
+      )`);
     }
     if (cursor) {
       const cursorStart = params.length + 1;
