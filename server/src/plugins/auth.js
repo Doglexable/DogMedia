@@ -33,14 +33,16 @@ function isLoopbackIp(value) {
   return ip === "::1" || ip.startsWith("127.");
 }
 
-function getFirstValidHeaderIp(value) {
+function getLastValidHeaderIp(value) {
   const headers = Array.isArray(value) ? value : [value];
 
-  for (const header of headers) {
+  for (let i = headers.length - 1; i >= 0; i--) {
+    const header = headers[i];
     if (typeof header !== "string") continue;
 
-    for (const rawIp of header.split(",")) {
-      const ip = normalizeIp(rawIp);
+    const parts = header.split(",");
+    for (let j = parts.length - 1; j >= 0; j--) {
+      const ip = normalizeIp(parts[j]);
       if (isIP(ip)) return ip;
     }
   }
@@ -52,14 +54,15 @@ export function getClientIp(request) {
   const proxyPeerIp = request.raw?.socket?.remoteAddress || request.socket?.remoteAddress;
 
   if (isLoopbackIp(proxyPeerIp || request.ip)) {
-    return (
-      getFirstValidHeaderIp(request.headers["x-forwarded-for"]) ||
-      getFirstValidHeaderIp(request.headers["x-real-ip"]) ||
-      request.ip
-    );
+    const forwardedIp =
+      getLastValidHeaderIp(request.headers?.["x-forwarded-for"]) ||
+      getLastValidHeaderIp(request.headers?.["x-real-ip"]);
+    if (forwardedIp) {
+      return forwardedIp;
+    }
   }
 
-  return request.ip;
+  return normalizeIp(request.ip || proxyPeerIp || "");
 }
 
 export default async function (fastify) {
