@@ -18,7 +18,9 @@ private-file-stream/
 │   ├── index.html       # Vite entry point
 │   ├── nginx.conf       # Nginx config with /api/ proxy to server
 │   └── Containerfile    # 3-stage: deps → builder → nginx:alpine
-├── compose.yml          # Podman Compose: db, server, web
+├── mobile/              # React Native / Expo client (entry: mobile/index.js)
+├── compose.yml          # Podman Compose: db, redis, server, worker, web
+├── compose.dev.yml      # Local dev compose overrides
 ├── server/Containerfile # Server multi-stage build (node:22-alpine)
 ├── .gitignore
 ├── .dockerignore
@@ -37,6 +39,10 @@ npm run dev:server   # fastify with node --watch or nodemon
 # web only
 npm run dev:web      # vite dev
 
+# mobile
+npm run dev:mobile   # expo start
+npm run test:mobile  # mobile tests only
+
 # build
 npm run build        # vite build (web)
 
@@ -47,13 +53,14 @@ npm run lint         # eslint
 npm run test         # vitest (all)
 npm run test:server  # server tests only
 npm run test:web     # web tests only
+npm run test:mobile  # mobile tests only
 ```
 
 ## Conventions
 
 - **File naming**: `kebab-case` for files, `camelCase` for variables/functions, `PascalCase` for React components.
 - **API routes**: `server/src/routes/` — one file per resource, Fastify plugin pattern.
-- **DB migrations**: `server/src/migrations/` — timestamp-prefixed, run via `npm run migrate` (use `node-pg-migrate` or `postgrator`).
+- **DB migrations**: `server/src/migrations/` — numbered plain SQL files run sequentially via custom runner `node server/src/migrate.js`.
 - **Media storage**: Local files under `data/` (gitignored). In production, mount a Podman volume.
 - **Streaming endpoints**: Return `fastify.reply.type()` + `pipe()` for media; use `Range` header support for video seeking.
 - **Auth**: IP-based access control via PostgreSQL `ip_whitelist` table and CIDR matching (`server/src/plugins/auth.js`). Access tiers: 0 (guest), 100 (whitelisted media/admin access), 999 (localhost administrator). No user accounts or passwords.
@@ -75,9 +82,10 @@ podman exec -it pfs-server npm run migrate
 podman exec -it pfs-server sh
 ```
 
-- `compose.yml` defines `db` (postgres:17-alpine), `redis` (redis:7-alpine), `server`, and `web` services.
-- Environment: `PFS_DB_PASSWORD` (default `pfs_secret`), `REDIS_URL` (default `redis://redis:6379` in compose), `DATABASE_URL` (default `postgres://pfs:pfs_secret@localhost:5432/pfs` or via compose).
-- Server depends on both `db` and `redis` health checks.
+- `compose.yml` defines 5 services: `db` (postgres:17-alpine), `redis` (redis:7-alpine), `server`, `worker`, and `web`.
+- Services run with `network_mode: host` in production/compose, with PostgreSQL on `127.0.0.1:5440` and Redis on `127.0.0.1:16379`.
+- Environment: `PFS_DB_PASSWORD` (default `pfs_secret`), `REDIS_URL` (default `redis://127.0.0.1:16379` in compose), `DATABASE_URL` (default `postgres://pfs:pfs_secret@127.0.0.1:5440/pfs` in compose, or `postgres://pfs:pfs_secret@localhost:5432/pfs` for local standalone db).
+- Server and worker depend on both `db` and `redis` health checks.
 - Server `server/Containerfile`: 2-stage build — `npm ci --workspaces` in deps stage, then runner copies only `node_modules` + `server/`.
 - Web `Containerfile`: 3-stage build — `npm ci` in deps, `vite build` in builder, final nginx:stable-alpine with dist + `nginx.conf`.
 - `web/nginx.conf` proxies `/api/` requests to the `server` container.
