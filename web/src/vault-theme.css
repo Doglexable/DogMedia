@@ -1258,22 +1258,24 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: none;
+  border: 1px solid var(--card-border);
   border-radius: 9999px;
-  padding: 7px 16px;
+  padding: 6px 16px;
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(255, 255, 255, 0.09);
-  color: #ffffff;
+  background: var(--card-bg);
+  color: var(--muted);
   user-select: none;
 }
 
 .media-type-pill:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--text) 8%, var(--card-bg));
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
   transform: translateY(-1px);
 }
 
@@ -1282,14 +1284,16 @@ textarea {
 }
 
 .media-type-pill--active {
-  background: #ffffff !important;
-  color: #000000 !important;
+  background: var(--text) !important;
+  color: var(--bg) !important;
+  border-color: var(--text) !important;
   font-weight: 700;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 25%, transparent);
 }
 
 .media-type-pill--active:hover {
-  background: #ffffff !important;
-  color: #000000 !important;
+  background: var(--text) !important;
+  color: var(--bg) !important;
+  border-color: var(--text) !important;
   transform: translateY(-1px);
 }
