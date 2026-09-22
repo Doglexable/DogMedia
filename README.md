@@ -128,6 +128,50 @@ npm run dev
 npm run worker
 ```
 
+## Compressing thumbnails
+
+Use the bundled maintenance script to reduce the size of existing thumbnails.
+It scans `data/media/` recursively for `front.webp`, `cover.webp`, and files
+ending in `_thumb.jpg`, `_thumb.jpeg`, `_thumb.png`, or `_thumb.webp`.
+
+When Node.js and FFmpeg are installed on the host, run:
+
+```bash
+npm run compress:thumbnails
+```
+
+The command prompts for a quality from 1 to 100 and defaults to `90`. In a
+non-interactive shell it uses the default automatically. To process a media
+directory outside the repository, set `DATA_DIR`:
+
+```bash
+DATA_DIR=/path/to/media npm run compress:thumbnails
+```
+
+For a Podman deployment, use the server image (which already contains FFmpeg)
+and mount the repository's maintenance scripts into the temporary container:
+
+```bash
+podman compose run --rm \
+  -v ./scripts:/app/scripts:ro,Z \
+  server npm run compress:thumbnails
+```
+
+Before changing anything, the script copies every matching thumbnail to
+`data/media/.thumbnail-backups/<timestamp>/`. Category artwork is limited to
+518 px on its longest side and media `cover.webp` artwork to 900 px, without
+upscaling smaller images. A compressed file replaces its original only when it
+is smaller; unsupported WebP files and non-smaller results are skipped. The
+summary prints the number of compressed, skipped, and failed files along with
+the space saved and the exact backup directory.
+
+To restore a run, replace `<timestamp>` with the directory printed by the
+compression command:
+
+```bash
+cp -a data/media/.thumbnail-backups/<timestamp>/. data/media/
+```
+
 ## Architecture
 
 ```text
