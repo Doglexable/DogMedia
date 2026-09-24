@@ -6,7 +6,8 @@ import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
 import { faSignal } from "@fortawesome/free-solid-svg-icons/faSignal";
 import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
-import { EQ_BANDS, EQ_PRESETS, GAIN_MIN, GAIN_MAX } from "./use-equalizer";
+import { EQ_BANDS, GAIN_MIN, GAIN_MAX } from "./use-equalizer";
+import { SpotifyEqualizer } from "./spotify-equalizer";
 import { getQualityBitrateLabel } from "./player-controls";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -212,78 +213,18 @@ export function SettingsControl({
 
             {/* ── EQ ── */}
             {activeTab === "eq" && (
-              <div className="settings-section">
-                <div className="settings-section-header">
-                  <FontAwesomeIcon icon={faSliders} />
-                  <span>Equalizer</span>
-                  <label className="eq-toggle" title={eqEnabled ? "Disable EQ" : "Enable EQ"}>
-                    <input
-                      type="checkbox"
-                      className="eq-toggle-input"
-                      checked={eqEnabled}
-                      onChange={(e) => onSetEqEnabled(e.target.checked)}
-                      aria-label="Enable equalizer"
-                    />
-                    <span className="eq-toggle-track" aria-hidden="true">
-                      <span className="eq-toggle-thumb" />
-                    </span>
-                  </label>
-                </div>
-
-                {/* Presets */}
-                <div className="eq-presets">
-                  {Object.entries(EQ_PRESETS).map(([key, { label }]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`eq-preset-btn ${eqPreset === key ? "eq-preset-btn--active" : ""}`}
-                      onClick={() => { onSetEqPreset(key); if (!eqEnabled) onSetEqEnabled(true); }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                  {eqPreset === "custom" && (
-                    <button type="button" className="eq-preset-btn eq-preset-btn--custom eq-preset-btn--active" disabled>
-                      Custom
-                    </button>
-                  )}
-                </div>
-
-                {/* Sliders */}
-                <div className={`eq-bands ${!eqEnabled ? "eq-bands--disabled" : ""}`}>
-                  {EQ_BANDS.map((band, i) => (
-                    <div key={band.id} className="eq-band">
-                      <span className="eq-band-gain">
-                        {gains[i] >= 0 ? `+${gains[i].toFixed(1)}` : gains[i].toFixed(1)}
-                      </span>
-                      <input
-                        type="range"
-                        className="eq-slider"
-                        orient="vertical"
-                        min={GAIN_MIN}
-                        max={GAIN_MAX}
-                        step={0.5}
-                        value={gains[i]}
-                        disabled={!eqEnabled}
-                        aria-label={`${band.label} gain`}
-                        onChange={(e) => { onSetGain(i, Number(e.target.value)); if (!eqEnabled) onSetEqEnabled(true); }}
-                      />
-                      <span className="eq-band-label">{band.label}</span>
-                      <span className="eq-band-freq">
-                        {band.frequency >= 1000 ? `${band.frequency / 1000}k` : `${band.frequency}`}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Reset */}
-                <button
-                  type="button"
-                  className="eq-reset-btn"
-                  onClick={() => { onSetEqPreset("flat"); if (!eqEnabled) onSetEqEnabled(true); }}
-                >
-                  Reset
-                </button>
+              <div className="settings-section settings-section--eq">
+                <SpotifyEqualizer
+                  gains={gains}
+                  eqBands={EQ_BANDS}
+                  preset={eqPreset}
+                  eqEnabled={eqEnabled}
+                  gainMin={GAIN_MIN}
+                  gainMax={GAIN_MAX}
+                  onSetGain={onSetGain}
+                  onSetPreset={onSetEqPreset}
+                  onSetEnabled={onSetEqEnabled}
+                />
               </div>
             )}
 

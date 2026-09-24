@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
-import { EQ_PRESETS } from "./use-equalizer";
+import { GAIN_MIN, GAIN_MAX } from "./use-equalizer";
+import { SpotifyEqualizer } from "./spotify-equalizer";
 
 /**
- * EqControl — button + popover panel for the 5-band equalizer.
+ * EqControl — button + popover panel for the 10-band Spotify-style equalizer.
  *
  * Props:
  *   gains        number[]      — current per-band gain values
@@ -23,8 +24,8 @@ export function EqControl({
   eqBands,
   preset,
   eqEnabled,
-  gainMin = -12,
-  gainMax = 12,
+  gainMin = GAIN_MIN,
+  gainMax = GAIN_MAX,
   onSetGain,
   onSetPreset,
   onSetEnabled,
@@ -85,93 +86,17 @@ export function EqControl({
 
       {open && (
         <div className={`eq-panel ${variant === "video-ctrl" ? "eq-panel--video-ctrl" : ""} ${variant === "fullscreen" ? "eq-panel--fullscreen" : ""}`} role="dialog" aria-label="Equalizer">
-          {/* Header row */}
-          <div className="eq-panel-header">
-            <span className="eq-panel-title">Equalizer</span>
-            <label className="eq-toggle" title={eqEnabled ? "Disable EQ" : "Enable EQ"}>
-              <input
-                type="checkbox"
-                className="eq-toggle-input"
-                checked={eqEnabled}
-                onChange={(e) => onSetEnabled(e.target.checked)}
-                aria-label="Enable equalizer"
-              />
-              <span className="eq-toggle-track" aria-hidden="true">
-                <span className="eq-toggle-thumb" />
-              </span>
-            </label>
-          </div>
-
-          {/* Preset strip */}
-          <div className="eq-presets" role="group" aria-label="Presets">
-            {Object.entries(EQ_PRESETS).map(([key, { label }]) => (
-              <button
-                key={key}
-                type="button"
-                className={`eq-preset-btn ${preset === key ? "eq-preset-btn--active" : ""}`}
-                onClick={() => {
-                  onSetPreset(key);
-                  if (!eqEnabled) onSetEnabled(true);
-                }}
-                title={label}
-              >
-                {label}
-              </button>
-            ))}
-            {preset === "custom" && (
-              <button
-                type="button"
-                className="eq-preset-btn eq-preset-btn--custom eq-preset-btn--active"
-                disabled
-              >
-                Custom
-              </button>
-            )}
-          </div>
-
-          {/* Band sliders */}
-          <div className={`eq-bands ${!eqEnabled ? "eq-bands--disabled" : ""}`} aria-label="EQ bands">
-            {eqBands.map((band, i) => (
-              <div key={band.id} className="eq-band">
-                <span className="eq-band-gain" aria-hidden="true">
-                  {gains[i] >= 0 ? `+${gains[i].toFixed(1)}` : gains[i].toFixed(1)}
-                </span>
-                <input
-                  type="range"
-                  className="eq-slider"
-                  orient="vertical"
-                  min={gainMin}
-                  max={gainMax}
-                  step={0.5}
-                  value={gains[i]}
-                  disabled={!eqEnabled}
-                  aria-label={`${band.label} gain`}
-                  aria-valuetext={`${gains[i] >= 0 ? "+" : ""}${gains[i].toFixed(1)} dB`}
-                  onChange={(e) => {
-                    onSetGain(i, Number(e.target.value));
-                    if (!eqEnabled) onSetEnabled(true);
-                  }}
-                />
-                <span className="eq-band-label">{band.label}</span>
-                <span className="eq-band-freq" aria-hidden="true">
-                  {band.frequency >= 1000 ? `${band.frequency / 1000}k` : `${band.frequency}`}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Reset button */}
-          <button
-            type="button"
-            className="eq-reset-btn"
-            onClick={() => {
-              onSetPreset("flat");
-              if (!eqEnabled) onSetEnabled(true);
-            }}
-            title="Reset to flat"
-          >
-            Reset
-          </button>
+          <SpotifyEqualizer
+            gains={gains}
+            eqBands={eqBands}
+            preset={preset}
+            eqEnabled={eqEnabled}
+            gainMin={gainMin}
+            gainMax={gainMax}
+            onSetGain={onSetGain}
+            onSetPreset={onSetPreset}
+            onSetEnabled={onSetEnabled}
+          />
         </div>
       )}
     </div>

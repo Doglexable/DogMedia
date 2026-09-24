@@ -1,29 +1,85 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * 5-band EQ definition.
- * Frequencies chosen for a classic graphic-EQ feel.
+ * 10-band EQ definition per ISO octave standard.
+ * Range: 31Hz to 16kHz.
  */
 export const EQ_BANDS = [
-  { id: "sub",      label: "Sub",      frequency: 60,    type: "lowshelf" },
-  { id: "bass",     label: "Bass",     frequency: 250,   type: "peaking"  },
-  { id: "mid",      label: "Mid",      frequency: 1000,  type: "peaking"  },
-  { id: "presence", label: "Presence", frequency: 4000,  type: "peaking"  },
-  { id: "treble",   label: "Treble",   frequency: 12000, type: "highshelf" },
+  { id: "31hz",  label: "31Hz",  frequency: 31,    type: "lowshelf" },
+  { id: "62hz",  label: "62Hz",  frequency: 62,    type: "peaking"  },
+  { id: "125hz", label: "125Hz", frequency: 125,   type: "peaking"  },
+  { id: "250hz", label: "250Hz", frequency: 250,   type: "peaking"  },
+  { id: "500hz", label: "500Hz", frequency: 500,   type: "peaking"  },
+  { id: "1khz",  label: "1kHz",  frequency: 1000,  type: "peaking"  },
+  { id: "2khz",  label: "2kHz",  frequency: 2000,  type: "peaking"  },
+  { id: "4khz",  label: "4kHz",  frequency: 4000,  type: "peaking"  },
+  { id: "8khz",  label: "8kHz",  frequency: 8000,  type: "peaking"  },
+  { id: "16khz", label: "16kHz", frequency: 16000, type: "highshelf" },
 ];
 
 export const EQ_PRESETS = {
-  flat:      { label: "Flat",        gains: [ 0,  0,  0,  0,  0] },
-  bass:      { label: "Bass Boost",  gains: [ 6,  4,  0, -1, -2] },
-  treble:    { label: "Treble",      gains: [-2, -1,  0,  3,  6] },
-  vocal:     { label: "Vocal",       gains: [-2,  0,  4,  3,  1] },
-  classical: { label: "Classical",   gains: [ 0,  0, -2,  0,  3] },
+  flat: {
+    label: "Flat",
+    genres: "Neutral / Default",
+    gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  rock: {
+    label: "Rock",
+    genres: "Alternative Rock, Grunge, Hard Rock, Post-Grunge, Post-Hardcore, Punk Rock, Rock 'n' Roll, Skate Punk",
+    gains: [3, 5, 3, 0, 3, 5, 5, 3, 2, 0],
+  },
+  pop: {
+    label: "Pop",
+    genres: "Alternative Pop, Baroque Pop, Country, Folk / Indie Folk, Pop",
+    gains: [2, 3, 2, 0, 2, 3, 5, 5, 3, 2],
+  },
+  electronic: {
+    label: "Electronic",
+    genres: "Electronic, Electronic Rock, New Wave, Synth-Pop",
+    gains: [8, 6, 3, -2, -2, 0, 3, 5, 6, 6],
+  },
+  metal: {
+    label: "Metal",
+    genres: "Alternative Metal, Djent, Heavy Metal, Metalcore, Nu Metal, Progressive Metal, Rap Metal, Thrash Metal",
+    gains: [6, 8, 5, -2, -5, -3, 2, 5, 8, 6],
+  },
+  popRock: {
+    label: "Pop Rock",
+    genres: "Emo, Emo Pop, Pop-Punk, Pop Rock, Power Pop, Rap Rock",
+    gains: [5, 6, 3, 0, -2, 2, 3, 6, 5, 3],
+  },
+  funk: {
+    label: "Funk / Disco",
+    genres: "City Pop, Disco, Funk, J-Pop",
+    gains: [5, 8, 6, 2, 0, 2, 3, 5, 6, 5],
+  },
+  dreamPop: {
+    label: "Dream Pop",
+    genres: "Art Rock, Britpop, Celtic Rock, Christian Rock, Dream Pop, Experimental Rock, Jangle Pop, Post-Britpop, Progressive Rock, Space Rock",
+    gains: [3, 3, 2, 0, 0, 2, 3, 5, 6, 6],
+  },
+};
+
+const PRESET_ALIASES = {
+  vShape: "metal",
+  midBite: "rock",
+  punchyCrisp: "popRock",
+  grooveSlap: "funk",
+  brightClean: "pop",
+  spatialShimmer: "dreamPop",
+  electronicSynth: "electronic",
 };
 
 const GAINS_KEY   = "pfs:eq-gains";
 const ENABLED_KEY = "pfs:eq-enabled";
-export const GAIN_MIN = -12;
-export const GAIN_MAX = 12;
+export const GAIN_MIN = -10;
+export const GAIN_MAX = 10;
+
+export function formatGain(val) {
+  const num = Number(val) || 0;
+  const str = Number.isInteger(num) ? String(num) : num.toFixed(1);
+  return num > 0 ? `+${str}` : str;
+}
 
 export function getOrCreateMediaElementSource(context, element, sourceCache) {
   const cachedSource = sourceCache.get(element);
@@ -53,8 +109,9 @@ function readStoredEnabled() {
 }
 
 function detectPreset(gains) {
+  if (!Array.isArray(gains)) return "custom";
   for (const [key, preset] of Object.entries(EQ_PRESETS)) {
-    if (preset.gains.every((g, i) => Math.abs(g - gains[i]) < 0.01)) return key;
+    if (preset.gains.every((g, i) => Math.abs(g - (gains[i] ?? 0)) < 0.01)) return key;
   }
   return "custom";
 }
@@ -96,8 +153,8 @@ export function useEqualizer(mediaRef) {
       const filter = ctx.createBiquadFilter();
       filter.type            = band.type;
       filter.frequency.value = band.frequency;
-      filter.Q.value         = band.type === "peaking" ? 1.0 : 0.7;
-      filter.gain.value      = gainsRef.current[i];
+      filter.Q.value         = band.type === "peaking" ? 1.4 : 0.7;
+      filter.gain.value      = gainsRef.current[i] ?? 0;
       return filter;
     });
     return filtersRef.current;
@@ -220,7 +277,8 @@ export function useEqualizer(mediaRef) {
   }, [applyGains]);
 
   const setPreset = useCallback((presetKey) => {
-    const preset = EQ_PRESETS[presetKey];
+    const resolvedKey = PRESET_ALIASES[presetKey] ?? presetKey;
+    const preset = EQ_PRESETS[resolvedKey];
     if (!preset) return;
     const next = preset.gains.slice();
     setGainsState(next);

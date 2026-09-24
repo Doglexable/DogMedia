@@ -13,11 +13,14 @@ import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
 import { MediaTypePills } from "../components/dashboard/media-type-pills";
 import { VirtualMediaGrid } from "../components/dashboard/virtual-media-grid";
-import { NowPlayingCard } from "../components/dashboard/now-playing-card";
+import {
+  NowPlayingFloatingPill,
+  NowPlayingPanel,
+} from "../components/dashboard/now-playing-panel";
 import { formatDuration } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
-import MagicBento from "../components/MagicBento";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
+import { shouldShowBrowse } from "./dashboard-utils";
 
 const NOW_PLAYING_POLL_MS = 10000;
 
@@ -84,7 +87,6 @@ function DashboardHomeSkeleton() {
           ))}
         </div>
       </section>
-      <MediaGridSkeleton />
     </div>
   );
 }
@@ -343,14 +345,6 @@ const styles = {
     maxWidth: 560,
     minWidth: 0,
   },
-  headerActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    fontSize: "var(--fs-sm)",
-  },
   navLink: {
     color: "var(--primary)",
     textDecoration: "none",
@@ -374,15 +368,6 @@ const styles = {
     cursor: "pointer",
     fontWeight: 700,
   },
-  tierbadge: {
-    fontSize: "var(--fs-xs)",
-    color: "var(--text)",
-    padding: "4px 8px",
-    borderRadius: 999,
-    border: "1px solid var(--card-border)",
-    background: "var(--bg)",
-    fontWeight: 700,
-  },
   main: {
     maxWidth: 1180,
     margin: "0 auto",
@@ -392,234 +377,6 @@ const styles = {
   },
   mainWithPlayer: {
     paddingBottom: "calc(var(--player-height) + 38px)",
-  },
-  sectionTitle: {
-    fontSize: "var(--fs-sm)",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "var(--muted)",
-    marginBottom: 12,
-    marginTop: 0,
-  },
-  tableCard: {
-    border: "1px solid var(--card-border)",
-    borderRadius: 16,
-    background: "var(--card-bg)",
-    overflow: "hidden",
-  },
-  tableHeader: {
-    padding: "18px 20px 14px",
-    borderBottom: "1px solid var(--card-border)",
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: "var(--fs-md)",
-    fontWeight: 800,
-    color: "var(--text)",
-  },
-  cardSubtitle: {
-    marginTop: 4,
-    marginBottom: 0,
-    fontSize: "var(--fs-xs)",
-    color: "var(--muted)",
-  },
-  cardBodyPanel: {
-    padding: 20,
-  },
-  pagination: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    marginTop: 20,
-    flexWrap: "wrap",
-  },
-  toolbar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-    padding: "18px 20px",
-    border: "1px solid var(--card-border)",
-    borderRadius: 16,
-    background: "linear-gradient(180deg, var(--card-bg), var(--bg))",
-    boxShadow: "0 10px 30px rgba(0, 0, 0, 0.04)",
-    flexWrap: "wrap",
-  },
-  toolbarLabel: {
-    fontSize: 11,
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-    color: "var(--muted)",
-    marginBottom: 4,
-    fontWeight: 700,
-  },
-  toolbarValue: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "var(--text)",
-    lineHeight: 1.3,
-    wordBreak: "break-word",
-  },
-  toolbarMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    color: "var(--muted)",
-  },
-  tableWrap: {
-    overflowX: "auto",
-  },
-  categoryBar: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-    marginBottom: 4,
-  },
-  cardTitle: {
-    fontWeight: 600,
-    fontSize: "var(--fs-sm)",
-    marginBottom: 4,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "var(--fs-sm)",
-  },
-  th: {
-    textAlign: "left",
-    padding: "12px 16px",
-    borderBottom: "1px solid var(--table-border)",
-    fontWeight: 700,
-    fontSize: "var(--fs-xs)",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    color: "var(--muted)",
-  },
-  td: {
-    padding: "12px 16px",
-    borderBottom: "1px solid var(--table-border-light)",
-    verticalAlign: "middle",
-  },
-  ipBadge: {
-    fontFamily: "monospace",
-    fontSize: "var(--fs-xs)",
-    background: "var(--code-bg)",
-    border: "1px solid var(--code-border)",
-    padding: "2px 6px",
-    borderRadius: 4,
-  },
-  statusDot: (action) => ({
-    display: "inline-block",
-    width: 7,
-    height: 7,
-    borderRadius: "50%",
-    background: action === "play" ? "#27ae60" : "#888",
-    marginRight: 6,
-    verticalAlign: "middle",
-  }),
-  stateBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "1px 6px",
-    borderRadius: 999,
-    border: "1px solid var(--card-border)",
-    color: "var(--muted)",
-    fontSize: "var(--fs-xs)",
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-  },
-  nowPlayingSection: {
-    display: "grid",
-    gap: 12,
-  },
-  nowPlayingHeader: {
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-  },
-  nowPlayingGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-    gap: 12,
-  },
-  nowPlayingCard: {
-    display: "grid",
-    gap: 12,
-    minWidth: 0,
-    padding: 14,
-    border: "1px solid var(--card-border)",
-    borderRadius: 8,
-    background: "var(--card-bg)",
-    boxShadow: "0 10px 28px rgba(0, 0, 0, 0.06)",
-  },
-  nowPlayingCardHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    minWidth: 0,
-  },
-  nowPlayingTitle: {
-    margin: 0,
-    overflow: "hidden",
-    color: "var(--text)",
-    fontSize: "var(--fs-md)",
-    fontWeight: 800,
-    lineHeight: 1.25,
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  nowPlayingStatus: (action) => ({
-    display: "inline-flex",
-    flex: "0 0 auto",
-    alignItems: "center",
-    gap: 6,
-    padding: "4px 8px",
-    borderRadius: 999,
-    background: action === "play" ? "rgba(39, 174, 96, 0.14)" : "var(--bg)",
-    color: action === "play" ? "#16834a" : "var(--muted)",
-    fontSize: "var(--fs-xs)",
-    fontWeight: 800,
-    textTransform: "capitalize",
-  }),
-  nowPlayingMeta: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    minWidth: 0,
-    color: "var(--muted)",
-    fontSize: "var(--fs-xs)",
-  },
-  nowPlayingProgress: {
-    display: "grid",
-    gap: 6,
-  },
-  nowPlayingProgressTrack: {
-    height: 7,
-    overflow: "hidden",
-    borderRadius: 999,
-    background: "var(--bg)",
-    border: "1px solid var(--card-border)",
-  },
-  nowPlayingProgressFill: (percent) => ({
-    width: `${percent}%`,
-    height: "100%",
-    borderRadius: 999,
-    background: "var(--primary)",
-    transition: "width 900ms linear",
-  }),
-  nowPlayingBadges: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    flexWrap: "wrap",
   },
   warningBanner: {
     background: "var(--warning-bg)",
@@ -634,92 +391,6 @@ const styles = {
     textAlign: "center",
     padding: "60px 24px",
     color: "var(--muted)",
-  },
-  miniPlayer: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 180,
-    minHeight: 82,
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1.15fr) auto minmax(110px, 0.85fr)",
-    alignItems: "center",
-    gap: 10,
-    padding: "10px 84px 10px 12px",
-    background: "var(--card-bg)",
-    borderTop: "1px solid var(--card-border)",
-    boxShadow: "0 -10px 30px rgba(0,0,0,0.16)",
-  },
-  miniTrack: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    minWidth: 0,
-    border: "none",
-    background: "transparent",
-    color: "var(--text)",
-    padding: 0,
-    textAlign: "left",
-    cursor: "pointer",
-  },
-  miniThumb: {
-    width: 56,
-    height: 56,
-    flex: "0 0 auto",
-    borderRadius: 8,
-    overflow: "hidden",
-    background: "var(--bg)",
-    border: "1px solid var(--card-border)",
-  },
-  miniTitle: {
-    fontSize: 14,
-    fontWeight: 700,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  miniMeta: {
-    marginTop: 3,
-    fontSize: 12,
-    color: "var(--muted)",
-  },
-  playerControls: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  iconButton: (emphasis = false) => ({
-    width: emphasis ? 42 : 34,
-    height: emphasis ? 42 : 34,
-    borderRadius: "50%",
-    border: "1px solid var(--card-border)",
-    background: emphasis ? "var(--primary)" : "var(--bg)",
-    color: emphasis ? "#fff" : "var(--text)",
-    cursor: "pointer",
-    fontSize: emphasis ? 18 : 15,
-    fontWeight: 700,
-    lineHeight: 1,
-  }),
-  playerProgress: {
-    display: "grid",
-    gridTemplateColumns: "42px minmax(90px, 1fr) 42px",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 11,
-    color: "var(--muted)",
-  },
-  range: {
-    width: "100%",
-    accentColor: "var(--primary)",
-  },
-  hiddenMedia: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    opacity: 0,
-    pointerEvents: "none",
   },
 };
 
@@ -736,6 +407,7 @@ export default function Dashboard() {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [showEmptyGuide, setShowEmptyGuide] = useState(true);
   const [nowPlaying, setNowPlaying] = useState([]);
+  const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [musicReelOpen, setMusicReelOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [mediaSearch, setMediaSearch] = useState("");
@@ -924,6 +596,10 @@ export default function Dashboard() {
     ),
     [dashboardSummary?.quickAccessIds, orderMediaByIds, recentlyPlayedIds, visibleMedia]
   );
+  const showBrowse = shouldShowBrowse({
+    hasSearch: Boolean(normalizedSearch),
+    mediaCount: visibleMedia.length,
+  });
 
   const playMedia = useCallback((item) => {
     playMediaAction?.(
@@ -1029,7 +705,7 @@ export default function Dashboard() {
         {musicReelOpen && <MusicReelDialog favorites={visibleMedia} onClose={() => setMusicReelOpen(false)} />}
 
         {mediaLoading ? (
-          !normalizedSearch && libraryView !== "liked" ? (
+          !normalizedSearch ? (
             <DashboardHomeSkeleton />
           ) : (
             <MediaGridSkeleton />
@@ -1076,19 +752,21 @@ export default function Dashboard() {
               </section>
             )}
 
-            <VirtualMediaGrid
-              activeId={currentMediaId}
-              hasMore={Boolean(nextCursor)}
-              isLiked={player?.isLiked}
-              items={visibleMedia}
-              loadingMore={loadingMore}
-              onAddQueue={player?.addToQueue}
-              onLoadMore={loadMoreMedia}
-              onNotice={setNotice}
-              onPlay={playMedia}
-              onPlayNext={player?.playNext}
-              onToggleLike={player?.toggleLike}
-            />
+            {showBrowse && (
+              <VirtualMediaGrid
+                activeId={currentMediaId}
+                hasMore={Boolean(nextCursor)}
+                isLiked={player?.isLiked}
+                items={visibleMedia}
+                loadingMore={loadingMore}
+                onAddQueue={player?.addToQueue}
+                onLoadMore={loadMoreMedia}
+                onNotice={setNotice}
+                onPlay={playMedia}
+                onPlayNext={player?.playNext}
+                onToggleLike={player?.toggleLike}
+              />
+            )}
           </div>
         ) : media.length > 0 && normalizedSearch ? (
           <div style={styles.emptyState} role="status">
@@ -1107,33 +785,24 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Now Playing (Admin) */}
-        {tier >= 100 && nowPlaying.length > 0 && (
-          <section style={styles.nowPlayingSection}>
-            <div style={styles.nowPlayingHeader}>
-              <div>
-                <h2 style={{ ...styles.sectionTitle, marginBottom: 4 }}>Now Playing</h2>
-                <p style={styles.cardSubtitle}>Active playback sessions on this server.</p>
-              </div>
-              <span style={styles.tierbadge}>
-                {nowPlaying.length} active
-              </span>
-            </div>
-            <MagicBento
-              items={nowPlaying}
-              bentoLayout={nowPlaying.length >= 4}
-              enableStars={true}
-              enableSpotlight={true}
-              enableBorderGlow={true}
-              enableTilt={false}
-              enableMagnetism={false}
-              renderCard={(s, i) => (
-                <NowPlayingCard session={s} index={i} key={`${s.ip}-${s.mediaId}-${i}`} />
-              )}
-            />
-          </section>
-        )}
       </main>
+
+      {/* Now Playing Floating Quick Pill (FAB) */}
+      {tier >= 100 && nowPlaying.length > 0 && !nowPlayingOpen && (
+        <NowPlayingFloatingPill
+          count={nowPlaying.length}
+          firstSession={nowPlaying[0]}
+          onClick={() => setNowPlayingOpen(true)}
+        />
+      )}
+
+      {/* Now Playing Floating Panel / Drawer */}
+      {tier >= 100 && nowPlayingOpen && (
+        <NowPlayingPanel
+          sessions={nowPlaying}
+          onClose={() => setNowPlayingOpen(false)}
+        />
+      )}
 
     </div>
   );
