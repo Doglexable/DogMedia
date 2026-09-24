@@ -24,11 +24,39 @@ describe("SleepTimerControl", () => {
     expect(markup).toContain("player-sleep-control");
     expect(markup).not.toContain("player-sleep-control--open");
     expect(markup).not.toContain("player-sleep-badge");
+    expect(markup).toContain("End of this media");
+    expect(markup).not.toContain("End of playlist");
     expect(markup).toContain("5m");
     expect(markup).toContain("15m");
     expect(markup).toContain("30m");
     expect(markup).toContain("45m");
     expect(markup).toContain("60m");
+  });
+
+  it("shows playlist boundary only when a playlist exists", () => {
+    const markup = renderToStaticMarkup(
+      <SleepTimerControl
+        remainingSeconds={0}
+        hasPlaylist
+        onSetSleepTimer={vi.fn()}
+      />
+    );
+
+    expect(markup.indexOf("End of this media")).toBeLessThan(markup.indexOf("End of playlist"));
+  });
+
+  it("renders a boundary timer as active without a countdown", () => {
+    const markup = renderToStaticMarkup(
+      <SleepTimerControl
+        remainingSeconds={0}
+        sleepTimerMode="media"
+        onSetSleepTimer={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("player-sleep-control--active");
+    expect(markup).toContain("Media");
+    expect(markup).toContain("player-sleep-preset--active");
   });
 
   it("renders active badge and active class when timer is set", () => {
@@ -230,4 +258,3 @@ describe("TransportControls", () => {
     expect(markup).toContain('title="Open media"');
   });
 });
-

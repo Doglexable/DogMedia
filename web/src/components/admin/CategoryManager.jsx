@@ -14,7 +14,7 @@ import { CategoryTreeDnd } from "./category-tree-dnd";
 import CategoryEditModal from "./CategoryEditModal";
 import EpisodeOrderModal from "./EpisodeOrderModal";
 import MediaMetadataEditorModal from "./MediaMetadataEditorModal";
-import MediaUploadWorkspace, { uploadCategoryCover, uploadMediaInChunks } from "./MediaUploadWorkspace";
+import MediaUploadWorkspace, { removeCategoryCover, uploadCategoryCover, uploadMediaInChunks } from "./MediaUploadWorkspace";
 import MobileReleaseManager, { uploadAndroidRelease } from "./MobileReleaseManager";
 import UploadQueueViewer, { BrowserTransferProgress } from "./UploadQueueViewer";
 import "../../pages/admin-media-import.css";
@@ -80,14 +80,14 @@ export default function CategoryManager() {
   const [categories, setCategories] = useState(globalCategories), [selectedCategoryId, setSelectedCategoryId] = useState(null), [message, setMessage] = useState(null), [movingCategory, setMovingCategory] = useState(false);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false), [categoryModalTarget, setCategoryModalTarget] = useState(null);
   const [mediaModalCategoryId, setMediaModalCategoryId] = useState(null), [mediaWorkspaceTab, setMediaWorkspaceTab] = useState("collection"), [videoKind, setVideoKind] = useState("episode"), [categoryMedia, setCategoryMedia] = useState([]);
-  const [mediaDescription, setMediaDescription] = useState(""), [videoFiles, setVideoFiles] = useState([]), [videoOverrides, setVideoOverrides] = useState({}), [mediaThumb, setMediaThumb] = useState(null), [categoryCoverFile, setCategoryCoverFile] = useState(null), [updatingCategoryCover, setUpdatingCategoryCover] = useState(false);
+  const [mediaDescription, setMediaDescription] = useState(""), [videoFiles, setVideoFiles] = useState([]), [videoOverrides, setVideoOverrides] = useState({}), [mediaThumb, setMediaThumb] = useState(null), [categoryCoverFile, setCategoryCoverFile] = useState(null), [updatingCategoryCover, setUpdatingCategoryCover] = useState(false), [removingCategoryCover, setRemovingCategoryCover] = useState(false);
   const [batchFiles, setBatchFiles] = useState([]), [batchArtist, setBatchArtist] = useState(""), [batchOverrides, setBatchOverrides] = useState({});
   const [uploadingMedia, setUploadingMedia] = useState(false), [uploadingBatch, setUploadingBatch] = useState(false), [uploadProgress, setUploadProgress] = useState(null), [batchProgress, setBatchProgress] = useState(null), [uploadEtaSeconds, setUploadEtaSeconds] = useState(null), [batchEtaSeconds, setBatchEtaSeconds] = useState(null), [loadingMedia, setLoadingMedia] = useState(false);
   const [editingMedia, setEditingMedia] = useState(null), [episodeModalOpen, setEpisodeModalOpen] = useState(false), [scanningTrackOrders, setScanningTrackOrders] = useState(false);
   const [mobileRelease, setMobileRelease] = useState(null), [releaseVersion, setReleaseVersion] = useState("0.1.0"), [releaseFile, setReleaseFile] = useState(null), [uploadingRelease, setUploadingRelease] = useState(false), [releaseProgress, setReleaseProgress] = useState(null);
   const [uploadQueueOpen, setUploadQueueOpen] = useState(false), [uploadQueueJobs, setUploadQueueJobs] = useState([]), [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 }), [uploadQueueLoading, setUploadQueueLoading] = useState(false), [uploadQueueError, setUploadQueueError] = useState("");
 
-  const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover;
+  const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover || removingCategoryCover;
   const browserTransferActive = mediaUploadActive || uploadingRelease;
 
   const refreshUploadQueue = useCallback(async ({ silent = false } = {}) => {
@@ -163,6 +163,7 @@ export default function CategoryManager() {
   const activeBrowserTransfer = uploadingMedia ? { title: `Uploading ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`, progress: uploadProgress, detail: uploadProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(uploadEtaSeconds) }
     : uploadingBatch ? { title: `Importing ${batchItems.length} music track${batchItems.length === 1 ? "" : "s"}`, progress: batchProgress, detail: batchProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(batchEtaSeconds) }
     : updatingCategoryCover ? { title: "Updating folder artwork", progress: null, detail: "Uploading and optimizing the new cover." }
+    : removingCategoryCover ? { title: "Removing folder artwork", progress: null, detail: "Restoring the folder artwork fallback." }
     : uploadingRelease ? { title: `Uploading Android ${releaseVersion.trim() || "release"}`, progress: releaseProgress, detail: "Sending the APK to the server." } : null;
 
   if (tier < 100) return <Navigate to="/" replace />;
@@ -176,7 +177,7 @@ export default function CategoryManager() {
     setCategoryModalOpen(true);
   };
   const openMediaModal = (catId) => {
-    setMessage(null); setCategoryModalOpen(false); setMediaModalCategoryId(String(catId)); setMediaWorkspaceTab("collection"); setVideoKind("episode"); setCategoryMedia([]); setMediaDescription(""); setVideoFiles([]); setVideoOverrides({}); setMediaThumb(null); setCategoryCoverFile(null); setUpdatingCategoryCover(false); setBatchFiles([]); setBatchArtist(""); setBatchOverrides({}); setEditingMedia(null); setEpisodeModalOpen(false); clearFileInputs(); setSelectedCategoryId(String(catId));
+    setMessage(null); setCategoryModalOpen(false); setMediaModalCategoryId(String(catId)); setMediaWorkspaceTab("collection"); setVideoKind("episode"); setCategoryMedia([]); setMediaDescription(""); setVideoFiles([]); setVideoOverrides({}); setMediaThumb(null); setCategoryCoverFile(null); setUpdatingCategoryCover(false); setRemovingCategoryCover(false); setBatchFiles([]); setBatchArtist(""); setBatchOverrides({}); setEditingMedia(null); setEpisodeModalOpen(false); clearFileInputs(); setSelectedCategoryId(String(catId));
   };
   const closeMediaModal = () => {
     setMediaModalCategoryId(null); setCategoryMedia([]); setLoadingMedia(false);
@@ -238,6 +239,24 @@ export default function CategoryManager() {
     if (!mediaModalCategoryId || !categoryCoverFile) { setMessage({ type: "error", text: "Choose an image for the category cover." }); return; }
     setUpdatingCategoryCover(true); setMessage(null);
     try { await uploadCategoryCover(mediaModalCategoryId, categoryCoverFile); await refreshCategories(); setCategoryCoverFile(null); const input = document.getElementById("admin-category-cover-file"); if (input) input.value = ""; setMessage({ type: "success", text: `Updated the cover for "${activeMediaCategory?.path || activeMediaCategory?.name || "the selected category"}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); } finally { setUpdatingCategoryCover(false); }
+  };
+
+  const handleRemoveCategoryCover = async () => {
+    if (!mediaModalCategoryId || !activeMediaCategory?.cover_path) return;
+    const categoryName = activeMediaCategory.path || activeMediaCategory.name || "the selected folder";
+    if (!window.confirm(`Remove the shared artwork from "${categoryName}"?`)) return;
+    setRemovingCategoryCover(true); setMessage(null);
+    try {
+      await removeCategoryCover(mediaModalCategoryId);
+      setCategoryCoverFile(null);
+      const input = document.getElementById("admin-category-cover-file"); if (input) input.value = "";
+      await refreshCategories();
+      setMessage({ type: "success", text: `Removed the shared artwork from "${categoryName}".` });
+    } catch (err) {
+      setMessage({ type: "error", text: err.message });
+    } finally {
+      setRemovingCategoryCover(false);
+    }
   };
 
   const handleUploadMedia = async (e) => {
@@ -375,7 +394,7 @@ export default function CategoryManager() {
         {mediaModalCategoryId !== null && (
           <Modal title={activeMediaCategory ? (activeMediaCategory.path || activeMediaCategory.name) : "Selected Category"} subtitle="Manage existing media and upload directly into the selected category." width={1120} onClose={closeMediaModal}>
             {message && (<div role={message.type === "error" ? "alert" : "status" } style={{ ...styles.notice(message.type), marginBottom: 16 }}><span>{message.type === "error" ? "⚠️" : "✅"}</span><span>{message.text}</span></div>)}
-            <MediaUploadWorkspace category={activeMediaCategory} file={categoryCoverFile} onFileChange={setCategoryCoverFile} onSubmit={handleUpdateCategoryCover} styles={styles} updating={updatingCategoryCover} />
+            <MediaUploadWorkspace category={activeMediaCategory} file={categoryCoverFile} onFileChange={setCategoryCoverFile} onRemove={handleRemoveCategoryCover} onSubmit={handleUpdateCategoryCover} removing={removingCategoryCover} styles={styles} updating={updatingCategoryCover} />
             <div className="admin-media-tabs" role="tablist" aria-label="Media workspace">
               <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "collection"} className={mediaWorkspaceTab === "collection" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("collection")}><FontAwesomeIcon icon={faFolderOpen} /><span>Collection</span><small>{categoryMedia.length} items</small></button>
               <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "video"} className={mediaWorkspaceTab === "video" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("video")}><FontAwesomeIcon icon={faFilm} /><span>Upload video</span><small>Anime or film</small></button>

@@ -3,6 +3,7 @@ import {
   getArtistLabel,
   getAutoQueueEndpoint,
   getCompletionAction,
+  formatDuration,
   getMediaMeta,
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
@@ -13,8 +14,28 @@ import {
   parseArtistFromCategory,
   parseArtistFromTitle,
   resolveMediaArtist,
+  shouldCompleteSleepTimer,
   shouldHandleSpaceKey,
+  shouldSuggestSiblingMedia,
 } from "./player-utils";
+
+describe("formatDuration", () => {
+  it("uses minutes and seconds for media shorter than one hour", () => {
+    expect(formatDuration(1201)).toBe("20:01");
+    expect(formatDuration(3599)).toBe("59:59");
+  });
+
+  it("uses zero-padded hours, minutes, and seconds from one hour onward", () => {
+    expect(formatDuration(3600)).toBe("01:00:00");
+    expect(formatDuration(65 * 60)).toBe("01:05:00");
+    expect(formatDuration(111 * 60 + 50)).toBe("01:51:50");
+  });
+
+  it("returns zero for missing or invalid durations", () => {
+    expect(formatDuration(null)).toBe("0:00");
+    expect(formatDuration(-1)).toBe("0:00");
+  });
+});
 
 describe("getMediaMeta", () => {
   it("handles null and undefined gracefully without throwing", () => {
@@ -48,6 +69,24 @@ describe("getQueueBoundaryParams", () => {
     expect(getQueueBoundaryParams(false, 0).get("offset")).toBe("0");
     expect(getQueueBoundaryParams(true, 0).get("offset")).toBe("0");
     expect(getQueueBoundaryParams(true, 1).get("offset")).toBe("0");
+  });
+});
+
+describe("sleep timer completion", () => {
+  it("stops at the selected media boundary", () => {
+    expect(shouldCompleteSleepTimer("media", true)).toBe(true);
+  });
+
+  it("stops at the playlist boundary but continues while a next item exists", () => {
+    expect(shouldCompleteSleepTimer("playlist", true)).toBe(false);
+    expect(shouldCompleteSleepTimer("playlist", false)).toBe(true);
+  });
+
+  it("suppresses sibling suggestions for active and completed sleep timers", () => {
+    expect(shouldSuggestSiblingMedia("duration", false)).toBe(false);
+    expect(shouldSuggestSiblingMedia("media", false)).toBe(false);
+    expect(shouldSuggestSiblingMedia(null, true)).toBe(false);
+    expect(shouldSuggestSiblingMedia(null, false)).toBe(true);
   });
 });
 
@@ -370,4 +409,3 @@ describe("shouldHandleSpaceKey", () => {
     expect(shouldHandleSpaceKey({ key: " ", target: closeBtn })).toBe(false);
   });
 });
-

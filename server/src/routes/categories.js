@@ -253,18 +253,13 @@ export default async function (fastify, options = {}) {
   fastify.delete("/:id/thumbnail", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
     const { rows } = await fastify.pg.query(
-      `SELECT c.id, c.parent_id, c.cover_path,
-              EXISTS (SELECT 1 FROM media_assets m WHERE m.category_id = c.id) AS has_media
-       FROM categories c WHERE c.id = $1`,
+      "SELECT id, cover_path FROM categories WHERE id = $1",
       [request.params.id]
     );
     const category = rows[0];
     if (!category) return reply.code(404).send({ error: "Not found" });
-    if (category.parent_id !== null && category.has_media) {
-      return reply.code(409).send({ error: "A non-root category containing media must have a cover" });
-    }
-    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
     await fastify.pg.query("UPDATE categories SET cover_path = NULL WHERE id = $1", [request.params.id]);
+    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
     return reply.code(204).send();
   });
 

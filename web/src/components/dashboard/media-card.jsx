@@ -2,34 +2,43 @@ import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
-import { mediaThumbnailUrl } from "../../api";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons/faEllipsis";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { formatDuration } from "../global-player/player-utils";
 
-function getMimeMeta(mime) {
-  if (typeof mime !== "string") return { icon: "📁", label: "File", color: "rgb(0 0 0 / 38%)" };
-  if (mime.startsWith("video/")) return { icon: "▶️", label: "Video", color: "rgb(0 0 0 / 38%)" };
-  if (mime.startsWith("audio/")) return { icon: "🎵", label: "Audio", color: "rgb(0 0 0 / 38%)" };
-  if (mime.startsWith("image/")) return { icon: "🖼️", label: "Photo", color: "rgb(0 0 0 / 38%)" };
-  return { icon: "📁", label: "File", color: "rgb(0 0 0 / 38%)" };
+function getMediaLabel(mime) {
+  if (typeof mime !== "string") return "File";
+  if (mime.startsWith("video/")) return "Video";
+  if (mime.startsWith("audio/")) return "Audio";
+  if (mime.startsWith("image/")) return "Photo";
+  return "File";
 }
 
-function formatCardDuration(seconds) {
-  if (!seconds) return "—";
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+function formatArtists(item, fallback) {
+  if (Array.isArray(item?.artists)) {
+    const artists = item.artists.map((artist) => String(artist).trim()).filter(Boolean);
+    if (artists.length) return artists.join(", ");
+  }
+  if (typeof item?.artists === "string" && item.artists.trim()) return item.artists.trim();
+  if (typeof item?.artist === "string" && item.artist.trim()) return item.artist.trim();
+  return fallback;
 }
 
-function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPlayNext, onToggleLike }) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
+function formatAddedDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
-  const meta = getMimeMeta(item.mime_type);
   const category = item.category_path || item.category_name || "Uncategorized";
-  const thumbnailSrc = mediaThumbnailUrl(item);
-
-  useEffect(() => {
-    setImgFailed(false);
-    setImgLoaded(false);
-  }, [thumbnailSrc]);
+  const isAudio = item.mime_type?.startsWith("audio/");
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -43,99 +52,102 @@ function MediaCard({ item, isActive, isLiked, onAddQueue, onError, onPlay, onPla
     };
   }, [menu]);
 
-  const addToQueue = () => {
+  const notifyAction = (action, successMessage) => {
     setMenu(null);
-    onAddQueue(item)
-      .then(() => onError(`“${item.title}” is in the queue.`))
-      .catch((error) => onError(error.message));
+    Promise.resolve(action?.(item))
+      .then(() => onError?.(successMessage))
+      .catch((error) => onError?.(error.message));
   };
 
-  const playNext = () => {
-    setMenu(null);
-    onPlayNext(item)
-      .then(() => onError(`“${item.title}” will play next.`))
-      .catch((error) => onError(error.message));
-  };
-
+  const addToQueue = () => notifyAction(onAddQueue, `“${item.title}” is in the queue.`);
+  const playNext = () => notifyAction(onPlayNext, `“${item.title}” will play next.`);
   const toggleFavorite = () => {
     setMenu(null);
-    onToggleLike(item)
-      .then((liked) => onError(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
-      .catch((error) => onError(error.message));
+    Promise.resolve(onToggleLike?.(item))
+      .then((liked) => onError?.(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
+      .catch((error) => onError?.(error.message));
+  };
+
+  const openMenuAt = (x, y) => {
+    setMenu({
+      x: Math.max(8, Math.min(x, window.innerWidth - 188)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 150)),
+    });
   };
 
   return (
     <article
-      className={`media-card${isActive ? " media-card--active" : ""}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      className={`media-track${isActive ? " media-track--active" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
-        setMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 145) });
+        openMenuAt(event.clientX, event.clientY);
       }}
     >
-      {isHovered && !imgFailed && imgLoaded && (
-        <img
-          src={thumbnailSrc}
-          alt=""
-          aria-hidden="true"
-          loading="lazy"
-          decoding="async"
-          className="media-card-ambient-image"
-        />
-      )}
-      <button type="button" className="media-card-main" onClick={() => onPlay(item)}>
-        <div className="media-card-cover" style={{ background: `${meta.color}18` }}>
-          {!imgFailed ? (
-            <img
-              src={thumbnailSrc}
-              alt={item.title}
-              loading="lazy"
-              decoding="async"
-              fetchPriority="low"
-              onError={() => setImgFailed(true)}
-              onLoad={() => setImgLoaded(true)}
-              className="media-card-cover-image"
-            />
-          ) : (
-            <div className="media-card-cover-fallback">
-              <span className="media-card-cover-icon">{meta.icon}</span>
-              <span className="media-card-fallback-badge" style={{ color: meta.color, background: `${meta.color}22` }}>{meta.label}</span>
-            </div>
-          )}
-        </div>
-        <div className="media-card-body">
-          <div className="media-card-title" title={item.title}>{item.title}</div>
-          <div className="media-card-category" title={category}>{category}</div>
-          <div className="media-card-footer">
-            <span className="media-card-type" style={{ color: meta.color, background: `${meta.color}18` }}>{meta.label}</span>
-            <span className="media-card-duration">{formatCardDuration(item.duration)}</span>
-          </div>
-        </div>
+      <button type="button" className="media-track-main" onClick={() => onPlay(item)} aria-label={`Play ${item.title}`}>
+        <span className="media-track-leading" aria-hidden="true">
+          <span className="media-track-index">{index}</span>
+          <FontAwesomeIcon className="media-track-play" icon={faPlay} />
+        </span>
+
+        <span className="media-track-title-cell">
+          <span className="media-track-copy">
+            <strong title={item.title}>{item.title}</strong>
+            <small title={formatArtists(item, getMediaLabel(item.mime_type))}>{formatArtists(item, getMediaLabel(item.mime_type))}</small>
+          </span>
+        </span>
+
+        <span className="media-track-folder" title={category}>{category}</span>
+        <span className="media-track-added">{formatAddedDate(item.created_at)}</span>
+        <span className="media-track-duration">{item.duration ? formatDuration(item.duration) : "-"}</span>
       </button>
 
-      {item.mime_type?.startsWith("audio/") && (
-        <button type="button" className={`media-card-like${isLiked ? " media-card-like--active" : ""}`} aria-label={isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`} title={isLiked ? "Remove from favorites" : "Add to favorites"} onClick={() => onToggleLike(item)}>
-          <FontAwesomeIcon icon={faBookmark} className={`transition-transform duration-200 ${isLiked ? "scale-110" : "scale-100"}`} />
+      <span className="media-track-actions">
+        {isAudio && (
+          <button
+            type="button"
+            className={`media-track-favorite${isLiked ? " media-track-favorite--active" : ""}`}
+            aria-label={isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
+            aria-pressed={isLiked}
+            title={isLiked ? "Remove from favorites" : "Add to favorites"}
+            onClick={toggleFavorite}
+          >
+            <FontAwesomeIcon icon={faBookmark} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="media-track-more"
+          aria-label={`More options for ${item.title}`}
+          aria-haspopup="menu"
+          aria-expanded={Boolean(menu)}
+          title="More options"
+          onClick={(event) => {
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            openMenuAt(rect.right - 180, rect.bottom + 6);
+          }}
+        >
+          <FontAwesomeIcon icon={faEllipsis} />
         </button>
-      )}
+      </span>
 
       {menu && createPortal(
         <div
+          className="media-track-menu"
           role="menu"
           onContextMenu={(event) => event.preventDefault()}
           onClick={(event) => event.stopPropagation()}
-          style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 500, minWidth: 170, padding: 6, border: "1px solid var(--card-border)", borderRadius: 8, background: "var(--card-bg)", boxShadow: "0 12px 32px rgba(0,0,0,.25)" }}
+          style={{ left: menu.x, top: menu.y }}
         >
-          <button type="button" role="menuitem" onClick={playNext} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Play next</button>
-          <button type="button" role="menuitem" onClick={addToQueue} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>Add to queue</button>
-          {item.mime_type?.startsWith("audio/") && (
-            <button type="button" role="menuitem" onClick={toggleFavorite} style={{ width: "100%", padding: "9px 11px", border: "none", borderRadius: 6, background: "transparent", color: "var(--text)", textAlign: "left", cursor: "pointer", fontWeight: 700 }}>
+          <button type="button" role="menuitem" onClick={playNext}>Play next</button>
+          <button type="button" role="menuitem" onClick={addToQueue}>Add to queue</button>
+          {isAudio && (
+            <button type="button" role="menuitem" onClick={toggleFavorite}>
               {isLiked ? "Remove from favorites" : "Add to favorites"}
             </button>
           )}
         </div>,
-        document.body
+        document.body,
       )}
     </article>
   );

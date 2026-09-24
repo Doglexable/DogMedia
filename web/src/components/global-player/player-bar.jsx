@@ -10,7 +10,7 @@ export function PlayerBar({
   currentMedia, duration, hasNext, hasPrev, isImage, liked, loopMode, onAdvance,
   muted, onChangeVolume, onOpenFull, onOpenQueue, onSeek, onToggle, onToggleLike,
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
-  shuffleEnabled, sleepTimerRemaining, streamSrc, thumbSrc, volume, onSetSleepTimer,
+  shuffleEnabled, sleepTimerRemaining, sleepTimerMode, hasPlaylist, streamSrc, thumbSrc, volume, onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
   isMini = false,
 }) {
@@ -105,7 +105,12 @@ export function PlayerBar({
           onToggleLoop={onToggleLoop}
           onToggleShuffle={onToggleShuffle}
         />
-        <SleepTimerControl remainingSeconds={sleepTimerRemaining} onSetSleepTimer={onSetSleepTimer} />
+        <SleepTimerControl
+          remainingSeconds={sleepTimerRemaining}
+          sleepTimerMode={sleepTimerMode}
+          hasPlaylist={hasPlaylist}
+          onSetSleepTimer={onSetSleepTimer}
+        />
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
       </div>
     </section>

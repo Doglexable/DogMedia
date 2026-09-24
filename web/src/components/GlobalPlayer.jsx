@@ -20,9 +20,12 @@ import {
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
   isPauseTimeoutExpired,
+  shouldCompleteSleepTimer,
   shouldHandleSpaceKey,
+  shouldSuggestSiblingMedia,
 } from "./global-player/player-utils";
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
+import { useEqualizer } from "./global-player/use-equalizer";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
@@ -98,6 +101,7 @@ export function GlobalPlayerProvider({ children }) {
   const playbackSessionIdRef = useRef(null);
   const currentMediaRef = useRef(null);
   const playlistSuggestionRequestRef = useRef(0);
+  const sleepTimerModeRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   currentMediaRef.current = currentMedia;
   const [categoryId, setCategoryId] = useState(null);
@@ -126,12 +130,18 @@ export function GlobalPlayerProvider({ children }) {
   const [muted, setMuted] = useState(readStoredMuted);
   const [sleepTimerEndsAt, setSleepTimerEndsAt] = useState(null);
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
+  const [sleepTimerMode, setSleepTimerMode] = useState(null);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
+  sleepTimerModeRef.current = sleepTimerMode;
   const [playlistSuggestion, setPlaylistSuggestion] = useState(null);
   const [playerExpanded, setPlayerExpanded] = useState(false);
   const [quality, setQuality] = useState(readMediaQuality);
   const [streamSrc, setStreamSrc] = useState("");
   const [playbackAccessError, setPlaybackAccessError] = useState("");
+
+  // EQ — hoisted here so AudioContext persists across full/mini player switches
+  const { gains: eqGains, preset: eqPreset, eqEnabled,
+    setGain: setEqGain, setPreset: setEqPreset, setEqEnabled } = useEqualizer(mediaRef);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -604,16 +614,45 @@ export function GlobalPlayerProvider({ children }) {
     setPaused(true);
   }, [currentMedia, isImage]);
 
-  const setSleepTimer = useCallback((minutes) => {
-    const nextMinutes = Math.min(Math.max(Math.floor(Number(minutes) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
+  const completeSleepTimer = useCallback(() => {
+    sleepTimerModeRef.current = null;
+    setSleepTimerMode(null);
+    setSleepTimerEndsAt(null);
+    setSleepTimerRemaining(0);
+    setQueueOpen(false);
+    playlistSuggestionRequestRef.current += 1;
+    setPlaylistSuggestion(null);
+    pausePlaybackForSleepTimer();
+    setSleepTimerCompleted(true);
+  }, [pausePlaybackForSleepTimer]);
+
+  const setSleepTimer = useCallback((value) => {
+    const boundaryMode = value === "media" || value === "playlist" ? value : null;
+    const nextMinutes = boundaryMode
+      ? 0
+      : Math.min(Math.max(Math.floor(Number(value) || 0), 0), SLEEP_TIMER_MAX_MINUTES);
     setSleepTimerCompleted(false);
-    if (nextMinutes <= 0) {
+    if (!boundaryMode && nextMinutes <= 0) {
+      sleepTimerModeRef.current = null;
+      setSleepTimerMode(null);
+      setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
+      return;
+    }
+
+    playlistSuggestionRequestRef.current += 1;
+    setPlaylistSuggestion(null);
+    if (boundaryMode) {
+      sleepTimerModeRef.current = boundaryMode;
+      setSleepTimerMode(boundaryMode);
       setSleepTimerEndsAt(null);
       setSleepTimerRemaining(0);
       return;
     }
 
     const nextRemaining = nextMinutes * 60;
+    sleepTimerModeRef.current = "duration";
+    setSleepTimerMode("duration");
     setSleepTimerEndsAt(Date.now() + nextRemaining * 1000);
     setSleepTimerRemaining(nextRemaining);
   }, []);
@@ -632,27 +671,27 @@ export function GlobalPlayerProvider({ children }) {
     if (!sleepTimerEndsAt) return undefined;
 
     const updateSleepTimer = () => {
+      if (sleepTimerModeRef.current !== "duration") return;
       const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
       setSleepTimerRemaining(nextRemaining);
       if (nextRemaining > 0) return;
 
-      setSleepTimerEndsAt(null);
-      setQueueOpen(false);
-      pausePlaybackForSleepTimer();
-      setSleepTimerCompleted(true);
+      completeSleepTimer();
     };
 
     updateSleepTimer();
     const timerId = window.setInterval(updateSleepTimer, 1000);
     return () => window.clearInterval(timerId);
-  }, [pausePlaybackForSleepTimer, sleepTimerEndsAt]);
+  }, [completeSleepTimer, sleepTimerEndsAt]);
 
   useEffect(() => {
-    if (!currentMedia && sleepTimerEndsAt) {
+    if (!currentMedia && sleepTimerMode) {
+      sleepTimerModeRef.current = null;
+      setSleepTimerMode(null);
       setSleepTimerEndsAt(null);
       setSleepTimerRemaining(0);
     }
-  }, [currentMedia, sleepTimerEndsAt]);
+  }, [currentMedia, sleepTimerMode]);
 
   useEffect(() => {
     if (!currentMedia) setSleepTimerCompleted(false);
@@ -1233,9 +1272,15 @@ export function GlobalPlayerProvider({ children }) {
     sendPlaybackEvent(currentMedia, "end", currentPosition, currentDuration);
     sendNowPlaying(currentMedia, "end", currentPosition, currentDuration);
 
+    const stopAtCurrentBoundary = shouldCompleteSleepTimer(sleepTimerMode, hasLinearNext);
+    if (stopAtCurrentBoundary) {
+      completeSleepTimer();
+      return;
+    }
+
     const action = getCompletionAction({
       hasLinearNext,
-      loopMode,
+      loopMode: sleepTimerMode === "playlist" ? "none" : loopMode,
       queueLength: queueTotal,
     });
 
@@ -1260,8 +1305,10 @@ export function GlobalPlayerProvider({ children }) {
 
     setPaused(true);
     setShouldAutoPlay(false);
-    if (!sleepTimerCompleted) requestPlaylistSuggestion(currentMedia, categoryId);
-  }, [advance, categoryId, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, requestPlaylistSuggestion, sendNowPlaying, sendPlaybackEvent, sleepTimerCompleted]);
+    if (shouldSuggestSiblingMedia(sleepTimerMode, sleepTimerCompleted)) {
+      requestPlaylistSuggestion(currentMedia, categoryId);
+    }
+  }, [advance, categoryId, completeSleepTimer, currentMedia, duration, hasLinearNext, loopMode, playQueueBoundary, queueTotal, requestPlaylistSuggestion, sendNowPlaying, sendPlaybackEvent, sleepTimerCompleted, sleepTimerMode]);
 
   useEffect(() => {
     if (!currentMedia || !("mediaSession" in navigator) || !("MediaMetadata" in window)) return undefined;
@@ -1447,7 +1494,6 @@ export function GlobalPlayerProvider({ children }) {
               src={streamSrc}
               controls={false}
               controlsList="nodownload noplaybackrate"
-              disablePictureInPicture
               disableRemotePlayback
               preload="metadata"
               autoPlay={!paused}
@@ -1483,6 +1529,8 @@ export function GlobalPlayerProvider({ children }) {
               resumePos={resumePos}
               shuffleEnabled={shuffleEnabled}
               sleepTimerRemaining={sleepTimerRemaining}
+              sleepTimerMode={sleepTimerMode}
+              hasPlaylist={queueTotal > 1}
               streamSrc={streamSrc}
               thumbFailed={thumbFailed}
               thumbSrc={thumbSrc}
@@ -1514,6 +1562,12 @@ export function GlobalPlayerProvider({ children }) {
               onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
+              eqGains={eqGains}
+              eqPreset={eqPreset}
+              eqEnabled={eqEnabled}
+              onSetEqGain={setEqGain}
+              onSetEqPreset={setEqPreset}
+              onSetEqEnabled={setEqEnabled}
             />
             </Suspense>
           ) : isAudio ? (
@@ -1531,6 +1585,8 @@ export function GlobalPlayerProvider({ children }) {
               queueOpen={queueOpen}
               shuffleEnabled={shuffleEnabled}
               sleepTimerRemaining={sleepTimerRemaining}
+              sleepTimerMode={sleepTimerMode}
+              hasPlaylist={queueTotal > 1}
               streamSrc={streamSrc}
               thumbSrc={thumbSrc}
               volume={volume}

@@ -8,8 +8,6 @@ import { faClone } from "@fortawesome/free-solid-svg-icons/faClone";
 import { faCompress } from "@fortawesome/free-solid-svg-icons/faCompress";
 import { faExpand } from "@fortawesome/free-solid-svg-icons/faExpand";
 import { faForwardStep } from "@fortawesome/free-solid-svg-icons/faForwardStep";
-import { faMaximize } from "@fortawesome/free-solid-svg-icons/faMaximize";
-import { faMinimize } from "@fortawesome/free-solid-svg-icons/faMinimize";
 import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
@@ -18,10 +16,8 @@ import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { ShinyText } from "../ShinyText";
-import { QualityControl, SleepTimerControl } from "./player-controls";
+import { SettingsControl } from "./settings-panel";
 import { formatDuration } from "./player-utils";
-
-const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function getVolumeIcon(volume, muted) {
   if (muted || volume <= 0) return faVolumeXmark;
@@ -41,6 +37,8 @@ export function VideoPlayer({
   position,
   resumePos,
   sleepTimerRemaining,
+  sleepTimerMode,
+  hasPlaylist,
   streamSrc,
   volume,
   quality,
@@ -61,6 +59,12 @@ export function VideoPlayer({
   onToggle,
   onToggleLike,
   onSetSleepTimer,
+  eqGains,
+  eqPreset,
+  eqEnabled,
+  onSetEqGain,
+  onSetEqPreset,
+  onSetEqEnabled,
 }) {
   const rootRef = useRef(null);
   const cardRef = useRef(null);
@@ -73,9 +77,7 @@ export function VideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPip, setIsPip] = useState(false);
   const [canPip, setCanPip] = useState(false);
-  const [fitMode, setFitMode] = useState("contain"); // "contain" or "cover"
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [hoverTime, setHoverTime] = useState(null);
   const [hoverPercent, setHoverPercent] = useState(null);
   const [toast, setToast] = useState(null);
@@ -104,11 +106,11 @@ export function VideoPlayer({
 
   // Sync picture-in-picture state
   useEffect(() => {
-    if (typeof document !== "undefined" && document.pictureInPictureEnabled) {
-      setCanPip(true);
-    }
     const videoEl = mediaRef.current;
     if (!videoEl) return;
+    if (document.pictureInPictureEnabled && typeof videoEl.requestPictureInPicture === "function") {
+      setCanPip(true);
+    }
     const handleEnterPip = () => setIsPip(true);
     const handleLeavePip = () => setIsPip(false);
     videoEl.addEventListener("enterpictureinpicture", handleEnterPip);
@@ -125,12 +127,12 @@ export function VideoPlayer({
     if (hideHudTimeoutRef.current) clearTimeout(hideHudTimeoutRef.current);
     if (!paused) {
       hideHudTimeoutRef.current = setTimeout(() => {
-        if (!isScrubbing && !speedMenuOpen) {
+        if (!isScrubbing) {
           setShowHud(false);
         }
       }, 2500);
     }
-  }, [paused, isScrubbing, speedMenuOpen]);
+  }, [paused, isScrubbing]);
 
   useEffect(() => {
     if (paused) {
@@ -184,7 +186,6 @@ export function VideoPlayer({
       mediaRef.current.playbackRate = rate;
     }
     setPlaybackRate(rate);
-    setSpeedMenuOpen(false);
     showFeedbackToast(`Speed ${rate}x`);
   }, [mediaRef, showFeedbackToast]);
 
@@ -346,12 +347,11 @@ export function VideoPlayer({
           src={streamSrc}
           controls={false}
           controlsList="nodownload noplaybackrate"
-          disablePictureInPicture
           disableRemotePlayback
           preload="metadata"
           autoPlay={autoPlay}
           muted={muted || volume <= 0}
-          className={`video-player-video ${fitMode === "cover" ? "video-player-video--cover" : ""}`}
+          className="video-player-video"
           onContextMenu={onPreventMenu}
           onPlay={onPlay}
           onPause={onPause}
@@ -542,60 +542,27 @@ export function VideoPlayer({
 
               {/* Right Controls */}
               <div className="video-player-controls-group">
-                {/* Fit to screen / Fill screen */}
-                <button
-                  type="button"
-                  className={`video-player-ctrl-btn ${fitMode === "cover" ? "video-player-ctrl-btn--active" : ""}`}
-                  aria-label={fitMode === "cover" ? "Fit to screen" : "Fill screen"}
-                  title={fitMode === "cover" ? "Fit to screen (Contain)" : "Fill screen (Cover)"}
-                  onClick={() => {
-                    const nextFit = fitMode === "cover" ? "contain" : "cover";
-                    setFitMode(nextFit);
-                    showFeedbackToast(nextFit === "cover" ? "Fill screen" : "Fit screen");
-                  }}
-                >
-                  <FontAwesomeIcon icon={fitMode === "cover" ? faMinimize : faMaximize} />
-                </button>
-
-                {/* Quality */}
-                <QualityControl
+                {/* Unified Settings — Quality / EQ / Speed / Timer */}
+                <SettingsControl
+                  variant="video-ctrl"
+                  showSpeed
                   currentMedia={currentMedia}
                   quality={quality}
                   actualQuality={actualQuality}
                   onChangeQuality={onChangeQuality}
-                  variant="video-ctrl"
+                  gains={eqGains}
+                  eqPreset={eqPreset}
+                  eqEnabled={eqEnabled}
+                  onSetGain={onSetEqGain}
+                  onSetEqPreset={onSetEqPreset}
+                  onSetEqEnabled={onSetEqEnabled}
+                  playbackRate={playbackRate}
+                  onSelectRate={handleSelectRate}
+                  sleepTimerRemaining={sleepTimerRemaining}
+                  sleepTimerMode={sleepTimerMode}
+                  hasPlaylist={hasPlaylist}
+                  onSetSleepTimer={onSetSleepTimer}
                 />
-
-                {/* Playback Rate Menu */}
-                <div className="video-player-speed-menu">
-                  <button
-                    type="button"
-                    className="video-player-speed-btn"
-                    aria-label="Playback speed"
-                    aria-haspopup="true"
-                    aria-expanded={speedMenuOpen}
-                    title="Playback speed"
-                    onClick={() => setSpeedMenuOpen((prev) => !prev)}
-                  >
-                    {playbackRate}x
-                  </button>
-
-                  {speedMenuOpen && (
-                    <div className="video-player-speed-popover" role="menu">
-                      {PLAYBACK_RATES.map((rate) => (
-                        <button
-                          key={rate}
-                          type="button"
-                          role="menuitem"
-                          className={`video-player-speed-option ${playbackRate === rate ? "video-player-speed-option--active" : ""}`}
-                          onClick={() => handleSelectRate(rate)}
-                        >
-                          {rate}x
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
                 {/* Favorite */}
                 <button
@@ -620,13 +587,6 @@ export function VideoPlayer({
                     <FontAwesomeIcon icon={faClone} />
                   </button>
                 )}
-
-                {/* Sleep Timer */}
-                <SleepTimerControl
-                  remainingSeconds={sleepTimerRemaining}
-                  onSetSleepTimer={onSetSleepTimer}
-                  variant="video-ctrl"
-                />
 
                 {/* Fullscreen Button */}
                 <button

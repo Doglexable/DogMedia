@@ -23,21 +23,31 @@ const NOW_PLAYING_POLL_MS = 10000;
 
 function MediaGridSkeleton({ count = 8 }) {
   return (
-    <div className="media-card-grid" role="status" aria-label="Loading media" aria-busy="true">
-      {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="media-card-skeleton" aria-hidden="true">
-          <div className="media-card-skeleton-cover skeleton-shimmer" />
-          <div className="media-card-skeleton-body">
-            <span className="skeleton-shimmer h-4 w-4/5 rounded" />
-            <span className="skeleton-shimmer h-3 w-3/5 rounded" />
-            <div className="mt-1 flex items-center justify-between gap-3">
-              <span className="skeleton-shimmer h-5 w-14 rounded-full" />
-              <span className="skeleton-shimmer h-3 w-8 rounded" />
-            </div>
+    <section className="library-browse-section" role="status" aria-label="Loading media" aria-busy="true">
+      <div className="library-section-header"><h2>Browse</h2></div>
+      <div className="media-track-list-shell">
+        <div className="media-track-list-header" aria-hidden="true">
+          <div className="media-track-header-main">
+            <span>#</span><span>Title</span><span className="media-track-folder-heading">Folder</span><span className="media-track-added-heading">Added</span><span />
           </div>
+          <span />
         </div>
-      ))}
-    </div>
+        <div className="media-track-list-skeleton">
+          {Array.from({ length: count }, (_, index) => (
+            <div key={index} className="media-track-skeleton" aria-hidden="true">
+              <span className="media-track-skeleton-index skeleton-shimmer" />
+              <span className="media-track-skeleton-copy">
+                <span className="skeleton-shimmer" />
+                <span className="skeleton-shimmer" />
+              </span>
+              <span className="media-track-skeleton-folder skeleton-shimmer" />
+              <span className="media-track-skeleton-added skeleton-shimmer" />
+              <span className="media-track-skeleton-time skeleton-shimmer" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1128,4 +1138,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

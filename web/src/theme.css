@@ -2294,7 +2294,7 @@ body {
   bottom: calc(100% + 10px);
   z-index: 250;
   display: flex;
-  width: 214px;
+  width: 250px;
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
@@ -2353,6 +2353,15 @@ body {
   background: color-mix(in srgb, var(--primary) 18%, transparent);
   color: var(--primary);
   transform: translateY(-1px);
+}
+.player-sleep-preset--boundary {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  padding: 0 10px;
+}
+.player-sleep-preset--active {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  color: var(--primary);
 }
 .player-sleep-clear {
   width: 28px;

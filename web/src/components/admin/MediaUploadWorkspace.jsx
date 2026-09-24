@@ -31,6 +31,11 @@ export async function uploadCategoryCover(categoryId, file) {
   return response.json();
 }
 
+export async function removeCategoryCover(categoryId) {
+  const response = await api(`/api/categories/${categoryId}/thumbnail`, { method: "DELETE" });
+  if (!response.ok) throw new Error(await readApiError(response, "Category cover removal failed"));
+}
+
 async function sendFileChunks({ uploadId, file, kind, chunkSize, onProgress, startedAt, uploadedBytes, totalBytes }) {
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
   let sentBytes = uploadedBytes;
@@ -155,7 +160,7 @@ export async function replaceMediaFilesInChunks({ mediaId, file = null, lyricsFi
   }
 }
 
-export default function MediaUploadWorkspace({ category, file, onFileChange, onSubmit, styles, updating }) {
+export default function MediaUploadWorkspace({ category, file, onFileChange, onRemove, onSubmit, removing, styles, updating }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewFailed, setPreviewFailed] = useState(false);
   const currentUrl = category?.cover_path ? categoryThumbnailUrl(category) : "";
@@ -194,10 +199,22 @@ export default function MediaUploadWorkspace({ category, file, onFileChange, onS
           <small>{file?.name || "Choose a JPG, PNG, or WebP image"}</small>
         </label>
         <input id="admin-category-cover-file" className="admin-folder-artwork-input" type="file" accept="image/*" onChange={(event) => onFileChange(event.target.files[0] || null)} />
-        <button type="submit" disabled={updating || !file || !category} style={styles.button("secondary", updating || !file || !category)}>
-          {updating && <span style={styles.spinner} />}
-          {updating ? "Updating..." : "Save artwork"}
-        </button>
+        <div className="admin-folder-artwork-actions">
+          {category?.cover_path && (
+            <button
+              type="button"
+              className="admin-folder-artwork-remove"
+              disabled={updating || removing}
+              onClick={onRemove}
+            >
+              {removing ? "Removing..." : "Remove artwork"}
+            </button>
+          )}
+          <button type="submit" disabled={updating || removing || !file || !category} style={styles.button("secondary", updating || removing || !file || !category)}>
+            {updating && <span style={styles.spinner} />}
+            {updating ? "Updating..." : "Save artwork"}
+          </button>
+        </div>
       </form>
     </section>
   );

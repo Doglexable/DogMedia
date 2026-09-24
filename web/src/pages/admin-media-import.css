@@ -221,6 +221,41 @@
   min-width: 0;
 }
 
+.admin-folder-artwork-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-folder-artwork-remove {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-folder-artwork-remove:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.admin-folder-artwork-remove:focus-visible {
+  outline: 2px solid var(--warning-text);
+  outline-offset: 2px;
+}
+
+.admin-folder-artwork-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .admin-folder-artwork-picker {
   display: grid;
   min-width: 0;
@@ -928,6 +963,10 @@
 
   .admin-folder-artwork-form {
     grid-column: 1 / -1;
+  }
+
+  .admin-folder-artwork-actions {
+    flex-wrap: wrap;
   }
 
   .admin-upload-queue-summary {

@@ -1,12 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faClock } from "@fortawesome/free-solid-svg-icons/faClock";
+import { AnimatedList, AnimatedListItem } from "./animated-list";
 import MediaCard from "./media-card";
 
-const MIN_CARD_WIDTH = 210;
-const GAP = 16;
-// Estimated height of media card body + padding + borders + gap:
-// cover (1:1 aspect ratio = cardWidth) + body content (~116px) + gap (16px)
-const CARD_EXTRA_HEIGHT = 132;
+const DESKTOP_ROW_HEIGHT = 56;
+const MOBILE_ROW_HEIGHT = 60;
 
 export const VirtualMediaGrid = memo(function VirtualMediaGrid({
   activeId,
@@ -57,13 +57,8 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
   }, []);
 
   const isMobile = width > 0 ? width <= 640 : (typeof window !== "undefined" && window.innerWidth <= 640);
-  const gap = isMobile ? 8 : GAP;
-  const columns = isMobile ? 1 : Math.max(1, Math.floor((width + gap) / (MIN_CARD_WIDTH + gap)));
-  const rowCount = Math.ceil(items.length / columns);
-  const cardWidth = width > 0 ? (width - gap * (columns - 1)) / columns : MIN_CARD_WIDTH;
-  // On mobile (<=640px), cards are styled as horizontal rows with ~72px height + gap (8px) = ~80px.
-  // On desktop, cards are vertical with square cover + body content.
-  const estimatedRowHeight = isMobile ? 80 : Math.round(cardWidth + CARD_EXTRA_HEIGHT);
+  const rowCount = items.length;
+  const estimatedRowHeight = isMobile ? MOBILE_ROW_HEIGHT : DESKTOP_ROW_HEIGHT;
 
   const virtualizer = useWindowVirtualizer({
     count: rowCount,
@@ -94,9 +89,9 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
   }, [hasMore, loadingMore, onLoadMore]);
 
   const renderedRows = useMemo(() => rows.map((virtualRow) => ({
+    item: items[virtualRow.index],
     virtualRow,
-    rowItems: items.slice(virtualRow.index * columns, virtualRow.index * columns + columns),
-  })), [columns, items, rows]);
+  })), [items, rows]);
 
   return (
     <section className="library-browse-section" aria-label="Browse media">
@@ -104,54 +99,57 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
         <h2>Browse</h2>
       </div>
 
-      <div
-        ref={containerRef}
-        style={{
-          height: virtualizer.getTotalSize(),
-          position: "relative",
-          width: "100%",
-        }}
-      >
-        {renderedRows.map(({ virtualRow, rowItems }) => (
-          <div
-            key={virtualRow.key}
-            data-index={virtualRow.index}
-            ref={virtualizer.measureElement}
-            style={{
-              display: "flex",
-              gap,
-              left: 0,
-              paddingBottom: gap,
-              position: "absolute",
-              top: 0,
-              transform: `translateY(${virtualRow.start - scrollMargin}px)`,
-              width: "100%",
-              willChange: "transform",
-            }}
-          >
-            {rowItems.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  flex: isMobile ? "1 1 100%" : `0 0 ${cardWidth}px`,
-                  minWidth: 0,
-                  width: isMobile ? "100%" : undefined,
-                }}
-              >
-                <MediaCard
-                  item={item}
-                  isActive={Number(activeId) === Number(item.id)}
-                  isLiked={isLiked?.(item.id) || false}
-                  onAddQueue={onAddQueue}
-                  onError={onNotice}
-                  onPlay={onPlay}
-                  onPlayNext={onPlayNext}
-                  onToggleLike={onToggleLike}
-                />
-              </div>
-            ))}
+      <div className="media-track-list-shell">
+        <div className="media-track-list-header" aria-hidden="true">
+          <div className="media-track-header-main">
+            <span className="media-track-index-heading">#</span>
+            <span>Title</span>
+            <span className="media-track-folder-heading">Folder</span>
+            <span className="media-track-added-heading">Added</span>
+            <span className="media-track-duration-heading"><FontAwesomeIcon icon={faClock} /></span>
           </div>
-        ))}
+          <span />
+        </div>
+
+        <AnimatedList
+          ref={containerRef}
+          className="media-track-list"
+          style={{
+            height: virtualizer.getTotalSize(),
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {renderedRows.map(({ item, virtualRow }) => (
+            <AnimatedListItem
+              key={virtualRow.key}
+              index={virtualRow.index}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              className="media-track-virtual-row"
+              style={{
+                left: 0,
+                position: "absolute",
+                top: 0,
+                transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                width: "100%",
+                willChange: "transform",
+              }}
+            >
+              <MediaCard
+                index={virtualRow.index + 1}
+                item={item}
+                isActive={Number(activeId) === Number(item.id)}
+                isLiked={isLiked?.(item.id) || false}
+                onAddQueue={onAddQueue}
+                onError={onNotice}
+                onPlay={onPlay}
+                onPlayNext={onPlayNext}
+                onToggleLike={onToggleLike}
+              />
+            </AnimatedListItem>
+          ))}
+        </AnimatedList>
       </div>
 
       <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />

@@ -15,7 +15,7 @@ import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { PlayerBar } from "./player-bar";
-import { QualityControl, SleepTimerControl } from "./player-controls";
+import { SettingsControl } from "./settings-panel";
 import { FullscreenLyrics } from "./lyrics-panel";
 import { MusicReelDialog } from "./music-share-dialog";
 import { resolveMediaArtist } from "./media-artists";
@@ -41,12 +41,13 @@ function RepeatIcon({ mode }) {
 export function FullPlayer({
   autoPlay, currentMedia, duration, hasNext, hasPrev, isAudio, isImage, isVideo,
   loopMode, mediaRef, meta, muted, paused, position, queueOpen, resumePos,
-  shuffleEnabled, sleepTimerRemaining, streamSrc, thumbFailed, thumbSrc, volume, onAdvance,
+  shuffleEnabled, sleepTimerRemaining, sleepTimerMode, hasPlaylist, streamSrc, thumbFailed, thumbSrc, volume, onAdvance,
   onChangeVolume, onEnded, onLoadedMetadata, onOpenQueue, onPause, onPlay,
   onPreventMenu, onResume, onSeek, onThumbError, onTimeUpdate, onToggleLoop,
   onToggleMute, onToggleShuffle, onToggle, liked, onToggleLike, onCloseFull,
   onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
+  eqGains, eqPreset, eqEnabled, onSetEqGain, onSetEqPreset, onSetEqEnabled,
 }) {
   const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
@@ -125,12 +126,24 @@ export function FullPlayer({
             </div>
 
             <div className="fullscreen-player-actions" aria-label="Track actions">
-              <QualityControl
+              {/* Unified Settings — Quality / EQ / Timer (no speed for audio) */}
+              <SettingsControl
+                variant="fullscreen"
+                showSpeed={false}
                 currentMedia={currentMedia}
                 quality={quality}
                 actualQuality={actualQuality}
                 onChangeQuality={onChangeQuality}
-                variant="fullscreen"
+                gains={eqGains}
+                eqPreset={eqPreset}
+                eqEnabled={eqEnabled}
+                onSetGain={onSetEqGain}
+                onSetEqPreset={onSetEqPreset}
+                onSetEqEnabled={onSetEqEnabled}
+                sleepTimerRemaining={sleepTimerRemaining}
+                sleepTimerMode={sleepTimerMode}
+                hasPlaylist={hasPlaylist}
+                onSetSleepTimer={onSetSleepTimer}
               />
               <button
                 type="button"
@@ -152,11 +165,6 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faShareNodes} />
               </button>
-              <SleepTimerControl
-                remainingSeconds={sleepTimerRemaining}
-                onSetSleepTimer={onSetSleepTimer}
-                variant="fullscreen"
-              />
               <button
                 type="button"
                 className={queueOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -294,6 +302,8 @@ export function FullPlayer({
         resumePos={resumePos}
         shuffleEnabled={shuffleEnabled}
         sleepTimerRemaining={sleepTimerRemaining}
+        sleepTimerMode={sleepTimerMode}
+        hasPlaylist={hasPlaylist}
         streamSrc={streamSrc}
         thumbFailed={thumbFailed}
         thumbSrc={thumbSrc}
@@ -320,6 +330,12 @@ export function FullPlayer({
         onToggle={onToggle}
         onToggleLike={onToggleLike}
         onSetSleepTimer={onSetSleepTimer}
+        eqGains={eqGains}
+        eqPreset={eqPreset}
+        eqEnabled={eqEnabled}
+        onSetEqGain={onSetEqGain}
+        onSetEqPreset={onSetEqPreset}
+        onSetEqEnabled={onSetEqEnabled}
       />
     );
   }
@@ -389,6 +405,8 @@ export function FullPlayer({
         queueOpen={queueOpen}
         shuffleEnabled={shuffleEnabled}
         sleepTimerRemaining={sleepTimerRemaining}
+        sleepTimerMode={sleepTimerMode}
+        hasPlaylist={hasPlaylist}
         streamSrc={streamSrc}
         thumbSrc={thumbSrc}
         volume={volume}

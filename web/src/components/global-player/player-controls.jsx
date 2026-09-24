@@ -9,7 +9,7 @@ import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faRepeat } from "@fortawesome/free-solid-svg-icons/faRepeat";
 import { faShuffle } from "@fortawesome/free-solid-svg-icons/faShuffle";
-import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
+import { faSignal } from "@fortawesome/free-solid-svg-icons/faSignal";
 import { faUpRightFromSquare } from "@fortawesome/free-solid-svg-icons/faUpRightFromSquare";
 import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
 import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
@@ -74,7 +74,13 @@ function formatSleepTimer(seconds) {
     : `0:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
-export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer, variant = "ghost" }) {
+export function SleepTimerControl({
+  remainingSeconds = 0,
+  sleepTimerMode = null,
+  hasPlaylist = false,
+  onSetSleepTimer,
+  variant = "ghost",
+}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -100,8 +106,18 @@ export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer, varia
     };
   }, [open]);
 
-  const active = remainingSeconds > 0;
-  const label = active ? `Sleep timer ${formatSleepTimer(remainingSeconds)} remaining` : "Sleep timer";
+  const active = Boolean(sleepTimerMode) || remainingSeconds > 0;
+  const activeLabel = sleepTimerMode === "media"
+    ? "end of this media"
+    : sleepTimerMode === "playlist"
+      ? "end of playlist"
+      : `${formatSleepTimer(remainingSeconds)} remaining`;
+  const badgeLabel = sleepTimerMode === "media"
+    ? "Media"
+    : sleepTimerMode === "playlist"
+      ? "List"
+      : formatSleepTimer(remainingSeconds);
+  const label = active ? `Sleep timer: ${activeLabel}` : "Sleep timer";
 
   const buttonClass = variant === "fullscreen"
     ? `fullscreen-player-icon-button ${active ? "fullscreen-player-icon-button--active" : ""}`
@@ -125,10 +141,32 @@ export function SleepTimerControl({ remainingSeconds = 0, onSetSleepTimer, varia
         onClick={() => setOpen((prev) => !prev)}
       >
         <FontAwesomeIcon icon={faAlarmClock} />
-        {active && <span className="player-sleep-badge">{formatSleepTimer(remainingSeconds)}</span>}
+        {active && <span className="player-sleep-badge">{badgeLabel}</span>}
       </button>
       <div className="player-sleep-popover" aria-label="Sleep timer options">
         <div className="player-sleep-presets">
+          <button
+            type="button"
+            className={`player-sleep-preset player-sleep-preset--boundary ${sleepTimerMode === "media" ? "player-sleep-preset--active" : ""}`}
+            onClick={() => {
+              onSetSleepTimer("media");
+              setOpen(false);
+            }}
+          >
+            End of this media
+          </button>
+          {hasPlaylist && (
+            <button
+              type="button"
+              className={`player-sleep-preset player-sleep-preset--boundary ${sleepTimerMode === "playlist" ? "player-sleep-preset--active" : ""}`}
+              onClick={() => {
+                onSetSleepTimer("playlist");
+                setOpen(false);
+              }}
+            >
+              End of playlist
+            </button>
+          )}
           {SLEEP_TIMER_PRESETS.map((minutes) => (
             <button
               type="button"
@@ -256,7 +294,7 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
         title={title}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <FontAwesomeIcon icon={faSliders} />
+        <FontAwesomeIcon icon={faSignal} />
         <span className="player-quality-badge">{activeOption.badge}</span>
       </button>
 

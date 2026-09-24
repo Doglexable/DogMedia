@@ -6,8 +6,17 @@ import { faVideo } from "@fortawesome/free-solid-svg-icons/faVideo";
 export const LOOP_MODES = ["none", "queue", "media"];
 
 export function formatDuration(seconds) {
-  if (!seconds) return "0:00";
-  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds) % 60).padStart(2, "0")}`;
+  const totalSeconds = Math.floor(Number(seconds));
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";
+
+  const remainingSeconds = String(totalSeconds % 60).padStart(2, "0");
+  if (totalSeconds < 3600) {
+    return `${Math.floor(totalSeconds / 60)}:${remainingSeconds}`;
+  }
+
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+  return `${hours}:${minutes}:${remainingSeconds}`;
 }
 
 export function getMediaMeta(mime = "") {
@@ -74,6 +83,14 @@ export function getCompletionAction({ hasLinearNext, loopMode, queueLength = 0 }
   if (hasLinearNext) return "advance";
   if (loopMode === "queue" && queueLength > 0) return "wrap";
   return "stop";
+}
+
+export function shouldCompleteSleepTimer(mode, hasLinearNext) {
+  return mode === "media" || (mode === "playlist" && !hasLinearNext);
+}
+
+export function shouldSuggestSiblingMedia(sleepTimerMode, sleepTimerCompleted) {
+  return !sleepTimerMode && !sleepTimerCompleted;
 }
 
 export const PAUSE_CACHE_TTL_MS = 30 * 60 * 1000;
