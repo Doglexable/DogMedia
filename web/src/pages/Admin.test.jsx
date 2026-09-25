@@ -235,4 +235,56 @@ describe("Admin workspace", () => {
     ]);
     expect(mocks.api).toHaveBeenCalledWith("/api/media/uploads/upload-1/complete", { method: "POST" });
   });
+
+  it("uploads multiple selected videos sequentially in chunks", async () => {
+    const uploadSessions = [];
+    const completedUploads = [];
+    mocks.api.mockImplementation(async (path, options = {}) => {
+      if (path === "/api/media/uploads") {
+        const body = JSON.parse(options.body);
+        const uploadId = `upload-${uploadSessions.length + 1}`;
+        uploadSessions.push({ uploadId, title: body.title, fileName: body.fileName });
+        return response({ uploadId, chunkSize: 4 });
+      }
+      if (path.startsWith("/api/media/uploads/") && path.endsWith("/chunks")) {
+        return response({});
+      }
+      if (path.startsWith("/api/media/uploads/") && path.endsWith("/complete")) {
+        const match = path.match(/\/api\/media\/uploads\/(.+)\/complete/);
+        completedUploads.push(match[1]);
+        return response({ uploadId: match[1], status: "queued" }, { status: 202 });
+      }
+      if (path === "/api/media/uploads/queue") {
+        return response({ jobs: [], summary: { queued: 1, processing: 0, completed: 0, failed: 0 } });
+      }
+      if (path === "/api/media?category_id=7") {
+        return response([]);
+      }
+      if (path === "/api/categories") {
+        return response([{ id: 7, name: "Videos", min_access_tier: 100 }]);
+      }
+      throw new Error(`Unexpected API call: ${options.method || "GET"} ${path}`);
+    });
+
+    let tree = openMediaWorkspace();
+    findButton(tree, "Upload videoAnime or film").props.onClick();
+    tree = renderAdmin();
+
+    const input = findAll(tree, (node) => node.type === "input" && node.props?.id === "admin-media-file")[0];
+    const video1 = new File([new Uint8Array(8)], "Episode 1.mp4", { type: "video/mp4" });
+    const video2 = new File([new Uint8Array(8)], "Episode 2.mp4", { type: "video/mp4" });
+    input.props.onChange({ target: { files: [video1, video2] } });
+    tree = renderAdmin();
+
+    expect(textContent(tree)).toContain("2 video selected · 16 B");
+    expect(findButton(tree, "Upload 2 videos").props.disabled).toBe(false);
+
+    const uploadForm = findAll(tree, (node) => node.type === "form" && textContent(node).includes("Upload 2 videos"))[0];
+    await uploadForm.props.onSubmit({ preventDefault: vi.fn() });
+
+    expect(uploadSessions).toHaveLength(2);
+    expect(uploadSessions[0]).toMatchObject({ uploadId: "upload-1", title: "Episode 1", fileName: "Episode 1.mp4" });
+    expect(uploadSessions[1]).toMatchObject({ uploadId: "upload-2", title: "Episode 2", fileName: "Episode 2.mp4" });
+    expect(completedUploads).toEqual(["upload-1", "upload-2"]);
+  });
 });

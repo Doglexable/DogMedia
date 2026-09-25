@@ -49,7 +49,7 @@ await app.register(cors, {
 });
 await app.register(multipart, {
   limits: {
-    fileSize: 1024 * 1024,
+    fileSize: 20 * 1024 * 1024,
   },
 });
 await app.register(postgres, {

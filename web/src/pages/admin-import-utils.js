@@ -44,7 +44,7 @@ export function videoOrderFromStem(stem) {
 
 export function buildVideoItems(files) {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  return files
+  const rawItems = files
     .filter((file) => file.type.startsWith("video/") || VIDEO_IMPORT_EXTENSIONS.has(getExt(file.name)))
     .sort((a, b) => collator.compare(a.name, b.name))
     .map((file, index) => {
@@ -57,6 +57,18 @@ export function buildVideoItems(files) {
       };
     })
     .sort((a, b) => a.trackOrder - b.trackOrder || collator.compare(a.file.name, b.file.name));
+
+  const used = new Set();
+  return rawItems.map((item) => {
+    let order = item.trackOrder;
+    if (used.has(order)) {
+      let candidate = 1;
+      while (used.has(candidate)) candidate += 1;
+      order = candidate;
+    }
+    used.add(order);
+    return { ...item, trackOrder: order };
+  }).sort((a, b) => a.trackOrder - b.trackOrder || collator.compare(a.file.name, b.file.name));
 }
 
 export function estimateUploadRemaining({ elapsedMs, totalBytes, uploadedBytes }) {

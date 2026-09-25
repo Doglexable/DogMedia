@@ -49,6 +49,18 @@ describe("admin video import", () => {
     expect(items.map((item) => item.file.name)).toEqual(["Episode 2.mkv", "Special.mkv", "Episode 10.mkv"]);
     expect(items.map((item) => item.trackOrder)).toEqual([2, 3, 10]);
   });
+
+  it("disambiguates duplicate orders so every video in a multi-file selection has a unique positive order", () => {
+    const items = buildVideoItems([
+      file("01 - part a.mp4", { type: "video/mp4", size: 100 }),
+      file("01 - part b.mp4", { type: "video/mp4", size: 100 }),
+      file("02 - next.mp4", { type: "video/mp4", size: 100 }),
+    ]);
+
+    const orders = items.map((item) => item.trackOrder);
+    expect(new Set(orders).size).toBe(orders.length);
+    expect(orders.every((order) => Number.isInteger(order) && order >= 1)).toBe(true);
+  });
 });
 
 describe("upload time remaining", () => {
