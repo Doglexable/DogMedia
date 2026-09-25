@@ -56,7 +56,7 @@
 .now-playing-floating-pill {
   position: fixed;
   right: 18px;
-  bottom: calc(var(--player-height, 0px) + 18px);
+  bottom: calc(var(--active-player-height, 0px) + 18px);
   z-index: 310;
   display: inline-flex;
   align-items: center;
@@ -142,10 +142,10 @@
 .now-playing-floating-panel {
   position: fixed;
   right: 16px;
-  bottom: calc(var(--player-height, 0px) + 16px);
+  bottom: calc(var(--active-player-height, 0px) + 16px);
   z-index: 320;
   width: min(440px, calc(100vw - 32px));
-  max-height: min(560px, calc(100dvh - var(--player-height, 0px) - 36px));
+  max-height: min(560px, calc(100dvh - var(--active-player-height, 0px) - 36px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -516,7 +516,7 @@
 @media (max-width: 640px) {
   .now-playing-floating-pill {
     right: 12px;
-    bottom: calc(var(--player-height, 0px) + 72px);
+    bottom: calc(var(--active-player-height, 0px) + 72px);
   }
 }
 

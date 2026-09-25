@@ -3,6 +3,32 @@ export function findActiveLyricsIndex(segments, position) {
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
 }
 
+export const MIN_INSTRUMENTAL_GAP_SECONDS = 3;
+
+export function buildLyricsDisplaySegments(segments, minimumGap = MIN_INSTRUMENTAL_GAP_SECONDS) {
+  if (!Array.isArray(segments) || segments.length === 0) return [];
+
+  const displaySegments = [];
+  const appendInstrumental = (start, end) => {
+    if (end - start < minimumGap) return;
+    displaySegments.push({
+      start,
+      end: Number((end - 0.001).toFixed(3)),
+      text: "Instrumental",
+      instrumental: true,
+    });
+  };
+
+  appendInstrumental(0, Number(segments[0].start));
+  segments.forEach((segment, lyricIndex) => {
+    displaySegments.push({ ...segment, instrumental: false, lyricIndex });
+    const next = segments[lyricIndex + 1];
+    if (next) appendInstrumental(Number(segment.end), Number(next.start));
+  });
+
+  return displaySegments;
+}
+
 export function normalizeLyricsResponse(payload, expectedMediaId) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new TypeError("Lyrics response must be an object");

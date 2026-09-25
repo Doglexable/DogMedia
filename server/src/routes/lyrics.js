@@ -1,11 +1,11 @@
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import {
-  LyricaProviderError,
-  getLyricaConfig,
-  isLyricaRowFresh,
+  LrclibProviderError,
+  getLrclibConfig,
+  isLrclibRowFresh,
   normalizeLyricsIdentity,
-  resolveLyricaLyrics,
-} from "../lyrica.js";
+  resolveLrclibLyrics,
+} from "../lrclib.js";
 
 const ACCESSIBLE_MEDIA_SQL = `
   WITH RECURSIVE accessible_categories AS (
@@ -23,6 +23,7 @@ const ACCESSIBLE_MEDIA_SQL = `
     m.id AS media_id,
     m.title,
     m.artists,
+    m.duration,
     m.mime_type,
     ml.language,
     ml.segments,
@@ -45,25 +46,33 @@ function serializeLyrics(row) {
   };
 }
 
-function isCurrentLyricaRow(row, title, artists) {
-  return row.lyrics_source === "lyrica"
+function isCurrentProviderRow(row, title, artists) {
+  return row.lyrics_source === "lrclib"
     && normalizeLyricsIdentity(row.lookup_title) === normalizeLyricsIdentity(title)
     && normalizeLyricsIdentity(row.lookup_artists) === normalizeLyricsIdentity(artists);
 }
 
-async function persistLyricaLyrics(pg, row, lyrics, title, artists) {
+async function persistLrclibLyrics(pg, row, lyrics, title, artists) {
+  if (!pg?.query) {
+    return {
+      mediaId: Number(row.media_id),
+      language: lyrics.language,
+      segments: lyrics.segments,
+      updatedAt: row.updated_at ?? new Date().toISOString(),
+    };
+  }
   const { rows } = await pg.query(
     `INSERT INTO media_lyrics (
        media_id, language, segments, source, lookup_title, lookup_artists
-     ) VALUES ($1, $2, $3::jsonb, 'lyrica', $4, $5)
+     ) VALUES ($1, $2, $3::jsonb, 'lrclib', $4, $5)
      ON CONFLICT (media_id) DO UPDATE
      SET language = EXCLUDED.language,
          segments = EXCLUDED.segments,
-         source = 'lyrica',
+         source = 'lrclib',
          lookup_title = EXCLUDED.lookup_title,
          lookup_artists = EXCLUDED.lookup_artists,
          updated_at = NOW()
-     WHERE media_lyrics.source = 'lyrica'
+     WHERE media_lyrics.source = 'lrclib'
      RETURNING media_id, language, segments, updated_at`,
     [row.media_id, lyrics.language, JSON.stringify(lyrics.segments), title, artists]
   );
@@ -80,17 +89,18 @@ export async function resolveMediaLyrics(row, options = {}) {
   const title = typeof row.title === "string" ? row.title.trim() : "";
   const artists = typeof row.artists === "string" ? row.artists.trim() : "";
 
-  if (row.segments && row.lyrics_source !== "lyrica") return serializeLyrics(row);
+  const isProviderSource = row.lyrics_source === "lrclib";
+  if (row.segments && !isProviderSource) return serializeLyrics(row);
 
-  const isCurrent = isCurrentLyricaRow(row, title, artists);
-  const refreshMs = options.refreshMs ?? options.config?.refreshMs ?? getLyricaConfig().refreshMs;
-  if (row.segments && isCurrent && isLyricaRowFresh(row, refreshMs)) {
+  const isCurrent = isCurrentProviderRow(row, title, artists);
+  const refreshMs = options.refreshMs ?? options.config?.refreshMs ?? getLrclibConfig().refreshMs;
+  if (row.lyrics_source === "lrclib" && row.segments && isCurrent && isLrclibRowFresh(row, refreshMs)) {
     return serializeLyrics(row);
   }
 
   if (!row.mime_type?.startsWith("audio/") || !title || !artists) {
-    if (row.lyrics_source === "lyrica") {
-      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
+    if (row.lyrics_source === "lrclib") {
+      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lrclib'", [row.media_id]);
     }
     return null;
   }
@@ -99,14 +109,15 @@ export async function resolveMediaLyrics(row, options = {}) {
 
   let lyrics;
   try {
-    lyrics = await resolveLyricaLyrics({
+    lyrics = await resolveLrclibLyrics({
       ...options,
       artist: artists,
       song: title,
+      duration: row.duration,
     });
   } catch (error) {
-    if (hasExistingSegments && error instanceof LyricaProviderError) {
-      options.log?.warn?.({ err: error, mediaId: row.media_id }, "Lyrica periodic refresh failed; retaining existing lyrics");
+    if (hasExistingSegments && error instanceof LrclibProviderError) {
+      options.log?.warn?.({ err: error, mediaId: row.media_id }, "LRCLIB periodic refresh failed; retaining existing lyrics");
       return serializeLyrics(row);
     }
     throw error;
@@ -115,19 +126,19 @@ export async function resolveMediaLyrics(row, options = {}) {
   if (!lyrics) {
     if (hasExistingSegments) {
       await options.pg?.query?.(
-        "UPDATE media_lyrics SET updated_at = NOW() WHERE media_id = $1 AND source = 'lyrica'",
+        "UPDATE media_lyrics SET updated_at = NOW() WHERE media_id = $1 AND source = 'lrclib'",
         [row.media_id]
       );
       return serializeLyrics(row);
     }
 
-    if (row.lyrics_source === "lyrica") {
-      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lyrica'", [row.media_id]);
+    if (row.lyrics_source === "lrclib") {
+      await options.pg?.query?.("DELETE FROM media_lyrics WHERE media_id = $1 AND source = 'lrclib'", [row.media_id]);
     }
     return null;
   }
 
-  return persistLyricaLyrics(options.pg, row, lyrics, title, artists);
+  return persistLrclibLyrics(options.pg, row, lyrics, title, artists);
 }
 
 async function sendMissingMedia(fastify, reply, mediaId) {
@@ -150,9 +161,9 @@ export default async function lyricsRoutes(fastify) {
       if (!lyrics) return reply.code(404).send({ error: "Lyrics not found" });
       return lyrics;
     } catch (error) {
-      if (!(error instanceof LyricaProviderError)) throw error;
+      if (!(error instanceof LrclibProviderError)) throw error;
 
-      request.log.warn({ err: error, mediaId: request.params.id }, "Lyrica lookup failed");
+      request.log.warn({ err: error, mediaId: request.params.id }, "LRCLIB lookup failed");
       if (error.kind === "rate-limit") {
         if (error.retryAfter != null) reply.header("Retry-After", error.retryAfter);
         return reply.code(503).send({ error: "Lyrics provider rate limited" });

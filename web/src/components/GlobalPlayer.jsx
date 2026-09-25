@@ -384,10 +384,9 @@ export function GlobalPlayerProvider({ children }) {
 
     const isAudioMedia = mediaItem.mime_type?.startsWith("audio/");
     if (!isAudioMedia) {
-      const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
-      navigate(`/media/${mediaItem.id}${search}`);
+      setPlayerExpanded(true);
     }
-  }, [initializeQueue, loadResumePosition, navigate, resetForMedia]);
+  }, [initializeQueue, loadResumePosition, resetForMedia]);
 
   const playMediaById = useCallback((mediaId, nextCategoryId = null, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
@@ -413,9 +412,8 @@ export function GlobalPlayerProvider({ children }) {
         }
       }
       const isAudioMedia = currentMedia?.mime_type?.startsWith("audio/");
-      if (!isAudioMedia && location.pathname !== `/media/${numericId}`) {
-        const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
-        navigate(`/media/${numericId}${search}`);
+      if (!isAudioMedia) {
+        setPlayerExpanded(true);
       }
       return;
     }
@@ -429,13 +427,12 @@ export function GlobalPlayerProvider({ children }) {
         resetForMedia(mediaItem, { autoplay, startPosition });
         if (loadResume) loadResumePosition(mediaItem.id);
         const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
-        if (!isAudioMedia && location.pathname !== `/media/${mediaItem.id}`) {
-          const search = resolvedCategoryId ? `?category=${resolvedCategoryId}` : "";
-          navigate(`/media/${mediaItem.id}${search}`);
+        if (!isAudioMedia) {
+          setPlayerExpanded(true);
         }
       })
       .catch(() => {});
-  }, [currentMedia?.id, currentMedia?.mime_type, initializeQueue, loadResumePosition, location.pathname, navigate, resetForMedia]);
+  }, [currentMedia?.id, currentMedia?.mime_type, initializeQueue, loadResumePosition, resetForMedia]);
 
   const sendPlaybackEvent = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0) => {
     if (!mediaItem) return;
@@ -969,14 +966,38 @@ export function GlobalPlayerProvider({ children }) {
 
   const closeFullPlayer = useCallback(() => {
     if (!isAudio) {
-      if (mediaRef.current && !mediaRef.current.paused) {
-        mediaRef.current.pause();
+      if (mediaRef.current) {
+        if (!mediaRef.current.paused) {
+          mediaRef.current.pause();
+        }
+        const currentPos = mediaRef.current.currentTime || position || 0;
+        pendingSeekPositionRef.current = currentPos;
+      } else if (position > 0) {
+        pendingSeekPositionRef.current = position;
       }
       setPaused(true);
     }
     setPlayerExpanded(false);
     if (isRouteFullPlayer) navigate("/");
-  }, [isAudio, isRouteFullPlayer, navigate]);
+  }, [isAudio, isRouteFullPlayer, navigate, position]);
+
+  const prevIsRouteFullPlayerRef = useRef(isRouteFullPlayer);
+  useEffect(() => {
+    if (prevIsRouteFullPlayerRef.current && !isRouteFullPlayer && !isAudio) {
+      if (mediaRef.current) {
+        if (!mediaRef.current.paused) {
+          mediaRef.current.pause();
+        }
+        const currentPos = mediaRef.current.currentTime || position || 0;
+        pendingSeekPositionRef.current = currentPos;
+      } else if (position > 0) {
+        pendingSeekPositionRef.current = position;
+      }
+      setPaused(true);
+      setPlayerExpanded(false);
+    }
+    prevIsRouteFullPlayerRef.current = isRouteFullPlayer;
+  }, [isAudio, isRouteFullPlayer, position]);
 
   const togglePlayback = useCallback(() => {
     if (isImage) {
@@ -1020,8 +1041,7 @@ export function GlobalPlayerProvider({ children }) {
         applyCompactQueueResponse(data);
         if (queueOpen) refreshQueue().catch(() => {});
         if (closeQueue) setQueueOpen(false);
-        const isAudioMedia = mediaItem?.mime_type?.startsWith("audio/");
-        if (isRouteFullPlayer || !isAudioMedia) {
+        if (isRouteFullPlayer) {
           navigate(`/media/${mediaItem.id}${categoryQuery(categoryId)}`);
         }
       })
@@ -1113,8 +1133,7 @@ export function GlobalPlayerProvider({ children }) {
             resetForMedia(nextMedia);
             loadResumePosition(nextMedia.id);
             sendNowPlaying(nextMedia, "play", 0, nextMedia.duration || 0, { trigger });
-            const isAudioMedia = nextMedia?.mime_type?.startsWith("audio/");
-            if (isRouteFullPlayer || !isAudioMedia) {
+            if (isRouteFullPlayer) {
               navigate(`/media/${nextMedia.id}${categoryQuery(categoryId)}`);
             }
             if (queueOpen) return refreshQueue().catch(() => {});
@@ -1570,13 +1589,15 @@ export function GlobalPlayerProvider({ children }) {
               onSetEqEnabled={setEqEnabled}
             />
             </Suspense>
-          ) : isAudio ? (
+          ) : currentMedia ? (
             <MiniPlayer
               currentMedia={currentMedia}
               duration={duration}
               hasNext={canGoNext}
               hasPrev={canGoPrev}
+              isAudio={isAudio}
               isImage={isImage}
+              isVideo={isVideo}
               loopMode={loopMode}
               meta={meta}
               muted={muted}
@@ -1605,6 +1626,7 @@ export function GlobalPlayerProvider({ children }) {
               onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={() => toggleLike(currentMedia)}
+              onClose={stopPlayback}
             />
           ) : null}
         </>

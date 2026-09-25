@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildLyricsDisplaySegments,
   findActiveLyricsIndex,
   getLyricsPreview,
   getLyricsScrollBehavior,
@@ -27,6 +28,23 @@ describe("findActiveLyricsIndex", () => {
   it("handles empty input and invalid playback positions", () => {
     expect(findActiveLyricsIndex([], 2)).toBe(-1);
     expect(findActiveLyricsIndex(segments, Number.NaN)).toBe(-1);
+  });
+});
+
+describe("buildLyricsDisplaySegments", () => {
+  it("adds a presentation-only instrumental cue for gaps of at least three seconds", () => {
+    expect(buildLyricsDisplaySegments([
+      { start: 1, end: 4, text: "First" },
+      { start: 8, end: 10, text: "Second" },
+    ])).toEqual([
+      { start: 1, end: 4, text: "First", instrumental: false, lyricIndex: 0 },
+      { start: 4, end: 7.999, text: "Instrumental", instrumental: true },
+      { start: 8, end: 10, text: "Second", instrumental: false, lyricIndex: 1 },
+    ]);
+  });
+
+  it("does not add cues for short gaps", () => {
+    expect(buildLyricsDisplaySegments(segments)).toHaveLength(2);
   });
 });
 

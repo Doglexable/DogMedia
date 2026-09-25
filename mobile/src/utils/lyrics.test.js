@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findActiveLyricsIndex, getCenteredLyricsOffset, normalizeLyricsResponse } from "./lyrics.js";
+import { buildLyricsDisplaySegments, findActiveLyricsIndex, getCenteredLyricsOffset, normalizeLyricsResponse } from "./lyrics.js";
 
 describe("findActiveLyricsIndex", () => {
   it("finds a segment at its boundaries", () => {
@@ -21,6 +21,19 @@ describe("findActiveLyricsIndex", () => {
     expect(findActiveLyricsIndex([], 3)).toBe(-1);
     expect(findActiveLyricsIndex(null, 3)).toBe(-1);
     expect(findActiveLyricsIndex([{ start: 0, end: 2, text: "Line" }], Number.NaN)).toBe(-1);
+  });
+});
+
+describe("buildLyricsDisplaySegments", () => {
+  it("inserts instrumental cues only for gaps of at least three seconds", () => {
+    expect(buildLyricsDisplaySegments([
+      { start: 1, end: 4, text: "First" },
+      { start: 8, end: 10, text: "Second" },
+    ])).toEqual([
+      { start: 1, end: 4, text: "First", instrumental: false, lyricIndex: 0 },
+      { start: 4, end: 7.999, text: "Instrumental", instrumental: true },
+      { start: 8, end: 10, text: "Second", instrumental: false, lyricIndex: 1 },
+    ]);
   });
 });
 

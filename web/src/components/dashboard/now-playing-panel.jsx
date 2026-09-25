@@ -25,10 +25,47 @@ function useMobileDrawer() {
 }
 
 export function NowPlayingFloatingPill({ count = 0, firstSession, onClick }) {
+  const pillRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || count <= 0) return undefined;
+    const updateOffset = () => {
+      const rect = pillRef.current?.getBoundingClientRect();
+      const height = rect?.height || pillRef.current?.offsetHeight || 38;
+      const topFromBottom = rect && rect.top > 0
+        ? Math.max(0, Math.round(window.innerHeight - rect.top))
+        : (height + 18);
+      document.documentElement.style.setProperty("--active-pill-offset", `${topFromBottom + 12}px`);
+    };
+
+    const rafId = typeof requestAnimationFrame !== "undefined"
+      ? requestAnimationFrame(updateOffset)
+      : setTimeout(updateOffset, 0);
+    window.addEventListener("resize", updateOffset);
+
+    let resizeObserver;
+    if (typeof ResizeObserver !== "undefined" && pillRef.current) {
+      resizeObserver = new ResizeObserver(updateOffset);
+      resizeObserver.observe(pillRef.current);
+    }
+
+    return () => {
+      if (typeof cancelAnimationFrame !== "undefined" && typeof rafId === "number") {
+        cancelAnimationFrame(rafId);
+      } else {
+        clearTimeout(rafId);
+      }
+      window.removeEventListener("resize", updateOffset);
+      resizeObserver?.disconnect();
+      document.documentElement.style.removeProperty("--active-pill-offset");
+    };
+  }, [count]);
+
   if (count <= 0) return null;
 
   return (
     <button
+      ref={pillRef}
       type="button"
       className="now-playing-floating-pill"
       onClick={onClick}

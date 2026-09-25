@@ -23,6 +23,11 @@ export const EQ_PRESETS = {
     genres: "Neutral / Default",
     gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   },
+  dialogue: {
+    label: "Movie / Dialogue",
+    genres: "Film, Video & Voice • Actor Dialogue Boost & Speech Clarity",
+    gains: [-4, -2, 1, -1, 1, 3, 6, 4, 1, -2],
+  },
   rock: {
     label: "Rock",
     genres: "Alternative Rock, Grunge, Hard Rock, Post-Grunge, Post-Hardcore, Punk Rock, Rock 'n' Roll, Skate Punk",
@@ -68,12 +73,20 @@ const PRESET_ALIASES = {
   brightClean: "pop",
   spatialShimmer: "dreamPop",
   electronicSynth: "electronic",
+  movie: "dialogue",
+  film: "dialogue",
+  video: "dialogue",
+  voice: "dialogue",
+  dialogueBoost: "dialogue",
+  clearVoice: "dialogue",
 };
 
 const GAINS_KEY   = "pfs:eq-gains";
 const ENABLED_KEY = "pfs:eq-enabled";
 export const GAIN_MIN = -10;
 export const GAIN_MAX = 10;
+export const PREAMP_GAIN_DB = -GAIN_MAX; // -10 dB pre-attenuation to prevent digital clipping on boost
+export const PREAMP_LINEAR_GAIN = Math.pow(10, PREAMP_GAIN_DB / 20); // ~0.3162 linear amplitude
 
 export function formatGain(val) {
   const num = Number(val) || 0;
@@ -128,9 +141,11 @@ export function useEqualizer(mediaRef) {
 
   const ctxRef            = useRef(null); // AudioContext
   const sourceRef         = useRef(null); // MediaElementSourceNode
+  const preampRef         = useRef(null); // GainNode (pre-EQ -10 dB attenuation)
   const filtersRef        = useRef([]);   // BiquadFilterNode[]
   const currentElementRef = useRef(null); // Current HTMLMediaElement
   const sourceCacheRef    = useRef(new WeakMap());
+  const playListenerRef   = useRef(null);
   const closeTimerRef     = useRef(null);
   const mountedRef        = useRef(false);
   const gainsRef          = useRef(gains);
@@ -140,7 +155,14 @@ export function useEqualizer(mediaRef) {
   enabledRef.current = eqEnabled;
 
   const disconnectGraph = useCallback(() => {
+    if (playListenerRef.current && currentElementRef.current) {
+      try {
+        currentElementRef.current.removeEventListener("play", playListenerRef.current);
+      } catch { /* ignore */ }
+      playListenerRef.current = null;
+    }
     try { sourceRef.current?.disconnect(); } catch { /* already disconnected */ }
+    try { preampRef.current?.disconnect(); } catch { /* already disconnected */ }
     for (const filter of filtersRef.current) {
       try { filter.disconnect(); } catch { /* already disconnected */ }
     }
@@ -180,8 +202,13 @@ export function useEqualizer(mediaRef) {
 
       const filters = ensureFilters(ctx);
 
-      // Chain: source → f[0] → f[1] → … → f[4] → destination
-      let node = source;
+      const preamp = ctx.createGain();
+      preamp.gain.value = PREAMP_LINEAR_GAIN;
+      preampRef.current = preamp;
+
+      // Chain: source → preamp (-10 dB) → f[0] → f[1] → … → f[9] → destination
+      source.connect(preamp);
+      let node = preamp;
       for (const filter of filters) {
         node.connect(filter);
         node = filter;
@@ -190,6 +217,14 @@ export function useEqualizer(mediaRef) {
 
       // Resume suspended context (browsers auto-suspend until user gesture)
       if (ctx.state === "suspended") ctx.resume().catch(() => {});
+
+      const handlePlay = () => {
+        if (ctxRef.current?.state === "suspended") {
+          ctxRef.current.resume().catch(() => {});
+        }
+      };
+      el.addEventListener("play", handlePlay);
+      playListenerRef.current = handlePlay;
     } catch (err) {
       console.warn("[EQ] Failed to build audio graph:", err);
     }
@@ -245,6 +280,7 @@ export function useEqualizer(mediaRef) {
         contextToClose?.close().catch(() => {});
         ctxRef.current = null;
         sourceRef.current = null;
+        preampRef.current = null;
         filtersRef.current = [];
         currentElementRef.current = null;
         sourceCacheRef.current = new WeakMap();
@@ -303,5 +339,6 @@ export function useEqualizer(mediaRef) {
     setEqEnabled,
     gainMin: GAIN_MIN,
     gainMax: GAIN_MAX,
+    preampGainDb: PREAMP_GAIN_DB,
   };
 }

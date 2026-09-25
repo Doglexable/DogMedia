@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
 import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
 import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
+import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { EQ_PRESETS, GAIN_MIN, GAIN_MAX, formatGain } from "./use-equalizer";
 
 const SVG_WIDTH = 600;
@@ -163,7 +164,7 @@ export function SpotifyEqualizer({
 
   return (
     <div className="spotify-eq">
-      {/* ── Top Header / On-Off switch ── */}
+      {/* ── Top Header / On-Off switch & Reset ── */}
       <div className="spotify-eq-header">
         <div className="spotify-eq-title-wrap">
           <FontAwesomeIcon icon={faSliders} className="spotify-eq-header-icon" />
@@ -172,53 +173,32 @@ export function SpotifyEqualizer({
             {eqEnabled ? "ON" : "OFF"}
           </span>
         </div>
-        <label className="eq-toggle" title={eqEnabled ? "Disable EQ" : "Enable EQ"}>
-          <input
-            type="checkbox"
-            className="eq-toggle-input"
-            checked={eqEnabled}
-            onChange={(e) => onSetEnabled(e.target.checked)}
-            aria-label="Enable equalizer"
-          />
-          <span className="eq-toggle-track" aria-hidden="true">
-            <span className="eq-toggle-thumb" />
-          </span>
-        </label>
-      </div>
-
-      {/* ── Preset selector bar ── */}
-      <div className="spotify-eq-controls-row">
-        <div className="spotify-eq-preset-select-wrap">
-          <span className="spotify-eq-preset-label">Preset:</span>
-          <select
-            className="spotify-eq-select"
-            value={preset}
-            disabled={!eqEnabled}
-            aria-label="Select EQ preset"
-            onChange={(e) => {
-              onSetPreset(e.target.value);
+        <div className="spotify-eq-header-actions">
+          <button
+            type="button"
+            className="spotify-eq-reset-btn"
+            onClick={() => {
+              onSetPreset("flat");
               if (!eqEnabled) onSetEnabled(true);
             }}
+            title="Reset to 0 dB Flat"
           >
-            {preset === "custom" && <option value="custom">Custom (Modified)</option>}
-            {Object.entries(EQ_PRESETS).map(([key, { label }]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
+            <FontAwesomeIcon icon={faRotateLeft} className="spotify-eq-reset-icon" />
+            <span>Reset</span>
+          </button>
+          <label className="eq-toggle" title={eqEnabled ? "Disable EQ" : "Enable EQ"}>
+            <input
+              type="checkbox"
+              className="eq-toggle-input"
+              checked={eqEnabled}
+              onChange={(e) => onSetEnabled(e.target.checked)}
+              aria-label="Enable equalizer"
+            />
+            <span className="eq-toggle-track" aria-hidden="true">
+              <span className="eq-toggle-thumb" />
+            </span>
+          </label>
         </div>
-
-        <button
-          type="button"
-          className="spotify-eq-reset-btn"
-          onClick={() => {
-            onSetPreset("flat");
-            if (!eqEnabled) onSetEnabled(true);
-          }}
-          title="Reset to 0 dB Flat"
-        >
-          <FontAwesomeIcon icon={faRotateLeft} className="spotify-eq-reset-icon" />
-          <span>Reset</span>
-        </button>
       </div>
 
       {/* ── Preset Pills Scrollable Strip ── */}
@@ -251,7 +231,10 @@ export function SpotifyEqualizer({
       {/* ── Genre badge hint ── */}
       {activePresetData?.genres && (
         <div className="spotify-eq-genre-tag" title={activePresetData.genres}>
-          <FontAwesomeIcon icon={faMusic} className="spotify-eq-genre-icon" />
+          <FontAwesomeIcon
+            icon={preset === "dialogue" ? faFilm : faMusic}
+            className="spotify-eq-genre-icon"
+          />
           <span className="spotify-eq-genre-text">
             <strong>Best for:</strong> {activePresetData.genres}
           </span>

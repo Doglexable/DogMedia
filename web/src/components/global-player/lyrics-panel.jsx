@@ -23,6 +23,32 @@ export function findActiveLyricsIndex(segments, position) {
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
 }
 
+export const MIN_INSTRUMENTAL_GAP_SECONDS = 3;
+
+export function buildLyricsDisplaySegments(segments, minimumGap = MIN_INSTRUMENTAL_GAP_SECONDS) {
+  if (!Array.isArray(segments) || segments.length === 0) return [];
+
+  const displaySegments = [];
+  const appendInstrumental = (start, end) => {
+    if (end - start < minimumGap) return;
+    displaySegments.push({
+      start,
+      end: Number((end - 0.001).toFixed(3)),
+      text: "Instrumental",
+      instrumental: true,
+    });
+  };
+
+  appendInstrumental(0, Number(segments[0].start));
+  segments.forEach((segment, lyricIndex) => {
+    displaySegments.push({ ...segment, instrumental: false, lyricIndex });
+    const next = segments[lyricIndex + 1];
+    if (next) appendInstrumental(Number(segment.end), Number(next.start));
+  });
+
+  return displaySegments;
+}
+
 export function getLyricsScrollBehavior(prefersReducedMotion) {
   return prefersReducedMotion ? "auto" : "smooth";
 }
@@ -50,12 +76,12 @@ function LyricsLines({ activeIndex, lineRefs, onSeek, segments, variant }) {
         key={`${segment.start}-${index}`}
         ref={(node) => { lineRefs.current[index] = node; }}
         type="button"
-        className={`${variant}-line${index === activeIndex ? ` ${variant}-line--active` : ""}`}
+        className={`${variant}-line${index === activeIndex ? ` ${variant}-line--active` : ""}${segment.instrumental ? ` ${variant}-line--instrumental` : ""}`}
         data-distance={variant === "mobile-lyrics-drawer" ? distance : undefined}
         aria-current={index === activeIndex ? "true" : undefined}
         onClick={() => onSeek(segment.start)}
       >
-        {segment.text}
+        {segment.instrumental ? `♪ ${segment.text}` : segment.text}
       </button>
     );
   });
@@ -258,11 +284,16 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
   const inlineLineRefs = useRef([]);
   const drawerLineRefs = useRef([]);
 
+  const displaySegments = useMemo(() => buildLyricsDisplaySegments(lyrics?.segments), [lyrics?.segments]);
   const activeIndex = useMemo(
+    () => findActiveLyricsIndex(displaySegments, position),
+    [displaySegments, position]
+  );
+  const activeLyricsIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
-  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeIndex), [activeIndex, lyrics?.segments, position]);
+  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
 
   useEffect(() => {
     const activeLine = activeIndex >= 0 ? activeIndex : 0;
@@ -292,7 +323,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
           activeIndex={activeIndex}
           lineRefs={inlineLineRefs}
           onSeek={onSeek}
-          segments={lyrics.segments}
+          segments={displaySegments}
           variant="now-playing-lyrics"
         />
       </div>
@@ -351,7 +382,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
                   activeIndex={activeIndex}
                   lineRefs={drawerLineRefs}
                   onSeek={onSeek}
-                  segments={lyrics.segments}
+                  segments={displaySegments}
                   variant="mobile-lyrics-drawer"
                 />
               </div>
@@ -391,11 +422,16 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
   const listRef = useRef(null);
   const lineRefs = useRef([]);
 
+  const displaySegments = useMemo(() => buildLyricsDisplaySegments(lyrics?.segments), [lyrics?.segments]);
   const activeIndex = useMemo(
+    () => findActiveLyricsIndex(displaySegments, position),
+    [displaySegments, position]
+  );
+  const activeLyricsIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
-  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeIndex), [activeIndex, lyrics?.segments, position]);
+  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
   const displayActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   useEffect(() => {
@@ -465,7 +501,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
                   activeIndex={activeIndex}
                   lineRefs={lineRefs}
                   onSeek={onSeek}
-                  segments={lyrics.segments}
+                  segments={displaySegments}
                   variant="mobile-lyrics-drawer"
                 />
               </div>
@@ -489,7 +525,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
     <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
       <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={openShare}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
       <div ref={listRef} className="fullscreen-lyrics-list">
-        {lyrics.segments.map((segment, index) => {
+        {displaySegments.map((segment, index) => {
           const distance = Math.max(Math.min(index - displayActiveIndex, 4), -4);
           const active = index === activeIndex;
           return (
@@ -497,12 +533,12 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
               key={`${segment.start}-${index}`}
               ref={(node) => { lineRefs.current[index] = node; }}
               type="button"
-              className={active ? "fullscreen-lyrics-line fullscreen-lyrics-line--active" : "fullscreen-lyrics-line"}
+              className={`fullscreen-lyrics-line${active ? " fullscreen-lyrics-line--active" : ""}${segment.instrumental ? " fullscreen-lyrics-line--instrumental" : ""}`}
               style={{ "--lyric-distance": distance }}
               aria-current={active ? "true" : undefined}
               onClick={() => onSeek(segment.start)}
             >
-              {segment.text}
+              {segment.instrumental ? `♪ ${segment.text}` : segment.text}
             </button>
           );
         })}

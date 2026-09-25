@@ -61,14 +61,15 @@ describe("SpotifyEqualizer component", () => {
     expect(markup).toContain("spotify-eq-curve-line");
   });
 
-  it("renders preset select dropdown and pills for all presets", () => {
+  it("renders preset pills for all presets and reset button without redundant select dropdown", () => {
     const markup = renderToStaticMarkup(<SpotifyEqualizer {...defaultProps} />);
 
     for (const { label } of Object.values(EQ_PRESETS)) {
       expect(markup).toContain(label.replace(/&/g, "&amp;"));
     }
-    expect(markup).toContain("spotify-eq-select");
+    expect(markup).not.toContain("spotify-eq-select");
     expect(markup).toContain("spotify-eq-pills-bar");
+    expect(markup).toContain("spotify-eq-reset-btn");
   });
 
   it("shows active preset styling and genre descriptions", () => {

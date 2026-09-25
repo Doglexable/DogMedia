@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { AlbumArt } from "./album-art";
@@ -14,6 +15,14 @@ export function PlayerBar({
   quality, actualQuality, onChangeQuality,
   isMini = false,
 }) {
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    document.documentElement.style.setProperty("--active-player-height", "var(--player-height)");
+    return () => {
+      document.documentElement.style.removeProperty("--active-player-height");
+    };
+  }, []);
+
   const isAudio = Boolean(typeof currentMedia?.mime_type === "string" && currentMedia.mime_type.startsWith("audio/"));
   const artSrc = isImage ? streamSrc : thumbSrc;
   const album = getMediaFolderName(currentMedia);

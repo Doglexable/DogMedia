@@ -6,7 +6,7 @@ import * as Sharing from "expo-sharing";
 import ViewShot, { captureRef } from "react-native-view-shot";
 import { api } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { findActiveLyricsIndex, normalizeLyricsResponse } from "../utils/lyrics";
+import { buildLyricsDisplaySegments, findActiveLyricsIndex, normalizeLyricsResponse } from "../utils/lyrics";
 import { captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
 import { formatDuration } from "../utils/media";
 
@@ -203,7 +203,12 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
     return () => controller.abort();
   }, [mediaId, offlineLyrics, retryKey]);
 
+  const displaySegments = useMemo(() => buildLyricsDisplaySegments(lyrics?.segments), [lyrics?.segments]);
   const activeIndex = useMemo(
+    () => findActiveLyricsIndex(displaySegments, position),
+    [displaySegments, position]
+  );
+  const activeLyricsIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
@@ -260,7 +265,7 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
         ref={scrollRef}
         style={styles.shell}
         contentContainerStyle={[styles.content, contentContainerStyle]}
-        data={lyrics.segments}
+        data={displaySegments}
         initialNumToRender={14}
         keyExtractor={(segment, index) => `${segment.start}-${index}`}
         maxToRenderPerBatch={12}
@@ -273,19 +278,19 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
           const distance = Math.abs(index - displayIndex);
           return <Pressable
             accessibilityHint="Seeks playback to this lyric"
-            accessibilityLabel={`${formatDuration(segment.start)}. ${segment.text}`}
+            accessibilityLabel={`${formatDuration(segment.start)}. ${segment.instrumental ? "Instrumental" : segment.text}`}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             onPress={() => onSeek(segment.start)}
             style={styles.lineButton}
           >
-            <Text style={[styles.line, active && styles.activeLine, distance > 1 && styles.dimLine]}>{segment.text}</Text>
+            <Text style={[styles.line, segment.instrumental && styles.instrumentalLine, active && styles.activeLine, active && segment.instrumental && styles.activeInstrumentalLine, distance > 1 && styles.dimLine]}>{segment.instrumental ? `♪ ${segment.text}` : segment.text}</Text>
           </Pressable>;
         }}
         showsVerticalScrollIndicator={false}
         windowSize={7}
       />
-      <LyricsShareModal activeIndex={activeIndex} artworkUri={artworkUri} media={media} onClose={() => setShareOpen(false)} position={position} segments={lyrics.segments} visible={shareOpen} />
+      <LyricsShareModal activeIndex={activeLyricsIndex} artworkUri={artworkUri} media={media} onClose={() => setShareOpen(false)} position={position} segments={lyrics.segments} visible={shareOpen} />
     </View>
   );
 }
@@ -320,6 +325,17 @@ const makeStyles = (colors) => StyleSheet.create({
     fontSize: 34,
     lineHeight: 39,
     fontWeight: "900",
+  },
+  instrumentalLine: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "800",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  activeInstrumentalLine: {
+    fontSize: 15,
+    lineHeight: 22,
   },
   dimLine: {
     opacity: 0.62,

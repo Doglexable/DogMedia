@@ -292,6 +292,12 @@ export function VideoPlayer({
           e.preventDefault();
           toggleFullscreen();
           break;
+        case "escape":
+          if (!document.fullscreenElement) {
+            e.preventDefault();
+            onCloseFull?.();
+          }
+          break;
         case "0":
         case "1":
         case "2":
@@ -317,6 +323,7 @@ export function VideoPlayer({
     max,
     muted,
     onChangeVolume,
+    onCloseFull,
     onSeek,
     onToggle,
     onToggleMute,
