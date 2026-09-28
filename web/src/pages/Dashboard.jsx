@@ -66,27 +66,7 @@ function DashboardHomeSkeleton() {
           background: "color-mix(in srgb, var(--card-bg) 92%, var(--bg))",
         }}
       />
-      <section className="quick-access-block" aria-hidden="true">
-        <div className="library-section-header">
-          <div>
-            <span className="skeleton-shimmer inline-block h-3 w-28 rounded" />
-            <span className="skeleton-shimmer mt-2 block h-6 w-56 rounded" />
-          </div>
-        </div>
-        <div className="quick-access-section">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div
-              key={index}
-              className="quick-access-card skeleton-shimmer"
-              style={{
-                height: 68,
-                background: "color-mix(in srgb, var(--card-bg) 80%, var(--bg))",
-                borderRadius: 8,
-              }}
-            />
-          ))}
-        </div>
-      </section>
+      <MediaGridSkeleton count={6} />
     </div>
   );
 }
@@ -224,38 +204,6 @@ function openCardContextMenu(event, setMenu) {
     x: Math.min(event.clientX, window.innerWidth - 180),
     y: Math.min(event.clientY, window.innerHeight - 145),
   });
-}
-
-function QuickAccessCard({ active, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
-  const [menu, setMenu] = useState(null);
-  const closeMenu = useCallback(() => setMenu(null), []);
-
-  return (
-    <>
-      <button
-        type="button"
-        className={`quick-access-card${active ? " quick-access-card--active" : ""}`}
-        onClick={() => onPlay(item)}
-        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
-      >
-        <MediaCover item={item} size="small" />
-        <span className="quick-access-copy">
-          <strong title={item.title}>{item.title}</strong>
-          <small>{mediaCategory(item)}</small>
-        </span>
-      </button>
-      <MediaContextMenu
-        isLiked={isLiked}
-        item={item}
-        menu={menu}
-        onAddQueue={onAddQueue}
-        onClose={closeMenu}
-        onNotice={onNotice}
-        onPlayNext={onPlayNext}
-        onToggleLike={onToggleLike}
-      />
-    </>
-  );
 }
 
 function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
@@ -562,39 +510,9 @@ export default function Dashboard() {
     () => new Map(hydratedMedia.map((item) => [Number(item.id), item])),
     [hydratedMedia]
   );
-  const orderMediaByIds = useCallback((ids = [], fallbackItems = visibleMedia, limit = 14) => {
-    const seen = new Set();
-    const ordered = [];
-
-    for (const id of ids) {
-      const item = visibleMediaById.get(Number(id));
-      if (!item || seen.has(Number(item.id))) continue;
-      seen.add(Number(item.id));
-      ordered.push(item);
-      if (ordered.length >= limit) return ordered;
-    }
-
-    for (const item of fallbackItems) {
-      if (!item || seen.has(Number(item.id))) continue;
-      seen.add(Number(item.id));
-      ordered.push(item);
-      if (ordered.length >= limit) return ordered;
-    }
-
-    return ordered;
-  }, [visibleMedia, visibleMediaById]);
   const featuredMedia = useMemo(
     () => visibleMediaById.get(Number(dashboardSummary?.featuredId)) || visibleMedia[0] || null,
     [dashboardSummary?.featuredId, visibleMedia, visibleMediaById]
-  );
-  const recentlyPlayedIds = dashboardSummary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
-  const quickAccessMedia = useMemo(
-    () => orderMediaByIds(
-      recentlyPlayedIds || dashboardSummary?.quickAccessIds,
-      visibleMedia,
-      8
-    ),
-    [dashboardSummary?.quickAccessIds, orderMediaByIds, recentlyPlayedIds, visibleMedia]
   );
   const showBrowse = shouldShowBrowse({
     hasSearch: Boolean(normalizedSearch),
@@ -724,32 +642,6 @@ export default function Dashboard() {
                   onToggleLike={player?.toggleLike}
                 />
               </div>
-            )}
-
-            {!normalizedSearch && (
-              <section className="quick-access-block vault-reveal vault-reveal--delayed" aria-labelledby="quick-access-heading">
-                <div className="library-section-header">
-                  <div>
-                    <p className="library-section-kicker">Recent rotation</p>
-                    <h2 id="quick-access-heading">Pick up where you left off</h2>
-                  </div>
-                </div>
-                <div className="quick-access-section">
-                  {quickAccessMedia.map((item) => (
-                    <QuickAccessCard
-                      key={item.id}
-                      active={Number(currentMediaId) === Number(item.id)}
-                      isLiked={player?.isLiked?.(item.id) || false}
-                      item={item}
-                      onAddQueue={player?.addToQueue}
-                      onNotice={setNotice}
-                      onPlay={playMedia}
-                      onPlayNext={player?.playNext}
-                      onToggleLike={player?.toggleLike}
-                    />
-                  ))}
-                </div>
-              </section>
             )}
 
             {showBrowse && (
