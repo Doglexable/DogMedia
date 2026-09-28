@@ -6,6 +6,7 @@ import { parseStreamFields } from "./encoding-worker.js";
 import { MEDIA_FINALIZATION_GROUP, MEDIA_FINALIZATION_STREAM } from "./media-finalization-queue.js";
 import { probeDuration, probeMediaTags, resolveTrackOrder } from "./routes/media.js";
 import { normalizeMatroskaSource } from "./video-source-normalization.js";
+import { extractMediaSubtitles } from "./subtitles.js";
 
 const DEFAULT_IDLE_MS = 60_000;
 export const MAX_FINALIZATION_ATTEMPTS = 3;
@@ -54,6 +55,20 @@ export async function processMediaFinalizationJob({
   let media = rows[0];
   let normalizedSource = false;
   if (!media || Number(media.source_version) !== Number(sourceVersion)) return { stale: true };
+
+  if (media.mime_type?.startsWith("video/") || String(media.file_path).toLowerCase().endsWith(".mkv")) {
+    try {
+      await extractMediaSubtitles({
+        dataDir,
+        mediaId,
+        filePath: media.file_path,
+        pg,
+        log,
+      });
+    } catch (subErr) {
+      log?.warn?.({ err: subErr, mediaId }, "failed to extract video subtitles during finalization");
+    }
+  }
 
   try {
     const normalized = await normalizeVideoSource({ dataDir, media });

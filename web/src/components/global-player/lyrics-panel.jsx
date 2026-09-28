@@ -5,7 +5,7 @@ import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
 import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
-import { api } from "../../api";
+import { fetchLyrics, getCachedLyrics } from "./lyrics-cache";
 import {
   createLyricsSelection,
   getLyricsCandidateWindow,
@@ -21,6 +21,19 @@ import {
 export function findActiveLyricsIndex(segments, position) {
   if (!Array.isArray(segments) || !Number.isFinite(position)) return -1;
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
+}
+
+export function findLyricsFocusIndex(segments, position) {
+  if (!Array.isArray(segments) || segments.length === 0) return -1;
+
+  const activeIndex = findActiveLyricsIndex(segments, position);
+  if (activeIndex >= 0) return activeIndex;
+  if (!Number.isFinite(position)) return 0;
+
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (position >= segments[index].start) return index;
+  }
+  return 0;
 }
 
 export const MIN_INSTRUMENTAL_GAP_SECONDS = 3;
@@ -66,11 +79,9 @@ export function getLyricsPreview(segments, activeIndex) {
   return segments[0].text;
 }
 
-function LyricsLines({ activeIndex, lineRefs, onSeek, segments, variant }) {
-  const displayIndex = activeIndex >= 0 ? activeIndex : 0;
-
+function LyricsLines({ activeIndex, focusIndex, lineRefs, onSeek, segments, variant }) {
   return segments.map((segment, index) => {
-    const distance = Math.min(Math.abs(index - displayIndex), 4);
+    const distance = Math.min(Math.abs(index - focusIndex), 4);
     return (
       <button
         key={`${segment.start}-${index}`}
@@ -228,25 +239,38 @@ function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }
 }
 
 function useSynchronizedLyrics(mediaId) {
-  const [lyrics, setLyrics] = useState(null);
+  const normalizedId = Number(mediaId);
+  const validId = Number.isFinite(normalizedId) && normalizedId > 0 ? normalizedId : null;
+  const [lyrics, setLyrics] = useState(() => (validId ? getCachedLyrics(validId) : null));
 
   useEffect(() => {
+    if (!validId) {
+      setLyrics(null);
+      return;
+    }
+
+    const cached = getCachedLyrics(validId);
+    if (cached !== null) {
+      setLyrics(cached);
+      return;
+    }
+
+    let active = true;
     const controller = new AbortController();
-    setLyrics(null);
 
-    api(`/api/media/${mediaId}/lyrics`, { signal: controller.signal })
-      .then(async (response) => {
-        if (response.status === 404) return null;
-        if (!response.ok) throw new Error("Lyrics unavailable");
-        return response.json();
-      })
+    fetchLyrics(validId, { signal: controller.signal })
       .then((data) => {
-        if (!controller.signal.aborted) setLyrics(data);
+        if (active) setLyrics(data);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setLyrics(null);
+      });
 
-    return () => controller.abort();
-  }, [mediaId]);
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [validId]);
 
   return lyrics;
 }
@@ -274,8 +298,13 @@ function useLyricsShareFlow(setDrawerOpen) {
   return { closeShare, drawerSuspended, openShare, openShareFromDrawer, shareOpen };
 }
 
-export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
-  const lyrics = useSynchronizedLyrics(mediaId);
+export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyrics: propLyrics }) {
+  const resolvedMediaId = Number(media?.id ?? media?.mediaId ?? mediaId);
+  const fallbackLyrics = useSynchronizedLyrics(propLyrics !== undefined ? null : resolvedMediaId);
+  const rawLyrics = propLyrics !== undefined ? propLyrics : fallbackLyrics;
+  const lyrics = (rawLyrics && (!rawLyrics.mediaId || Number(rawLyrics.mediaId) === resolvedMediaId))
+    ? rawLyrics
+    : null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
   const { closeShare, drawerSuspended, openShare, openShareFromDrawer, shareOpen } = useLyricsShareFlow(setDrawerOpen);
@@ -289,6 +318,10 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
     () => findActiveLyricsIndex(displaySegments, position),
     [displaySegments, position]
   );
+  const focusIndex = useMemo(
+    () => findLyricsFocusIndex(displaySegments, position),
+    [displaySegments, position]
+  );
   const activeLyricsIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
@@ -296,16 +329,15 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
   const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
 
   useEffect(() => {
-    const activeLine = activeIndex >= 0 ? activeIndex : 0;
     if (!shareOpen && drawerOpen && drawerListRef.current) {
       requestAnimationFrame(() => {
-        scrollActiveLineIntoView(drawerListRef.current, drawerLineRefs.current[activeLine]);
+        scrollActiveLineIntoView(drawerListRef.current, drawerLineRefs.current[focusIndex]);
       });
     }
     if (!shareOpen && inlineListRef.current) {
-      scrollActiveLineIntoView(inlineListRef.current, inlineLineRefs.current[activeLine]);
+      scrollActiveLineIntoView(inlineListRef.current, inlineLineRefs.current[focusIndex]);
     }
-  }, [activeIndex, drawerOpen, shareOpen]);
+  }, [drawerOpen, focusIndex, shareOpen]);
 
   if (!lyrics?.segments?.length) return null;
 
@@ -321,6 +353,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
       <div ref={inlineListRef} className="now-playing-lyrics-list now-playing-lyrics-list--inline" aria-label="Synchronized lyrics">
         <LyricsLines
           activeIndex={activeIndex}
+          focusIndex={focusIndex}
           lineRefs={inlineLineRefs}
           onSeek={onSeek}
           segments={displaySegments}
@@ -380,6 +413,7 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position }) {
               <div ref={drawerListRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
                 <LyricsLines
                   activeIndex={activeIndex}
+                  focusIndex={focusIndex}
                   lineRefs={drawerLineRefs}
                   onSeek={onSeek}
                   segments={displaySegments}
@@ -413,8 +447,13 @@ function useMobileDrawer() {
   return mobile;
 }
 
-export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position }) {
-  const lyrics = useSynchronizedLyrics(mediaId);
+export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position, lyrics: propLyrics, lyricsLoading = false }) {
+  const resolvedMediaId = Number(media?.id ?? media?.mediaId ?? mediaId);
+  const fallbackLyrics = useSynchronizedLyrics(propLyrics !== undefined ? null : resolvedMediaId);
+  const rawLyrics = propLyrics !== undefined ? propLyrics : fallbackLyrics;
+  const lyrics = (rawLyrics && (!rawLyrics.mediaId || Number(rawLyrics.mediaId) === resolvedMediaId))
+    ? rawLyrics
+    : null;
   const mobile = useMobileDrawer();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [snap, setSnap] = useState(0.88);
@@ -427,22 +466,25 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
     () => findActiveLyricsIndex(displaySegments, position),
     [displaySegments, position]
   );
+  const focusIndex = useMemo(
+    () => findLyricsFocusIndex(displaySegments, position),
+    [displaySegments, position]
+  );
   const activeLyricsIndex = useMemo(
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
   const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
-  const displayActiveIndex = activeIndex >= 0 ? activeIndex : 0;
 
   useEffect(() => {
     if (!shareOpen && listRef.current && (!mobile || drawerOpen)) {
       requestAnimationFrame(() => {
         const list = listRef.current;
-        const activeLine = lineRefs.current[displayActiveIndex];
+        const activeLine = lineRefs.current[focusIndex];
         scrollActiveLineIntoView(list, activeLine);
       });
     }
-  }, [displayActiveIndex, drawerOpen, mobile, shareOpen]);
+  }, [drawerOpen, focusIndex, mobile, shareOpen]);
 
   if (mobile) {
     if (!lyrics?.segments?.length) return null;
@@ -499,6 +541,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
               <div ref={listRef} className="mobile-lyrics-drawer-list" aria-label="Synchronized lyrics">
                 <LyricsLines
                   activeIndex={activeIndex}
+                  focusIndex={focusIndex}
                   lineRefs={lineRefs}
                   onSeek={onSeek}
                   segments={displaySegments}
@@ -516,7 +559,11 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
   if (!lyrics?.segments?.length) {
     return (
       <section className="fullscreen-lyrics fullscreen-lyrics--empty" aria-label="Synchronized lyrics">
-        <p>Lyrics will appear here when they are available for this track.</p>
+        {lyricsLoading ? (
+          <p>Loading timed lyrics…</p>
+        ) : (
+          <p>Lyrics will appear here when they are available for this track.</p>
+        )}
       </section>
     );
   }
@@ -526,7 +573,7 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position 
       <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={openShare}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
       <div ref={listRef} className="fullscreen-lyrics-list">
         {displaySegments.map((segment, index) => {
-          const distance = Math.max(Math.min(index - displayActiveIndex, 4), -4);
+          const distance = Math.max(Math.min(index - focusIndex, 4), -4);
           const active = index === activeIndex;
           return (
             <button

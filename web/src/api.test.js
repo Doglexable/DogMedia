@@ -88,6 +88,13 @@ describe("mediaThumbnailUrl", () => {
     expect(mediaThumbnailUrl({ id: 5, artwork_version: "5/front.webp" })).toBe("/api/media/5/thumbnail?v=5%2Ffront.webp");
   });
 
+  it("canonicalizes to category thumbnail url when tracks share category artwork without distinct thumbnail", () => {
+    expect(mediaThumbnailUrl({ id: 1, category_id: 7, artwork_version: "7/cover.webp" }))
+      .toBe("/api/categories/7/thumbnail?v=7%2Fcover.webp");
+    expect(mediaThumbnailUrl({ id: 2, category_id: 7, artwork_version: "7/cover.webp" }))
+      .toBe("/api/categories/7/thumbnail?v=7%2Fcover.webp");
+  });
+
   it("builds thumbnail url without query when artwork_version is absent", () => {
     expect(mediaThumbnailUrl({ id: 5 })).toBe("/api/media/5/thumbnail");
     expect(mediaThumbnailUrl(5)).toBe("/api/media/5/thumbnail");

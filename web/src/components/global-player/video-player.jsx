@@ -15,9 +15,13 @@ import { faVolumeHigh } from "@fortawesome/free-solid-svg-icons/faVolumeHigh";
 import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
+import { faClosedCaptioning } from "@fortawesome/free-solid-svg-icons/faClosedCaptioning";
+import { api } from "../../api";
 import { ShinyText } from "../ShinyText";
 import { SettingsControl } from "./settings-panel";
 import { formatDuration } from "./player-utils";
+import { SubtitlesMenu, formatLanguageLabel } from "./subtitles-menu";
+import { AssSubtitleController } from "./ass-subtitle-manager";
 
 function getVolumeIcon(volume, muted) {
   if (muted || volume <= 0) return faVolumeXmark;
@@ -83,6 +87,11 @@ export function VideoPlayer({
   const [toast, setToast] = useState(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
 
+  const assControllerRef = useRef(null);
+  const [subtitles, setSubtitles] = useState([]);
+  const [selectedSubtitleId, setSelectedSubtitleId] = useState(null);
+  const [subtitleMode, setSubtitleMode] = useState("ass");
+
   const mediaDuration = duration || currentMedia?.duration || 0;
   const max = Math.max(mediaDuration, position, 1);
   const playedPercent = Math.min(Math.max((position / max) * 100, 0), 100);
@@ -93,6 +102,100 @@ export function VideoPlayer({
     toastTimeoutRef.current = setTimeout(() => {
       setToast(null);
     }, 1200);
+  }, []);
+
+  // Fetch available subtitles for current media
+  useEffect(() => {
+    let cancelled = false;
+    const mediaId = currentMedia?.id;
+    if (!mediaId) {
+      setSubtitles([]);
+      setSelectedSubtitleId(null);
+      return;
+    }
+
+    async function loadSubtitles() {
+      try {
+        const res = await api(`/api/media/${mediaId}/subtitles`);
+        if (!res.ok) {
+          if (!cancelled) {
+            setSubtitles([]);
+            setSelectedSubtitleId(null);
+          }
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) {
+          setSubtitles(data);
+          const defaultSub = data.find((s) => s.isDefault) || data[0];
+          if (defaultSub) {
+            setSelectedSubtitleId(defaultSub.id);
+          } else {
+            setSelectedSubtitleId(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setSubtitles([]);
+          setSelectedSubtitleId(null);
+        }
+      }
+    }
+
+    loadSubtitles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentMedia?.id]);
+
+  const selectedTrack = subtitles.find((s) => s.id === selectedSubtitleId);
+
+  // Manage ASS rendering and native text tracks
+  useEffect(() => {
+    const videoEl = mediaRef.current;
+    if (!videoEl) return;
+
+    if (selectedTrack && subtitleMode === "ass" && selectedTrack.hasAssStyling) {
+      // In ASS mode, hide native browser tracks so they don't double render
+      if (videoEl.textTracks) {
+        for (let i = 0; i < videoEl.textTracks.length; i++) {
+          videoEl.textTracks[i].mode = "disabled";
+        }
+      }
+
+      if (!assControllerRef.current) {
+        assControllerRef.current = new AssSubtitleController(videoEl);
+      }
+
+      const assUrl = `/api/media/${currentMedia?.id}/subtitles/${selectedTrack.id}/ass`;
+      assControllerRef.current.attach(assUrl).catch((err) => {
+        console.warn("Failed to render ASS styling, switching to VTT:", err);
+        setSubtitleMode("vtt");
+      });
+    } else {
+      // In VTT mode or no subtitle: tear down ASS controller
+      if (assControllerRef.current) {
+        assControllerRef.current.destroy();
+      }
+
+      // If in VTT mode and track is selected, enable native track
+      if (videoEl.textTracks) {
+        for (let i = 0; i < videoEl.textTracks.length; i++) {
+          videoEl.textTracks[i].mode = selectedTrack ? "showing" : "disabled";
+        }
+      }
+    }
+  }, [currentMedia?.id, mediaRef, selectedSubtitleId, selectedTrack, subtitleMode]);
+
+  // Clean up ASS controller on unmount
+  useEffect(() => {
+    return () => {
+      if (assControllerRef.current) {
+        assControllerRef.current.destroy();
+        assControllerRef.current = null;
+      }
+    };
   }, []);
 
   // Sync fullscreen state
@@ -311,6 +414,24 @@ export function VideoPlayer({
           e.preventDefault();
           onSeek((Number(e.key) / 10) * max);
           break;
+        case "c":
+          if (subtitles.length > 0) {
+            e.preventDefault();
+            const currentIndex = subtitles.findIndex((s) => s.id === selectedSubtitleId);
+            if (!selectedSubtitleId) {
+              const nextSub = subtitles[0];
+              setSelectedSubtitleId(nextSub.id);
+              showFeedbackToast(`Subtitles: ${formatLanguageLabel(nextSub.language)}`, faClosedCaptioning);
+            } else if (currentIndex < subtitles.length - 1) {
+              const nextSub = subtitles[currentIndex + 1];
+              setSelectedSubtitleId(nextSub.id);
+              showFeedbackToast(`Subtitles: ${formatLanguageLabel(nextSub.language)}`, faClosedCaptioning);
+            } else {
+              setSelectedSubtitleId(null);
+              showFeedbackToast("Subtitles Off", faClosedCaptioning);
+            }
+          }
+          break;
         default:
           break;
       }
@@ -327,7 +448,9 @@ export function VideoPlayer({
     onSeek,
     onToggle,
     onToggleMute,
+    selectedSubtitleId,
     showFeedbackToast,
+    subtitles,
     toggleFullscreen,
     volume,
   ]);
@@ -359,13 +482,25 @@ export function VideoPlayer({
           autoPlay={autoPlay}
           muted={muted || volume <= 0}
           className="video-player-video"
+          crossOrigin="anonymous"
           onContextMenu={onPreventMenu}
           onPlay={onPlay}
           onPause={onPause}
           onTimeUpdate={onTimeUpdate}
           onLoadedMetadata={onLoadedMetadata}
           onEnded={onEnded}
-        />
+        >
+          {selectedTrack && (subtitleMode === "vtt" || !selectedTrack.hasAssStyling) && (
+            <track
+              key={`${currentMedia?.id}-${selectedTrack.id}`}
+              kind="subtitles"
+              label={formatLanguageLabel(selectedTrack.language)}
+              srcLang={selectedTrack.language}
+              src={`/api/media/${currentMedia?.id}/subtitles/${selectedTrack.id}/vtt`}
+              default
+            />
+          )}
+        </video>
 
         {/* Floating Feedback Toast */}
         {toast && (
@@ -549,6 +684,34 @@ export function VideoPlayer({
 
               {/* Right Controls */}
               <div className="video-player-controls-group">
+                {/* Subtitles Menu */}
+                {subtitles.length > 0 && (
+                  <SubtitlesMenu
+                    subtitles={subtitles}
+                    selectedSubtitleId={selectedSubtitleId}
+                    subtitleMode={subtitleMode}
+                    onSelectSubtitle={(id) => {
+                      setSelectedSubtitleId(id);
+                      const track = subtitles.find((s) => s.id === id);
+                      if (track) {
+                        showFeedbackToast(
+                          `Subtitles: ${formatLanguageLabel(track.language)}`,
+                          faClosedCaptioning
+                        );
+                      } else {
+                        showFeedbackToast("Subtitles Off", faClosedCaptioning);
+                      }
+                    }}
+                    onSelectMode={(mode) => {
+                      setSubtitleMode(mode);
+                      showFeedbackToast(
+                        mode === "ass" ? "Subtitles: Full ASS Styling" : "Subtitles: Standard WebVTT",
+                        faClosedCaptioning
+                      );
+                    }}
+                  />
+                )}
+
                 {/* Unified Settings — Quality / EQ / Speed / Timer */}
                 <SettingsControl
                   variant="video-ctrl"

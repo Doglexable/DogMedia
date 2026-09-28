@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildLyricsDisplaySegments, findActiveLyricsIndex, getCenteredLyricsOffset, normalizeLyricsResponse } from "./lyrics.js";
+import { buildLyricsDisplaySegments, findActiveLyricsIndex, findLyricsFocusIndex, getCenteredLyricsOffset, normalizeLyricsResponse } from "./lyrics.js";
 
 describe("findActiveLyricsIndex", () => {
   it("finds a segment at its boundaries", () => {
@@ -21,6 +21,18 @@ describe("findActiveLyricsIndex", () => {
     expect(findActiveLyricsIndex([], 3)).toBe(-1);
     expect(findActiveLyricsIndex(null, 3)).toBe(-1);
     expect(findActiveLyricsIndex([{ start: 0, end: 2, text: "Line" }], Number.NaN)).toBe(-1);
+  });
+});
+
+describe("findLyricsFocusIndex", () => {
+  const segments = [
+    { start: 2, end: 4, text: "First" },
+    { start: 6, end: 8, text: "Second" },
+  ];
+
+  it("retains the preceding line through short gaps and the end of the media", () => {
+    expect(findLyricsFocusIndex(segments, 5)).toBe(0);
+    expect(findLyricsFocusIndex(segments, 20)).toBe(1);
   });
 });
 

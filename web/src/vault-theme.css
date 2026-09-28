@@ -1528,6 +1528,177 @@ textarea {
   pointer-events: auto;
 }
 
+/* Subtitles Menu & Popover */
+.video-subtitles-popover {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 50%;
+  transform: translateX(50%);
+  width: 270px;
+  background: rgba(18, 18, 24, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #fff;
+  user-select: none;
+}
+
+.video-subtitles-header {
+  padding: 6px 10px 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.video-subtitles-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.video-subtitles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.video-subtitles-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.video-subtitles-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.video-subtitles-item--active {
+  background: rgba(225, 29, 72, 0.16);
+  color: #fff;
+  font-weight: 600;
+}
+
+.video-sub-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.video-sub-badge--ass {
+  background: linear-gradient(135deg, rgba(225, 29, 72, 0.22), rgba(168, 85, 247, 0.22));
+  color: #fb7185;
+  border: 1px solid rgba(225, 29, 72, 0.45);
+}
+
+.video-sub-badge--vtt {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.video-subtitles-mode-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.video-subtitles-mode-header {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 6px;
+  padding: 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.video-subtitles-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.video-subtitles-mode-btn {
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.video-subtitles-mode-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.video-subtitles-mode-btn--active {
+  background: var(--vault-rose, #e11d48) !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.video-subtitles-mode-hint {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 6px;
+  padding: 0 4px;
+}
+
+/* JASSUB Canvas Overlay positioning & WebVTT cue */
+.video-player-stage canvas.JASSUB,
+.video-player-stage canvas {
+  pointer-events: none !important;
+  z-index: 10;
+}
+
+.video-player-video::cue {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1.4;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
 .video-player-volume-group {
   display: flex;
   align-items: center;

@@ -10,6 +10,12 @@ export function mediaThumbnailUrl(mediaOrId) {
   const mediaId = Number(isMedia ? (mediaOrId.id ?? mediaOrId.mediaId) : mediaOrId);
   if (!Number.isFinite(mediaId) || mediaId <= 0) return "";
   const version = isMedia ? mediaOrId.artwork_version : null;
+  // If the media belongs to a category and shares the category cover without its own distinct thumbnail,
+  // canonicalize to category thumbnail URL so all tracks in the playlist/album reuse the identical image URL & browser cache!
+  if (isMedia && !mediaOrId.thumbnail_path && Number.isFinite(Number(mediaOrId.category_id)) && Number(mediaOrId.category_id) > 0 && version && !version.includes(`/${mediaId}/`)) {
+    const query = version ? `?v=${encodeURIComponent(version)}` : "";
+    return apiUrl(`/api/categories/${Number(mediaOrId.category_id)}/thumbnail${query}`);
+  }
   const query = version ? `?v=${encodeURIComponent(version)}` : "";
   return apiUrl(`/api/media/${mediaId}/thumbnail${query}`);
 }

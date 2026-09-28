@@ -3,6 +3,19 @@ export function findActiveLyricsIndex(segments, position) {
   return segments.findIndex((segment) => position >= segment.start && position <= segment.end);
 }
 
+export function findLyricsFocusIndex(segments, position) {
+  if (!Array.isArray(segments) || segments.length === 0) return -1;
+
+  const activeIndex = findActiveLyricsIndex(segments, position);
+  if (activeIndex >= 0) return activeIndex;
+  if (!Number.isFinite(position)) return 0;
+
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (position >= segments[index].start) return index;
+  }
+  return 0;
+}
+
 export const MIN_INSTRUMENTAL_GAP_SECONDS = 3;
 
 export function buildLyricsDisplaySegments(segments, minimumGap = MIN_INSTRUMENTAL_GAP_SECONDS) {

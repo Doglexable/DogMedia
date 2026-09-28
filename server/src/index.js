@@ -18,6 +18,7 @@ import publicLikedMusicRoutes from "./routes/public-liked-music.js";
 import publicMusicShareRoutes from "./routes/public-music-shares.js";
 import musicShareRoutes from "./routes/music-shares.js";
 import lyricsRoutes from "./routes/lyrics.js";
+import subtitlesRoutes from "./routes/subtitles.js";
 import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
@@ -131,6 +132,7 @@ await app.register(async function (instance) {
   await instance.register(wrappedRoutes, { prefix: "/wrapped" });
   await instance.register(likesRoutes, { prefix: "/likes" });
   await instance.register(lyricsRoutes);
+  await instance.register(subtitlesRoutes);
   await instance.register(offlineRoutes, { prefix: "/offline" });
   await instance.register(mobileReleaseRoutes, { prefix: "/mobile-release" });
 }, { prefix: "/api" });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildLyricsDisplaySegments,
   findActiveLyricsIndex,
+  findLyricsFocusIndex,
   getLyricsPreview,
   getLyricsScrollBehavior,
   LyricsShareCard,
@@ -28,6 +29,20 @@ describe("findActiveLyricsIndex", () => {
   it("handles empty input and invalid playback positions", () => {
     expect(findActiveLyricsIndex([], 2)).toBe(-1);
     expect(findActiveLyricsIndex(segments, Number.NaN)).toBe(-1);
+  });
+});
+
+describe("findLyricsFocusIndex", () => {
+  it("keeps focus on the preceding line during a short gap", () => {
+    expect(findLyricsFocusIndex(segments, 5)).toBe(0);
+  });
+
+  it("keeps focus on the final line after the lyrics end", () => {
+    expect(findLyricsFocusIndex(segments, 20)).toBe(1);
+  });
+
+  it("focuses the first line before lyrics begin", () => {
+    expect(findLyricsFocusIndex(segments, 0)).toBe(0);
   });
 });
 

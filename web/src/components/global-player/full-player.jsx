@@ -48,9 +48,52 @@ export function FullPlayer({
   onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
   eqGains, eqPreset, eqEnabled, onSetEqGain, onSetEqPreset, onSetEqEnabled,
+  lyrics, lyricsLoading,
 }) {
-  const [loadedArtworkSrc, setLoadedArtworkSrc] = useState("");
+  const [displayedArtworkSrc, setDisplayedArtworkSrc] = useState(thumbSrc);
+  const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
   const [shareOpen, setShareOpen] = useState(false);
+
+  useEffect(() => {
+    if (!thumbSrc || thumbFailed) {
+      setDisplayedArtworkSrc("");
+      setIsArtworkLoaded(false);
+      return;
+    }
+
+    if (displayedArtworkSrc === thumbSrc) {
+      setIsArtworkLoaded(true);
+      return;
+    }
+
+    let active = true;
+    if (typeof Image !== "undefined") {
+      const img = new Image();
+      img.src = thumbSrc;
+      if (img.complete && img.naturalWidth > 0) {
+        setDisplayedArtworkSrc(thumbSrc);
+        setIsArtworkLoaded(true);
+        return;
+      }
+
+      img.onload = () => {
+        if (!active) return;
+        setDisplayedArtworkSrc(thumbSrc);
+        setIsArtworkLoaded(true);
+      };
+      img.onerror = () => {
+        if (!active) return;
+        onThumbError?.();
+      };
+    } else {
+      setDisplayedArtworkSrc(thumbSrc);
+      setIsArtworkLoaded(true);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [thumbSrc, thumbFailed, onThumbError]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -67,8 +110,8 @@ export function FullPlayer({
     const artist = resolveMediaArtist(currentMedia, album);
     const max = Math.max(duration || currentMedia.duration || 0, position, 1);
     const remaining = Math.max((duration || currentMedia.duration || 0) - position, 0);
-    const hasArtwork = Boolean(thumbSrc) && !thumbFailed;
-    const isArtworkLoaded = hasArtwork && loadedArtworkSrc === thumbSrc;
+    const effectiveArtworkSrc = displayedArtworkSrc || thumbSrc;
+    const hasArtwork = Boolean(effectiveArtworkSrc) && !thumbFailed;
     const volumePercent = Math.round(volume * 100);
     const effectiveVolume = muted ? 0 : volumePercent;
 
@@ -78,9 +121,9 @@ export function FullPlayer({
         onContextMenu={onPreventMenu}
         style={{ "--fullscreen-volume": `${effectiveVolume}%` }}
       >
-        {isArtworkLoaded && (
+        {isArtworkLoaded && effectiveArtworkSrc && (
           <img
-            src={thumbSrc}
+            src={effectiveArtworkSrc}
             alt=""
             aria-hidden="true"
             className="fullscreen-player-bg"
@@ -104,13 +147,16 @@ export function FullPlayer({
             <div className="fullscreen-player-artwork-wrap">
               {hasArtwork ? (
                 <img
-                  src={thumbSrc}
+                  src={effectiveArtworkSrc}
                   alt={currentMedia.title}
                   className="fullscreen-player-artwork"
                   draggable={false}
                   onContextMenu={onPreventMenu}
                   onError={onThumbError}
-                  onLoad={() => setLoadedArtworkSrc(thumbSrc)}
+                  onLoad={() => {
+                    setDisplayedArtworkSrc(thumbSrc);
+                    setIsArtworkLoaded(true);
+                  }}
                 />
               ) : (
                 <div className="fullscreen-player-artwork fullscreen-player-artwork--fallback">
@@ -259,7 +305,15 @@ export function FullPlayer({
           </section>
 
           <div className="fullscreen-player-utilities">
-            <FullscreenLyrics artworkUrl={thumbFailed ? null : thumbSrc} media={currentMedia} mediaId={currentMedia.id} onSeek={onSeek} position={position} />
+            <FullscreenLyrics
+              artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
+              media={currentMedia}
+              mediaId={currentMedia.id}
+              onSeek={onSeek}
+              position={position}
+              lyrics={lyrics}
+              lyricsLoading={lyricsLoading}
+            />
           </div>
         </main>
 

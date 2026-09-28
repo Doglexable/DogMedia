@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { LyricsValidationError, normalizeWhisperLyrics } from "./lyrics.js";
 
 export const LRCLIB_SUCCESS_TTL_SECONDS = 24 * 60 * 60;
-export const LRCLIB_MISS_TTL_SECONDS = 15 * 60;
+export const LRCLIB_MISS_TTL_SECONDS = 3 * 60;
 export const DEFAULT_LRCLIB_REFRESH_DAYS = 7;
 export const DEFAULT_LRCLIB_REFRESH_MS = DEFAULT_LRCLIB_REFRESH_DAYS * 24 * 60 * 60 * 1000;
 
 export const DEFAULT_LRCLIB_API_URL = "https://lrclib.net";
 export const DEFAULT_LRCLIB_USER_AGENT = "PFS-MusicPlayer/1.0 (https://github.com/mann/private-file-stream)";
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 10000;
 const MIN_TIMEOUT_MS = 1000;
 const MAX_TIMEOUT_MS = 15000;
 
@@ -33,8 +33,11 @@ export function getLrclibConfig(env = process.env) {
     ? parsedRefreshDays * 24 * 60 * 60 * 1000
     : DEFAULT_LRCLIB_REFRESH_MS;
 
+  const explicitUrl = env.LRCLIB_API_URL?.trim();
+  const apiUrl = explicitUrl || DEFAULT_LRCLIB_API_URL;
+
   return {
-    apiUrl: env.LRCLIB_API_URL?.trim() || env.LYRICA_API_URL?.trim() || DEFAULT_LRCLIB_API_URL,
+    apiUrl,
     timeoutMs,
     refreshMs,
     userAgent: env.LRCLIB_USER_AGENT?.trim() || DEFAULT_LRCLIB_USER_AGENT,
@@ -217,6 +220,39 @@ export function getProviderRequestUrl(apiUrl, artist, song, duration) {
   return buildLrclibGetUrl(apiUrl, artist, song, duration);
 }
 
+export function cleanTrackTitle(title) {
+  if (typeof title !== "string") return "";
+  return title
+    .replace(/\s*(\([^\)]*\)|\[[^\]]*\])\s*$/g, "")
+    .replace(/\s+-\s+.*$/g, "")
+    .trim();
+}
+
+export function pickBestSearchMatch(list, artist, duration) {
+  if (!Array.isArray(list) || list.length === 0) return null;
+
+  const synced = list.filter(
+    (item) => typeof item?.syncedLyrics === "string" && item.syncedLyrics.trim().length > 0
+  );
+  if (synced.length === 0) return null;
+
+  const normalizedArtist = normalizeLyricsIdentity(artist);
+  const sameArtist = synced.filter(
+    (item) => normalizeLyricsIdentity(item.artistName) === normalizedArtist
+  );
+  const pool = sameArtist.length > 0 ? sameArtist : synced;
+
+  if (Number.isFinite(duration) && duration > 0) {
+    pool.sort((a, b) => {
+      const diffA = Math.abs((Number(a.duration) || 0) - duration);
+      const diffB = Math.abs((Number(b.duration) || 0) - duration);
+      return diffA - diffB;
+    });
+  }
+
+  return pool[0];
+}
+
 export async function fetchLrclibLyrics({
   apiUrl = DEFAULT_LRCLIB_API_URL,
   artist,
@@ -231,70 +267,93 @@ export async function fetchLrclibLyrics({
     "user-agent": userAgent,
   };
 
-  const targetUrl = getProviderRequestUrl(apiUrl, artist, song, duration);
+  const doFetch = async (targetUrl) => {
+    let response;
+    try {
+      response = await fetchImpl(targetUrl, {
+        headers,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      throw new LrclibProviderError("Unable to reach lyrics provider", {
+        kind: error?.name === "TimeoutError" || error?.name === "AbortError" ? "timeout" : "network",
+      });
+    }
 
-  let response;
-  try {
-    response = await fetchImpl(targetUrl, {
-      headers,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (error) {
-    throw new LrclibProviderError("Unable to reach lyrics provider", {
-      kind: error?.name === "TimeoutError" || error?.name === "AbortError" ? "timeout" : "network",
-    });
+    if (response.status === 429) {
+      throw new LrclibProviderError("Lyrics provider rate limit reached", {
+        kind: "rate-limit",
+        retryAfter: parseRetryAfter(response.headers.get("retry-after")),
+      });
+    }
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new LrclibProviderError(`Lyrics provider returned HTTP ${response.status}`);
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      throw new LrclibProviderError("Lyrics provider returned invalid JSON", { kind: "malformed" });
+    }
+  };
+
+  // Backwards compatibility if user configured a legacy endpoint
+  if (apiUrl.includes("/lyrics")) {
+    const payload = await doFetch(buildLyricaUrl(apiUrl, artist, song));
+    return payload ? normalizeLrclibLyrics(payload, duration) : null;
   }
 
-  if (response.status === 404) {
-    // Attempt fallback search if calling LRCLIB standard API
-    if (!apiUrl.includes("/lyrics")) {
-      try {
-        const searchRes = await fetchImpl(buildLrclibSearchUrl(apiUrl, artist, song), {
-          headers,
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        if (searchRes.ok) {
-          const list = await searchRes.json();
-          if (Array.isArray(list) && list.length > 0) {
-            const matchWithSynced = list.find(
-              (item) => typeof item?.syncedLyrics === "string" && item.syncedLyrics.trim().length > 0
-            );
-            if (matchWithSynced) {
-              return normalizeLrclibLyrics(matchWithSynced, duration);
-            }
-          }
-        }
-      } catch {
-        // Fallback search failure is non-fatal; treat as miss
+  // 1. Direct match with duration if available
+  const hasDuration = Number.isFinite(duration) && duration > 0;
+  if (hasDuration) {
+    const payload = await doFetch(buildLrclibGetUrl(apiUrl, artist, song, duration));
+    if (payload) {
+      const normalized = normalizeLrclibLyrics(payload, duration);
+      if (normalized) return normalized;
+    }
+  }
+
+  // 2. Direct match without duration (tolerates duration variances between file metadata and LRCLIB)
+  const noDurationPayload = await doFetch(buildLrclibGetUrl(apiUrl, artist, song, null));
+  if (noDurationPayload) {
+    const normalized = normalizeLrclibLyrics(noDurationPayload, duration);
+    if (normalized) return normalized;
+  }
+
+  // 3. Fallback search by song and artist
+  const searchResults = await doFetch(buildLrclibSearchUrl(apiUrl, artist, song));
+  if (Array.isArray(searchResults) && searchResults.length > 0) {
+    const best = pickBestSearchMatch(searchResults, artist, duration);
+    if (best) {
+      const normalized = normalizeLrclibLyrics(best, duration);
+      if (normalized) return normalized;
+    }
+  }
+
+  // 4. Fallback search with cleaned track title (strips parentheticals like "(Bonus Track)", "(Remastered)", etc.)
+  const cleanedTitle = cleanTrackTitle(song);
+  if (cleanedTitle && cleanedTitle.toLowerCase() !== song.toLowerCase()) {
+    const cleanedResults = await doFetch(buildLrclibSearchUrl(apiUrl, artist, cleanedTitle));
+    if (Array.isArray(cleanedResults) && cleanedResults.length > 0) {
+      const best = pickBestSearchMatch(cleanedResults, artist, duration);
+      if (best) {
+        const normalized = normalizeLrclibLyrics(best, duration);
+        if (normalized) return normalized;
       }
     }
-    return null;
   }
 
-  if (response.status === 429) {
-    throw new LrclibProviderError("Lyrics provider rate limit reached", {
-      kind: "rate-limit",
-      retryAfter: parseRetryAfter(response.headers.get("retry-after")),
-    });
-  }
-
-  if (!response.ok) {
-    throw new LrclibProviderError(`Lyrics provider returned HTTP ${response.status}`);
-  }
-
-  let payload;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new LrclibProviderError("Lyrics provider returned invalid JSON", { kind: "malformed" });
-  }
-
-  return normalizeLrclibLyrics(payload, duration);
+  return null;
 }
 
 export function getLrclibCacheKey(artist, song) {
   const identity = `${normalizeLyricsIdentity(artist)}\u0000${normalizeLyricsIdentity(song)}`;
-  return `lyrics:lrclib:v1:${createHash("sha256").update(identity).digest("hex")}`;
+  return `lyrics:lrclib:v2:${createHash("sha256").update(identity).digest("hex")}`;
 }
 
 export function normalizeLyricsIdentity(value) {

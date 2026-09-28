@@ -1,6 +1,7 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { api, createPlaybackSession, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
+import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./global-player/lyrics-cache";
 import { MiniPlayer } from "./global-player/mini-player";
 import {
   cleanMediaText,
@@ -102,8 +103,11 @@ export function GlobalPlayerProvider({ children }) {
   const currentMediaRef = useRef(null);
   const playlistSuggestionRequestRef = useRef(0);
   const sleepTimerModeRef = useRef(null);
+  const prefetchedNextIdRef = useRef(null);
   const [currentMedia, setCurrentMedia] = useState(null);
   currentMediaRef.current = currentMedia;
+  const [lyrics, setLyrics] = useState(null);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
   const [categoryId, setCategoryId] = useState(null);
   const [paused, setPaused] = useState(true);
   const [shouldAutoPlay, setShouldAutoPlay] = useState(true);
@@ -211,6 +215,45 @@ export function GlobalPlayerProvider({ children }) {
 
     return () => controller.abort();
   }, [currentMedia?.id, quality]);
+
+  useEffect(() => {
+    const mediaId = Number(currentMedia?.id);
+    if (!mediaId || !isAudio) {
+      setLyrics(null);
+      setLyricsLoading(false);
+      return undefined;
+    }
+
+    if (isLyricsLoaded(mediaId)) {
+      setLyrics(getCachedLyrics(mediaId));
+      setLyricsLoading(false);
+      return undefined;
+    }
+
+    setLyrics(null);
+    setLyricsLoading(true);
+    let active = true;
+    const controller = new AbortController();
+
+    fetchLyrics(mediaId, { signal: controller.signal })
+      .then((data) => {
+        if (active) {
+          setLyrics(data);
+          setLyricsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLyrics(null);
+          setLyricsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [currentMedia?.id, isAudio]);
 
   useEffect(() => {
     if (!playbackSessionIdRef.current || !currentMedia || isImage) return;
@@ -340,6 +383,7 @@ export function GlobalPlayerProvider({ children }) {
     const { autoplay = true, startPosition = 0 } = options;
     const nextPosition = Math.floor(startPosition || 0);
 
+    prefetchedNextIdRef.current = null;
     setCurrentMedia(mediaItem);
     playlistSuggestionRequestRef.current += 1;
     setPlaylistSuggestion(null);
@@ -1051,8 +1095,7 @@ export function GlobalPlayerProvider({ children }) {
   const playQueueId = useCallback((mediaId, options = {}) => {
     if (!Number.isFinite(Number(mediaId))) return;
 
-    api(`/api/media/${mediaId}`)
-      .then(readMediaItem)
+    fetchMediaItem(mediaId)
       .then((nextMedia) => playQueueMedia(nextMedia, options))
       .catch(() => {});
   }, [playQueueMedia]);
@@ -1127,8 +1170,7 @@ export function GlobalPlayerProvider({ children }) {
       .then((data) => {
         applyCompactQueueResponse(data);
         if (!data.mediaId) return null;
-        return api(`/api/media/${data.mediaId}`)
-          .then(readMediaItem)
+        return fetchMediaItem(data.mediaId)
           .then((nextMedia) => {
             resetForMedia(nextMedia);
             loadResumePosition(nextMedia.id);
@@ -1218,6 +1260,43 @@ export function GlobalPlayerProvider({ children }) {
   const handleTimeUpdate = useCallback(() => {
     const nextPosition = Math.floor(mediaRef.current?.currentTime || 0);
     setPosition(nextPosition);
+
+    const currentDur = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
+    const remaining = currentDur - nextPosition;
+
+    // 3 seconds before ending, prefetch next media in queue (unless at end of queue)
+    if (!paused && currentDur > 3 && remaining <= 3 && remaining > 0 && hasLinearNext) {
+      const nextQueueIndex = queueIndex + 1;
+      const nextItemInWindow = queueItems[nextQueueIndex - queueOffset];
+      const nextMediaId = nextItemInWindow?.id ?? queueIds[nextQueueIndex];
+
+      if (nextMediaId && prefetchedNextIdRef.current !== nextMediaId) {
+        prefetchedNextIdRef.current = nextMediaId;
+
+        // 1. Prefetch lyrics
+        fetchLyrics(nextMediaId).catch(() => {});
+
+        // 2. Prefetch metadata and preload artwork
+        if (nextItemInWindow) {
+          const nextThumb = mediaThumbnailUrl(nextItemInWindow);
+          if (nextThumb && typeof Image !== "undefined") {
+            const preloadImg = new Image();
+            preloadImg.src = nextThumb;
+          }
+        } else {
+          fetchMediaItem(nextMediaId)
+            .then((item) => {
+              const nextThumb = mediaThumbnailUrl(item);
+              if (nextThumb && typeof Image !== "undefined") {
+                const preloadImg = new Image();
+                preloadImg.src = nextThumb;
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    }
+
     if (nextPosition - lastResumeSaveRef.current < 10) return;
     lastResumeSaveRef.current = nextPosition;
     saveResumePosition(nextPosition);
@@ -1230,7 +1309,7 @@ export function GlobalPlayerProvider({ children }) {
         mediaRef.current?.duration || duration || currentMedia?.duration || 0
       );
     }
-  }, [currentMedia, duration, saveResumePosition, sendNowPlaying]);
+  }, [currentMedia, duration, hasLinearNext, paused, queueIds, queueIndex, queueItems, queueOffset, saveResumePosition, sendNowPlaying]);
 
   const handleLoadedMetadata = useCallback(() => {
     const nextDuration = Math.floor(mediaRef.current?.duration || currentMedia?.duration || 0);
@@ -1438,6 +1517,8 @@ export function GlobalPlayerProvider({ children }) {
     hasPrev,
     isLiked: (mediaId) => likedIds.has(Number(mediaId)),
     likedIds,
+    lyrics,
+    lyricsLoading,
     openQueue: () => setQueueOpen(true),
     openFullPlayer,
     paused,
@@ -1452,7 +1533,7 @@ export function GlobalPlayerProvider({ children }) {
     stopPlayback,
     togglePlayback,
     toggleLike,
-  }), [addCategoryToQueue, addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, openFullPlayer, paused, playMedia, playNext, position, queueTotal, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
+  }), [addCategoryToQueue, addToQueue, advance, clearQueue, currentMedia, duration, hasNext, hasPrev, hiddenQueueIds, likedIds, lyrics, lyricsLoading, openFullPlayer, paused, playMedia, playNext, position, queueTotal, removeFromQueue, reorderQueue, seek, stopPlayback, toggleLike, togglePlayback]);
 
   const libraryContextValue = useMemo(() => ({
     addCategoryToQueue,
@@ -1587,6 +1668,8 @@ export function GlobalPlayerProvider({ children }) {
               onSetEqGain={setEqGain}
               onSetEqPreset={setEqPreset}
               onSetEqEnabled={setEqEnabled}
+              lyrics={lyrics}
+              lyricsLoading={lyricsLoading}
             />
             </Suspense>
           ) : currentMedia ? (

@@ -8,12 +8,15 @@ import {
   LrclibProviderError,
   buildLrclibGetUrl,
   buildLrclibSearchUrl,
+  cleanTrackTitle,
   fetchLrclibLyrics,
+  getLrclibCacheKey,
   getLrclibConfig,
   isLrclibRowFresh,
   normalizeLyricsIdentity,
   normalizeLrclibLyrics,
   parseLrcToSegments,
+  pickBestSearchMatch,
   resolveLrclibLyrics,
 } from "./lrclib.js";
 import { resolveMediaLyrics } from "./routes/lyrics.js";
@@ -678,5 +681,59 @@ describe("LRCLIB Synced Lyrics Integration", () => {
     expect(lyrics?.segments).toEqual([
       { start: 21.58, end: 26.58, text: "Fallback search line" },
     ]);
+  });
+
+  it("retries LRCLIB get without duration if duration query returned 404", async () => {
+    const urlsCalled = [];
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      urlsCalled.push(u.search);
+      if (u.searchParams.has("duration")) {
+        return new Response(null, { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        trackName: "Tell Me When You've Had Enough",
+        artistName: "Evanescence",
+        syncedLyrics: "[00:10.00] Without duration match",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+
+    const lyrics = await fetchLrclibLyrics({
+      apiUrl: DEFAULT_LRCLIB_API_URL,
+      artist: "Evanescence",
+      song: "Tell Me When You've Had Enough",
+      duration: 215,
+      fetchImpl,
+      timeoutMs: 5000,
+    });
+
+    expect(urlsCalled).toHaveLength(2);
+    expect(urlsCalled[0]).toContain("duration=215");
+    expect(urlsCalled[1]).not.toContain("duration");
+    expect(lyrics?.segments[0].text).toBe("Without duration match");
+  });
+
+  it("cleans parentheticals from titles for fallback search", () => {
+    expect(cleanTrackTitle("Glorious (Bonus Track)")).toBe("Glorious");
+    expect(cleanTrackTitle("Karma Police - Remastered 2017")).toBe("Karma Police");
+    expect(cleanTrackTitle("Numb [Explicit]")).toBe("Numb");
+    expect(cleanTrackTitle("Regular Track")).toBe("Regular Track");
+  });
+
+  it("picks the best synced search result matching artist and closest duration", () => {
+    const list = [
+      { id: 1, trackName: "Unintended", artistName: "Other Band", duration: 237, syncedLyrics: "[00:01.00] Line" },
+      { id: 2, trackName: "Unintended", artistName: "MUSE", duration: 280, syncedLyrics: "[00:01.00] Line" },
+      { id: 3, trackName: "Unintended", artistName: "MUSE", duration: 237, syncedLyrics: "[00:01.00] Match" },
+      { id: 4, trackName: "Unintended", artistName: "MUSE", duration: 237, syncedLyrics: "" },
+    ];
+
+    const best = pickBestSearchMatch(list, "MUSE", 237);
+    expect(best?.id).toBe(3);
+  });
+
+  it("generates v2 cache key with sha256 of artist and song", () => {
+    const key = getLrclibCacheKey("Evanescence", "Who Will You Follow");
+    expect(key).toMatch(/^lyrics:lrclib:v2:[0-9a-f]{64}$/);
   });
 });

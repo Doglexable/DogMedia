@@ -6,7 +6,7 @@ import * as Sharing from "expo-sharing";
 import ViewShot, { captureRef } from "react-native-view-shot";
 import { api } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { buildLyricsDisplaySegments, findActiveLyricsIndex, normalizeLyricsResponse } from "../utils/lyrics";
+import { buildLyricsDisplaySegments, findActiveLyricsIndex, findLyricsFocusIndex, normalizeLyricsResponse } from "../utils/lyrics";
 import { captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
 import { formatDuration } from "../utils/media";
 
@@ -169,15 +169,12 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
   const [retryKey, setRetryKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const scrollRef = useRef(null);
-  const lastDisplayIndexRef = useRef(0);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const controller = new AbortController();
     setLyrics(null);
     setStatus("loading");
-    lastDisplayIndexRef.current = 0;
-
     if (offlineLyrics) {
       const data = normalizeLyricsResponse(offlineLyrics, mediaId);
       setLyrics(data);
@@ -212,16 +209,18 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
     () => findActiveLyricsIndex(lyrics?.segments, position),
     [lyrics?.segments, position]
   );
-  if (activeIndex >= 0) lastDisplayIndexRef.current = activeIndex;
-  const displayIndex = activeIndex >= 0 ? activeIndex : lastDisplayIndexRef.current;
+  const focusIndex = useMemo(
+    () => findLyricsFocusIndex(displaySegments, position),
+    [displaySegments, position]
+  );
 
   const scrollToLine = useCallback((index) => {
     scrollRef.current?.scrollToIndex?.({ index, viewPosition: 0.5, animated: !reducedMotion });
   }, [reducedMotion]);
 
   useEffect(() => {
-    if (!shareOpen && activeIndex >= 0) scrollToLine(activeIndex);
-  }, [activeIndex, scrollToLine, shareOpen]);
+    if (!shareOpen && focusIndex >= 0) scrollToLine(focusIndex);
+  }, [focusIndex, scrollToLine, shareOpen]);
 
   if (status === "loading") {
     return (
@@ -275,7 +274,7 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
         }}
         renderItem={({ item: segment, index }) => {
           const active = index === activeIndex;
-          const distance = Math.abs(index - displayIndex);
+          const distance = Math.abs(index - focusIndex);
           return <Pressable
             accessibilityHint="Seeks playback to this lyric"
             accessibilityLabel={`${formatDuration(segment.start)}. ${segment.instrumental ? "Instrumental" : segment.text}`}
