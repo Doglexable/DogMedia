@@ -390,7 +390,6 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
               <Drawer.Handle className="mobile-player-drawer-handle" />
               <div className="mobile-player-drawer-header">
                 <div>
-                  <span>Synchronized Lyrics</span>
                   <Drawer.Title className="mobile-queue-drawer-title">Lyrics</Drawer.Title>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

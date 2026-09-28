@@ -34,7 +34,7 @@ function SidebarLink({ active, children, icon, leading, onClick, onContextMenu, 
       style={style}
     >
       {leading || (icon ? <FontAwesomeIcon icon={icon} className="global-sidebar-link-icon" /> : null)}
-      <span className="truncate">{children}</span>
+      <span className="truncate min-w-0 flex-1">{children}</span>
     </Link>
   );
 }

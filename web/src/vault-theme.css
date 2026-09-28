@@ -34,6 +34,7 @@
   --radius-md: 12px;
   --radius-lg: 18px;
   --global-sidebar-width: 264px;
+  --app-header-height: 72px;
 }
 
 [data-theme="dark"] {
@@ -113,9 +114,15 @@ textarea {
 
 .global-sidebar-brand {
   position: relative;
-  min-height: 68px;
+  height: var(--app-header-height, 72px);
+  min-height: var(--app-header-height, 72px);
+  max-height: var(--app-header-height, 72px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .global-sidebar-brand-mark {
@@ -151,6 +158,9 @@ textarea {
   border-radius: var(--radius-sm);
   font-size: 0.8rem;
   font-weight: 500;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .global-sidebar-link::before {
@@ -204,10 +214,12 @@ textarea {
   background: var(--surface-soft);
 }
 
-.global-sidebar-android-download {
+.global-sidebar-android-download,
+.mobile-android-download {
   border-radius: 10px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
+  box-sizing: border-box;
 }
 
 .android-download-icon {
@@ -226,8 +238,13 @@ textarea {
 }
 
 .dashboard-header {
-  min-height: 68px !important;
-  padding: 12px clamp(16px, 3vw, 32px) !important;
+  height: var(--app-header-height, 72px);
+  min-height: var(--app-header-height, 72px) !important;
+  max-height: var(--app-header-height, 72px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 clamp(16px, 3vw, 32px) !important;
   border-bottom-color: var(--card-border) !important;
   background: var(--bg) !important;
   box-shadow: none;
@@ -974,7 +991,13 @@ textarea {
 }
 
 .admin-vault-header {
-  min-height: 74px !important;
+  height: var(--app-header-height, 72px);
+  min-height: var(--app-header-height, 72px) !important;
+  max-height: var(--app-header-height, 72px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 clamp(16px, 3vw, 32px) !important;
   border-bottom-color: color-mix(in srgb, var(--card-border) 72%, transparent) !important;
   background: color-mix(in srgb, var(--bg) 82%, transparent) !important;
   box-shadow: none;
@@ -1057,7 +1080,9 @@ textarea {
   }
 
   .dashboard-header {
+    height: auto;
     min-height: 56px !important;
+    max-height: none;
     padding: 8px 12px !important;
   }
 

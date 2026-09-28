@@ -21,7 +21,7 @@ import "../../pages/admin-media-import.css";
 
 const styles = {
   page: { minHeight: "100vh", background: "var(--bg)", color: "var(--text)" },
-  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "0 24px", minHeight: "var(--app-header-height)", borderBottom: "1px solid var(--card-border)", background: "var(--card-bg)", position: "sticky", top: 0, zIndex: 100, flexWrap: "wrap" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "0 24px", height: "var(--app-header-height)", minHeight: "var(--app-header-height)", maxHeight: "var(--app-header-height)", boxSizing: "border-box", borderBottom: "1px solid var(--card-border)", background: "var(--card-bg)", position: "sticky", top: 0, zIndex: 100, flexWrap: "nowrap" },
   headerBlock: { display: "flex", alignItems: "center", gap: 12, minWidth: 0 }, headerTitle: { fontWeight: 800, fontSize: "var(--fs-lg)", color: "var(--text)", letterSpacing: "-0.02em" }, headerNote: { fontSize: "var(--fs-xs)", color: "var(--muted)" },
   main: { maxWidth: 1180, margin: "0 auto", padding: "28px 20px 40px", display: "grid", gap: 18 }, mainWithPlayer: { paddingBottom: "calc(var(--player-height) + 38px)" },
   notice: (type) => ({ padding: "12px 14px", borderRadius: 10, border: `1px solid var(--${type === "error" ? "warning" : "success"}-border)`, background: `var(--${type === "error" ? "warning" : "success"}-bg)`, color: `var(--${type === "error" ? "warning" : "success"}-text)`, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }),
