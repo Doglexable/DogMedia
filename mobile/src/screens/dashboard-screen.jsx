@@ -102,7 +102,6 @@ export function DashboardScreen({ navigation }) {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState("");
-  const [viewMode, setViewMode] = useState("list");
   const browseGenerationRef = useRef(0);
 
   const greeting = useMemo(() => getGreeting(), []);
@@ -219,27 +218,24 @@ export function DashboardScreen({ navigation }) {
   return (
     <View style={styles.screen}>
       <FlatList
-        key={viewMode}
         contentContainerStyle={styles.content}
         data={visibleMedia}
         initialNumToRender={8}
         keyExtractor={(item) => String(item.id)}
         maxToRenderPerBatch={8}
-        numColumns={viewMode === "grid" ? 2 : 1}
         onEndReached={loadMore}
         onEndReachedThreshold={0.6}
         showsVerticalScrollIndicator={false}
         windowSize={7}
-        columnWrapperStyle={viewMode === "grid" ? styles.browseGridRow : undefined}
         renderItem={({ index, item }) => (
-          <View style={viewMode === "grid" ? styles.browseGridCard : styles.browseRowCard}>
+          <View style={styles.browseRowCard}>
             <MediaCard
               compact={false}
-              index={viewMode === "list" ? index + 1 : undefined}
+              index={index + 1}
               isCurrent={Number(currentMediaId) === Number(item.id)}
               isPaused={isPaused}
               item={item}
-              layout={viewMode === "grid" ? "card" : "row"}
+              layout="row"
               liked={player.isLiked(item.id)}
               onPlayNext={player.playNext}
               onPress={play}
@@ -344,36 +340,21 @@ export function DashboardScreen({ navigation }) {
               <Featured colors={colors} item={featured} onPlay={play} styles={styles} />
             )}
 
-            {/* Browse Section Header with Grid/List Toggle & Track List Header */}
+            {/* Browse Section Header & Track List Header */}
             {visibleMedia.length > 0 && (
               <View style={styles.browseSectionHeader}>
                 <View style={styles.browseHeader}>
                   <Text style={styles.sectionTitle}>
                     {debouncedSearch ? `Search results (${visibleMedia.length})` : "Browse"}
                   </Text>
-                  <Pressable
-                    accessibilityLabel={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => setViewMode((m) => (m === "grid" ? "list" : "grid"))}
-                    style={styles.viewModeToggle}
-                  >
-                    <Ionicons
-                      color={colors.muted}
-                      name={viewMode === "grid" ? "list-outline" : "grid-outline"}
-                      size={20}
-                    />
-                  </Pressable>
                 </View>
 
                 {/* Web-aligned Track List Column Header */}
-                {viewMode === "list" && (
-                  <View style={styles.trackListHeader}>
-                    <Text style={styles.trackListColIndex}>#</Text>
-                    <Text style={styles.trackListColTitle}>TITLE</Text>
-                    <Ionicons color={colors.muted} name="time-outline" size={14} style={styles.trackListColDuration} />
-                  </View>
-                )}
+                <View style={styles.trackListHeader}>
+                  <Text style={styles.trackListColIndex}>#</Text>
+                  <Text style={styles.trackListColTitle}>TITLE</Text>
+                  <Ionicons color={colors.muted} name="time-outline" size={14} style={styles.trackListColDuration} />
+                </View>
               </View>
             )}
           </View>
@@ -572,14 +553,6 @@ const makeStyles = (colors, shadow, isCompact) =>
       alignItems: "center",
       justifyContent: "space-between",
     },
-    viewModeToggle: {
-      width: 36,
-      height: 36,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 18,
-      backgroundColor: colors.cardSoft,
-    },
     trackListHeader: {
       flexDirection: "row",
       alignItems: "center",
@@ -605,13 +578,6 @@ const makeStyles = (colors, shadow, isCompact) =>
     },
     trackListColDuration: {
       marginRight: 48,
-    },
-    browseGridRow: {
-      gap: spacing.md,
-    },
-    browseGridCard: {
-      flex: 1,
-      marginBottom: spacing.md,
     },
     browseRowCard: {
       marginBottom: spacing.xs,
