@@ -111,11 +111,8 @@ function getLoopIcon(loopMode) {
 
 function formatSleepTimer(seconds) {
   if (!seconds) return "Sleep timer";
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return minutes > 0
-    ? `${minutes}:${String(remainingSeconds).padStart(2, "0")}`
-    : `0:${String(remainingSeconds).padStart(2, "0")}`;
+  const mins = Math.ceil(seconds / 60);
+  return `${mins}m`;
 }
 
 function SleepTimerButton({ colors, darkSurface = false, onPress, remainingSeconds, styles }) {

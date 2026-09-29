@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
@@ -53,6 +53,8 @@ export function FullPlayer({
   const [displayedArtworkSrc, setDisplayedArtworkSrc] = useState(thumbSrc);
   const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
   const [shareOpen, setShareOpen] = useState(false);
+  const onThumbErrorRef = useRef(onThumbError);
+  onThumbErrorRef.current = onThumbError;
 
   useEffect(() => {
     if (!thumbSrc || thumbFailed) {
@@ -83,7 +85,7 @@ export function FullPlayer({
       };
       img.onerror = () => {
         if (!active) return;
-        onThumbError?.();
+        onThumbErrorRef.current?.();
       };
     } else {
       setDisplayedArtworkSrc(thumbSrc);
@@ -93,7 +95,7 @@ export function FullPlayer({
     return () => {
       active = false;
     };
-  }, [thumbSrc, thumbFailed, onThumbError]);
+  }, [thumbSrc, thumbFailed]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;

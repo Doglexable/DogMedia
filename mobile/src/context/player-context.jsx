@@ -574,19 +574,37 @@ export function PlayerProvider({ children }) {
   useEffect(() => {
     if (!sleepTimerEndsAt) return undefined;
 
-    const updateSleepTimer = () => {
-      const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
-      setSleepTimerRemaining(nextRemaining);
-      if (nextRemaining > 0) return;
-
+    const msUntilEnd = Math.max(0, sleepTimerEndsAt - Date.now());
+    const completionTimer = setTimeout(() => {
       setSleepTimerEndsAt(null);
+      setSleepTimerRemaining(0);
       pausePlaybackForSleepTimer();
       setSleepTimerCompleted(true);
+    }, msUntilEnd);
+
+    const updateSleepTimer = () => {
+      const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
+      setSleepTimerRemaining((prev) => {
+        const prevMins = Math.ceil(prev / 60);
+        const nextMins = Math.ceil(nextRemaining / 60);
+        if (prevMins === nextMins && prev > 0 && nextRemaining > 0) {
+          return prev;
+        }
+        return nextRemaining;
+      });
+      if (nextRemaining <= 0) {
+        setSleepTimerEndsAt(null);
+        pausePlaybackForSleepTimer();
+        setSleepTimerCompleted(true);
+      }
     };
 
     updateSleepTimer();
     const timerId = setInterval(updateSleepTimer, 1000);
-    return () => clearInterval(timerId);
+    return () => {
+      clearTimeout(completionTimer);
+      clearInterval(timerId);
+    };
   }, [pausePlaybackForSleepTimer, sleepTimerEndsAt]);
 
   useEffect(() => {

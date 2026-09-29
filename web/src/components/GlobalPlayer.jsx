@@ -711,18 +711,35 @@ export function GlobalPlayerProvider({ children }) {
   useEffect(() => {
     if (!sleepTimerEndsAt) return undefined;
 
+    const msUntilEnd = Math.max(0, sleepTimerEndsAt - Date.now());
+    const completionTimer = window.setTimeout(() => {
+      if (sleepTimerModeRef.current === "duration") {
+        completeSleepTimer();
+      }
+    }, msUntilEnd);
+
     const updateSleepTimer = () => {
       if (sleepTimerModeRef.current !== "duration") return;
       const nextRemaining = Math.max(0, Math.ceil((sleepTimerEndsAt - Date.now()) / 1000));
-      setSleepTimerRemaining(nextRemaining);
-      if (nextRemaining > 0) return;
-
-      completeSleepTimer();
+      setSleepTimerRemaining((prev) => {
+        const prevMins = Math.ceil(prev / 60);
+        const nextMins = Math.ceil(nextRemaining / 60);
+        if (prevMins === nextMins && prev > 0 && nextRemaining > 0) {
+          return prev;
+        }
+        return nextRemaining;
+      });
+      if (nextRemaining <= 0) {
+        completeSleepTimer();
+      }
     };
 
     updateSleepTimer();
     const timerId = window.setInterval(updateSleepTimer, 1000);
-    return () => window.clearInterval(timerId);
+    return () => {
+      window.clearTimeout(completionTimer);
+      window.clearInterval(timerId);
+    };
   }, [completeSleepTimer, sleepTimerEndsAt]);
 
   useEffect(() => {
@@ -1490,6 +1507,18 @@ export function GlobalPlayerProvider({ children }) {
   }, [currentMedia, duration, isImage, paused, position]);
 
   const preventMediaMenu = useCallback((event) => event.preventDefault(), []);
+  const handleToggleQueue = useCallback(() => setQueueOpen((open) => !open), []);
+  const openQueue = useCallback(() => setQueueOpen(true), []);
+  const handleResume = useCallback(() => {
+    if (mediaRef.current && resumePos != null) mediaRef.current.currentTime = resumePos;
+    mediaRef.current?.play?.();
+    setResumePos(null);
+  }, [resumePos]);
+  const handleThumbError = useCallback(() => setThumbFailed(true), []);
+  const handleToggleLoop = useCallback(() => setLoopMode((mode) => nextLoopMode(mode)), []);
+  const handleToggleLike = useCallback(() => {
+    if (currentMediaRef.current) toggleLike(currentMediaRef.current);
+  }, [toggleLike]);
 
   useEffect(() => {
     if (!currentMedia || isImage) return undefined;
@@ -1519,7 +1548,7 @@ export function GlobalPlayerProvider({ children }) {
     likedIds,
     lyrics,
     lyricsLoading,
-    openQueue: () => setQueueOpen(true),
+    openQueue,
     openFullPlayer,
     paused,
     playMedia,
@@ -1643,25 +1672,21 @@ export function GlobalPlayerProvider({ children }) {
               onEnded={handleEnded}
               onLoadedMetadata={handleLoadedMetadata}
               onCloseFull={closeFullPlayer}
-              onOpenQueue={() => setQueueOpen((open) => !open)}
+              onOpenQueue={handleToggleQueue}
               onPause={handlePause}
               onPlay={handlePlay}
               onPreventMenu={preventMediaMenu}
-              onResume={() => {
-                if (mediaRef.current && resumePos != null) mediaRef.current.currentTime = resumePos;
-                mediaRef.current?.play?.();
-                setResumePos(null);
-              }}
+              onResume={handleResume}
               onSeek={seek}
-              onThumbError={() => setThumbFailed(true)}
+              onThumbError={handleThumbError}
               onTimeUpdate={handleTimeUpdate}
-              onToggleLoop={() => setLoopMode((mode) => nextLoopMode(mode))}
+              onToggleLoop={handleToggleLoop}
               onToggleMute={toggleMute}
               onToggleShuffle={toggleShuffle}
               onToggle={togglePlayback}
               onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
-              onToggleLike={() => toggleLike(currentMedia)}
+              onToggleLike={handleToggleLike}
               eqGains={eqGains}
               eqPreset={eqPreset}
               eqEnabled={eqEnabled}
@@ -1699,16 +1724,16 @@ export function GlobalPlayerProvider({ children }) {
               onChangeQuality={changeQuality}
               onAdvance={advance}
               onChangeVolume={changeVolume}
-              onOpenQueue={() => setQueueOpen((open) => !open)}
+              onOpenQueue={handleToggleQueue}
               onOpenFull={openFullPlayer}
               onSeek={seek}
-              onToggleLoop={() => setLoopMode((mode) => nextLoopMode(mode))}
+              onToggleLoop={handleToggleLoop}
               onToggleMute={toggleMute}
               onToggleShuffle={toggleShuffle}
               onToggle={togglePlayback}
               onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
-              onToggleLike={() => toggleLike(currentMedia)}
+              onToggleLike={handleToggleLike}
               onClose={stopPlayback}
             />
           ) : null}

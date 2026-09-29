@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { preload } from "react-dom";
 
 export function AmbientArtwork({
@@ -18,6 +18,7 @@ export function AmbientArtwork({
 }) {
   const [prevSrc, setPrevSrc] = useState(src);
   const [failedSrc, setFailedSrc] = useState("");
+  const lastPreloadedSrcRef = useRef("");
 
   if (prevSrc !== src) {
     setPrevSrc(src);
@@ -26,7 +27,8 @@ export function AmbientArtwork({
 
   const hasImage = Boolean(src) && failedSrc !== src;
 
-  if (typeof preload === "function" && priority && hasImage) {
+  if (typeof preload === "function" && priority && hasImage && lastPreloadedSrcRef.current !== src) {
+    lastPreloadedSrcRef.current = src;
     try {
       preload(src, { as: "image", fetchPriority: "high" });
     } catch {
