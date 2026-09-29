@@ -2334,11 +2334,12 @@ body {
 }
 .player-sleep-popover {
   position: absolute;
-  right: 50%;
+  right: 0;
   bottom: calc(100% + 10px);
   z-index: 250;
   display: flex;
   width: 250px;
+  max-width: min(250px, calc(100vw - 20px));
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
@@ -2349,12 +2350,12 @@ body {
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.28);
   opacity: 0;
   pointer-events: none;
-  transform: translate(50%, 6px);
+  transform: translateY(6px);
   transition: opacity 140ms ease, transform 140ms ease;
 }
 .player-sleep-popover::after {
   position: absolute;
-  right: 50%;
+  right: 15px;
   bottom: -5px;
   width: 10px;
   height: 10px;
@@ -2362,12 +2363,12 @@ body {
   border-bottom: 1px solid var(--card-border);
   background: var(--surface-solid, var(--modal-bg, #ffffff)) !important;
   content: "";
-  transform: translateX(50%) rotate(45deg);
+  transform: rotate(45deg);
 }
 .player-sleep-control--open .player-sleep-popover {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(50%, 0);
+  transform: translateY(0);
 }
 .player-sleep-presets {
   display: grid;
@@ -5737,15 +5738,16 @@ a {
   }
   .player-sleep-popover {
     right: 0;
-    width: 204px;
-    transform: translate(0, 6px);
+    width: 250px;
+    max-width: min(250px, calc(100vw - 20px));
+    transform: translateY(6px);
   }
   .player-sleep-popover::after {
-    right: 13px;
+    right: 10px;
     transform: rotate(45deg);
   }
   .player-sleep-control--open .player-sleep-popover {
-    transform: translate(0, 0);
+    transform: translateY(0);
   }
   .player-quality-control {
     width: 30px;

@@ -1542,13 +1542,13 @@ textarea {
 .video-player-controls-group .player-quality-popover,
 .video-player-controls-group .player-sleep-popover {
   bottom: calc(100% + 10px);
-  right: 50%;
-  transform: translate(50%, 6px);
+  right: 0;
+  transform: translateY(6px);
 }
 
 .video-player-controls-group .player-quality-control--open .player-quality-popover,
 .video-player-controls-group .player-sleep-control--open .player-sleep-popover {
-  transform: translate(50%, 0);
+  transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
 }
