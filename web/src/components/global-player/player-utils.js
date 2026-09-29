@@ -217,6 +217,21 @@ export function resolveMediaArtist(media, fallback = "Unknown artist") {
   return fallback;
 }
 
+export function getQueueItemSubtitle(item) {
+  if (!item) return "";
+  const mime = typeof item.mime_type === "string" ? item.mime_type : "";
+  const isAudio = !mime || mime.startsWith("audio/");
+  const album = item.album || getMediaFolderName(item) || "Library";
+
+  if (isAudio) {
+    const artist = resolveMediaArtist(item, "Unknown artist");
+    return `${artist} · ${album}`;
+  }
+
+  const meta = getMediaMeta(mime);
+  return `${meta.label} · ${album}`;
+}
+
 export function isSpaceKey(event) {
   if (!event) return false;
   if (event.ctrlKey || event.metaKey || event.altKey) return false;

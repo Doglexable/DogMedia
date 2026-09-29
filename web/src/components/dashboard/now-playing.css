@@ -55,7 +55,8 @@
 /* ── Floating Pill Trigger (FAB) ── */
 .now-playing-floating-pill {
   position: fixed;
-  right: 18px;
+  left: calc(var(--global-sidebar-width, 252px) + 20px);
+  right: auto;
   bottom: calc(var(--active-player-height, 0px) + 18px);
   z-index: 310;
   display: inline-flex;
@@ -141,10 +142,11 @@
 /* ── Desktop Floating Panel ── */
 .now-playing-floating-panel {
   position: fixed;
-  right: 16px;
+  left: calc(var(--global-sidebar-width, 252px) + 16px);
+  right: auto;
   bottom: calc(var(--active-player-height, 0px) + 16px);
   z-index: 320;
-  width: min(440px, calc(100vw - 32px));
+  width: min(440px, calc(100vw - var(--global-sidebar-width, 252px) - 32px));
   max-height: min(560px, calc(100dvh - var(--active-player-height, 0px) - 36px));
   display: flex;
   flex-direction: column;
@@ -513,9 +515,23 @@
 }
 
 /* Responsive queries */
+@media (max-width: 900px) {
+  .now-playing-floating-pill {
+    left: 16px;
+    right: auto;
+  }
+
+  .now-playing-floating-panel {
+    left: 16px;
+    right: auto;
+    width: min(440px, calc(100vw - 32px));
+  }
+}
+
 @media (max-width: 640px) {
   .now-playing-floating-pill {
-    right: 12px;
+    left: 12px;
+    right: auto;
     bottom: calc(var(--active-player-height, 0px) + 72px);
   }
 }

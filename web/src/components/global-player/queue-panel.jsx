@@ -8,7 +8,7 @@ import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
 import { playerStyles as styles } from "./player-styles";
-import { formatDuration, getMediaMeta } from "./player-utils";
+import { formatDuration, getQueueItemSubtitle } from "./player-utils";
 
 const MOBILE_DRAWER_QUERY = "(max-width: 640px)";
 
@@ -51,7 +51,7 @@ function SortableQueueItem({ active, item, onRemove, onSelect }) {
     id: Number(item.id),
     disabled: { draggable: active },
   });
-  const meta = getMediaMeta(item.mime_type || "");
+  const subtitle = getQueueItemSubtitle(item);
   return (
     <div
       ref={setNodeRef}
@@ -81,10 +81,10 @@ function SortableQueueItem({ active, item, onRemove, onSelect }) {
           {item.title}
         </span>
         <span
-          title={active ? "Now Playing · Locked" : `${meta.label} · ${item.mime_type || "Unknown MIME type"}`}
+          title={active ? "Now Playing · Locked" : subtitle}
           style={{ display: "block", marginTop: 2, overflow: "hidden", color: "var(--muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
-          {active ? "Now Playing · Locked" : `${meta.label} · ${item.mime_type || "Unknown MIME type"}`}
+          {active ? "Now Playing · Locked" : subtitle}
         </span>
       </button>
       <span style={{ color: "var(--muted)", fontSize: 12 }}>
@@ -98,7 +98,7 @@ function SortableQueueItem({ active, item, onRemove, onSelect }) {
 }
 
 function PinnedQueueItem({ item, onRemove, onSelect }) {
-  const meta = getMediaMeta(item.mime_type || "");
+  const subtitle = getQueueItemSubtitle(item);
   return (
     <div
       style={{
@@ -121,7 +121,7 @@ function PinnedQueueItem({ item, onRemove, onSelect }) {
           {item.title}
         </span>
         <span
-          title={`Now Playing · Locked · ${meta.label}`}
+          title={`Now Playing · Locked · ${subtitle}`}
           style={{ display: "block", marginTop: 2, overflow: "hidden", color: "var(--muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}
         >
           Now Playing · Locked

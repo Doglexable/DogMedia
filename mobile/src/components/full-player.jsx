@@ -15,7 +15,7 @@ import {
   releasePlaybackLease,
 } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
-import { formatDuration, getMediaLabel, resolveMediaArtist } from "../utils/media";
+import { formatDuration, getQueueItemSubtitle, resolveMediaArtist } from "../utils/media";
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
@@ -221,7 +221,7 @@ function QueueSkeleton({ colors, styles }) {
 }
 
 function QueueItem({ active = false, colors, drag, dragging = false, draggable = false, item, onRemove, onSelect, styles }) {
-  const meta = active ? "Now Playing · Locked" : `${getMediaLabel(item.mime_type)} · ${item.mime_type || "Unknown MIME type"}`;
+  const meta = active ? "Now Playing · Locked" : getQueueItemSubtitle(item);
 
   return (
     <View style={[styles.queueItem, active && styles.queueItemActive, dragging && styles.queueItemDragging]}>

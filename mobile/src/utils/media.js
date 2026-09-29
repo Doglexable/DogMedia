@@ -147,6 +147,28 @@ export function getMediaFolderName(media) {
   return media?.category_path || media?.category_name || "Library";
 }
 
+export function getMediaAlbumName(media) {
+  if (media?.album) return media.album;
+  const folder = media?.category_path || media?.category_name || "";
+  if (!folder) return "Library";
+  const parts = folder.split("/").map((part) => part.trim()).filter(Boolean);
+  return parts.at(-1) || folder || "Library";
+}
+
+export function getQueueItemSubtitle(item) {
+  if (!item) return "";
+  const kind = getMediaKind(item.mime_type);
+  const album = getMediaAlbumName(item);
+
+  if (kind === "audio") {
+    const artist = resolveMediaArtist(item, "Unknown artist");
+    return `${artist} · ${album}`;
+  }
+
+  const label = getMediaLabel(item.mime_type);
+  return `${label} · ${album}`;
+}
+
 export function nextLoopMode(mode) {
   const index = LOOP_MODES.indexOf(mode);
   return LOOP_MODES[(index + 1) % LOOP_MODES.length];

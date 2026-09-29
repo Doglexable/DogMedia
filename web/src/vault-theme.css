@@ -2732,7 +2732,7 @@ textarea {
 
 .video-mini-player {
   position: fixed;
-  bottom: var(--active-pill-offset, 18px);
+  bottom: 18px;
   right: 18px;
   z-index: 190;
   width: 360px;

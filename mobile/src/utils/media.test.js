@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   getArtistLabel,
+  getMediaAlbumName,
   getPlaybackProgress,
+  getQueueItemSubtitle,
   parseArtistFromCategory,
   parseArtistFromTitle,
   resolveMediaArtist,
@@ -148,6 +150,44 @@ describe("resolveMediaArtist", () => {
     expect(resolveMediaArtist({ title: "Untitled", mime_type: "audio/mp3" })).toBe("Unknown artist");
     expect(resolveMediaArtist(null)).toBe("Unknown artist");
     expect(resolveMediaArtist(null, "Custom Fallback")).toBe("Custom Fallback");
+  });
+});
+
+describe("getMediaAlbumName", () => {
+  it("extracts last path part from category_path", () => {
+    expect(getMediaAlbumName({ category_path: "Music / Muse / Absolution" })).toBe("Absolution");
+  });
+
+  it("prioritizes explicit album property", () => {
+    expect(getMediaAlbumName({ album: "Showbiz", category_path: "Music / Muse" })).toBe("Showbiz");
+  });
+
+  it("falls back to Library when folder is missing", () => {
+    expect(getMediaAlbumName({})).toBe("Library");
+    expect(getMediaAlbumName(null)).toBe("Library");
+  });
+});
+
+describe("getQueueItemSubtitle", () => {
+  it("formats audio item with artist and album name", () => {
+    expect(getQueueItemSubtitle({
+      title: "Introduction",
+      artists: "Muse",
+      category_path: "Music / Muse / Absolution",
+      mime_type: "audio/flac",
+    })).toBe("Muse · Absolution");
+  });
+
+  it("formats non-audio item with label and album name", () => {
+    expect(getQueueItemSubtitle({
+      title: "Movie Trailer",
+      category_name: "Trailers",
+      mime_type: "video/mp4",
+    })).toBe("Video · Trailers");
+  });
+
+  it("handles null safely", () => {
+    expect(getQueueItemSubtitle(null)).toBe("");
   });
 });
 

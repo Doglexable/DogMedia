@@ -7,6 +7,7 @@ import {
   getMediaMeta,
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
+  getQueueItemSubtitle,
   isEditableTarget,
   isPauseTimeoutExpired,
   isPlayPauseElement,
@@ -407,5 +408,54 @@ describe("shouldHandleSpaceKey", () => {
     };
     closeBtn.closest = () => closeBtn;
     expect(shouldHandleSpaceKey({ key: " ", target: closeBtn })).toBe(false);
+  });
+});
+
+describe("getQueueItemSubtitle", () => {
+  it("formats audio item with artist and category parent folder / album", () => {
+    expect(
+      getQueueItemSubtitle({
+        title: "Introduction",
+        artists: "Muse",
+        category_path: "Music / Muse / Absolution",
+        mime_type: "audio/flac",
+      })
+    ).toBe("Muse · Absolution");
+  });
+
+  it("formats audio item with parsed artist and explicit album", () => {
+    expect(
+      getQueueItemSubtitle({
+        title: "Bohemian Rhapsody",
+        artist: "Queen",
+        album: "A Night at the Opera",
+        mime_type: "audio/flac",
+      })
+    ).toBe("Queen · A Night at the Opera");
+  });
+
+  it("falls back to Library when no album or parent folder is available", () => {
+    expect(
+      getQueueItemSubtitle({
+        title: "Song",
+        artists: "Daft Punk",
+        mime_type: "audio/mp3",
+      })
+    ).toBe("Daft Punk · Library");
+  });
+
+  it("formats non-audio media items with media type and parent folder", () => {
+    expect(
+      getQueueItemSubtitle({
+        title: "Sci-Fi Short",
+        category_name: "Movies",
+        mime_type: "video/mp4",
+      })
+    ).toBe("Video · Movies");
+  });
+
+  it("handles null or missing item safely", () => {
+    expect(getQueueItemSubtitle(null)).toBe("");
+    expect(getQueueItemSubtitle(undefined)).toBe("");
   });
 });
