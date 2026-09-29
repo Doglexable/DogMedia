@@ -55,6 +55,11 @@
       "expo-sharing",
       "expo-image",
       "expo-secure-store"
-    ]
+    ],
+    "autolinking": {
+      "exclude": [
+        "uilib-native"
+      ]
+    }
   }
 }
