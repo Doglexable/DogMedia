@@ -100,7 +100,10 @@ function AccessGuard({ children }) {
         offline: Boolean(data.offline),
         managementOnly: Boolean(data.managementOnly),
       }))
-      .catch(() => setStatus({ ok: false }));
+      .catch((err) => {
+        console.warn("Access validation failed:", err?.message || err);
+        setStatus({ ok: false });
+      });
   }, [offline.validateAccess]);
 
   if (status === "loading") return <LoadingScreen />;

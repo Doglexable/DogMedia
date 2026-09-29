@@ -5,6 +5,7 @@
 .vscode
 .agents
 .codex
+.expo
 **/.DS_Store
 
 # Local configuration and logs
@@ -42,3 +43,6 @@ mobile
 **/*.spec.js
 **/*.spec.jsx
 *.md
+plans/*
+example*/
+mobile/

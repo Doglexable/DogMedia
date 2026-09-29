@@ -4,7 +4,7 @@ import * as SecureStore from "expo-secure-store";
 const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
 const envWebBase = process.env.EXPO_PUBLIC_WEB_URL?.trim();
 export const API_REACHABILITY_TIMEOUT_MS = 2500;
-const VIEWER_ID_STORAGE_KEY = "pfs:viewer-id";
+const VIEWER_ID_STORAGE_KEY = "pfs_viewer_id";
 let cachedViewerId;
 
 async function getViewerId() {

@@ -3,15 +3,20 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
 import { apiJson, mediaThumbnailUrl } from "../api";
-import { CategoryChips } from "../components/category-chips";
 import { MediaTypePills } from "../components/media-type-pills";
 import { MediaCard } from "../components/media-card";
+import { QuickAccessGrid } from "../components/quick-access-grid";
 import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { usePlayerLibrary } from "../context/player-context";
-import { useOffline } from "../context/offline-context";
-import { radii, spacing, useTheme } from "../theme";
-import { resolveMediaArtist } from "../utils/media";
+import { alpha, radii, spacing, useTheme } from "../theme";
 import { getPlaybackErrorPresentation } from "../utils/playback-errors";
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 function orderMediaByIds(ids = [], byId, fallbackItems, limit = 12) {
   const seen = new Set();
@@ -43,54 +48,78 @@ function Featured({ colors, item, onPlay, styles }) {
     <Pressable
       accessibilityLabel="Play featured media"
       accessibilityRole="button"
-      style={styles.featured}
       onPress={() => onPlay(item)}
+      style={styles.featured}
     >
       <View style={styles.featuredCopy}>
         <Text style={styles.featuredLabel}>Featured</Text>
-        <Text style={styles.featuredTitle} numberOfLines={3}>{item.title}</Text>
-        {description && <Text style={styles.featuredDescription} numberOfLines={3}>{description}</Text>}
+        <Text numberOfLines={2} style={styles.featuredTitle}>{item.title}</Text>
+        {description && <Text numberOfLines={2} style={styles.featuredDescription}>{description}</Text>}
         <View style={styles.featuredAction}>
-          <Ionicons name="play" size={20} color={colors.white} />
+          <Ionicons color={colors.white} name="play" size={20} />
         </View>
       </View>
-      <Image cachePolicy="memory-disk" contentFit="cover" source={{ uri: mediaThumbnailUrl(item.id) }} style={styles.featuredImage} />
+      <Image
+        cachePolicy="memory-disk"
+        contentFit="cover"
+        source={{ uri: mediaThumbnailUrl(item.id) }}
+        style={styles.featuredImage}
+      />
     </Pressable>
+  );
+}
+
+function BrowseSkeleton({ count = 6, styles }) {
+  return (
+    <View style={styles.skeletonContainer}>
+      {Array.from({ length: count }, (_, index) => (
+        <View key={`skeleton-${index}`} style={styles.skeletonRow}>
+          <View style={styles.skeletonIndex} />
+          <View style={styles.skeletonCover} />
+          <View style={styles.skeletonCopy}>
+            <View style={styles.skeletonTitle} />
+            <View style={styles.skeletonMeta} />
+          </View>
+          <View style={styles.skeletonTime} />
+        </View>
+      ))}
+    </View>
   );
 }
 
 export function DashboardScreen({ navigation }) {
   const player = usePlayerLibrary();
-  const offline = useOffline();
   const { colors, shadow } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const isCompact = windowWidth < 380;
   const styles = useMemo(() => makeStyles(colors, shadow, isCompact), [colors, shadow, isCompact]);
-  const [categories, setCategories] = useState([]);
   const [media, setMedia] = useState([]);
   const [mediaType, setMediaType] = useState("all");
   const [summary, setSummary] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [nextCursor, setNextCursor] = useState(null);
+  const [mediaLoading, setMediaLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState("");
+  const [viewMode, setViewMode] = useState("list");
   const browseGenerationRef = useRef(0);
 
-  const loadCategories = useCallback(() => {
-    apiJson("/api/categories")
-      .then((items) => setCategories(items.filter((category) => Number(category.media_count) > 0)))
-      .catch(() => setCategories([]));
-  }, []);
+  const greeting = useMemo(() => getGreeting(), []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(""), 3500);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const loadMedia = useCallback((signal) => {
     const generation = browseGenerationRef.current + 1;
     browseGenerationRef.current = generation;
     const params = new URLSearchParams({ limit: "50", view: "all" });
-    if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
+    setMediaLoading(true);
     setMedia([]);
     setNextCursor(null);
     return apiJson(`/api/media/browse?${params.toString()}`, { signal })
@@ -104,14 +133,18 @@ export function DashboardScreen({ navigation }) {
         if (browseGenerationRef.current !== generation) return;
         setMedia([]);
         setNotice("Could not load media.");
+      })
+      .finally(() => {
+        if (browseGenerationRef.current === generation) {
+          setMediaLoading(false);
+        }
       });
-  }, [debouncedSearch, mediaType, selectedCategory]);
+  }, [debouncedSearch, mediaType]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return;
     const generation = browseGenerationRef.current;
     const params = new URLSearchParams({ limit: "50", view: "all", cursor: nextCursor });
-    if (selectedCategory) params.set("category_id", selectedCategory);
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setLoadingMore(true);
@@ -126,20 +159,15 @@ export function DashboardScreen({ navigation }) {
       })
       .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
       .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
-  }, [debouncedSearch, loadingMore, mediaType, nextCursor, selectedCategory]);
+  }, [debouncedSearch, loadingMore, mediaType, nextCursor]);
 
   const loadSummary = useCallback(() => {
     const params = new URLSearchParams({ view: "all" });
-    if (selectedCategory) params.set("category_id", selectedCategory);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
     apiJson(`/api/playback/dashboard?${params.toString()}`)
       .then(setSummary)
       .catch(() => setSummary(null));
-  }, [mediaType, selectedCategory]);
-
-  useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
+  }, [mediaType]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -160,12 +188,14 @@ export function DashboardScreen({ navigation }) {
     for (const item of summary?.media || []) if (!result.has(Number(item.id))) result.set(Number(item.id), item);
     return result;
   }, [summary, visibleMedia]);
+
   const featured = byId.get(Number(summary?.featuredId)) || visibleMedia[0] || null;
   const recentlyPlayedIds = summary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
   const quickAccess = orderMediaByIds(recentlyPlayedIds || summary?.quickAccessIds, byId, visibleMedia, 8);
+  const recentlyPlayed = orderMediaByIds(recentlyPlayedIds, byId, visibleMedia, 10);
 
   const play = (item) => {
-    player.playMedia(item, selectedCategory)
+    player.playMedia(item)
       .then(() => (navigation.getParent?.() || navigation).navigate("Player"))
       .catch((error) => {
         const presentation = getPlaybackErrorPresentation(error);
@@ -182,95 +212,199 @@ export function DashboardScreen({ navigation }) {
   };
 
   const toggleLike = (item) => player.toggleLike(item).catch(() => setNotice("Could not update favorites."));
-  const downloadFolder = (cellularApproved = false) => offline.downloadCategory(selectedCategory, { cellularApproved })
-    .then((count) => setNotice(count ? `${count} audio download${count === 1 ? "" : "s"} queued.` : "No audio found in this folder."))
-    .catch((error) => setNotice(error.message || "Could not download this folder."));
-  const confirmFolderDownload = () => {
-    if (offline.networkType !== "cellular") return downloadFolder();
-    Alert.alert("Use cellular data?", "Download this folder using mobile data?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Download", onPress: () => downloadFolder(true) },
-    ]);
-  };
+
+  const currentMediaId = player.currentMedia?.id;
+  const isPaused = player.paused;
 
   return (
     <View style={styles.screen}>
       <FlatList
-        data={visibleMedia}
-        keyExtractor={(item) => String(item.id)}
-        numColumns={2}
-        columnWrapperStyle={styles.browseRow}
+        key={viewMode}
         contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+        data={visibleMedia}
+        initialNumToRender={8}
+        keyExtractor={(item) => String(item.id)}
+        maxToRenderPerBatch={8}
+        numColumns={viewMode === "grid" ? 2 : 1}
         onEndReached={loadMore}
         onEndReachedThreshold={0.6}
-        initialNumToRender={8}
-        maxToRenderPerBatch={8}
+        showsVerticalScrollIndicator={false}
         windowSize={7}
-        renderItem={({ item }) => (
-          <View style={styles.browseCard}>
+        columnWrapperStyle={viewMode === "grid" ? styles.browseGridRow : undefined}
+        renderItem={({ index, item }) => (
+          <View style={viewMode === "grid" ? styles.browseGridCard : styles.browseRowCard}>
             <MediaCard
-              compact
+              compact={false}
+              index={viewMode === "list" ? index + 1 : undefined}
+              isCurrent={Number(currentMediaId) === Number(item.id)}
+              isPaused={isPaused}
               item={item}
+              layout={viewMode === "grid" ? "card" : "row"}
               liked={player.isLiked(item.id)}
-              onPress={play}
               onPlayNext={player.playNext}
+              onPress={play}
               onQueue={player.addToQueue}
               onToggleLike={toggleLike}
             />
           </View>
         )}
-        ListHeaderComponent={<>
-        <View style={styles.header}>
-          <Text style={styles.kicker}>Dogmedia</Text>
-          <Text style={styles.heading}>Private library</Text>
-          <Text style={styles.subhead}>{visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"} ready</Text>
-        </View>
+        ListHeaderComponent={
+          <View style={styles.headerContainer}>
+            {/* Spotify-style Header Top Group (Greeting, Search, Pills) */}
+            <View style={styles.headerTop}>
+              <View style={styles.header}>
+                <View style={styles.greetingRow}>
+                  <Text style={styles.greeting}>{greeting}</Text>
+                  <Text style={styles.kicker}>Dogmedia</Text>
+                </View>
+                <Text style={styles.subhead}>
+                  {visibleMedia.length}{nextCursor ? "+" : ""} item{visibleMedia.length === 1 ? "" : "s"} ready
+                </Text>
+              </View>
 
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search media..."
-          placeholderTextColor={colors.subtle}
-          style={styles.search}
-        />
+              {/* Spotify Search Bar */}
+              <View style={styles.searchWrapper}>
+                <Ionicons color={colors.muted} name="search" size={18} style={styles.searchIcon} />
+                <TextInput
+                  onChangeText={setSearch}
+                  placeholder="Search tracks, artists, media..."
+                  placeholderTextColor={colors.subtle}
+                  style={styles.search}
+                  value={search}
+                />
+                {search.length > 0 && (
+                  <Pressable
+                    accessibilityLabel="Clear search"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setSearch("")}
+                    style={styles.clearSearch}
+                  >
+                    <Ionicons color={colors.muted} name="close-circle" size={18} />
+                  </Pressable>
+                )}
+              </View>
 
-        <MediaTypePills value={mediaType} onChange={setMediaType} />
+              {/* Category Filter Pills */}
+              <MediaTypePills onChange={setMediaType} value={mediaType} />
+            </View>
 
-        {categories.length > 0 && (
-          <CategoryChips categories={categories} selectedId={selectedCategory} onSelect={setSelectedCategory} />
-        )}
+            {/* Auto-dismissing Banner Notice */}
+            {notice ? (
+              <View style={styles.noticeContainer}>
+                <Text style={styles.noticeText}>{notice}</Text>
+                <Pressable hitSlop={8} onPress={() => setNotice("")}>
+                  <Ionicons color={colors.warningText} name="close" size={16} />
+                </Pressable>
+              </View>
+            ) : null}
 
-        {selectedCategory && (
-          <Pressable accessibilityRole="button" onPress={confirmFolderDownload} style={styles.downloadFolder}>
-            <Ionicons color={colors.primary} name="download-outline" size={19} />
-            <Text style={styles.downloadFolderText}>Download this folder</Text>
-          </Pressable>
-        )}
-        {notice && <Text style={styles.notice}>{notice}</Text>}
+            {/* Spotify 2-Column Quick Access Grid */}
+            {!debouncedSearch && quickAccess.length > 0 && (
+              <View style={styles.section}>
+                <QuickAccessGrid
+                  currentMediaId={currentMediaId}
+                  isPaused={isPaused}
+                  items={quickAccess}
+                  onPlay={play}
+                />
+              </View>
+            )}
 
-        {!debouncedSearch && <View style={styles.quickHeader}>
-          <Text style={styles.sectionTitle}>Quick access</Text>
-          {featured && <Text style={styles.quickMeta}>{resolveMediaArtist(featured, "Featured")}</Text>}
-        </View>}
-        {!debouncedSearch && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          {quickAccess.map((item) => (
-            <MediaCard
-              compact
-              key={`quick-${item.id}`}
-              item={item}
-              liked={player.isLiked(item.id)}
-              onPress={play}
-              onPlayNext={player.playNext}
-              onQueue={player.addToQueue}
-              onToggleLike={toggleLike}
-            />
-          ))}
-        </ScrollView>}
+            {/* Recently Played Horizontal Carousel */}
+            {!debouncedSearch && recentlyPlayed.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Recently played</Text>
+                <ScrollView
+                  contentContainerStyle={styles.horizontalCarousel}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.carouselScrollView}
+                >
+                  {recentlyPlayed.map((item) => (
+                    <MediaCard
+                      compact
+                      isCurrent={Number(currentMediaId) === Number(item.id)}
+                      isPaused={isPaused}
+                      key={`recent-${item.id}`}
+                      item={item}
+                      liked={player.isLiked(item.id)}
+                      onPlayNext={player.playNext}
+                      onPress={play}
+                      onQueue={player.addToQueue}
+                      onToggleLike={toggleLike}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
-        {!debouncedSearch && <Featured colors={colors} item={featured} onPlay={play} styles={styles} />}
-        {visibleMedia.length > 0 && <Text style={styles.sectionTitle}>Browse</Text>}
-        </>}
+            {/* Featured Spotlight Card */}
+            {!debouncedSearch && featured && (
+              <Featured colors={colors} item={featured} onPlay={play} styles={styles} />
+            )}
+
+            {/* Browse Section Header with Grid/List Toggle & Track List Header */}
+            {visibleMedia.length > 0 && (
+              <View style={styles.browseSectionHeader}>
+                <View style={styles.browseHeader}>
+                  <Text style={styles.sectionTitle}>
+                    {debouncedSearch ? `Search results (${visibleMedia.length})` : "Browse"}
+                  </Text>
+                  <Pressable
+                    accessibilityLabel={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setViewMode((m) => (m === "grid" ? "list" : "grid"))}
+                    style={styles.viewModeToggle}
+                  >
+                    <Ionicons
+                      color={colors.muted}
+                      name={viewMode === "grid" ? "list-outline" : "grid-outline"}
+                      size={20}
+                    />
+                  </Pressable>
+                </View>
+
+                {/* Web-aligned Track List Column Header */}
+                {viewMode === "list" && (
+                  <View style={styles.trackListHeader}>
+                    <Text style={styles.trackListColIndex}>#</Text>
+                    <Text style={styles.trackListColTitle}>TITLE</Text>
+                    <Ionicons color={colors.muted} name="time-outline" size={14} style={styles.trackListColDuration} />
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        }
+        ListEmptyComponent={
+          mediaLoading ? (
+            <BrowseSkeleton count={6} styles={styles} />
+          ) : debouncedSearch ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons color={colors.subtle} name="search-outline" size={44} />
+              <Text style={styles.emptyTitle}>No media matches “{search.trim()}”</Text>
+              <Pressable
+                accessibilityLabel="Clear search"
+                accessibilityRole="button"
+                onPress={() => setSearch("")}
+                style={styles.clearSearchButton}
+              >
+                <Text style={styles.clearSearchButtonText}>Clear search</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons color={colors.subtle} name="folder-open-outline" size={44} />
+              <Text style={styles.emptyTitle}>
+                {mediaType !== "all"
+                  ? `No ${mediaType === "audio" ? "music" : mediaType} items found.`
+                  : "No media yet in this category."}
+              </Text>
+            </View>
+          )
+        }
         ListFooterComponent={loadingMore ? <Text style={styles.loadingMore}>Loading more media…</Text> : null}
       />
       <MiniPlayer navigation={navigation} />
@@ -278,145 +412,285 @@ export function DashboardScreen({ navigation }) {
   );
 }
 
-const makeStyles = (colors, shadow, isCompact) => StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    paddingTop: 58,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: MINI_PLAYER_CLEARANCE,
-    gap: spacing.lg,
-  },
-  browseRow: {
-    gap: spacing.md,
-  },
-  browseCard: {
-    flex: 1,
-    marginBottom: spacing.md,
-  },
-  loadingMore: {
-    paddingVertical: spacing.lg,
-    color: colors.muted,
-    textAlign: "center",
-    fontWeight: "800",
-  },
-  header: {
-    gap: spacing.xs,
-  },
-  kicker: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  heading: {
-    color: colors.text,
-    fontSize: isCompact ? 28 : 38,
-    lineHeight: isCompact ? 32 : 40,
-    fontWeight: "900",
-  },
-  subhead: {
-    color: colors.muted,
-    fontWeight: "800",
-  },
-  search: {
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radii.md,
-    backgroundColor: colors.card,
-    color: colors.text,
-    fontWeight: "800",
-  },
-  notice: {
-    padding: spacing.md,
-    borderRadius: radii.md,
-    backgroundColor: colors.warningBg,
-    color: colors.warningText,
-    fontWeight: "800",
-  },
-  downloadFolder: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    borderRadius: radii.md,
-    backgroundColor: colors.card,
-  },
-  downloadFolderText: {
-    color: colors.primary,
-    fontWeight: "900",
-  },
-  featured: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: isCompact ? spacing.md : spacing.lg,
-    minHeight: isCompact ? 180 : 220,
-    padding: isCompact ? spacing.md : spacing.lg,
-    borderRadius: radii.xl,
-    backgroundColor: colors.card,
-    ...shadow.soft,
-  },
-  featuredCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing.sm,
-  },
-  featuredLabel: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
-  featuredTitle: {
-    color: colors.text,
-    fontSize: isCompact ? 22 : 30,
-    lineHeight: isCompact ? 26 : 31,
-    fontWeight: "900",
-  },
-  featuredDescription: {
-    color: colors.muted,
-    fontSize: isCompact ? 12 : 13,
-    lineHeight: isCompact ? 16 : 18,
-    fontWeight: "700",
-  },
-  featuredAction: {
-    width: 42,
-    height: 42,
-    alignSelf: "flex-start",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: spacing.sm,
-    overflow: "hidden",
-    borderRadius: 21,
-    backgroundColor: colors.primary,
-  },
-  featuredImage: {
-    width: isCompact ? 96 : 118,
-    height: isCompact ? 96 : 118,
-    borderRadius: radii.lg,
-    backgroundColor: colors.surface,
-  },
-  quickHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  quickMeta: {
-    color: colors.subtle,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: "900",
-  },
-  row: {
-    gap: spacing.md,
-    paddingRight: spacing.xl,
-  },
-});
+const makeStyles = (colors, shadow, isCompact) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    content: {
+      paddingTop: 54,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: MINI_PLAYER_CLEARANCE,
+    },
+    headerContainer: {
+      gap: spacing.xl,
+    },
+    headerTop: {
+      gap: spacing.md,
+    },
+    header: {
+      gap: spacing.xs,
+    },
+    greetingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    greeting: {
+      color: colors.text,
+      fontSize: isCompact ? 24 : 28,
+      fontWeight: "900",
+      letterSpacing: -0.4,
+    },
+    kicker: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "900",
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    subhead: {
+      color: colors.muted,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    searchWrapper: {
+      position: "relative",
+      flexDirection: "row",
+      alignItems: "center",
+      borderRadius: radii.full,
+      backgroundColor: colors.cardSoft,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      paddingHorizontal: spacing.md,
+      minHeight: 46,
+    },
+    searchIcon: {
+      marginRight: spacing.sm,
+    },
+    search: {
+      flex: 1,
+      height: 46,
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: 14,
+    },
+    clearSearch: {
+      padding: spacing.xs,
+    },
+    noticeContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: spacing.md,
+      borderRadius: radii.md,
+      backgroundColor: colors.warningBg,
+    },
+    noticeText: {
+      flex: 1,
+      color: colors.warningText,
+      fontWeight: "800",
+      fontSize: 13,
+      marginRight: spacing.sm,
+    },
+    section: {
+      gap: spacing.md,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 19,
+      fontWeight: "900",
+      letterSpacing: -0.2,
+    },
+    carouselScrollView: {
+      marginHorizontal: -spacing.lg,
+    },
+    horizontalCarousel: {
+      gap: spacing.md,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.xs,
+    },
+    featured: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: isCompact ? spacing.md : spacing.lg,
+      minHeight: isCompact ? 160 : 190,
+      padding: isCompact ? spacing.md : spacing.lg,
+      borderRadius: radii.xl,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      ...shadow.soft,
+    },
+    featuredCopy: {
+      flex: 1,
+      minWidth: 0,
+      gap: spacing.xs,
+    },
+    featuredLabel: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "900",
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+    },
+    featuredTitle: {
+      color: colors.text,
+      fontSize: isCompact ? 20 : 24,
+      lineHeight: isCompact ? 24 : 28,
+      fontWeight: "900",
+    },
+    featuredDescription: {
+      color: colors.muted,
+      fontSize: 12,
+      lineHeight: 16,
+      fontWeight: "600",
+    },
+    featuredAction: {
+      width: 40,
+      height: 40,
+      alignSelf: "flex-start",
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: spacing.xs,
+      borderRadius: 20,
+      backgroundColor: colors.primary,
+      ...shadow.floating,
+    },
+    featuredImage: {
+      width: isCompact ? 92 : 110,
+      height: isCompact ? 92 : 110,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surface,
+    },
+    browseSectionHeader: {
+      gap: spacing.sm,
+    },
+    browseHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    viewModeToggle: {
+      width: 36,
+      height: 36,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 18,
+      backgroundColor: colors.cardSoft,
+    },
+    trackListHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderBottomWidth: 1,
+      borderBottomColor: alpha(colors.text, 0.08),
+      marginBottom: spacing.xs,
+    },
+    trackListColIndex: {
+      width: 22,
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "900",
+      marginRight: 2,
+    },
+    trackListColTitle: {
+      flex: 1,
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.8,
+    },
+    trackListColDuration: {
+      marginRight: 48,
+    },
+    browseGridRow: {
+      gap: spacing.md,
+    },
+    browseGridCard: {
+      flex: 1,
+      marginBottom: spacing.md,
+    },
+    browseRowCard: {
+      marginBottom: spacing.xs,
+    },
+    loadingMore: {
+      paddingVertical: spacing.lg,
+      color: colors.muted,
+      textAlign: "center",
+      fontWeight: "800",
+    },
+    emptyContainer: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: spacing.xxl,
+      gap: spacing.sm,
+    },
+    emptyTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "800",
+      textAlign: "center",
+    },
+    clearSearchButton: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.full,
+      backgroundColor: colors.cardSoft,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+      marginTop: spacing.xs,
+    },
+    clearSearchButtonText: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "800",
+    },
+    skeletonContainer: {
+      gap: spacing.sm,
+      paddingTop: spacing.xs,
+    },
+    skeletonRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+    },
+    skeletonIndex: {
+      width: 18,
+      height: 14,
+      borderRadius: 4,
+      backgroundColor: colors.cardSoft,
+    },
+    skeletonCover: {
+      width: 48,
+      height: 48,
+      borderRadius: radii.sm,
+      backgroundColor: colors.cardSoft,
+    },
+    skeletonCopy: {
+      flex: 1,
+      gap: 6,
+    },
+    skeletonTitle: {
+      width: "60%",
+      height: 12,
+      borderRadius: 4,
+      backgroundColor: colors.cardSoft,
+    },
+    skeletonMeta: {
+      width: "40%",
+      height: 10,
+      borderRadius: 4,
+      backgroundColor: colors.cardSoft,
+    },
+    skeletonTime: {
+      width: 32,
+      height: 10,
+      borderRadius: 4,
+      backgroundColor: colors.cardSoft,
+    },
+  });

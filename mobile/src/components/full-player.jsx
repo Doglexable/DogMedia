@@ -479,6 +479,7 @@ export function FullPlayer({ navigation }) {
   const player = usePlayer();
   const offline = useOffline();
   const { colors, resolvedMode, shadow } = useTheme();
+  const isLight = resolvedMode === "light";
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const isShort = height < 680;
@@ -691,13 +692,38 @@ export function FullPlayer({ navigation }) {
           iconColor={colors.text}
           onPress={closePlayer}
         />
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerKicker}>PLAYING FROM LIBRARY</Text>
+          <Text numberOfLines={1} style={styles.headerPlaylist}>{getLastFolderName(media)}</Text>
+        </View>
+        <PlayerIconButton
+          accessibilityLabel={shareBusy ? "Preparing music clip" : "Share 10 seconds from current position"}
+          disabled={!offline.isConnected || shareBusy}
+          icon="share-outline"
+          iconColor={!offline.isConnected ? colors.subtle : colors.text}
+          onPress={shareMusicClip}
+        />
       </View>
 
       <View style={styles.mediaZone}>
         <Image source={{ uri: thumbnailUri }} style={[styles.cover, { width: coverSize, height: coverSize }]} />
-        <Text style={styles.album} numberOfLines={1}>{getLastFolderName(media)}</Text>
-        <Text style={styles.title} numberOfLines={2}>{media.title}</Text>
-        <Text style={styles.artist} numberOfLines={1}>{resolveMediaArtist(media)}</Text>
+      </View>
+
+      <View style={styles.trackInfoRow}>
+        <View style={styles.trackInfoText}>
+          <Text numberOfLines={1} style={styles.title}>{media.title}</Text>
+          <Text numberOfLines={1} style={styles.artist}>{resolveMediaArtist(media)}</Text>
+        </View>
+        <PlayerIconButton
+          accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
+          active={isLiked}
+          disabled={!offline.isConnected}
+          icon={isLiked ? "bookmark" : "bookmark-outline"}
+          iconColor={!offline.isConnected ? colors.subtle : isLiked ? colors.primary : colors.text}
+          onPress={() => player.toggleLike(media)}
+          size={24}
+          style={styles.heartButton}
+        />
       </View>
 
       <View style={styles.controlZone}>
@@ -731,7 +757,7 @@ export function FullPlayer({ navigation }) {
           <PlayerTransportControls
             player={player}
             playButtonStyle={styles.play}
-            playIconColor={colors.bg}
+            playIconColor={isLight ? colors.white : colors.bg}
             playIconSize={isShort ? 24 : 30}
             style={styles.transportControls}
             transportIconColor={colors.text}
@@ -757,21 +783,6 @@ export function FullPlayer({ navigation }) {
 
         <View style={styles.actionRow}>
           <QualityControl player={player} styles={styles} />
-          <PlayerIconButton
-            accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
-            active={isLiked}
-            disabled={!offline.isConnected}
-            icon={isLiked ? "bookmark" : "bookmark-outline"}
-            iconColor={!offline.isConnected ? colors.subtle : isLiked ? colors.primary : colors.text}
-            onPress={() => player.toggleLike(media)}
-          />
-          <PlayerIconButton
-            accessibilityLabel={shareBusy ? "Preparing music clip" : "Share 10 seconds from current position"}
-            disabled={!offline.isConnected || shareBusy}
-            icon="share-social"
-            iconColor={!offline.isConnected ? colors.subtle : colors.text}
-            onPress={shareMusicClip}
-          />
           <SleepTimerButton
             colors={colors}
             onPress={() => setSleepOpen((open) => !open)}
@@ -799,6 +810,26 @@ export function FullPlayer({ navigation }) {
             onPress={player.toggleMute}
           />
         </View>
+
+        {!isShort && (
+          <Pressable
+            accessibilityLabel="Open synchronized lyrics"
+            accessibilityRole="button"
+            onPress={() => openSheet("lyrics")}
+            style={styles.lyricsPeekCard}
+          >
+            <View style={styles.lyricsPeekTop}>
+              <Text style={styles.lyricsPeekHeading}>Lyrics</Text>
+              <View style={styles.lyricsPeekBadge}>
+                <Ionicons color={colors.text} name="expand" size={11} />
+                <Text style={styles.lyricsPeekBadgeText}>MORE</Text>
+              </View>
+            </View>
+            <Text numberOfLines={2} style={styles.lyricsPeekSnippet}>
+              Tap to view synchronized lyrics and sing along
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {sheetOpen && (
@@ -852,33 +883,108 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
   },
   header: {
     minHeight: 44,
-    alignItems: "flex-start",
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     zIndex: 10,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+  },
+  headerKicker: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  headerPlaylist: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
   },
   mediaZone: {
     alignItems: "center",
-    gap: spacing.xs,
+    justifyContent: "center",
   },
   cover: {
-    borderRadius: radii.lg,
-    marginBottom: isShort ? 4 : spacing.sm,
+    borderRadius: radii.md,
+    marginBottom: isShort ? 2 : spacing.xs,
     ...shadow.soft,
   },
-  album: {
-    color: colors.muted,
-    fontWeight: "800",
+  trackInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
+  trackInfoText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   title: {
     color: colors.text,
-    textAlign: "center",
-    fontSize: isShort ? 22 : 27,
-    lineHeight: isShort ? 26 : 31,
+    fontSize: isShort ? 20 : 25,
+    lineHeight: isShort ? 24 : 29,
     fontWeight: "900",
   },
   artist: {
     color: colors.muted,
-    fontWeight: "800",
+    fontSize: isShort ? 13 : 15,
+    fontWeight: "700",
+  },
+  heartButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "transparent",
+  },
+  lyricsPeekCard: {
+    padding: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: alpha(colors.card, isLight ? 0.9 : 0.6),
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    gap: spacing.xs,
+    ...shadow.soft,
+  },
+  lyricsPeekTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  lyricsPeekHeading: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  lyricsPeekBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.full,
+    backgroundColor: colors.cardSoft,
+  },
+  lyricsPeekBadgeText: {
+    color: colors.text,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  lyricsPeekSnippet: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
   },
   progressBlock: {
     gap: spacing.sm,

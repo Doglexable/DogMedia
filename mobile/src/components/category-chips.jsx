@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { ScrollView, Pressable, StyleSheet, Text } from "react-native";
-import { spacing, useTheme } from "../theme";
+import { radii, spacing, useTheme } from "../theme";
 
-export function CategoryChips({ categories, selectedId, onSelect }) {
+export function CategoryChips({ categories = [], selectedId, onSelect }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -32,15 +32,18 @@ const makeStyles = (colors) => StyleSheet.create({
     maxWidth: 160,
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
-    borderRadius: 9999,
-    backgroundColor: "rgba(255, 255, 255, 0.07)",
+    borderRadius: radii.full,
+    backgroundColor: colors.cardSoft,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
   active: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   label: {
     color: colors.muted,
-    fontWeight: "700",
+    fontWeight: "800",
     fontSize: 12,
   },
   activeLabel: {

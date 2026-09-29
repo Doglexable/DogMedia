@@ -22,6 +22,7 @@ export default [
       "ios/**",
       ".expo/**",
       "node_modules/**",
+      "dist/**",
     ],
   },
   {

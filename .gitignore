@@ -43,6 +43,7 @@ Thumbs.db
 *context*.*
 AGENTS.md
 .codex/
+.expo/
 .agents/
-plans/
+plans/*
 example*/
