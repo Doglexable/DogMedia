@@ -9,6 +9,7 @@ import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { EQ_BANDS, GAIN_MIN, GAIN_MAX } from "./use-equalizer";
 import { SpotifyEqualizer } from "./spotify-equalizer";
 import { getQualityBitrateLabel } from "./player-controls";
+import { APP_VERSION_LABEL } from "../../version";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const QUALITY_OPTIONS = [
@@ -66,9 +67,12 @@ export function SettingsControl({
   gains,
   eqPreset,
   eqEnabled,
+  targetDb,
   onSetGain,
   onSetEqPreset,
   onSetEqEnabled,
+  onSetTargetDb,
+  onAdjustToTarget,
   // speed
   playbackRate = 1,
   onSelectRate,
@@ -81,6 +85,35 @@ export function SettingsControl({
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("quality");
   const containerRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // Clamp panel within viewport boundaries to prevent left/right screen overflow
+  useEffect(() => {
+    if (!open) return;
+    function clampPosition() {
+      const panel = panelRef.current;
+      if (!panel) return;
+      panel.style.setProperty("--panel-shift-x", "0px");
+      const rect = panel.getBoundingClientRect();
+      const margin = 12;
+      let shiftX = 0;
+
+      if (rect.left < margin) {
+        shiftX = margin - rect.left;
+      } else if (rect.right > window.innerWidth - margin) {
+        shiftX = (window.innerWidth - margin) - rect.right;
+      }
+
+      panel.style.setProperty("--panel-shift-x", `${Math.round(shiftX)}px`);
+    }
+
+    const frame = requestAnimationFrame(clampPosition);
+    window.addEventListener("resize", clampPosition);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", clampPosition);
+    };
+  }, [open, activeTab]);
 
   // Determine which tabs to show
   const visibleTabs = TABS.filter((t) => t.id !== "speed" || showSpeed);
@@ -145,6 +178,7 @@ export function SettingsControl({
       {/* Panel */}
       {open && (
         <div
+          ref={panelRef}
           className={`settings-panel ${variant === "fullscreen" ? "settings-panel--fullscreen" : ""}`}
           role="dialog"
           aria-label="Settings"
@@ -221,9 +255,12 @@ export function SettingsControl({
                   eqEnabled={eqEnabled}
                   gainMin={GAIN_MIN}
                   gainMax={GAIN_MAX}
+                  targetDb={targetDb}
                   onSetGain={onSetGain}
                   onSetPreset={onSetEqPreset}
                   onSetEnabled={onSetEqEnabled}
+                  onSetTargetDb={onSetTargetDb}
+                  onAdjustToTarget={onAdjustToTarget}
                 />
               </div>
             )}
@@ -308,6 +345,9 @@ export function SettingsControl({
                 )}
               </div>
             )}
+          </div>
+          <div className="settings-panel-footer">
+            <span className="settings-panel-version">Dogmedia Web {APP_VERSION_LABEL}</span>
           </div>
         </div>
       )}

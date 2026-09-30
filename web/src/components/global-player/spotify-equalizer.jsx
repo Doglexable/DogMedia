@@ -4,7 +4,16 @@ import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
 import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
 import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
-import { EQ_PRESETS, GAIN_MIN, GAIN_MAX, formatGain } from "./use-equalizer";
+import { faCrosshairs } from "@fortawesome/free-solid-svg-icons/faCrosshairs";
+import {
+  EQ_PRESETS,
+  GAIN_MIN,
+  GAIN_MAX,
+  TARGET_DB_KEY,
+  formatGain,
+  calculateTargetShift,
+  readStoredTargetDb,
+} from "./use-equalizer";
 
 const SVG_WIDTH = 600;
 const SVG_HEIGHT = 215;
@@ -46,15 +55,19 @@ export function getSplinePath(points) {
  * SpotifyEqualizer — 10-band equalizer matching Spotify's official playback curve visualizer.
  *
  * Props:
- *   gains        number[]      — 10 band gain values
- *   eqBands      Band[]        — 10 band definitions (label, frequency, type)
- *   preset       string        — active preset key or "custom"
- *   eqEnabled    boolean       — whether EQ audio processing is enabled
- *   gainMin      number        — minimum gain (-10)
- *   gainMax      number        — maximum gain (+10)
- *   onSetGain    (idx, v) => void
- *   onSetPreset  (key) => void
- *   onSetEnabled (bool) => void
+ *   gains            number[]      — 10 band gain values
+ *   eqBands          Band[]        — 10 band definitions (label, frequency, type)
+ *   preset           string        — active preset key or "custom"
+ *   eqEnabled        boolean       — whether EQ audio processing is enabled
+ *   gainMin          number        — minimum gain (-10)
+ *   gainMax          number        — maximum gain (+10)
+ *   targetDb         number        — current target dB level (-10 to +10)
+ *   onSetGain        (idx, v) => void
+ *   onSetGains       (gains) => void
+ *   onSetPreset      (key) => void
+ *   onSetEnabled     (bool) => void
+ *   onSetTargetDb    (db) => void
+ *   onAdjustToTarget (db) => void
  */
 export function SpotifyEqualizer({
   gains = [],
@@ -63,13 +76,50 @@ export function SpotifyEqualizer({
   eqEnabled = false,
   gainMin = GAIN_MIN,
   gainMax = GAIN_MAX,
+  targetDb: propTargetDb,
   onSetGain,
+  onSetGains,
   onSetPreset,
   onSetEnabled,
+  onSetTargetDb,
+  onAdjustToTarget,
 }) {
   const svgRef = useRef(null);
   const [activeBand, setActiveBand] = useState(null);
   const [hoveredBand, setHoveredBand] = useState(null);
+  const [localTargetDb, setLocalTargetDb] = useState(() => (
+    propTargetDb !== undefined ? Number(propTargetDb) : readStoredTargetDb()
+  ));
+
+  const targetDb = propTargetDb !== undefined ? Number(propTargetDb) : localTargetDb;
+
+  const handleTargetChange = (val) => {
+    const clamped = Math.min(gainMax, Math.max(gainMin, Math.round(Number(val) * 2) / 2));
+    setLocalTargetDb(clamped);
+    onSetTargetDb?.(clamped);
+    try {
+      window.localStorage.setItem(TARGET_DB_KEY, String(clamped));
+    } catch { /* ignore */ }
+  };
+
+  const currentPeak = gains.length > 0 ? Math.max(...gains.map(Number)) : 0;
+  const isTargetMatched = Math.abs(currentPeak - targetDb) < 0.05;
+
+  const handleApplyTarget = () => {
+    if (!eqEnabled && typeof onSetEnabled === "function") {
+      onSetEnabled(true);
+    }
+    if (typeof onAdjustToTarget === "function") {
+      onAdjustToTarget(targetDb);
+      return;
+    }
+    const nextGains = calculateTargetShift(gains, targetDb, gainMin, gainMax);
+    if (typeof onSetGains === "function") {
+      onSetGains(nextGains);
+    } else if (typeof onSetGain === "function") {
+      nextGains.forEach((g, i) => onSetGain(i, g));
+    }
+  };
 
   // Compute (x, y) coordinates for all 10 bands
   const count = eqBands.length || 10;
@@ -84,6 +134,8 @@ export function SpotifyEqualizer({
   const curvePath = getSplinePath(points);
   const bottomY = PAD_TOP + GRAPH_HEIGHT;
   const centerY = PAD_TOP + GRAPH_HEIGHT / 2;
+  const targetNorm = (gainMax - targetDb) / (gainMax - gainMin);
+  const targetY = PAD_TOP + targetNorm * GRAPH_HEIGHT;
   const areaPath = points.length > 1
     ? `${curvePath} L ${points[points.length - 1].x.toFixed(1)} ${bottomY.toFixed(1)} L ${points[0].x.toFixed(1)} ${bottomY.toFixed(1)} Z`
     : "";
@@ -241,6 +293,57 @@ export function SpotifyEqualizer({
         </div>
       )}
 
+      {/* ── Target dB Level Setting & Adjust Action ── */}
+      <div className="spotify-eq-target-bar" role="group" aria-label="Target dB Level">
+        <div className="spotify-eq-target-info">
+          <FontAwesomeIcon icon={faCrosshairs} className="spotify-eq-target-icon" />
+          <span className="spotify-eq-target-label">Target dB</span>
+          <span className="spotify-eq-target-badge">{formatGain(targetDb)} dB</span>
+        </div>
+
+        <div className="spotify-eq-target-controls">
+          <div className="spotify-eq-target-stepper">
+            <button
+              type="button"
+              className="spotify-eq-target-step-btn"
+              onClick={() => handleTargetChange(targetDb - 0.5)}
+              title="Decrease target dB"
+              aria-label="Decrease target dB"
+            >
+              −
+            </button>
+            <input
+              type="range"
+              min={gainMin}
+              max={gainMax}
+              step="0.5"
+              value={targetDb}
+              onChange={(e) => handleTargetChange(e.target.value)}
+              className="spotify-eq-target-slider"
+              aria-label="Target dB slider"
+            />
+            <button
+              type="button"
+              className="spotify-eq-target-step-btn"
+              onClick={() => handleTargetChange(targetDb + 0.5)}
+              title="Increase target dB"
+              aria-label="Increase target dB"
+            >
+              +
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className={`spotify-eq-target-apply-btn ${isTargetMatched ? "spotify-eq-target-apply-btn--matched" : ""}`}
+            onClick={handleApplyTarget}
+            title="Shift all bands so curve peak matches target dB"
+          >
+            <span>{isTargetMatched ? "Peak Matched" : "Adjust EQ to Target"}</span>
+          </button>
+        </div>
+      </div>
+
       {/* ── Spotify Official Visualizer Card ── */}
       <div
         className={`spotify-eq-card ${!eqEnabled ? "spotify-eq-card--disabled" : ""}`}
@@ -289,6 +392,25 @@ export function SpotifyEqualizer({
             y2={centerY}
             className="spotify-eq-baseline"
           />
+
+          {/* Target dB Horizontal Reference Line & Label */}
+          <g className="spotify-eq-target-group">
+            <line
+              x1={PAD_LEFT - 26}
+              y1={targetY}
+              x2={PAD_LEFT + GRAPH_WIDTH + 16}
+              y2={targetY}
+              className="spotify-eq-target-line"
+            />
+            <text
+              x={PAD_LEFT + GRAPH_WIDTH + 14}
+              y={targetY - 4}
+              textAnchor="end"
+              className="spotify-eq-target-line-label"
+            >
+              Target {formatGain(targetDb)}dB
+            </text>
+          </g>
 
           {/* 10 Vertical Lines for Each Frequency Band */}
           {points.map((pt) => (
@@ -423,7 +545,7 @@ export function SpotifyEqualizer({
 
         {/* Subtle helper note */}
         <div className="spotify-eq-footer-hint">
-          <span>Drag dots or vertical lines to adjust • Double-click any dot to reset to 0 dB</span>
+          <span>Drag dots or adjust Target dB to shift curve • Double-click any dot to reset to 0 dB</span>
         </div>
       </div>
     </div>

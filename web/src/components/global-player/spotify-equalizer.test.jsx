@@ -108,4 +108,29 @@ describe("SpotifyEqualizer component", () => {
     expect(markup).toContain("-2");
     expect(markup).toContain("-5");
   });
+
+  it("renders Target dB control bar and SVG reference line", () => {
+    const markup = renderToStaticMarkup(
+      <SpotifyEqualizer {...defaultProps} targetDb={4.5} />
+    );
+
+    expect(markup).toContain("spotify-eq-target-bar");
+    expect(markup).toContain("Target dB");
+    expect(markup).toContain("+4.5 dB");
+    expect(markup).toContain("spotify-eq-target-slider");
+    expect(markup).toContain("Adjust EQ to Target");
+    expect(markup).toContain("spotify-eq-target-line");
+    expect(markup).toContain("Target +4.5dB");
+  });
+
+  it("indicates Peak Matched when curve peak is already at target dB", () => {
+    const rockGains = [3, 5, 3, 0, 3, 5, 5, 3, 2, 0]; // peak is 5
+    const markup = renderToStaticMarkup(
+      <SpotifyEqualizer {...defaultProps} gains={rockGains} targetDb={5} />
+    );
+
+    expect(markup).toContain("Peak Matched");
+    expect(markup).toContain("spotify-eq-target-apply-btn--matched");
+  });
 });
+

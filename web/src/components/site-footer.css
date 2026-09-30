@@ -359,6 +359,33 @@
   padding-top: 1.5rem;
 }
 
+.site-footer-fine-print-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.site-footer-version-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.55rem;
+  border-radius: var(--radius-full, 9999px);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, transparent);
+  font-family: var(--font-data, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: var(--fs-xs, 0.6875rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.site-footer-version-tag:hover {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 42%, transparent);
+}
+
 .site-footer-fine-print-statement {
   font-style: italic;
   letter-spacing: 0.01em;

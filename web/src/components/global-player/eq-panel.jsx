@@ -26,9 +26,12 @@ export function EqControl({
   eqEnabled,
   gainMin = GAIN_MIN,
   gainMax = GAIN_MAX,
+  targetDb,
   onSetGain,
   onSetPreset,
   onSetEnabled,
+  onSetTargetDb,
+  onAdjustToTarget,
   variant = "ghost",
 }) {
   const [open, setOpen] = useState(false);
@@ -93,9 +96,12 @@ export function EqControl({
             eqEnabled={eqEnabled}
             gainMin={gainMin}
             gainMax={gainMax}
+            targetDb={targetDb}
             onSetGain={onSetGain}
             onSetPreset={onSetPreset}
             onSetEnabled={onSetEnabled}
+            onSetTargetDb={onSetTargetDb}
+            onAdjustToTarget={onAdjustToTarget}
           />
         </div>
       )}

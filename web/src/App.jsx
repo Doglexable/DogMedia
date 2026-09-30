@@ -1,12 +1,14 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { api } from "./api";
 import { AccessContext } from "./access-context";
+import { lazyWithRetry } from "./utils/lazy-with-retry";
+import { APP_VERSION_LABEL } from "./version";
 
-const AccessDenied = lazy(() => import("./pages/AccessDenied"));
-const SharedLikedMusic = lazy(() => import("./pages/SharedLikedMusic"));
-const SharedMusic = lazy(() => import("./pages/SharedMusic"));
-const ProtectedApp = lazy(() => import("./components/protected-app"));
+const AccessDenied = lazyWithRetry(() => import("./pages/AccessDenied"));
+const SharedLikedMusic = lazyWithRetry(() => import("./pages/SharedLikedMusic"));
+const SharedMusic = lazyWithRetry(() => import("./pages/SharedMusic"));
+const ProtectedApp = lazyWithRetry(() => import("./components/protected-app"));
 
 function AccessGuard({ children }) {
   const [status, setStatus] = useState("loading");
@@ -26,8 +28,11 @@ function AccessGuard({ children }) {
   if (status === "loading") return (
     <div className="premium-app-shell grid min-h-screen place-items-center text-content" role="status" aria-label="Checking access">
       <div className="text-center">
-        <div className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-card-border border-t-primary" />
+        <div className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
         <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-muted">Opening private library</p>
+        <span className="mt-2 inline-block rounded-full border border-primary/28 bg-primary/10 px-2.5 py-0.5 text-[11px] font-mono font-bold tracking-wide text-primary shadow-[0_2px_10px_rgba(225,29,72,0.12)]">
+          {APP_VERSION_LABEL}
+        </span>
       </div>
     </div>
   );

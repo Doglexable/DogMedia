@@ -21,7 +21,7 @@ export default [{
     ecmaVersion: "latest",
     sourceType: "module",
     parserOptions: { ecmaFeatures: { jsx: true } },
-    globals: { ...globals.browser, ...globals.node },
+    globals: { ...globals.browser, ...globals.node, __APP_VERSION__: "readonly" },
   },
   plugins: { local: { rules: { "jsx-uses-vars": jsxUsesVars } } },
   rules: {

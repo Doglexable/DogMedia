@@ -26,9 +26,145 @@
         document.documentElement.dataset.themeMode = mode;
       })();
     </script>
+    <style>
+      :root {
+        --preload-bg: #f8f8f7;
+        --preload-text: #0a0a0a;
+        --preload-muted: rgba(0, 0, 0, 0.54);
+        --preload-border: rgba(0, 0, 0, 0.10);
+        --preload-card: #ffffff;
+        --preload-primary: #e11d48;
+        --preload-primary-soft: rgba(225, 29, 72, 0.10);
+        --preload-primary-border: rgba(225, 29, 72, 0.28);
+      }
+      :root[data-theme="dark"] {
+        --preload-bg: #0a0a0a;
+        --preload-text: #f5f5f4;
+        --preload-muted: rgba(255, 255, 255, 0.50);
+        --preload-border: rgba(255, 255, 255, 0.11);
+        --preload-card: #181818;
+        --preload-primary: #e11d48;
+        --preload-primary-soft: rgba(225, 29, 72, 0.14);
+        --preload-primary-border: rgba(225, 29, 72, 0.32);
+      }
+      body {
+        margin: 0;
+        background-color: var(--preload-bg);
+        color: var(--preload-text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .pfs-preload {
+        display: flex;
+        min-height: 100vh;
+        min-height: 100dvh;
+        width: 100%;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--preload-bg);
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .pfs-preload-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        max-width: 340px;
+        width: 100%;
+      }
+      .pfs-preload-badge-wrap {
+        position: relative;
+        width: 76px;
+        height: 76px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 22px;
+      }
+      .pfs-preload-logo {
+        width: 58px;
+        height: 58px;
+        border-radius: 14px;
+        box-shadow: 0 10px 28px rgba(225, 29, 72, 0.24);
+        position: relative;
+        z-index: 2;
+        object-fit: cover;
+      }
+      .pfs-preload-ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 20px;
+        border: 2px solid var(--preload-primary);
+        opacity: 0.3;
+        animation: pfs-preload-pulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      @keyframes pfs-preload-pulse {
+        0%, 100% { transform: scale(0.92); opacity: 0.15; }
+        50% { transform: scale(1.08); opacity: 0.5; }
+      }
+      .pfs-preload-title {
+        font-size: 1.6rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--preload-text);
+        line-height: 1.15;
+      }
+      .pfs-preload-tagline {
+        margin-top: 6px;
+        font-size: 0.8125rem;
+        color: var(--preload-muted);
+        line-height: 1.45;
+      }
+      .pfs-preload-footer {
+        margin-top: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 5px 14px;
+        border-radius: 9999px;
+        background-color: var(--preload-primary-soft);
+        border: 1px solid var(--preload-primary-border);
+        box-shadow: 0 4px 18px rgba(225, 29, 72, 0.16);
+        backdrop-filter: blur(8px);
+      }
+      .pfs-preload-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--preload-primary-border);
+        border-top-color: var(--preload-primary);
+        border-radius: 50%;
+        animation: pfs-preload-spin 0.75s linear infinite;
+      }
+      @keyframes pfs-preload-spin {
+        to { transform: rotate(360deg); }
+      }
+      .pfs-preload-version {
+        font-size: 0.75rem;
+        font-weight: 700;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        letter-spacing: 0.04em;
+        color: var(--preload-primary);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="pfs-preload" class="pfs-preload" aria-label="Loading Dogmedia %APP_VERSION%" role="status">
+        <div class="pfs-preload-content">
+          <div class="pfs-preload-badge-wrap">
+            <img src="/web-app-manifest-192x192.png" alt="Dogmedia" class="pfs-preload-logo" width="58" height="58" />
+            <div class="pfs-preload-ring" aria-hidden="true"></div>
+          </div>
+          <div class="pfs-preload-title">Dogmedia</div>
+          <div class="pfs-preload-tagline">Koleksimu, ceritamu, ritmemu sendiri.</div>
+          <div class="pfs-preload-footer">
+            <div class="pfs-preload-spinner" aria-hidden="true"></div>
+            <span class="pfs-preload-version">%APP_VERSION%</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

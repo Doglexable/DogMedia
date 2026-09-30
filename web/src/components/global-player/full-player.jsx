@@ -7,6 +7,7 @@ import { faInfinity } from "@fortawesome/free-solid-svg-icons/faInfinity";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
+import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
 import { faRepeat } from "@fortawesome/free-solid-svg-icons/faRepeat";
 import { faShuffle } from "@fortawesome/free-solid-svg-icons/faShuffle";
 import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
@@ -47,12 +48,45 @@ export function FullPlayer({
   onToggleMute, onToggleShuffle, onToggle, liked, onToggleLike, onCloseFull,
   onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
-  eqGains, eqPreset, eqEnabled, onSetEqGain, onSetEqPreset, onSetEqEnabled,
+  eqGains, eqPreset, eqEnabled, eqTargetDb, onSetEqGain, onSetEqPreset, onSetEqEnabled,
+  onSetEqTargetDb, onAdjustEqToTarget,
   lyrics, lyricsLoading,
 }) {
   const [displayedArtworkSrc, setDisplayedArtworkSrc] = useState(thumbSrc);
   const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
   const [shareOpen, setShareOpen] = useState(false);
+  const [showLyricsMobile, setShowLyricsMobile] = useState(false);
+  const [showLyricsDesktop, setShowLyricsDesktop] = useState(true);
+  const [isSingleColumn, setIsSingleColumn] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 899px)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 899px)");
+    const onChange = (e) => setIsSingleColumn(e.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  const hasLyrics = Boolean(lyrics?.segments?.length > 0 || lyricsLoading);
+  const lyricsActive = isSingleColumn ? showLyricsMobile : showLyricsDesktop;
+
+  const onToggleLyrics = () => {
+    if (isSingleColumn) {
+      setShowLyricsMobile((prev) => !prev);
+    } else {
+      setShowLyricsDesktop((prev) => !prev);
+    }
+  };
+
+  useEffect(() => {
+    if (!hasLyrics && showLyricsMobile) {
+      setShowLyricsMobile(false);
+    }
+  }, [hasLyrics, showLyricsMobile]);
+
   const onThumbErrorRef = useRef(onThumbError);
   onThumbErrorRef.current = onThumbError;
 
@@ -119,7 +153,7 @@ export function FullPlayer({
 
     return (
       <div
-        className="premium-app-shell fullscreen-player"
+        className="fullscreen-player"
         onContextMenu={onPreventMenu}
         style={{ "--fullscreen-volume": `${effectiveVolume}%` }}
       >
@@ -144,25 +178,43 @@ export function FullPlayer({
           <FontAwesomeIcon icon={faXmark} />
         </button>
 
-        <main className="fullscreen-player-layout">
+        <main
+          className={`fullscreen-player-layout ${lyricsActive ? "fullscreen-player-layout--lyrics-active" : ""}${!showLyricsDesktop && !isSingleColumn ? " fullscreen-player-layout--desktop-no-lyrics" : ""}`}
+        >
           <section className="fullscreen-player-left" aria-label="Now playing">
-            <div className="fullscreen-player-artwork-wrap">
-              {hasArtwork ? (
-                <img
-                  src={effectiveArtworkSrc}
-                  alt={currentMedia.title}
-                  className="fullscreen-player-artwork"
-                  draggable={false}
-                  onContextMenu={onPreventMenu}
-                  onError={onThumbError}
-                  onLoad={() => {
-                    setDisplayedArtworkSrc(thumbSrc);
-                    setIsArtworkLoaded(true);
-                  }}
-                />
+            <div className="fullscreen-player-stage">
+              {isSingleColumn && showLyricsMobile ? (
+                <div className="fullscreen-player-stage-lyrics">
+                  <FullscreenLyrics
+                    artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
+                    media={currentMedia}
+                    mediaId={currentMedia.id}
+                    onSeek={onSeek}
+                    position={position}
+                    lyrics={lyrics}
+                    lyricsLoading={lyricsLoading}
+                  />
+                </div>
               ) : (
-                <div className="fullscreen-player-artwork fullscreen-player-artwork--fallback">
-                  <FontAwesomeIcon icon={meta.icon} />
+                <div className="fullscreen-player-artwork-wrap">
+                  {hasArtwork ? (
+                    <img
+                      src={effectiveArtworkSrc}
+                      alt={currentMedia.title}
+                      className="fullscreen-player-artwork"
+                      draggable={false}
+                      onContextMenu={onPreventMenu}
+                      onError={onThumbError}
+                      onLoad={() => {
+                        setDisplayedArtworkSrc(thumbSrc);
+                        setIsArtworkLoaded(true);
+                      }}
+                    />
+                  ) : (
+                    <div className="fullscreen-player-artwork fullscreen-player-artwork--fallback">
+                      <FontAwesomeIcon icon={meta.icon} />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -185,9 +237,12 @@ export function FullPlayer({
                 gains={eqGains}
                 eqPreset={eqPreset}
                 eqEnabled={eqEnabled}
+                targetDb={eqTargetDb}
                 onSetGain={onSetEqGain}
                 onSetEqPreset={onSetEqPreset}
                 onSetEqEnabled={onSetEqEnabled}
+                onSetTargetDb={onSetEqTargetDb}
+                onAdjustToTarget={onAdjustEqToTarget}
                 sleepTimerRemaining={sleepTimerRemaining}
                 sleepTimerMode={sleepTimerMode}
                 hasPlaylist={hasPlaylist}
@@ -203,6 +258,18 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faBookmark} />
               </button>
+              {hasLyrics && (
+                <button
+                  type="button"
+                  className={lyricsActive ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
+                  aria-label={lyricsActive ? "Hide lyrics" : "Show lyrics"}
+                  aria-pressed={lyricsActive}
+                  title={lyricsActive ? "Hide lyrics" : "Show lyrics"}
+                  onClick={onToggleLyrics}
+                >
+                  <FontAwesomeIcon icon={faQuoteRight} />
+                </button>
+              )}
               <button
                 type="button"
                 className={shareOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -306,17 +373,19 @@ export function FullPlayer({
             </div>
           </section>
 
-          <div className="fullscreen-player-utilities">
-            <FullscreenLyrics
-              artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
-              media={currentMedia}
-              mediaId={currentMedia.id}
-              onSeek={onSeek}
-              position={position}
-              lyrics={lyrics}
-              lyricsLoading={lyricsLoading}
-            />
-          </div>
+          {!isSingleColumn && showLyricsDesktop && (
+            <div className="fullscreen-player-utilities">
+              <FullscreenLyrics
+                artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
+                media={currentMedia}
+                mediaId={currentMedia.id}
+                onSeek={onSeek}
+                position={position}
+                lyrics={lyrics}
+                lyricsLoading={lyricsLoading}
+              />
+            </div>
+          )}
         </main>
 
         {resumePos !== null && (
@@ -389,9 +458,12 @@ export function FullPlayer({
         eqGains={eqGains}
         eqPreset={eqPreset}
         eqEnabled={eqEnabled}
+        eqTargetDb={eqTargetDb}
         onSetEqGain={onSetEqGain}
         onSetEqPreset={onSetEqPreset}
         onSetEqEnabled={onSetEqEnabled}
+        onSetEqTargetDb={onSetEqTargetDb}
+        onAdjustEqToTarget={onAdjustEqToTarget}
       />
     );
   }

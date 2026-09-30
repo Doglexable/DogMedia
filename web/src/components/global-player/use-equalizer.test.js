@@ -8,6 +8,9 @@ import {
   PREAMP_LINEAR_GAIN,
   formatGain,
   getOrCreateMediaElementSource,
+  calculateTargetShift,
+  readStoredTargetDb,
+  TARGET_DB_KEY,
 } from "./use-equalizer";
 
 describe("equalizer configuration & presets", () => {
@@ -28,16 +31,9 @@ describe("equalizer configuration & presets", () => {
     expect(GAIN_MAX).toBe(10);
   });
 
-  it("configures a -10 dB preamp attenuation headroom to prevent digital clipping", () => {
-    expect(PREAMP_GAIN_DB).toBe(-10);
-    expect(PREAMP_GAIN_DB).toBe(-GAIN_MAX);
-    expect(PREAMP_LINEAR_GAIN).toBeCloseTo(Math.pow(10, -10 / 20), 5);
-    expect(PREAMP_LINEAR_GAIN).toBeCloseTo(0.316227, 4);
-
-    // Any boost up to GAIN_MAX (+10 dB) plus preamp headroom (-10 dB) remains <= 0 dBFS
-    const maxBoost = GAIN_MAX;
-    const peakLevel = PREAMP_GAIN_DB + maxBoost;
-    expect(peakLevel).toBeLessThanOrEqual(0);
+  it("configures unity preamp (0 dB) to preserve perceived loudness, protected by brickwall limiter", () => {
+    expect(PREAMP_GAIN_DB).toBe(0);
+    expect(PREAMP_LINEAR_GAIN).toBe(1.0);
   });
 
   it("contains all 10-band presets specified in context_eq.md", () => {
@@ -126,3 +122,80 @@ describe("equalizer media source lifecycle", () => {
     expect(context.createMediaElementSource).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("target dB shift & adjustment", () => {
+  it("shifts all bands so the peak matches target dB exactly", () => {
+    const rockGains = [3, 5, 3, 0, 3, 5, 5, 3, 2, 0]; // peak is 5
+    const shiftedTo8 = calculateTargetShift(rockGains, 8);
+
+    expect(Math.max(...shiftedTo8)).toBe(8);
+    expect(shiftedTo8).toEqual([6, 8, 6, 3, 6, 8, 8, 6, 5, 3]);
+
+    const shiftedTo0 = calculateTargetShift(rockGains, 0);
+    expect(Math.max(...shiftedTo0)).toBe(0);
+    expect(shiftedTo0).toEqual([-2, 0, -2, -5, -2, 0, 0, -2, -3, -5]);
+  });
+
+  it("sets all bands uniformly when starting from a flat curve", () => {
+    const flatGains = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    const shifted = calculateTargetShift(flatGains, 4.5);
+
+    expect(shifted).toEqual([4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5, 4.5]);
+    expect(Math.max(...shifted)).toBe(4.5);
+  });
+
+  it("clamps bands that exceed GAIN_MAX or GAIN_MIN after shift", () => {
+    const metalGains = [6, 8, 5, -2, -5, -3, 2, 5, 8, 6]; // peak is 8, lowest is -5
+    // Target +10 dB: offset is +2 dB, so peak hits 10, lowest becomes -3
+    const shiftedUp = calculateTargetShift(metalGains, 10, -10, 10);
+    expect(Math.max(...shiftedUp)).toBe(10);
+    expect(shiftedUp[1]).toBe(10);
+    expect(shiftedUp[8]).toBe(10);
+
+    // Target -6 dB: offset is -14 dB (-6 - 8 = -14)
+    // -5 - 14 = -19, which must clamp to -10
+    const shiftedDown = calculateTargetShift(metalGains, -6, -10, 10);
+    expect(Math.max(...shiftedDown)).toBe(-6);
+    expect(Math.min(...shiftedDown)).toBe(-10);
+    for (const g of shiftedDown) {
+      expect(g).toBeGreaterThanOrEqual(-10);
+      expect(g).toBeLessThanOrEqual(10);
+    }
+  });
+
+  it("handles empty gains gracefully", () => {
+    expect(calculateTargetShift([], 5)).toEqual([]);
+  });
+
+  it("reads stored target dB from localStorage or falls back to 0", () => {
+    expect(readStoredTargetDb()).toBe(0);
+
+    const mockStorage = new Map();
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      localStorage: {
+        getItem: (k) => mockStorage.get(k) ?? null,
+        setItem: (k, v) => mockStorage.set(k, String(v)),
+        removeItem: (k) => mockStorage.delete(k),
+      },
+    };
+
+    try {
+      window.localStorage.setItem(TARGET_DB_KEY, "6.5");
+      expect(readStoredTargetDb()).toBe(6.5);
+
+      window.localStorage.setItem(TARGET_DB_KEY, "15"); // Exceeds GAIN_MAX (10)
+      expect(readStoredTargetDb()).toBe(10);
+
+      window.localStorage.removeItem(TARGET_DB_KEY);
+      expect(readStoredTargetDb()).toBe(0);
+    } finally {
+      if (originalWindow === undefined) {
+        delete globalThis.window;
+      } else {
+        globalThis.window = originalWindow;
+      }
+    }
+  });
+});
+

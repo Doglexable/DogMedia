@@ -66,10 +66,12 @@ describe("SiteFooter", () => {
     expect(markup).toContain("DOGMEDIA");
   });
 
-  it("renders fine print with dynamic current year copyright", () => {
+  it("renders fine print with dynamic current year copyright and version tag", () => {
     const currentYear = new Date().getFullYear();
     const markup = renderFooter();
     expect(markup).toContain(`© ${currentYear} Dogmedia. All rights reserved.`);
+    expect(markup).toContain("site-footer-version-tag");
+    expect(markup).toContain("Web v0.1.0");
   });
 
   it("shows Admin Console link when access tier is >= 100 and hides it for standard users", () => {

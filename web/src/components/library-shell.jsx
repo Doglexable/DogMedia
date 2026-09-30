@@ -16,6 +16,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiUrl, categoryThumbnailUrl, readJsonArray } from "../api";
 import { SiteFooter } from "./site-footer";
+import { APP_VERSION_LABEL } from "../version";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -360,6 +361,10 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           <AndroidDownloadLink />
           <AccessBadge access={access} />
           <ThemeToggle className="global-sidebar-theme-btn" />
+          <div className="global-sidebar-version" title={`Dogmedia Web ${APP_VERSION_LABEL}`}>
+            <span>Web Client</span>
+            <span className="global-sidebar-version-badge">{APP_VERSION_LABEL}</span>
+          </div>
         </div>
       </aside>
 
@@ -423,6 +428,10 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           ) : (
             <p className="global-sidebar-empty">No media categories available.</p>
           )}
+          <div className="mobile-categories-version" title={`Dogmedia Web ${APP_VERSION_LABEL}`}>
+            <span>Dogmedia Web</span>
+            <span className="global-sidebar-version-badge">{APP_VERSION_LABEL}</span>
+          </div>
         </nav>
       </div>
       <CategoryContextMenu

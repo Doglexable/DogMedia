@@ -1,13 +1,14 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAccess } from "../access-context";
 import { GlobalPlayerProvider } from "./GlobalPlayer";
 import { LibraryShell } from "./library-shell";
+import { lazyWithRetry } from "../utils/lazy-with-retry";
 
-const Dashboard = lazy(() => import("../pages/Dashboard"));
-const Player = lazy(() => import("../pages/Player"));
-const Wrapped = lazy(() => import("../pages/Wrapped"));
-const Admin = lazy(() => import("../pages/Admin"));
+const Dashboard = lazyWithRetry(() => import("../pages/Dashboard"));
+const Player = lazyWithRetry(() => import("../pages/Player"));
+const Wrapped = lazyWithRetry(() => import("../pages/Wrapped"));
+const Admin = lazyWithRetry(() => import("../pages/Admin"));
 
 export default function ProtectedApp() {
   const access = useAccess();

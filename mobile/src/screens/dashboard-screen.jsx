@@ -4,12 +4,14 @@ import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, Vi
 import { Image } from "expo-image";
 import { apiJson, mediaThumbnailUrl } from "../api";
 import { MediaTypePills } from "../components/media-type-pills";
+import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
 import { QuickAccessGrid } from "../components/quick-access-grid";
 import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { usePlayerLibrary } from "../context/player-context";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { getPlaybackErrorPresentation } from "../utils/playback-errors";
+import { filterDisplayCategories, getBrowseSectionTitle } from "../utils/categories";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -95,6 +97,8 @@ export function DashboardScreen({ navigation }) {
   const styles = useMemo(() => makeStyles(colors, shadow, isCompact), [colors, shadow, isCompact]);
   const [media, setMedia] = useState([]);
   const [mediaType, setMediaType] = useState("all");
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [summary, setSummary] = useState(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -107,6 +111,32 @@ export function DashboardScreen({ navigation }) {
   const greeting = useMemo(() => getGreeting(), []);
 
   useEffect(() => {
+    let active = true;
+    apiJson("/api/categories")
+      .then((data) => {
+        if (!active) return;
+        setCategories(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCategories([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const displayCategories = useMemo(
+    () => filterDisplayCategories(categories),
+    [categories]
+  );
+
+  const handleSelectCategory = useCallback((id) => {
+    setSelectedCategory(id);
+    setSearch("");
+  }, []);
+
+  useEffect(() => {
     if (!notice) return undefined;
     const timer = setTimeout(() => setNotice(""), 3500);
     return () => clearTimeout(timer);
@@ -116,6 +146,7 @@ export function DashboardScreen({ navigation }) {
     const generation = browseGenerationRef.current + 1;
     browseGenerationRef.current = generation;
     const params = new URLSearchParams({ limit: "50", view: "all" });
+    if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setMediaLoading(true);
@@ -138,12 +169,13 @@ export function DashboardScreen({ navigation }) {
           setMediaLoading(false);
         }
       });
-  }, [debouncedSearch, mediaType]);
+  }, [debouncedSearch, mediaType, selectedCategory]);
 
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMore) return;
     const generation = browseGenerationRef.current;
     const params = new URLSearchParams({ limit: "50", view: "all", cursor: nextCursor });
+    if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
     setLoadingMore(true);
@@ -158,15 +190,16 @@ export function DashboardScreen({ navigation }) {
       })
       .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
       .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
-  }, [debouncedSearch, loadingMore, mediaType, nextCursor]);
+  }, [debouncedSearch, loadingMore, mediaType, nextCursor, selectedCategory]);
 
   const loadSummary = useCallback(() => {
     const params = new URLSearchParams({ view: "all" });
+    if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
     apiJson(`/api/playback/dashboard?${params.toString()}`)
       .then(setSummary)
       .catch(() => setSummary(null));
-  }, [mediaType]);
+  }, [mediaType, selectedCategory]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -182,6 +215,16 @@ export function DashboardScreen({ navigation }) {
 
   const visibleMedia = media;
 
+  const browseTitle = useMemo(
+    () => getBrowseSectionTitle({
+      categories,
+      debouncedSearch,
+      mediaCount: visibleMedia.length,
+      selectedId: selectedCategory,
+    }),
+    [categories, debouncedSearch, selectedCategory, visibleMedia.length]
+  );
+
   const byId = useMemo(() => {
     const result = new Map(visibleMedia.map((item) => [Number(item.id), item]));
     for (const item of summary?.media || []) if (!result.has(Number(item.id))) result.set(Number(item.id), item);
@@ -194,7 +237,7 @@ export function DashboardScreen({ navigation }) {
   const recentlyPlayed = orderMediaByIds(recentlyPlayedIds, byId, visibleMedia, 10);
 
   const play = (item) => {
-    player.playMedia(item)
+    player.playMedia(item, selectedCategory)
       .then(() => (navigation.getParent?.() || navigation).navigate("Player"))
       .catch((error) => {
         const presentation = getPlaybackErrorPresentation(error);
@@ -281,8 +324,17 @@ export function DashboardScreen({ navigation }) {
                 )}
               </View>
 
-              {/* Category Filter Pills */}
+              {/* Media Type Filter Pills */}
               <MediaTypePills onChange={setMediaType} value={mediaType} />
+
+              {/* Category Filter Chips */}
+              {displayCategories.length > 0 && (
+                <CategoryChips
+                  categories={displayCategories}
+                  selectedId={selectedCategory}
+                  onSelect={handleSelectCategory}
+                />
+              )}
             </View>
 
             {/* Auto-dismissing Banner Notice */}
@@ -344,9 +396,7 @@ export function DashboardScreen({ navigation }) {
             {visibleMedia.length > 0 && (
               <View style={styles.browseSectionHeader}>
                 <View style={styles.browseHeader}>
-                  <Text style={styles.sectionTitle}>
-                    {debouncedSearch ? `Search results (${visibleMedia.length})` : "Browse"}
-                  </Text>
+                  <Text style={styles.sectionTitle}>{browseTitle}</Text>
                 </View>
 
                 {/* Web-aligned Track List Column Header */}

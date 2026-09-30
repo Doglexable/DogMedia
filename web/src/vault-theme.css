@@ -237,6 +237,20 @@ textarea {
   background: transparent !important;
 }
 
+.fullscreen-player {
+  background: radial-gradient(
+      circle at 18% 12%,
+      color-mix(in srgb, var(--primary) 16%, transparent),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 82% 86%,
+      color-mix(in srgb, var(--text) 8%, transparent),
+      transparent 30%
+    ),
+    var(--bg) !important;
+}
+
 .dashboard-header {
   height: var(--app-header-height, 72px);
   min-height: var(--app-header-height, 72px) !important;
@@ -2233,6 +2247,161 @@ textarea {
   margin-right: 4px;
 }
 
+/* Target dB Setting Bar */
+.spotify-eq-target-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.spotify-eq-target-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spotify-eq-target-icon {
+  font-size: 11px;
+  color: #fb7185;
+}
+
+.spotify-eq-target-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.spotify-eq-target-badge {
+  font-size: 11px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(225, 29, 72, 0.16);
+  color: #fb7185;
+  border: 1px solid rgba(225, 29, 72, 0.28);
+}
+
+.spotify-eq-target-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.spotify-eq-target-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spotify-eq-target-step-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  transition: all 0.15s;
+}
+
+.spotify-eq-target-step-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.spotify-eq-target-slider {
+  width: 90px;
+  height: 4px;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.spotify-eq-target-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fb7185;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.5);
+}
+
+.spotify-eq-target-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fb7185;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.5);
+}
+
+.spotify-eq-target-apply-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--vault-rose, #e11d48);
+  color: #fff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 2px 8px rgba(225, 29, 72, 0.3);
+}
+
+.spotify-eq-target-apply-btn:hover {
+  background: #be123c;
+  box-shadow: 0 4px 12px rgba(225, 29, 72, 0.45);
+}
+
+.spotify-eq-target-apply-btn--matched {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+.spotify-eq-target-apply-btn--matched:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.spotify-eq-target-line {
+  stroke: #fb7185;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.85;
+}
+
+.spotify-eq-target-line-label {
+  fill: #fb7185;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 /* Spotify Official Card Visualizer */
 .spotify-eq-card {
   position: relative;
@@ -2394,9 +2563,13 @@ textarea {
   position: absolute;
   bottom: calc(100% + 10px);
   right: 0;
+  transform: translateX(var(--panel-shift-x, 0px));
   z-index: 120;
-  width: 560px;
-  max-width: calc(100vw - 28px);
+  width: 520px;
+  max-width: calc(100vw - 24px);
+  max-height: min(82dvh, 580px);
+  display: flex;
+  flex-direction: column;
   background: rgba(14, 14, 20, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
@@ -2405,21 +2578,33 @@ textarea {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75);
 }
 
+.fullscreen-player-actions {
+  position: relative;
+}
+
+.fullscreen-player-actions .settings-control {
+  position: static;
+}
+
 .settings-panel--fullscreen {
   bottom: calc(100% + 14px);
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + var(--panel-shift-x, 0px)));
   right: auto;
+  width: min(520px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
 }
 
 /* ── Tab strip ── */
 .settings-tabs {
   display: flex;
+  flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .settings-tab-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2443,6 +2628,10 @@ textarea {
 .settings-tab-label {
   line-height: 1;
   letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .settings-tab-btn:hover {
@@ -2467,6 +2656,8 @@ textarea {
 /* ── Tab content area ── */
 .settings-tab-content {
   padding: 14px 16px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ── Section layout ── */
@@ -2654,6 +2845,30 @@ textarea {
 
 .settings-timer-clear:hover {
   background: rgba(225, 29, 72, 0.22);
+}
+
+.settings-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+.settings-panel-version {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #fb7185;
+  background: rgba(225, 29, 72, 0.14);
+  border: 1px solid rgba(225, 29, 72, 0.32);
+  letter-spacing: 0.04em;
 }
 
 /* ── Integration with video / fullscreen player ── */

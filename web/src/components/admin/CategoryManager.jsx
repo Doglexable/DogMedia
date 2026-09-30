@@ -17,6 +17,7 @@ import MediaMetadataEditorModal from "./MediaMetadataEditorModal";
 import MediaUploadWorkspace, { removeCategoryCover, uploadCategoryCover, uploadMediaInChunks } from "./MediaUploadWorkspace";
 import MobileReleaseManager, { uploadAndroidRelease } from "./MobileReleaseManager";
 import UploadQueueViewer, { BrowserTransferProgress } from "./UploadQueueViewer";
+import { APP_VERSION_LABEL } from "../../version";
 import "../../pages/admin-media-import.css";
 
 const styles = {
@@ -368,7 +369,15 @@ export default function CategoryManager() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <div className="premium-app-shell" style={styles.page}>
         <header className="app-header admin-vault-header" style={styles.header}>
-          <div style={styles.headerBlock}><div><div className="admin-vault-title" style={styles.headerTitle}>Vault controls</div><div className="admin-vault-note" style={styles.headerNote}>Categories, media, and app distribution</div></div></div>
+          <div style={styles.headerBlock}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="admin-vault-title" style={styles.headerTitle}>Vault controls</div>
+                <span className="admin-vault-version-pill">Web {APP_VERSION_LABEL}</span>
+              </div>
+              <div className="admin-vault-note" style={styles.headerNote}>Categories, media, and app distribution</div>
+            </div>
+          </div>
         </header>
         <main className="app-main admin-vault-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
           {message && (<div style={styles.notice(message.type)}><span>{message.type === "error" ? "⚠️" : "✅"}</span><span>{message.text}</span></div>)}

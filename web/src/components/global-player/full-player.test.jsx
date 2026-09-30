@@ -78,6 +78,63 @@ describe("FullPlayer", () => {
     expect(markup).toContain('aria-label="Share music clip"');
   });
 
+  it("renders lyrics toggle button in actions toolbar when lyrics are available", () => {
+    const markup = renderToStaticMarkup(
+      <FullPlayer
+        autoPlay={false}
+        currentMedia={dummyAudio}
+        duration={180}
+        hasNext={false}
+        hasPrev={false}
+        isAudio={true}
+        isImage={false}
+        isVideo={false}
+        liked={false}
+        loopMode="none"
+        mediaRef={{ current: null }}
+        meta={dummyMeta}
+        muted={false}
+        paused={false}
+        position={30}
+        queueOpen={false}
+        resumePos={null}
+        shuffleEnabled={false}
+        sleepTimerRemaining={0}
+        streamSrc="/api/media/101/stream"
+        thumbFailed={false}
+        thumbSrc="/api/media/101/thumbnail"
+        volume={0.8}
+        lyrics={{
+          mediaId: 101,
+          segments: [{ start: 0, end: 10, text: "Line 1" }],
+        }}
+        lyricsLoading={false}
+        onAdvance={vi.fn()}
+        onChangeVolume={vi.fn()}
+        onEnded={vi.fn()}
+        onLoadedMetadata={vi.fn()}
+        onCloseFull={vi.fn()}
+        onOpenQueue={vi.fn()}
+        onPause={vi.fn()}
+        onPlay={vi.fn()}
+        onPreventMenu={vi.fn()}
+        onResume={vi.fn()}
+        onSeek={vi.fn()}
+        onThumbError={vi.fn()}
+        onTimeUpdate={vi.fn()}
+        onToggleLoop={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleShuffle={vi.fn()}
+        onToggle={vi.fn()}
+        onToggleLike={vi.fn()}
+        onSetSleepTimer={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain('aria-label="Hide lyrics"');
+    expect(markup).toContain("fullscreen-player-stage");
+  });
+
   it("uses a focused viewport layer that hides the library sidebar", () => {
     const css = readFileSync(new URL("../../theme.css", import.meta.url), "utf8");
 

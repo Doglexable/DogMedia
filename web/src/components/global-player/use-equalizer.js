@@ -81,12 +81,13 @@ const PRESET_ALIASES = {
   clearVoice: "dialogue",
 };
 
-const GAINS_KEY   = "pfs:eq-gains";
-const ENABLED_KEY = "pfs:eq-enabled";
+const GAINS_KEY     = "pfs:eq-gains";
+const ENABLED_KEY   = "pfs:eq-enabled";
+export const TARGET_DB_KEY = "pfs:eq-target-db";
 export const GAIN_MIN = -10;
 export const GAIN_MAX = 10;
-export const PREAMP_GAIN_DB = -GAIN_MAX; // -10 dB pre-attenuation to prevent digital clipping on boost
-export const PREAMP_LINEAR_GAIN = Math.pow(10, PREAMP_GAIN_DB / 20); // ~0.3162 linear amplitude
+export const PREAMP_GAIN_DB = 0; // Unity gain (0 dB); peaks protected by brickwall limiter
+export const PREAMP_LINEAR_GAIN = 1.0;
 
 export function formatGain(val) {
   const num = Number(val) || 0;
@@ -121,6 +122,35 @@ function readStoredEnabled() {
   } catch { return false; }
 }
 
+export function readStoredTargetDb() {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return 0;
+    const raw = window.localStorage.getItem(TARGET_DB_KEY);
+    if (raw === null || raw === undefined) return 0;
+    const num = Number(raw);
+    if (Number.isFinite(num)) {
+      return Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(num * 2) / 2));
+    }
+  } catch { /* ignore */ }
+  return 0;
+}
+
+/**
+ * Calculates a uniform shift across all EQ bands so that the maximum band gain (peak)
+ * matches targetDb, clamping each resulting band between min and max.
+ */
+export function calculateTargetShift(gains, targetDb, min = GAIN_MIN, max = GAIN_MAX) {
+  if (!Array.isArray(gains) || gains.length === 0) return [];
+  const target = Math.min(max, Math.max(min, Number(targetDb) || 0));
+  const currentPeak = Math.max(...gains.map(Number));
+  const offset = target - currentPeak;
+  return gains.map((g) => {
+    const shifted = (Number(g) || 0) + offset;
+    const stepped = Math.round(shifted * 2) / 2;
+    return Math.min(max, Math.max(min, stepped));
+  });
+}
+
 function detectPreset(gains) {
   if (!Array.isArray(gains)) return "custom";
   for (const [key, preset] of Object.entries(EQ_PRESETS)) {
@@ -130,18 +160,20 @@ function detectPreset(gains) {
 }
 
 /**
- * useEqualizer — connects an HTML media element to a 5-band Web Audio EQ graph.
+ * useEqualizer — connects an HTML media element to a 10-band Web Audio EQ graph.
  *
  * @param {React.RefObject<HTMLMediaElement>} mediaRef
- * @returns {{ gains, setGain, preset, setPreset, eqEnabled, setEqEnabled, eqBands }}
+ * @returns {{ gains, setGain, setGains, preset, setPreset, eqEnabled, setEqEnabled, targetDb, setTargetDb, adjustToTargetDb, eqBands }}
  */
 export function useEqualizer(mediaRef) {
   const [gains, setGainsState] = useState(() => readStoredGains() ?? EQ_PRESETS.flat.gains.slice());
   const [eqEnabled, setEqEnabledState] = useState(() => readStoredEnabled());
+  const [targetDb, setTargetDbState] = useState(() => readStoredTargetDb());
 
   const ctxRef            = useRef(null); // AudioContext
   const sourceRef         = useRef(null); // MediaElementSourceNode
-  const preampRef         = useRef(null); // GainNode (pre-EQ -10 dB attenuation)
+  const preampRef         = useRef(null); // GainNode (preamp unity gain)
+  const limiterRef        = useRef(null); // DynamicsCompressorNode (brickwall peak limiter)
   const filtersRef        = useRef([]);   // BiquadFilterNode[]
   const currentElementRef = useRef(null); // Current HTMLMediaElement
   const sourceCacheRef    = useRef(new WeakMap());
@@ -166,6 +198,7 @@ export function useEqualizer(mediaRef) {
     for (const filter of filtersRef.current) {
       try { filter.disconnect(); } catch { /* already disconnected */ }
     }
+    try { limiterRef.current?.disconnect(); } catch { /* already disconnected */ }
   }, []);
 
   const ensureFilters = useCallback((ctx) => {
@@ -206,14 +239,33 @@ export function useEqualizer(mediaRef) {
       preamp.gain.value = PREAMP_LINEAR_GAIN;
       preampRef.current = preamp;
 
-      // Chain: source → preamp (-10 dB) → f[0] → f[1] → … → f[9] → destination
+      // Studio-grade brickwall limiter to catch peaks and prevent digital clipping
+      // when bands are boosted, without dampening overall volume.
+      let finalNode = null;
+      if (typeof ctx.createDynamicsCompressor === "function") {
+        const limiter = ctx.createDynamicsCompressor();
+        limiter.threshold.value = -0.5;
+        limiter.knee.value = 0;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.001;
+        limiter.release.value = 0.05;
+        limiterRef.current = limiter;
+        finalNode = limiter;
+      }
+
+      // Chain: source → preamp (unity 0 dB) → f[0] → f[1] → … → f[9] → (limiter) → destination
       source.connect(preamp);
       let node = preamp;
       for (const filter of filters) {
         node.connect(filter);
         node = filter;
       }
-      node.connect(ctx.destination);
+      if (finalNode) {
+        node.connect(finalNode);
+        finalNode.connect(ctx.destination);
+      } else {
+        node.connect(ctx.destination);
+      }
 
       // Resume suspended context (browsers auto-suspend until user gesture)
       if (ctx.state === "suspended") ctx.resume().catch(() => {});
@@ -281,6 +333,7 @@ export function useEqualizer(mediaRef) {
         ctxRef.current = null;
         sourceRef.current = null;
         preampRef.current = null;
+        limiterRef.current = null;
         filtersRef.current = [];
         currentElementRef.current = null;
         sourceCacheRef.current = new WeakMap();
@@ -327,6 +380,34 @@ export function useEqualizer(mediaRef) {
     try { window.localStorage.setItem(ENABLED_KEY, String(enabled)); } catch { /* ignore */ }
   }, []);
 
+  const setGains = useCallback((nextGains) => {
+    if (!Array.isArray(nextGains)) return;
+    const clamped = nextGains.map((g) => Math.min(GAIN_MAX, Math.max(GAIN_MIN, Number(g) || 0)));
+    setGainsState(clamped);
+    try { window.localStorage.setItem(GAINS_KEY, JSON.stringify(clamped)); } catch { /* ignore */ }
+    applyGains(clamped);
+  }, [applyGains]);
+
+  const setTargetDb = useCallback((value) => {
+    const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(Number(value) * 2) / 2));
+    setTargetDbState(clamped);
+    try { window.localStorage.setItem(TARGET_DB_KEY, String(clamped)); } catch { /* ignore */ }
+  }, []);
+
+  const adjustToTargetDb = useCallback((customTarget) => {
+    const target = customTarget !== undefined ? Number(customTarget) : targetDb;
+    const clampedTarget = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(target * 2) / 2));
+    const next = calculateTargetShift(gainsRef.current, clampedTarget, GAIN_MIN, GAIN_MAX);
+    setGainsState(next);
+    try { window.localStorage.setItem(GAINS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    applyGains(next);
+    if (!enabledRef.current) {
+      setEqEnabledState(true);
+      try { window.localStorage.setItem(ENABLED_KEY, "true"); } catch { /* ignore */ }
+    }
+    return next;
+  }, [applyGains, targetDb]);
+
   const preset = detectPreset(gains);
 
   return {
@@ -334,9 +415,13 @@ export function useEqualizer(mediaRef) {
     gains,
     preset,
     eqEnabled,
+    targetDb,
     setGain,
+    setGains,
     setPreset,
     setEqEnabled,
+    setTargetDb,
+    adjustToTargetDb,
     gainMin: GAIN_MIN,
     gainMax: GAIN_MAX,
     preampGainDb: PREAMP_GAIN_DB,

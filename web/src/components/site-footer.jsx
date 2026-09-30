@@ -10,6 +10,7 @@ import { faMobileScreen } from "@fortawesome/free-solid-svg-icons/faMobileScreen
 import { faServer } from "@fortawesome/free-solid-svg-icons/faServer";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { apiUrl } from "../api";
+import { APP_VERSION_LABEL } from "../version";
 import "./site-footer.css";
 
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -70,7 +71,7 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 • Backend: FastifyJS (Node.js 22 on Alpine Linux)
 • Database: PostgreSQL 17 with automated migration pipelines
 • Cache & Queues: Redis 7 for high-speed queue operations and active playback state
-• Frontend: React 19, Vite, and native CSS variables
+• Frontend: React 19, Vite, and native CSS variables (Web ${APP_VERSION_LABEL})
 • Deployment: Podman & Docker Compose rootless containerization`,
   },
 };
@@ -519,7 +520,12 @@ export function SiteFooter({ access }) {
 
         {/* ── 5. Fine Print ── */}
         <div className="site-footer-fine-print">
-          <span>© {currentYear} Dogmedia. All rights reserved.</span>
+          <div className="site-footer-fine-print-left">
+            <span>© {currentYear} Dogmedia. All rights reserved.</span>
+            <span className="site-footer-version-tag" title={`Dogmedia Web ${APP_VERSION_LABEL}`}>
+              Web {APP_VERSION_LABEL}
+            </span>
+          </div>
           <span className="site-footer-fine-print-statement">
             Your media. Your space. Your story. Your rhythm.
           </span>

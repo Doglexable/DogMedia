@@ -66,9 +66,12 @@ export function VideoPlayer({
   eqGains,
   eqPreset,
   eqEnabled,
+  eqTargetDb,
   onSetEqGain,
   onSetEqPreset,
   onSetEqEnabled,
+  onSetEqTargetDb,
+  onAdjustEqToTarget,
 }) {
   const rootRef = useRef(null);
   const cardRef = useRef(null);
@@ -723,9 +726,12 @@ export function VideoPlayer({
                   gains={eqGains}
                   eqPreset={eqPreset}
                   eqEnabled={eqEnabled}
+                  targetDb={eqTargetDb}
                   onSetGain={onSetEqGain}
                   onSetEqPreset={onSetEqPreset}
                   onSetEqEnabled={onSetEqEnabled}
+                  onSetTargetDb={onSetEqTargetDb}
+                  onAdjustToTarget={onAdjustEqToTarget}
                   playbackRate={playbackRate}
                   onSelectRate={handleSelectRate}
                   sleepTimerRemaining={sleepTimerRemaining}

@@ -3,6 +3,10 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import postgres from "@fastify/postgres";
 import { join } from "path";
+import { createRequire } from "module";
+
+const _require = createRequire(import.meta.url);
+const SERVER_VERSION = _require("../package.json").version || "0.1.0";
 
 import redisPlugin from "./plugins/redis.js";
 import authPlugin from "./plugins/auth.js";
@@ -46,7 +50,7 @@ await app.register(cors, {
   },
   credentials: true,
   allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform"],
-  exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range"],
+  exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
 });
 await app.register(multipart, {
   limits: {
@@ -74,6 +78,9 @@ app.pg.query = async (...args) => {
 };
 
 const slowRequestMs = Number.parseInt(process.env.SLOW_REQUEST_MS || "250", 10);
+app.addHook("onSend", async (_request, reply) => {
+  reply.header("X-App-Version", SERVER_VERSION);
+});
 app.addHook("onResponse", async (request, reply) => {
   const durationMs = reply.elapsedTime;
   if (durationMs >= slowRequestMs) {

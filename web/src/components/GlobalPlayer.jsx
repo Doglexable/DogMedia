@@ -1,8 +1,9 @@
-import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { api, createPlaybackSession, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
 import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./global-player/lyrics-cache";
 import { MiniPlayer } from "./global-player/mini-player";
+import { lazyWithRetry } from "../utils/lazy-with-retry";
 import {
   cleanMediaText,
   getAudioArtist,
@@ -30,10 +31,10 @@ import { useEqualizer } from "./global-player/use-equalizer";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
-const FullPlayer = lazy(() => import("./global-player/full-player").then((module) => ({ default: module.FullPlayer })));
-const QueuePanel = lazy(() => import("./global-player/queue-panel").then((module) => ({ default: module.QueuePanel })));
-const SleepTimerCompleteDialog = lazy(() => import("./global-player/sleep-timer-complete-dialog").then((module) => ({ default: module.SleepTimerCompleteDialog })));
-const PlaylistCompleteDialog = lazy(() => import("./global-player/playlist-complete-dialog").then((module) => ({ default: module.PlaylistCompleteDialog })));
+const FullPlayer = lazyWithRetry(() => import("./global-player/full-player").then((module) => ({ default: module.FullPlayer })));
+const QueuePanel = lazyWithRetry(() => import("./global-player/queue-panel").then((module) => ({ default: module.QueuePanel })));
+const SleepTimerCompleteDialog = lazyWithRetry(() => import("./global-player/sleep-timer-complete-dialog").then((module) => ({ default: module.SleepTimerCompleteDialog })));
+const PlaylistCompleteDialog = lazyWithRetry(() => import("./global-player/playlist-complete-dialog").then((module) => ({ default: module.PlaylistCompleteDialog })));
 const DEFAULT_DOCUMENT_TITLE = "Dogmedia";
 const PLAYER_VOLUME_KEY = "pfs:player-volume";
 const PLAYER_MUTED_KEY = "pfs:player-muted";
@@ -144,8 +145,17 @@ export function GlobalPlayerProvider({ children }) {
   const [playbackAccessError, setPlaybackAccessError] = useState("");
 
   // EQ — hoisted here so AudioContext persists across full/mini player switches
-  const { gains: eqGains, preset: eqPreset, eqEnabled,
-    setGain: setEqGain, setPreset: setEqPreset, setEqEnabled } = useEqualizer(mediaRef);
+  const {
+    gains: eqGains,
+    preset: eqPreset,
+    eqEnabled,
+    targetDb: eqTargetDb,
+    setGain: setEqGain,
+    setPreset: setEqPreset,
+    setEqEnabled,
+    setTargetDb: setEqTargetDb,
+    adjustToTargetDb: adjustEqToTargetDb,
+  } = useEqualizer(mediaRef);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -1690,9 +1700,12 @@ export function GlobalPlayerProvider({ children }) {
               eqGains={eqGains}
               eqPreset={eqPreset}
               eqEnabled={eqEnabled}
+              eqTargetDb={eqTargetDb}
               onSetEqGain={setEqGain}
               onSetEqPreset={setEqPreset}
               onSetEqEnabled={setEqEnabled}
+              onSetEqTargetDb={setEqTargetDb}
+              onAdjustEqToTarget={adjustEqToTargetDb}
               lyrics={lyrics}
               lyricsLoading={lyricsLoading}
             />
