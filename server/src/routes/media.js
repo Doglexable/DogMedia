@@ -32,6 +32,14 @@ import {
   validatePlaybackSession,
 } from "../playback-session.js";
 
+export function normalizeClientPlatform(headers = {}) {
+  const requested = typeof headers["x-client-platform"] === "string"
+    ? headers["x-client-platform"].trim().toLowerCase()
+    : "";
+  if (["web", "mobile", "desktop"].includes(requested)) return requested;
+  return headers["x-viewer-id"] ? "mobile" : "web";
+}
+
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
@@ -1219,7 +1227,7 @@ export default async function (fastify, options = {}) {
           sessionId: created.sessionId,
           mediaId: media.id,
           clientIp: request.clientIp || request.ip,
-          platform: request.headers["x-viewer-id"] ? "mobile" : "web",
+          platform: normalizeClientPlatform(request.headers),
         });
       } catch (error) {
         await revokePlaybackSession(fastify.redis, created.sessionId).catch(() => {});

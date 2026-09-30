@@ -3,7 +3,18 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
-import mediaRoutes, { decodeBrowseCursor, extFromFilename, mediaMetadataFromTags, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
+import mediaRoutes, { decodeBrowseCursor, extFromFilename, mediaMetadataFromTags, normalizeClientPlatform, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
+
+describe("desktop playback identity", () => {
+  it("normalizes explicit platforms and preserves fallbacks", () => {
+    expect(normalizeClientPlatform({ "x-client-platform": " DESKTOP ", "x-viewer-id": "viewer" })).toBe("desktop");
+    expect(normalizeClientPlatform({ "x-client-platform": "MOBILE" })).toBe("mobile");
+    expect(normalizeClientPlatform({ "x-client-platform": "watch", "x-viewer-id": "viewer" })).toBe("mobile");
+    expect(normalizeClientPlatform({ "x-client-platform": "watch" })).toBe("web");
+    expect(normalizeClientPlatform({ "x-viewer-id": "viewer" })).toBe("mobile");
+    expect(normalizeClientPlatform({})).toBe("web");
+  });
+});
 
 describe("media browsing and ranges", () => {
   it("validates and clamps byte ranges", () => {
