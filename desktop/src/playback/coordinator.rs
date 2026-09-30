@@ -149,6 +149,11 @@ impl PlaybackCoordinator {
         self.snapshot.position = position.max(0.0);
     }
 
+    pub fn update_timing(&mut self, position: f64, duration: f64) {
+        self.snapshot.position = position.max(0.0);
+        self.snapshot.duration = duration.max(0.0);
+    }
+
     pub fn set_quality(&mut self, quality: Quality) -> Option<Effect> {
         if self.snapshot.quality == quality {
             return None;

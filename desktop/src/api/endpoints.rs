@@ -75,12 +75,20 @@ impl ApiClient {
     }
 
     pub async fn photo(&self, media_id: i64) -> Result<Vec<u8>, ApiError> {
-        self.bytes(
-            HttpMethod::Get,
-            &format!("api/media/{media_id}/stream"),
-            None,
-        )
-        .await
+        let session = self
+            .create_playback_session(media_id, Quality::High)
+            .await?;
+        let result = self
+            .bytes(
+                HttpMethod::Get,
+                &session.stream_url,
+                Some((session.session_id.as_str(), session.viewer_id.as_str())),
+            )
+            .await;
+        // A photo uses the same protected stream endpoint as audio and video.
+        // Always revoke its short-lived session, including when the fetch fails.
+        let _ = self.release(&session).await;
+        result
     }
 
     pub async fn create_playback_session(

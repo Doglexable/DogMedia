@@ -11,7 +11,7 @@ use crate::{
         BrowseQuery, Category, Media, MediaFilter, PlaybackReport, PlaybackSession, Quality,
         SubtitleTrack,
     },
-    playback::{PlaybackCoordinator, PlaybackEngine, PlaybackStatus},
+    playback::{EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus},
     store::{Settings, SettingsStore, subtitle_cache_path},
 };
 
@@ -94,6 +94,7 @@ pub fn build_window(application: &adw::Application) -> adw::ApplicationWindow {
         subtitles: RefCell::new(Vec::new()),
         search_timer: RefCell::new(None),
         heartbeat_timer: RefCell::new(None),
+        playback_timer: RefCell::new(None),
     });
     Controller::wire(&controller, settings_button, refresh);
     controller.configure_client();
@@ -121,6 +122,7 @@ struct Controller {
     subtitles: RefCell<Vec<SubtitleTrack>>,
     search_timer: RefCell<Option<glib::SourceId>>,
     heartbeat_timer: RefCell<Option<glib::SourceId>>,
+    playback_timer: RefCell<Option<glib::SourceId>>,
 }
 
 impl Controller {
@@ -287,6 +289,12 @@ impl Controller {
         this.queue.shuffle.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.shuffle_queue();
+            }
+        });
+        let weak = Rc::downgrade(this);
+        this.queue.list.connect_activate(move |_, position| {
+            if let Some(this) = weak.upgrade() {
+                this.select_queue(position);
             }
         });
         let weak = Rc::downgrade(this);
@@ -585,6 +593,7 @@ impl Controller {
                             .play
                             .set_icon_name("media-playback-pause-symbolic");
                         this.start_heartbeat();
+                        this.start_playback_timer();
                         this.load_extras(media_id);
                         this.report_current("play", true);
                     }
@@ -759,6 +768,9 @@ impl Controller {
         if let Some(timer) = self.heartbeat_timer.borrow_mut().take() {
             timer.remove();
         }
+        if let Some(timer) = self.playback_timer.borrow_mut().take() {
+            timer.remove();
+        }
         if let Some(engine) = &self.engine {
             let _ = engine.stop();
         }
@@ -804,7 +816,77 @@ impl Controller {
                         }
                     },
                 );
-                this.report_current("play", false);
+                let action =
+                    if this.coordinator.borrow().snapshot().status == PlaybackStatus::Playing {
+                        "play"
+                    } else {
+                        "pause"
+                    };
+                this.report_current(action, false);
+                glib::ControlFlow::Continue
+            },
+        ));
+    }
+
+    fn start_playback_timer(self: &Rc<Self>) {
+        if let Some(timer) = self.playback_timer.borrow_mut().take() {
+            timer.remove();
+        }
+        let weak = Rc::downgrade(self);
+        *self.playback_timer.borrow_mut() = Some(glib::timeout_add_local(
+            Duration::from_millis(500),
+            move || {
+                let Some(this) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                let Some(engine) = &this.engine else {
+                    return glib::ControlFlow::Break;
+                };
+                match engine.poll_event() {
+                    Some(EngineEvent::Ended) => {
+                        let duration = engine
+                            .duration()
+                            .unwrap_or(this.coordinator.borrow().snapshot().duration);
+                        this.coordinator
+                            .borrow_mut()
+                            .update_timing(duration, duration);
+                        this.player.position.set_range(0.0, duration.max(1.0));
+                        this.player.position.set_value(duration);
+                        this.coordinator.borrow_mut().ended();
+                        this.player
+                            .play
+                            .set_icon_name("media-playback-start-symbolic");
+                        // The current callback is already returning Break, so clear its
+                        // stored ID before release_current tries to remove it.
+                        let _ = this.playback_timer.borrow_mut().take();
+                        this.release_current();
+                        this.finish_and_navigate_after_end();
+                        return glib::ControlFlow::Break;
+                    }
+                    Some(EngineEvent::Failed(message)) => {
+                        let sequence = this.coordinator.borrow().snapshot().sequence;
+                        this.coordinator.borrow_mut().failed(sequence, &message);
+                        this.player
+                            .play
+                            .set_icon_name("media-playback-start-symbolic");
+                        let _ = this.playback_timer.borrow_mut().take();
+                        this.release_current();
+                        this.show_error(&format!("Playback failed: {message}"));
+                        return glib::ControlFlow::Break;
+                    }
+                    None => {}
+                }
+                let position = engine.position().unwrap_or(0.0);
+                let duration = engine
+                    .duration()
+                    .unwrap_or(this.coordinator.borrow().snapshot().duration);
+                this.coordinator
+                    .borrow_mut()
+                    .update_timing(position, duration);
+                this.player.position.set_range(0.0, duration.max(1.0));
+                this.player
+                    .position
+                    .set_value(position.min(duration.max(1.0)));
                 glib::ControlFlow::Continue
             },
         ));
@@ -975,6 +1057,92 @@ impl Controller {
         });
     }
 
+    fn select_queue(self: &Rc<Self>, position: u32) {
+        let Some(media_id) = self.queue.media_id_at(position) else {
+            return;
+        };
+        let Some(client) = self.client.borrow().clone() else {
+            return;
+        };
+        let weak = Rc::downgrade(self);
+        self.spawn(
+            async move {
+                let selected = client.queue_select(media_id).await?;
+                match selected.media_id {
+                    Some(id) => Ok(Some(client.media(id).await?)),
+                    None => Ok(None),
+                }
+            },
+            move |result: Result<Option<Media>, ApiError>| {
+                if let Some(this) = weak.upgrade() {
+                    match result {
+                        Ok(Some(media)) => {
+                            this.refresh_queue();
+                            this.load_media(media, 0.0);
+                        }
+                        Ok(None) => this.refresh_queue(),
+                        Err(error) => this.show_error(&error.to_string()),
+                    }
+                }
+            },
+        );
+    }
+
+    fn finish_and_navigate_after_end(self: &Rc<Self>) {
+        let Some(client) = self.client.borrow().clone() else {
+            return;
+        };
+        let snapshot = self.coordinator.borrow().snapshot().clone();
+        let Some(media) = snapshot.media else { return };
+        let weak = Rc::downgrade(self);
+        self.spawn(
+            async move {
+                let media_type = media
+                    .mime_type
+                    .as_deref()
+                    .unwrap_or("application/octet-stream");
+                let report = PlaybackReport {
+                    media_id: media.id,
+                    action: "end",
+                    position: snapshot.position,
+                    duration: snapshot.duration,
+                    media_type,
+                    title: media.title(),
+                    artists: media.artists.as_deref(),
+                    source: "desktop",
+                };
+                // Finish the old item before the next one reports itself active.
+                // This prevents a late end report from clearing the new item.
+                let _ = client
+                    .save_resume(media.id, snapshot.position, snapshot.duration)
+                    .await;
+                let _ = client.report("api/playback/active", &report).await;
+                let _ = client.report("api/playback/event", &report).await;
+                let window = client.queue_window().await?;
+                if window.current_index + 1 >= window.total {
+                    return Ok(None);
+                }
+                let selected = client.queue_navigate(true).await?;
+                match selected.media_id {
+                    Some(id) => Ok(Some(client.media(id).await?)),
+                    None => Ok(None),
+                }
+            },
+            move |result: Result<Option<Media>, ApiError>| {
+                if let Some(this) = weak.upgrade() {
+                    match result {
+                        Ok(Some(media)) => {
+                            this.refresh_queue();
+                            this.load_media(media, 0.0);
+                        }
+                        Ok(None) => this.refresh_queue(),
+                        Err(error) => this.show_error(&error.to_string()),
+                    }
+                }
+            },
+        );
+    }
+
     fn navigate_queue(self: &Rc<Self>, forward: bool) {
         let Some(client) = self.client.borrow().clone() else {
             return;
@@ -1002,6 +1170,9 @@ impl Controller {
 
     fn shutdown(&self) {
         if let Some(timer) = self.heartbeat_timer.borrow_mut().take() {
+            timer.remove();
+        }
+        if let Some(timer) = self.playback_timer.borrow_mut().take() {
             timer.remove();
         }
         if let (Some(client), Some(session)) = (

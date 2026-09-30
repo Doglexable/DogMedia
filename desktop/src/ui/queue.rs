@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use gtk::prelude::*;
 
 use crate::domain::QueueWindow;
@@ -6,9 +8,11 @@ pub struct QueueView {
     pub root: gtk::Box,
     pub model: gtk::StringList,
     pub selection: gtk::SingleSelection,
+    pub list: gtk::ListView,
     pub remove: gtk::Button,
     pub clear: gtk::Button,
     pub shuffle: gtk::Button,
+    media_ids: RefCell<Vec<i64>>,
 }
 
 pub fn build() -> QueueView {
@@ -69,14 +73,17 @@ pub fn build() -> QueueView {
         root,
         model,
         selection,
+        list,
         remove,
         clear,
         shuffle,
+        media_ids: RefCell::new(Vec::new()),
     }
 }
 
 impl QueueView {
     pub fn set_window(&self, window: &QueueWindow) {
+        *self.media_ids.borrow_mut() = window.items.iter().map(|item| item.media.id).collect();
         let rows: Vec<String> = window
             .items
             .iter()
@@ -95,5 +102,9 @@ impl QueueView {
         if local < window.items.len() {
             self.selection.set_selected(local as u32);
         }
+    }
+
+    pub fn media_id_at(&self, position: u32) -> Option<i64> {
+        self.media_ids.borrow().get(position as usize).copied()
     }
 }

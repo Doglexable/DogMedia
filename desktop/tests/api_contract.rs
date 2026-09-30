@@ -156,6 +156,51 @@ async fn playback_session_and_heartbeat_use_protected_headers_not_urls() {
 }
 
 #[tokio::test]
+async fn photo_stream_uses_a_session_and_releases_it_after_fetch_failure() {
+    let transport = FakeTransport::scripted([
+        FakeTransport::json(
+            200,
+            serde_json::json!({
+                "streamUrl": "/api/media/7/stream?quality=high",
+                "sessionId": "photo_session_abcdefghijklmnop",
+                "viewerId": "viewer_abcdefghijklmnopqrst",
+                "leaseRequired": false,
+                "quality": "high"
+            }),
+        ),
+        FakeTransport::json(500, serde_json::json!({"error": "stream failed"})),
+        FakeTransport::json(200, serde_json::json!({"ok": true})),
+    ]);
+    let client = ApiClient::with_transport(
+        "https://media.test",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        client.photo(7).await,
+        Err(ApiError::Http { status: 500, .. })
+    ));
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].url.path(), "/api/media/7/playback-session");
+    assert_eq!(requests[1].url.path(), "/api/media/7/stream");
+    assert_eq!(requests[2].url.path(), "/api/playback/lease");
+    for request in &requests[1..] {
+        assert_eq!(
+            request.headers["X-Playback-Session"],
+            "photo_session_abcdefghijklmnop"
+        );
+        assert_eq!(
+            request.headers["X-Viewer-ID"],
+            "viewer_abcdefghijklmnopqrst"
+        );
+    }
+}
+
+#[tokio::test]
 async fn typed_errors_cover_denial_conflict_timeout_and_malformed_payload() {
     let transport = FakeTransport::scripted([
         FakeTransport::json(403, serde_json::json!({"error": "denied"})),
@@ -226,6 +271,7 @@ async fn queue_lyrics_and_subtitles_use_the_typed_transport_boundary() {
                 "assUrl": null
             }]),
         ),
+        FakeTransport::json(200, serde_json::json!({"mediaId": 4})),
         FakeTransport::json(409, serde_json::json!({"error": "Queue changed"})),
     ]);
     let client = ApiClient::with_transport(
@@ -242,6 +288,7 @@ async fn queue_lyrics_and_subtitles_use_the_typed_transport_boundary() {
         "Line"
     );
     assert_eq!(client.subtitles(4).await.unwrap()[0].id, 8);
+    assert_eq!(client.queue_select(4).await.unwrap().media_id, Some(4));
     assert!(matches!(
         client.queue_clear().await,
         Err(ApiError::QueueChanged)
@@ -251,7 +298,9 @@ async fn queue_lyrics_and_subtitles_use_the_typed_transport_boundary() {
     assert_eq!(requests[0].url.path(), "/api/queue/window");
     assert_eq!(requests[1].url.path(), "/api/media/4/lyrics");
     assert_eq!(requests[2].url.path(), "/api/media/4/subtitles");
-    assert_eq!(requests[3].url.path(), "/api/queue");
+    assert_eq!(requests[3].url.path(), "/api/queue/select");
+    assert_eq!(requests[3].json, Some(serde_json::json!({"mediaId": 4})));
+    assert_eq!(requests[4].url.path(), "/api/queue");
 }
 
 #[tokio::test]
