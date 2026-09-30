@@ -19,6 +19,7 @@ pub fn build() -> QueueView {
     root.set_margin_bottom(12);
     root.set_margin_start(12);
     root.set_margin_end(12);
+    root.set_tooltip_text(Some("Queue reorder is not available in this release"));
     let title = gtk::Label::builder().label("Queue").xalign(0.0).build();
     title.add_css_class("title-3");
     root.append(&title);

@@ -191,3 +191,80 @@ async fn typed_errors_cover_denial_conflict_timeout_and_malformed_payload() {
         Err(ApiError::Malformed(_))
     ));
 }
+
+#[tokio::test]
+async fn queue_lyrics_and_subtitles_use_the_typed_transport_boundary() {
+    let transport = FakeTransport::scripted([
+        FakeTransport::json(
+            200,
+            serde_json::json!({
+                "items": [{"id": 4, "title": "Queued", "mime_type": "audio/mpeg"}],
+                "offset": 0,
+                "total": 1,
+                "currentIndex": 0,
+                "currentMediaId": 4,
+                "hasPrevious": false,
+                "hasNext": false,
+                "revision": 2
+            }),
+        ),
+        FakeTransport::json(
+            200,
+            serde_json::json!({
+                "mediaId": 4,
+                "language": "en",
+                "segments": [{"start": 0.0, "end": 1.0, "text": "Line"}]
+            }),
+        ),
+        FakeTransport::json(
+            200,
+            serde_json::json!([{
+                "id": 8,
+                "language": "en",
+                "title": "English",
+                "vttUrl": "/api/media/4/subtitles/8/vtt",
+                "assUrl": null
+            }]),
+        ),
+        FakeTransport::json(409, serde_json::json!({"error": "Queue changed"})),
+    ]);
+    let client = ApiClient::with_transport(
+        "http://localhost:3001",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    )
+    .unwrap();
+
+    let queue = client.queue_window().await.unwrap();
+    assert_eq!(queue.items[0].media.id, 4);
+    assert_eq!(
+        client.lyrics(4).await.unwrap().unwrap().segments[0].text,
+        "Line"
+    );
+    assert_eq!(client.subtitles(4).await.unwrap()[0].id, 8);
+    assert!(matches!(
+        client.queue_clear().await,
+        Err(ApiError::QueueChanged)
+    ));
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests[0].url.path(), "/api/queue/window");
+    assert_eq!(requests[1].url.path(), "/api/media/4/lyrics");
+    assert_eq!(requests[2].url.path(), "/api/media/4/subtitles");
+    assert_eq!(requests[3].url.path(), "/api/queue");
+}
+
+#[tokio::test]
+async fn missing_lyrics_is_an_empty_state() {
+    let transport = FakeTransport::scripted([FakeTransport::json(
+        404,
+        serde_json::json!({"error": "Lyrics not found"}),
+    )]);
+    let client = ApiClient::with_transport(
+        "http://localhost:3001",
+        "viewer_abcdefghijklmnopqrst",
+        transport,
+    )
+    .unwrap();
+    assert!(client.lyrics(9).await.unwrap().is_none());
+}

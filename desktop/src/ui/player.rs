@@ -35,6 +35,9 @@ pub fn build() -> PlayerView {
         .selectable(true)
         .build();
     lyrics.add_css_class("lyrics");
+    lyrics.set_tooltip_text(Some(
+        "Lyrics are displayed as text; synchronized highlighting is not available yet",
+    ));
     lyrics.set_visible(false);
     root.append(&lyrics);
 

@@ -7,7 +7,10 @@ use tokio::runtime::Runtime;
 use crate::{
     api::{ApiClient, ApiError},
     app::{AccessView, AppState},
-    domain::{BrowseQuery, Category, Media, MediaFilter, PlaybackSession, Quality, SubtitleTrack},
+    domain::{
+        BrowseQuery, Category, Media, MediaFilter, PlaybackReport, PlaybackSession, Quality,
+        SubtitleTrack,
+    },
     playback::{PlaybackCoordinator, PlaybackEngine, PlaybackStatus},
     store::{Settings, SettingsStore, subtitle_cache_path},
 };
@@ -533,9 +536,19 @@ impl Controller {
         let media_id = media.id;
         self.spawn(
             async move {
+                let resume_position = if start > 0.0 {
+                    start
+                } else {
+                    client
+                        .resume(media_id)
+                        .await
+                        .ok()
+                        .and_then(|resume| resume.position)
+                        .unwrap_or(0.0)
+                };
                 let session = client.create_playback_session(media_id, quality).await?;
                 let stream = client.absolute_url(&session.stream_url)?.to_string();
-                Ok::<_, ApiError>((session, stream))
+                Ok::<_, ApiError>((session, stream, resume_position))
             },
             move |result| {
                 let Some(this) = weak.upgrade() else { return };
@@ -543,7 +556,7 @@ impl Controller {
                     return;
                 }
                 match result {
-                    Ok((session, stream)) => {
+                    Ok((session, stream, resume_position)) => {
                         let Some(engine) = &this.engine else {
                             this.show_error("GStreamer playback is unavailable");
                             return;
@@ -557,20 +570,23 @@ impl Controller {
                             this.show_error(&error.to_string());
                             return;
                         }
-                        if start > 0.0 {
-                            engine.seek(start);
+                        if resume_position > 0.0 {
+                            engine.seek(resume_position);
                         }
                         engine.set_volume(this.player.volume.value());
                         if let Some(paintable) = engine.paintable() {
                             this.player.picture.set_paintable(Some(&paintable));
                         }
                         *this.session.borrow_mut() = Some(session);
-                        this.coordinator.borrow_mut().loaded(sequence, start);
+                        this.coordinator
+                            .borrow_mut()
+                            .loaded(sequence, resume_position);
                         this.player
                             .play
                             .set_icon_name("media-playback-pause-symbolic");
                         this.start_heartbeat();
                         this.load_extras(media_id);
+                        this.report_current("play", true);
                     }
                     Err(error) => {
                         this.coordinator
@@ -689,12 +705,14 @@ impl Controller {
                 self.player
                     .play
                     .set_icon_name("media-playback-start-symbolic");
+                self.report_current("pause", true);
             }
         } else if engine.play().is_ok() {
             self.coordinator.borrow_mut().play();
             self.player
                 .play
                 .set_icon_name("media-playback-pause-symbolic");
+            self.report_current("play", true);
         }
     }
 
@@ -703,6 +721,12 @@ impl Controller {
             engine.seek(value);
         }
         self.coordinator.borrow_mut().update_position(value);
+        let action = if self.coordinator.borrow().snapshot().status == PlaybackStatus::Playing {
+            "play"
+        } else {
+            "pause"
+        };
+        self.report_current(action, false);
     }
 
     fn change_quality(self: &Rc<Self>, quality: Quality) {
@@ -723,6 +747,7 @@ impl Controller {
     }
 
     fn stop_playback(&self) {
+        self.report_current("pause", true);
         self.release_current();
         self.coordinator.borrow_mut().stop();
         self.player
@@ -779,9 +804,49 @@ impl Controller {
                         }
                     },
                 );
+                this.report_current("play", false);
                 glib::ControlFlow::Continue
             },
         ));
+    }
+
+    fn report_current(&self, action: &'static str, record_event: bool) {
+        let Some(client) = self.client.borrow().clone() else {
+            return;
+        };
+        let snapshot = self.coordinator.borrow().snapshot().clone();
+        let Some(media) = snapshot.media else { return };
+        let position = self
+            .engine
+            .as_ref()
+            .and_then(PlaybackEngine::position)
+            .unwrap_or(snapshot.position);
+        let duration = self
+            .engine
+            .as_ref()
+            .and_then(PlaybackEngine::duration)
+            .unwrap_or(snapshot.duration);
+        self.runtime.spawn(async move {
+            let media_type = media
+                .mime_type
+                .as_deref()
+                .unwrap_or("application/octet-stream");
+            let report = PlaybackReport {
+                media_id: media.id,
+                action,
+                position,
+                duration,
+                media_type,
+                title: media.title(),
+                artists: media.artists.as_deref(),
+                source: "desktop",
+            };
+            let _ = client.save_resume(media.id, position, duration).await;
+            let _ = client.report("api/playback/active", &report).await;
+            if record_event {
+                let _ = client.report("api/playback/event", &report).await;
+            }
+        });
     }
 
     fn current_media_id(&self) -> Option<i64> {
@@ -939,16 +1004,30 @@ impl Controller {
         if let Some(timer) = self.heartbeat_timer.borrow_mut().take() {
             timer.remove();
         }
-        if let Some(engine) = &self.engine {
-            let _ = engine.stop();
-        }
         if let (Some(client), Some(session)) = (
             self.client.borrow().clone(),
             self.session.borrow_mut().take(),
         ) {
+            let snapshot = self.coordinator.borrow().snapshot().clone();
+            let position = self
+                .engine
+                .as_ref()
+                .and_then(PlaybackEngine::position)
+                .unwrap_or(snapshot.position);
             let _ = self.runtime.block_on(async {
-                tokio::time::timeout(Duration::from_secs(2), client.release(&session)).await
+                let cleanup = async {
+                    if let Some(media) = snapshot.media {
+                        let _ = client
+                            .save_resume(media.id, position, snapshot.duration)
+                            .await;
+                    }
+                    client.release(&session).await
+                };
+                tokio::time::timeout(Duration::from_secs(2), cleanup).await
             });
+        }
+        if let Some(engine) = &self.engine {
+            let _ = engine.stop();
         }
     }
 
