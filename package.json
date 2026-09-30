@@ -13,8 +13,10 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:web": "npm run dev --workspace=web",
     "dev:mobile": "npm --workspace=mobile run dev --",
+    "dev:desktop": "cargo run --manifest-path desktop/Cargo.toml",
     "worker": "npm run worker --workspace=server",
     "build": "npm run build --workspace=web",
+    "build:desktop": "cargo build --release --locked --manifest-path desktop/Cargo.toml",
     "build:web:budget": "npm run build --workspace=web && node scripts/check-web-bundle.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "compress:thumbnails": "node scripts/compress-thumbnails.js",
@@ -22,7 +24,8 @@
     "test": "npm run test --workspace=server && npm run test --workspace=web && npm run test --workspace=mobile",
     "test:server": "npm run test --workspace=server",
     "test:web": "npm run test --workspace=web",
-    "test:mobile": "npm run test --workspace=mobile"
+    "test:mobile": "npm run test --workspace=mobile",
+    "test:desktop": "cargo test --locked --manifest-path desktop/Cargo.toml"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",

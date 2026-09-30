@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.dogmedia.Desktop</id>
+  <name>Dogmedia</name>
+  <summary>Native client for a private Dogmedia library</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.dogmedia">
+    <name>Dogmedia</name>
+  </developer>
+  <description>
+    <p>
+      Browse photos, music, and videos from a self-hosted Dogmedia server using
+      a native GTK interface and GStreamer playback.
+    </p>
+    <p>
+      Search and filter the library, manage favorites and the playback queue,
+      choose streaming quality, resume playback, and select available subtitle
+      tracks without an embedded web browser.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.dogmedia.Desktop.desktop</launchable>
+  <provides>
+    <binary>dogmedia-desktop</binary>
+  </provides>
+  <url type="homepage">https://github.com/Doglexable/Dogmedia</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-09-30">
+      <description>
+        <p>Initial native Linux desktop client.</p>
+      </description>
+    </release>
+  </releases>
+</component>

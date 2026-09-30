@@ -10,6 +10,7 @@ page.
 |-------|-----------|
 | Backend | Fastify 5 (JavaScript, ESM) |
 | Frontend | React 19 + Vite 8 + Tailwind CSS v4 |
+| Desktop client | Rust + GTK4/libadwaita + GStreamer |
 | Database | PostgreSQL 17 |
 | Cache / Queue | Redis 7 |
 | Container | Podman + Compose |
@@ -127,6 +128,30 @@ npm run dev
 # In a separate terminal (for background media encoding worker):
 npm run worker
 ```
+
+### Native Linux desktop client
+
+`desktop/` is a compiled Rust application using GTK4/libadwaita and GStreamer.
+It does not embed Chromium, WebKit, or the React site. Start the server first,
+then install Rust 1.85 or newer and the native development packages for GTK
+4.16+, libadwaita 1.6+, and GStreamer 1.24+.
+
+On Arch Linux or Manjaro:
+
+```bash
+sudo pacman -S --needed base-devel rust gtk4 libadwaita gstreamer \
+  gst-plugin-gtk4 gst-plugins-base gst-plugins-good gst-plugins-bad \
+  gst-plugins-ugly gst-libav
+cargo build --release --locked --manifest-path desktop/Cargo.toml
+./desktop/target/release/dogmedia-desktop
+```
+
+The first launch asks for the Dogmedia server URL. The server continues to
+authorize the computer by IP; the desktop app creates and retains a viewer ID
+for playback leases and resume state. Use HTTPS outside a trusted LAN.
+
+See [desktop/README.md](desktop/README.md) for Debian/Fedora dependencies,
+user-local installation, Flatpak commands, usage, and current feature limits.
 
 ## Compressing thumbnails
 
@@ -514,12 +539,15 @@ experience:
 npm run dev              # server + web (concurrent)
 npm run dev:server       # server only
 npm run dev:web          # web / vite only
+npm run dev:desktop      # native GTK desktop client
 npm run migrate          # run DB migrations
 npm run build            # Vite production build
+npm run build:desktop    # release desktop binary
 npm run lint             # ESLint
 npm run test             # Vitest (all)
 npm run test:server      # server tests
 npm run test:web         # web tests
+npm run test:desktop     # Rust desktop tests
 ```
 
 ## Security notes

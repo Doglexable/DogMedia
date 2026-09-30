@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dogmedia
+Comment=Browse and play media from a Dogmedia server
+Exec=dogmedia-desktop
+Icon=com.dogmedia.Desktop
+Terminal=false
+Categories=AudioVideo;Audio;Video;Player;
+Keywords=media;music;audio;video;streaming;
+StartupNotify=true
+DBusActivatable=false
