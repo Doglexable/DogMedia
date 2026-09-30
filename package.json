@@ -17,6 +17,8 @@
     "worker": "npm run worker --workspace=server",
     "build": "npm run build --workspace=web",
     "build:desktop": "cargo build --release --locked --manifest-path desktop/Cargo.toml",
+    "package:desktop:deb": "desktop/packaging/deb/build-deb.sh",
+    "package:desktop:rpm": "desktop/packaging/rpm/build-rpm.sh",
     "build:web:budget": "npm run build --workspace=web && node scripts/check-web-bundle.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "compress:thumbnails": "node scripts/compress-thumbnails.js",

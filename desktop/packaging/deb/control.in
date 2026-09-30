@@ -1,0 +1,13 @@
+Package: dogmedia-desktop
+Version: @VERSION@
+Section: video
+Priority: optional
+Architecture: @ARCHITECTURE@
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: Dogmedia <support@dogmedia.invalid>
+Depends: libgtk-4-1 (>= 4.16), libadwaita-1-0 (>= 1.6), libgstreamer1.0-0 (>= 1.24), gstreamer1.0-gtk4, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, ca-certificates
+Recommends: gstreamer1.0-plugins-bad, gstreamer1.0-libav
+Homepage: https://github.com/Doglexable/Dogmedia
+Description: Native desktop client for Dogmedia
+ Browse photos, music, and videos from a self-hosted Dogmedia server using a
+ native GTK interface and GStreamer playback, without an embedded browser.

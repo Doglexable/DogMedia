@@ -78,6 +78,53 @@ install -Dm644 desktop/resources/com.dogmedia.Desktop.metainfo.xml \
 the launcher cannot find the command after installation, sign out and back in
 so the desktop session reloads its environment.
 
+## Debian and Ubuntu package
+
+Build the package on the oldest Debian/Ubuntu release you intend to support;
+the resulting native binary is linked against that system's libraries. Install
+the build dependencies listed above plus `dpkg-dev`, then run from the
+repository root:
+
+```bash
+sudo apt install dpkg-dev
+npm run package:desktop:deb
+```
+
+The versioned package is written to `dist/packages/`. Install or upgrade it
+with APT so runtime dependencies are resolved automatically:
+
+```bash
+sudo apt install ./dist/packages/dogmedia-desktop_0.1.0_amd64.deb
+```
+
+The architecture and version in the filename are detected automatically and
+may differ from this example. Remove the application with
+`sudo apt remove dogmedia-desktop`.
+
+## Fedora and RPM package
+
+Build on the oldest Fedora release you intend to support. Install the Fedora
+build dependencies listed above plus `rpm-build`, then run:
+
+```bash
+sudo dnf install rpm-build
+npm run package:desktop:rpm
+```
+
+The RPM is written to `dist/packages/`. Install it through DNF so runtime
+dependencies are resolved:
+
+```bash
+sudo dnf install ./dist/packages/dogmedia-desktop-0.1.0-1.*.rpm
+```
+
+The release and architecture portion of the filename may differ. Remove the
+application with `sudo dnf remove dogmedia-desktop`.
+
+Both package scripts first perform a locked release build and install the
+binary, desktop launcher, scalable icon, AppStream metadata, and license into
+the package. Set `PFS_PACKAGE_OUTPUT_DIR` to override the output directory.
+
 ## Flatpak
 
 Install Flatpak and Flatpak Builder, then add the Flathub repository and the

@@ -150,8 +150,17 @@ The first launch asks for the Dogmedia server URL. The server continues to
 authorize the computer by IP; the desktop app creates and retains a viewer ID
 for playback leases and resume state. Use HTTPS outside a trusted LAN.
 
-See [desktop/README.md](desktop/README.md) for Debian/Fedora dependencies,
-user-local installation, Flatpak commands, usage, and current feature limits.
+Build native Debian or Fedora packages with:
+
+```bash
+npm run package:desktop:deb # requires dpkg-dev
+npm run package:desktop:rpm # requires rpm-build
+```
+
+Packages are written to `dist/packages/`. See
+[desktop/README.md](desktop/README.md) for Debian/Fedora prerequisites and
+installation commands, user-local installation, Flatpak packaging, usage, and
+current feature limits.
 
 ## Compressing thumbnails
 
