@@ -30,7 +30,7 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
-cargo build --release --locked --manifest-path "$manifest"
+cargo build --release --manifest-path "$manifest"
 
 top_dir=$(mktemp -d "${TMPDIR:-/tmp}/dogmedia-rpm.XXXXXX")
 trap 'rm -rf -- "$top_dir"' EXIT

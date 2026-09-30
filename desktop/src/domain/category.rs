@@ -1,13 +1,15 @@
 use serde::Deserialize;
 
+use super::CategoryId;
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Category {
-    pub id: i64,
+    pub id: CategoryId,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub parent_id: Option<i64>,
+    pub parent_id: Option<CategoryId>,
     #[serde(default)]
     pub depth: u32,
     #[serde(default)]

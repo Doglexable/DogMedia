@@ -21,7 +21,7 @@ modules:
       build-args:
         - --share=network
     build-commands:
-      - cargo build --release --locked
+      - cargo build --release
       - install -Dm755 target/release/dogmedia-desktop /app/bin/dogmedia-desktop
       - install -Dm644 resources/com.dogmedia.Desktop.desktop /app/share/applications/com.dogmedia.Desktop.desktop
       - install -Dm644 resources/com.dogmedia.Desktop.metainfo.xml /app/share/metainfo/com.dogmedia.Desktop.metainfo.xml

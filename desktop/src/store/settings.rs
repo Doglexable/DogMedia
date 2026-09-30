@@ -7,10 +7,10 @@ use std::{
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use url::Url;
 use uuid::Uuid;
 
-use crate::domain::Quality;
+use crate::api::{ServerUrl, ServerUrlError};
+use crate::domain::{MediaId, Quality, SubtitleId, ViewerId, Volume};
 
 const VERSION: u8 = 1;
 
@@ -28,10 +28,10 @@ pub enum ColorScheme {
 pub struct Settings {
     pub version: u8,
     pub configured: bool,
-    pub server_url: String,
-    pub viewer_id: String,
+    pub server_url: ServerUrl,
+    pub viewer_id: ViewerId,
     pub quality: Quality,
-    pub volume: f64,
+    pub volume: Volume,
     pub color_scheme: ColorScheme,
     pub notifications: bool,
     pub window_width: i32,
@@ -43,10 +43,10 @@ impl Default for Settings {
         Self {
             version: VERSION,
             configured: false,
-            server_url: "http://localhost:3001/".into(),
-            viewer_id: Uuid::new_v4().to_string(),
+            server_url: ServerUrl::default(),
+            viewer_id: ViewerId::new(Uuid::new_v4().to_string()),
             quality: Quality::High,
-            volume: 0.8,
+            volume: Volume::default(),
             color_scheme: ColorScheme::System,
             notifications: true,
             window_width: 1100,
@@ -56,25 +56,14 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Returns `true` when the URL uses plain HTTP toward a non-loopback host
+    /// and therefore needs an explicit trusted-LAN confirmation.
     pub fn set_server_url(&mut self, input: &str) -> Result<bool, SettingsError> {
-        let mut parsed = Url::parse(input.trim())?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(SettingsError::UnsupportedScheme);
-        }
-        if parsed.host_str().is_none() {
-            return Err(SettingsError::MissingHost);
-        }
-        parsed.set_query(None);
-        parsed.set_fragment(None);
-        self.server_url = parsed.to_string();
+        let parsed = ServerUrl::parse(input)?;
+        let insecure = parsed.is_insecure_remote();
+        self.server_url = parsed;
         self.configured = true;
-        Ok(parsed.scheme() == "http"
-            && parsed.host_str().is_some_and(|host| {
-                host != "localhost"
-                    && host
-                        .parse::<std::net::IpAddr>()
-                        .map_or(true, |ip| !ip.is_loopback())
-            }))
+        Ok(insecure)
     }
 }
 
@@ -83,11 +72,7 @@ pub enum SettingsError {
     #[error("unable to locate an XDG application directory")]
     NoApplicationDirectory,
     #[error("invalid server URL: {0}")]
-    InvalidUrl(#[from] url::ParseError),
-    #[error("server URL must use http or https")]
-    UnsupportedScheme,
-    #[error("server URL must include a host")]
-    MissingHost,
+    InvalidUrl(#[from] ServerUrlError),
     #[error("settings I/O failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("settings are malformed: {0}")]
@@ -139,8 +124,8 @@ impl SettingsStore {
 }
 
 pub fn subtitle_cache_path(
-    media_id: i64,
-    subtitle_id: i64,
+    media_id: MediaId,
+    subtitle_id: SubtitleId,
     extension: &str,
 ) -> Result<PathBuf, SettingsError> {
     let directory = project_dirs()?
@@ -172,7 +157,7 @@ mod tests {
         let loaded = store.load().unwrap();
         assert!(loaded.configured);
         assert_eq!(loaded.viewer_id, viewer);
-        assert_eq!(loaded.server_url, "https://example.test/media");
+        assert_eq!(loaded.server_url.to_string(), "https://example.test/media/");
     }
 
     #[test]

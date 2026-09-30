@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::Media;
+use super::{Media, MediaId};
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct QueueItem {
@@ -19,7 +19,7 @@ pub struct QueueWindow {
     pub total: usize,
     pub current_index: usize,
     #[serde(default)]
-    pub current_media_id: Option<i64>,
+    pub current_media_id: Option<MediaId>,
     #[serde(default)]
     pub has_previous: bool,
     #[serde(default)]
@@ -31,7 +31,7 @@ pub struct QueueWindow {
 #[serde(rename_all = "camelCase")]
 pub struct QueueSelection {
     #[serde(default)]
-    pub media_id: Option<i64>,
+    pub media_id: Option<MediaId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,5 +39,29 @@ pub struct QueueSelection {
 pub struct QueueOrder<'a> {
     pub offset: usize,
     pub revision: u64,
-    pub media_ids: &'a [i64],
+    pub media_ids: &'a [MediaId],
+}
+
+/// Response of `PUT api/queue/window/order`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueOrderResult {
+    pub total: usize,
+    pub current_index: usize,
+    #[serde(default)]
+    pub current_media_id: Option<MediaId>,
+    pub revision: u64,
+}
+
+/// Compact response of the `POST api/queue/auto*` endpoints (`compact=1`).
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAutoResult {
+    pub total: usize,
+    pub current_index: usize,
+    #[serde(default)]
+    pub current_media_id: Option<MediaId>,
+    #[serde(default)]
+    pub active_removed: bool,
+    pub revision: u64,
 }

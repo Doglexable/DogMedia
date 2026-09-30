@@ -2,13 +2,14 @@ use std::sync::{Arc, Mutex};
 
 use gst::prelude::*;
 use gstreamer as gst;
+use gstreamer_video::VideoInfo;
 use thiserror::Error;
 
-use crate::domain::PlaybackSession;
+use crate::domain::{PlaybackSession, SessionId, ViewerId, Volume};
 
 struct ProtectedHeaders {
-    session_id: String,
-    viewer_id: String,
+    session_id: SessionId,
+    viewer_id: ViewerId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +21,7 @@ pub enum EngineEvent {
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error("GStreamer initialization failed: {0}")]
-    Init(#[from] glib::Error),
+    Init(#[from] gst::glib::Error),
     #[error("required GStreamer element is unavailable: {0}")]
     MissingElement(&'static str),
     #[error("invalid stream URL")]
@@ -31,8 +32,15 @@ pub enum EngineError {
 
 pub struct PlaybackEngine {
     playbin: gst::Element,
-    video_sink: gst::Element,
     headers: Arc<Mutex<Option<ProtectedHeaders>>>,
+    frame: Arc<Mutex<Option<VideoFrame>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VideoFrame {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
 }
 
 impl PlaybackEngine {
@@ -41,9 +49,44 @@ impl PlaybackEngine {
         let playbin = gst::ElementFactory::make("playbin3")
             .build()
             .map_err(|_| EngineError::MissingElement("playbin3"))?;
-        let video_sink = gst::ElementFactory::make("gtk4paintablesink")
+        let video_sink = gst::ElementFactory::make("appsink")
             .build()
-            .map_err(|_| EngineError::MissingElement("gtk4paintablesink"))?;
+            .map_err(|_| EngineError::MissingElement("appsink"))?;
+        video_sink.set_property(
+            "caps",
+            gst::Caps::builder("video/x-raw")
+                .field("format", "RGBA")
+                .build(),
+        );
+        video_sink.set_property("max-buffers", 2_u32);
+        video_sink.set_property("drop", true);
+        video_sink.set_property("emit-signals", true);
+        let frame = Arc::new(Mutex::new(None));
+        let frame_target = Arc::clone(&frame);
+        video_sink.connect("new-sample", false, move |values| {
+            let sink = values.first()?.get::<gst::Element>().ok()?;
+            let sample = sink.emit_by_name::<Option<gst::Sample>>("pull-sample", &[])?;
+            let caps = sample.caps()?;
+            let info = VideoInfo::from_caps(caps).ok()?;
+            let buffer = sample.buffer()?;
+            let map = buffer.map_readable().ok()?;
+            if let Ok(mut slot) = frame_target.lock() {
+                let width = info.width();
+                let height = info.height();
+                let row_bytes = width as usize * 4;
+                let stride = info.stride()[0].unsigned_abs() as usize;
+                let mut pixels = Vec::with_capacity(row_bytes * height as usize);
+                for row in map.as_slice().chunks(stride).take(height as usize) {
+                    pixels.extend_from_slice(&row[..row_bytes.min(row.len())]);
+                }
+                *slot = Some(VideoFrame {
+                    width,
+                    height,
+                    pixels,
+                });
+            }
+            Some(gst::FlowReturn::Ok.to_value())
+        });
         playbin.set_property("video-sink", &video_sink);
         let headers = Arc::new(Mutex::new(None::<ProtectedHeaders>));
         let source_headers = Arc::clone(&headers);
@@ -71,13 +114,17 @@ impl PlaybackEngine {
         });
         Ok(Self {
             playbin,
-            video_sink,
             headers,
+            frame,
         })
     }
 
-    pub fn open(&self, session: &PlaybackSession, stream_url: &str) -> Result<(), EngineError> {
-        if !stream_url.starts_with("http://") && !stream_url.starts_with("https://") {
+    pub fn open(
+        &self,
+        session: &PlaybackSession,
+        stream_url: &url::Url,
+    ) -> Result<(), EngineError> {
+        if !matches!(stream_url.scheme(), "http" | "https") {
             return Err(EngineError::InvalidStreamUrl);
         }
         if let Ok(mut headers) = self.headers.lock() {
@@ -86,7 +133,10 @@ impl PlaybackEngine {
                 viewer_id: session.viewer_id.clone(),
             });
         }
-        self.playbin.set_property("uri", stream_url);
+        self.playbin.set_property("uri", stream_url.as_str());
+        if let Ok(mut frame) = self.frame.lock() {
+            *frame = None;
+        }
         Ok(())
     }
 
@@ -129,8 +179,8 @@ impl PlaybackEngine {
             .map(|value| value.nseconds() as f64 / 1_000_000_000.0)
     }
 
-    pub fn set_volume(&self, volume: f64) {
-        self.playbin.set_property("volume", volume.clamp(0.0, 1.0));
+    pub fn set_volume(&self, volume: Volume) {
+        self.playbin.set_property("volume", volume.get());
     }
 
     pub fn set_muted(&self, muted: bool) {
@@ -141,9 +191,8 @@ impl PlaybackEngine {
         self.playbin.set_property("suburi", uri);
     }
 
-    pub fn paintable(&self) -> Option<gtk::gdk::Paintable> {
-        self.video_sink
-            .property::<Option<gtk::gdk::Paintable>>("paintable")
+    pub fn take_frame(&self) -> Option<VideoFrame> {
+        self.frame.lock().ok()?.take()
     }
 
     pub fn poll_event(&self) -> Option<EngineEvent> {

@@ -30,7 +30,7 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
-cargo build --release --locked --manifest-path "$manifest"
+cargo build --release --manifest-path "$manifest"
 
 architecture=$(dpkg --print-architecture)
 staging_dir=$(mktemp -d "${TMPDIR:-/tmp}/dogmedia-deb.XXXXXX")

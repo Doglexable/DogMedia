@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use dogmedia_desktop::{
     api::{ApiClient, ApiError, RawResponse, RequestSpec, Transport, TransportError},
-    domain::{BrowseQuery, Quality},
+    domain::{BrowseQuery, CategoryId, Cursor, Limit, MediaId, Quality, SubtitleId},
 };
 
 #[derive(Default)]
@@ -94,14 +94,14 @@ async fn browse_encodes_filters_and_ignores_additive_fields() {
         .browse(&BrowseQuery {
             search: "a & b".into(),
             media_type: dogmedia_desktop::domain::MediaFilter::Audio,
-            category_id: Some(7),
+            category_id: Some(CategoryId::new(7)),
             liked: true,
-            cursor: Some("before/after".into()),
-            limit: 50,
+            cursor: Some(Cursor::from("before/after")),
+            limit: Limit::new(50),
         })
         .await
         .unwrap();
-    assert_eq!(page.items[0].id, 9);
+    assert_eq!(page.items[0].id, MediaId::new(9));
     let requests = transport.requests.lock().unwrap();
     let query: std::collections::HashMap<_, _> =
         requests[0].url.query_pairs().into_owned().collect();
@@ -134,7 +134,7 @@ async fn playback_session_and_heartbeat_use_protected_headers_not_urls() {
     )
     .unwrap();
     let session = client
-        .create_playback_session(4, Quality::High)
+        .create_playback_session(MediaId::new(4), Quality::High)
         .await
         .unwrap();
     client.heartbeat(&session).await.unwrap();
@@ -179,7 +179,7 @@ async fn photo_stream_uses_a_session_and_releases_it_after_fetch_failure() {
     .unwrap();
 
     assert!(matches!(
-        client.photo(7).await,
+        client.photo(MediaId::new(7)).await,
         Err(ApiError::Http { status: 500, .. })
     ));
 
@@ -225,7 +225,9 @@ async fn typed_errors_cover_denial_conflict_timeout_and_malformed_payload() {
         Err(ApiError::AccessDenied)
     ));
     assert!(matches!(
-        client.create_playback_session(1, Quality::High).await,
+        client
+            .create_playback_session(MediaId::new(1), Quality::High)
+            .await,
         Err(ApiError::PlaybackInUse {
             retry_after: Some(8)
         })
@@ -282,13 +284,25 @@ async fn queue_lyrics_and_subtitles_use_the_typed_transport_boundary() {
     .unwrap();
 
     let queue = client.queue_window().await.unwrap();
-    assert_eq!(queue.items[0].media.id, 4);
+    assert_eq!(queue.items[0].media.id, MediaId::new(4));
     assert_eq!(
-        client.lyrics(4).await.unwrap().unwrap().segments[0].text,
+        client
+            .lyrics(MediaId::new(4))
+            .await
+            .unwrap()
+            .unwrap()
+            .segments[0]
+            .text,
         "Line"
     );
-    assert_eq!(client.subtitles(4).await.unwrap()[0].id, 8);
-    assert_eq!(client.queue_select(4).await.unwrap().media_id, Some(4));
+    assert_eq!(
+        client.subtitles(MediaId::new(4)).await.unwrap()[0].id,
+        SubtitleId::new(8)
+    );
+    assert_eq!(
+        client.queue_select(MediaId::new(4)).await.unwrap().media_id,
+        Some(MediaId::new(4))
+    );
     assert!(matches!(
         client.queue_clear().await,
         Err(ApiError::QueueChanged)
@@ -315,5 +329,5 @@ async fn missing_lyrics_is_an_empty_state() {
         transport,
     )
     .unwrap();
-    assert!(client.lyrics(9).await.unwrap().is_none());
+    assert!(client.lyrics(MediaId::new(9)).await.unwrap().is_none());
 }

@@ -13,10 +13,7 @@ Source2:        com.dogmedia.Desktop.metainfo.xml
 Source3:        com.dogmedia.Desktop.svg
 Source4:        LICENSE
 
-Requires:       gtk4 >= 4.16
-Requires:       libadwaita >= 1.6
 Requires:       gstreamer1 >= 1.24
-Requires:       gstreamer1-plugin-gtk4
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       ca-certificates
@@ -25,7 +22,7 @@ Recommends:     gstreamer1-plugin-libav
 
 %description
 Browse photos, music, and videos from a self-hosted Dogmedia server using a
-native GTK interface and GStreamer playback, without an embedded browser.
+native Iced interface and GStreamer playback, without an embedded browser.
 
 %prep
 

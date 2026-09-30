@@ -2,23 +2,20 @@
 name = "dogmedia-desktop"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
-description = "Native GTK desktop client for Dogmedia"
+rust-version = "1.88"
+description = "Native Iced desktop client for Dogmedia"
 license = "MIT"
 repository = "https://github.com/Doglexable/Dogmedia"
-build = "build.rs"
 
 [features]
 default = []
 
 [dependencies]
-adw = { package = "libadwaita", version = "0.8", features = ["v1_6"] }
 async-trait = "0.1"
 directories = "6"
-glib = "0.21"
 gstreamer = "0.24"
 gstreamer-video = "0.24"
-gtk = { package = "gtk4", version = "0.10", features = ["v4_16"] }
+iced = { version = "0.14", features = ["advanced", "image", "tokio"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -28,9 +25,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
-
-[build-dependencies]
-glib-build-tools = "0.21"
 
 [dev-dependencies]
 tempfile = "3"

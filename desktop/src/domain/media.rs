@@ -1,4 +1,8 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
+
+use super::{CategoryId, Cursor, Limit, MediaId};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -11,6 +15,8 @@ pub enum MediaFilter {
 }
 
 impl MediaFilter {
+    pub const ALL: [Self; 4] = [Self::All, Self::Audio, Self::Video, Self::Photo];
+
     pub const fn as_query(self) -> &'static str {
         match self {
             Self::All => "all",
@@ -20,10 +26,20 @@ impl MediaFilter {
         }
     }
 }
+impl fmt::Display for MediaFilter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::All => "All media",
+            Self::Audio => "Audio",
+            Self::Video => "Video",
+            Self::Photo => "Photos",
+        })
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Media {
-    pub id: i64,
+    pub id: MediaId,
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
@@ -35,7 +51,7 @@ pub struct Media {
     #[serde(default)]
     pub mime_type: Option<String>,
     #[serde(default)]
-    pub category_id: Option<i64>,
+    pub category_id: Option<CategoryId>,
     #[serde(default)]
     pub category_name: Option<String>,
     #[serde(default)]
@@ -85,15 +101,74 @@ pub struct BrowsePage {
     #[serde(default)]
     pub items: Vec<Media>,
     #[serde(default)]
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<Cursor>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BrowseQuery {
     pub search: String,
     pub media_type: MediaFilter,
-    pub category_id: Option<i64>,
+    pub category_id: Option<CategoryId>,
     pub liked: bool,
-    pub cursor: Option<String>,
-    pub limit: u8,
+    pub cursor: Option<Cursor>,
+    pub limit: Limit,
+}
+
+impl BrowseQuery {
+    /// Render the `api/media/browse` query string. Unit-testable without HTTP.
+    pub fn query_string(&self) -> String {
+        let mut pairs = url::form_urlencoded::Serializer::new(String::new());
+        pairs.append_pair("limit", &self.limit.get().to_string());
+        pairs.append_pair("type", self.media_type.as_query());
+        if !self.search.trim().is_empty() {
+            pairs.append_pair("q", self.search.trim());
+        }
+        if let Some(category_id) = self.category_id {
+            pairs.append_pair("category_id", &category_id.to_string());
+        }
+        if self.liked {
+            pairs.append_pair("view", "liked");
+        }
+        if let Some(cursor) = &self.cursor {
+            pairs.append_pair("cursor", cursor.as_str());
+        }
+        pairs.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_string_encodes_filters_without_http() {
+        let query = BrowseQuery {
+            search: "a & b".into(),
+            media_type: MediaFilter::Audio,
+            category_id: Some(CategoryId::new(7)),
+            liked: true,
+            cursor: Some(Cursor::from("before/after")),
+            limit: Limit::new(50),
+        };
+        let pairs: std::collections::HashMap<_, _> =
+            url::form_urlencoded::parse(query.query_string().as_bytes())
+                .into_owned()
+                .collect();
+        assert_eq!(pairs["limit"], "50");
+        assert_eq!(pairs["type"], "audio");
+        assert_eq!(pairs["q"], "a & b");
+        assert_eq!(pairs["category_id"], "7");
+        assert_eq!(pairs["view"], "liked");
+        assert_eq!(pairs["cursor"], "before/after");
+    }
+
+    #[test]
+    fn query_string_omits_empty_filters() {
+        let pairs: std::collections::HashMap<_, _> =
+            url::form_urlencoded::parse(BrowseQuery::default().query_string().as_bytes())
+                .into_owned()
+                .collect();
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs["type"], "all");
+    }
 }

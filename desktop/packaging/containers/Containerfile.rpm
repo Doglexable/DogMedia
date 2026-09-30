@@ -5,14 +5,11 @@ RUN dnf install -y \
         cargo \
         gcc \
         gstreamer1-devel \
-        gstreamer1-plugin-gtk4 \
         gstreamer1-plugin-libav \
         gstreamer1-plugins-bad-free \
         gstreamer1-plugins-base \
         gstreamer1-plugins-base-devel \
         gstreamer1-plugins-good \
-        gtk4-devel \
-        libadwaita-devel \
         make \
         pkgconf-pkg-config \
         rpm-build \

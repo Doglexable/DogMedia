@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+use super::{StreamPath, SubtitleId};
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LyricSegment {
     pub start: f64,
@@ -19,20 +21,20 @@ pub struct Lyrics {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SubtitleTrack {
-    pub id: i64,
+    pub id: SubtitleId,
     #[serde(default)]
     pub language: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
-    pub vtt_url: String,
+    pub vtt_url: StreamPath,
     #[serde(default)]
-    pub ass_url: Option<String>,
+    pub ass_url: Option<StreamPath>,
 }
 
 impl SubtitleTrack {
-    pub fn preferred_url(&self) -> (&str, &'static str) {
+    pub fn preferred_url(&self) -> (&StreamPath, &'static str) {
         self.ass_url
-            .as_deref()
+            .as_ref()
             .map_or((&self.vtt_url, "vtt"), |url| (url, "ass"))
     }
 }

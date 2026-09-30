@@ -1,4 +1,4 @@
-use crate::domain::{Media, Quality};
+use crate::domain::{Media, MediaId, Quality};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackStatus {
@@ -53,10 +53,10 @@ pub enum Effect {
     StopPipeline,
     ReleaseLease,
     DisplayPhoto {
-        media_id: i64,
+        media_id: MediaId,
     },
     CreateSession {
-        media_id: i64,
+        media_id: MediaId,
         quality: Quality,
         position: f64,
     },
@@ -175,6 +175,12 @@ impl PlaybackCoordinator {
 
     pub fn set_shuffle(&mut self, shuffle: bool) {
         self.snapshot.shuffle = shuffle;
+    }
+
+    pub fn set_liked(&mut self, liked: bool) {
+        if let Some(media) = &mut self.snapshot.media {
+            media.liked = liked;
+        }
     }
 
     pub fn stop(&mut self) -> Vec<Effect> {

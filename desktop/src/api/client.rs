@@ -2,13 +2,15 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
-use url::Url;
 
+use super::endpoint::Endpoint;
 use super::transport::{
     HttpMethod, RawResponse, RequestSpec, ReqwestTransport, Transport, TransportError,
 };
+use super::url::{ServerUrl, ServerUrlError};
+use crate::domain::{PlaybackSession, StreamPath, ViewerId};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum ApiError {
     #[error("server URL must use http or https")]
     UnsupportedScheme,
@@ -26,6 +28,8 @@ pub enum ApiError {
     PlaybackLeaseLost { retry_after: Option<u64> },
     #[error("queue changed; refresh and try again")]
     QueueChanged,
+    #[error("the queue has no item there")]
+    QueueEmpty,
     #[error("server returned {status}: {message}")]
     Http {
         status: u16,
@@ -34,6 +38,43 @@ pub enum ApiError {
     },
     #[error("server response was malformed: {0}")]
     Malformed(String),
+}
+
+impl ApiError {
+    /// Short human-readable message for status banners and toasts.
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::AccessDenied => {
+                "This computer's IP address is not allowed by the server.".to_owned()
+            }
+            Self::PlaybackInUse { retry_after } => match retry_after {
+                Some(seconds) => {
+                    format!("Playback is active on another device. Retry in {seconds}s.")
+                }
+                None => "Playback is active on another device.".to_owned(),
+            },
+            Self::PlaybackLeaseLost { .. } => "Playback moved to another device.".to_owned(),
+            Self::QueueChanged => "Queue changed; refresh and try again.".to_owned(),
+            Self::Http {
+                status, message, ..
+            } => {
+                format!("Server returned {status}: {message}")
+            }
+            Self::Unreachable(message) => {
+                format!("Unable to reach the server: {message}")
+            }
+            _ => self.to_string(),
+        }
+    }
+
+    pub fn retry_after(&self) -> Option<u64> {
+        match self {
+            Self::PlaybackInUse { retry_after } | Self::PlaybackLeaseLost { retry_after } => {
+                *retry_after
+            }
+            _ => None,
+        }
+    }
 }
 
 impl From<TransportError> for ApiError {
@@ -45,62 +86,60 @@ impl From<TransportError> for ApiError {
     }
 }
 
+impl From<ServerUrlError> for ApiError {
+    fn from(value: ServerUrlError) -> Self {
+        match value {
+            ServerUrlError::UnsupportedScheme => Self::UnsupportedScheme,
+            ServerUrlError::MissingHost => Self::InvalidUrl(url::ParseError::EmptyHost),
+            ServerUrlError::Invalid(message) => Self::Malformed(message),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ApiClient {
-    base_url: Url,
-    viewer_id: String,
+    base_url: ServerUrl,
+    viewer_id: ViewerId,
     transport: Arc<dyn Transport>,
 }
 
 impl ApiClient {
-    pub fn new(base_url: &str, viewer_id: impl Into<String>) -> Result<Self, ApiError> {
+    pub fn new(base_url: &str, viewer_id: impl Into<ViewerId>) -> Result<Self, ApiError> {
         Self::with_transport(base_url, viewer_id, ReqwestTransport::new()?)
     }
 
     pub fn with_transport(
         base_url: &str,
-        viewer_id: impl Into<String>,
+        viewer_id: impl Into<ViewerId>,
         transport: Arc<dyn Transport>,
     ) -> Result<Self, ApiError> {
-        let mut base_url = Url::parse(base_url.trim())?;
-        if !matches!(base_url.scheme(), "http" | "https") {
-            return Err(ApiError::UnsupportedScheme);
-        }
-        if base_url.host_str().is_none() {
-            return Err(ApiError::InvalidUrl(url::ParseError::EmptyHost));
-        }
-        base_url.set_query(None);
-        base_url.set_fragment(None);
-        if !base_url.path().ends_with('/') {
-            base_url.set_path(&format!("{}/", base_url.path()));
-        }
         Ok(Self {
-            base_url,
+            base_url: ServerUrl::parse(base_url)?,
             viewer_id: viewer_id.into(),
             transport,
         })
     }
 
-    pub fn base_url(&self) -> &Url {
+    pub fn base_url(&self) -> &ServerUrl {
         &self.base_url
     }
 
-    pub fn viewer_id(&self) -> &str {
+    pub fn viewer_id(&self) -> &ViewerId {
         &self.viewer_id
     }
 
-    pub fn absolute_url(&self, path: &str) -> Result<Url, ApiError> {
-        Ok(self.base_url.join(path.trim_start_matches('/'))?)
+    /// Resolve a typed API route against the server origin.
+    pub fn endpoint_url(&self, endpoint: &Endpoint) -> Result<url::Url, ApiError> {
+        Ok(self.base_url.join(&endpoint.path())?)
+    }
+
+    /// Resolve a server-relative [`StreamPath`] (stream / subtitle URLs).
+    pub fn absolute_url(&self, path: &StreamPath) -> Result<url::Url, ApiError> {
+        Ok(self.base_url.join_stream(path)?)
     }
 
     pub fn is_insecure_remote(&self) -> bool {
-        self.base_url.scheme() == "http"
-            && self.base_url.host_str().is_some_and(|host| {
-                host != "localhost"
-                    && host
-                        .parse::<std::net::IpAddr>()
-                        .map_or(true, |ip| !ip.is_loopback())
-            })
+        self.base_url.is_insecure_remote()
     }
 
     pub(crate) async fn json<T, B>(
@@ -108,7 +147,7 @@ impl ApiClient {
         method: HttpMethod,
         path: &str,
         body: Option<&B>,
-        session: Option<(&str, &str)>,
+        session: Option<&PlaybackSession>,
         timeout: Duration,
     ) -> Result<T, ApiError>
     where
@@ -120,11 +159,26 @@ impl ApiClient {
             .map_err(|error| ApiError::Malformed(error.to_string()))
     }
 
+    pub(crate) async fn json_endpoint<T, B>(
+        &self,
+        endpoint: &Endpoint,
+        body: Option<&B>,
+        session: Option<&PlaybackSession>,
+        timeout: Duration,
+    ) -> Result<T, ApiError>
+    where
+        T: DeserializeOwned,
+        B: Serialize + ?Sized,
+    {
+        self.json(endpoint.method(), &endpoint.path(), body, session, timeout)
+            .await
+    }
+
     pub(crate) async fn bytes(
         &self,
         method: HttpMethod,
         path: &str,
-        session: Option<(&str, &str)>,
+        session: Option<&PlaybackSession>,
     ) -> Result<Vec<u8>, ApiError> {
         Ok(self
             .raw(method, path, None::<&()>, session, Duration::from_secs(30))
@@ -137,24 +191,30 @@ impl ApiClient {
         method: HttpMethod,
         path: &str,
         body: Option<&B>,
-        session: Option<(&str, &str)>,
+        session: Option<&PlaybackSession>,
         timeout: Duration,
     ) -> Result<RawResponse, ApiError> {
         let mut headers = BTreeMap::from([
             ("Accept".to_owned(), "application/json".to_owned()),
             ("X-Client-Platform".to_owned(), "desktop".to_owned()),
-            ("X-Viewer-ID".to_owned(), self.viewer_id.clone()),
+            ("X-Viewer-ID".to_owned(), self.viewer_id.as_str().to_owned()),
         ]);
         if body.is_some() {
             headers.insert("Content-Type".to_owned(), "application/json".to_owned());
         }
-        if let Some((session_id, viewer_id)) = session {
-            headers.insert("X-Playback-Session".to_owned(), session_id.to_owned());
-            headers.insert("X-Viewer-ID".to_owned(), viewer_id.to_owned());
+        if let Some(session) = session {
+            headers.insert(
+                "X-Playback-Session".to_owned(),
+                session.session_id.as_str().to_owned(),
+            );
+            headers.insert(
+                "X-Viewer-ID".to_owned(),
+                session.viewer_id.as_str().to_owned(),
+            );
         }
         let request = RequestSpec {
             method,
-            url: self.absolute_url(path)?,
+            url: self.base_url.join(path)?,
             headers,
             json: body
                 .map(serde_json::to_value)

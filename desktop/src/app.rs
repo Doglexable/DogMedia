@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::domain::{BrowsePage, BrowseQuery, Media};
+use crate::domain::{BrowsePage, BrowseQuery, Cursor, Limit, Media, MediaId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccessView {
@@ -16,7 +16,7 @@ pub struct AppState {
     pub access: AccessView,
     pub query: BrowseQuery,
     pub items: Vec<Media>,
-    pub next_cursor: Option<String>,
+    pub next_cursor: Option<Cursor>,
     pub loading: bool,
     generation: u64,
 }
@@ -26,7 +26,7 @@ impl Default for AppState {
         Self {
             access: AccessView::FirstRun,
             query: BrowseQuery {
-                limit: 50,
+                limit: Limit::new(50),
                 ..BrowseQuery::default()
             },
             items: Vec::new(),
@@ -63,7 +63,7 @@ impl AppState {
         if generation != self.generation {
             return false;
         }
-        let mut ids: HashSet<i64> = if append {
+        let mut ids: HashSet<MediaId> = if append {
             self.items.iter().map(|item| item.id).collect()
         } else {
             self.items.clear();
@@ -93,7 +93,7 @@ impl AppState {
 mod tests {
     use super::*;
 
-    fn media(id: i64) -> Media {
+    fn media(id: MediaId) -> Media {
         Media {
             id,
             title: None,
@@ -121,7 +121,7 @@ mod tests {
         assert!(!state.apply_page(
             old,
             BrowsePage {
-                items: vec![media(1)],
+                items: vec![media(MediaId::new(1))],
                 next_cursor: None
             },
             false
@@ -129,13 +129,13 @@ mod tests {
         assert!(state.apply_page(
             current,
             BrowsePage {
-                items: vec![media(1), media(1)],
+                items: vec![media(MediaId::new(1)), media(MediaId::new(1))],
                 next_cursor: Some("next".into())
             },
             false
         ));
         assert_eq!(state.items.len(), 1);
         let (_, query) = state.next_page().unwrap();
-        assert_eq!(query.cursor.as_deref(), Some("next"));
+        assert_eq!(query.cursor.as_ref().map(Cursor::as_str), Some("next"));
     }
 }

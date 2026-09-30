@@ -1,14 +1,12 @@
 # Dogmedia Desktop
 
-Dogmedia Desktop is a native Linux client written in Rust with GTK4,
-libadwaita, and GStreamer. It is not an Electron/Tauri wrapper and does not
+Dogmedia Desktop is a native Linux client written in Rust with Iced and
+GStreamer. It is not an Electron/Tauri wrapper and does not
 load the web application in an embedded browser.
 
 ## Requirements
 
-- Rust 1.85 or newer (the crate uses Rust 2024 edition)
-- GTK 4.16 or newer
-- libadwaita 1.6 or newer
+- Rust 1.88 or newer (required by Iced 0.14)
 - GStreamer 1.24 or newer, including the base plugins and codecs needed by
   your media library
 - `pkg-config`, a C toolchain, and Git
@@ -19,34 +17,30 @@ Install the native packages for your distribution before building.
 Arch Linux / Manjaro:
 
 ```bash
-sudo pacman -S --needed base-devel rust gtk4 libadwaita gstreamer \
-  gst-plugin-gtk4 gst-plugins-base gst-plugins-good gst-plugins-bad \
+sudo pacman -S --needed base-devel rust gstreamer \
+  gst-plugins-base gst-plugins-good gst-plugins-bad \
   gst-plugins-ugly gst-libav
 ```
 
 Debian 13 or newer:
 
 ```bash
-sudo apt install build-essential cargo rustc pkg-config libgtk-4-dev \
-  libadwaita-1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  gstreamer1.0-gtk4 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+sudo apt install build-essential cargo rustc pkg-config \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
   gstreamer1.0-plugins-bad gstreamer1.0-libav
 ```
 
 Fedora 41 or newer:
 
 ```bash
-sudo dnf install gcc rust cargo pkgconf-pkg-config gtk4-devel \
-  libadwaita-devel gstreamer1-devel gstreamer1-plugins-base-devel \
-  gstreamer1-plugin-gtk4 gstreamer1-plugins-base gstreamer1-plugins-good \
+sudo dnf install gcc rust cargo pkgconf-pkg-config \
+  gstreamer1-devel gstreamer1-plugins-base-devel \
+  gstreamer1-plugins-base gstreamer1-plugins-good \
   gstreamer1-plugins-bad-free gstreamer1-plugin-libav
 ```
 
-Distribution releases with GTK older than 4.16 or libadwaita older than 1.6
-cannot build this version. In that case use the Flatpak instructions below or
-upgrade the native libraries; do not bypass the `pkg-config` version checks.
-
-If the packaged Rust compiler is older than 1.85, install current stable Rust
+If the packaged Rust compiler is older than 1.88, install current stable Rust
 with [rustup](https://rustup.rs/) and restart the shell before continuing.
 
 ## Build and run
@@ -54,7 +48,7 @@ with [rustup](https://rustup.rs/) and restart the shell before continuing.
 From the repository root:
 
 ```bash
-cargo build --release --locked --manifest-path desktop/Cargo.toml
+cargo build --release --manifest-path desktop/Cargo.toml
 ./desktop/target/release/dogmedia-desktop
 ```
 
@@ -121,7 +115,7 @@ sudo dnf install ./dist/packages/dogmedia-desktop-0.1.0-1.*.rpm
 The release and architecture portion of the filename may differ. Remove the
 application with `sudo dnf remove dogmedia-desktop`.
 
-Both package scripts first perform a locked release build and install the
+Both package scripts first perform a release build and install the
 binary, desktop launcher, scalable icon, AppStream metadata, and license into
 the package. Set `PFS_PACKAGE_OUTPUT_DIR` to override the output directory.
 
@@ -148,7 +142,7 @@ CONTAINER_ENGINE=docker npm run package:desktop:containers
 ```
 
 The Debian build uses Debian 13 (Trixie), while the RPM build uses Fedora 43.
-Each container performs a locked release build, creates its package under
+Each container performs a release build, creates its package under
 `/packages`, and copies it to the host's `dist/packages/` directory. Container
 images remain cached to make later builds faster and may be removed normally
 with the selected container engine when no longer needed.
