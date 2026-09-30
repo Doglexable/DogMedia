@@ -1,0 +1,17 @@
+.player-bar {
+  border-top: 1px solid alpha(currentColor, 0.15);
+  background: alpha(@window_bg_color, 0.96);
+}
+
+.queue-panel {
+  border-left: 1px solid alpha(currentColor, 0.15);
+}
+
+.lyrics {
+  padding: 12px 24px;
+  font-size: 1.1em;
+}
+
+.access-message {
+  font-size: 1.2em;
+}
