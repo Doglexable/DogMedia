@@ -155,6 +155,7 @@ Build native Debian or Fedora packages with:
 ```bash
 npm run package:desktop:deb # requires dpkg-dev
 npm run package:desktop:rpm # requires rpm-build
+npm run package:desktop:containers # builds both through Podman or Docker
 ```
 
 Packages are written to `dist/packages/`. See

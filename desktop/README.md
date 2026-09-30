@@ -125,6 +125,34 @@ Both package scripts first perform a locked release build and install the
 binary, desktop launcher, scalable icon, AppStream metadata, and license into
 the package. Set `PFS_PACKAGE_OUTPUT_DIR` to override the output directory.
 
+### Build both packages from any Linux distribution
+
+Podman or Docker can build both artifacts in their native distribution
+containers, so a Manjaro/Arch host does not need `dpkg-dev` or `rpm-build`:
+
+```bash
+npm run package:desktop:containers
+```
+
+Build only one format by passing its name after `--`:
+
+```bash
+npm run package:desktop:containers -- deb
+npm run package:desktop:containers -- rpm
+```
+
+Podman is selected when both engines are installed. To select Docker instead:
+
+```bash
+CONTAINER_ENGINE=docker npm run package:desktop:containers
+```
+
+The Debian build uses Debian 13 (Trixie), while the RPM build uses Fedora 43.
+Each container performs a locked release build, creates its package under
+`/packages`, and copies it to the host's `dist/packages/` directory. Container
+images remain cached to make later builds faster and may be removed normally
+with the selected container engine when no longer needed.
+
 ## Flatpak
 
 Install Flatpak and Flatpak Builder, then add the Flathub repository and the
