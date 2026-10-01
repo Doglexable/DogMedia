@@ -97,6 +97,68 @@ Persistent data is bind-mounted under `data/`: PostgreSQL in `data/postgres/`,
 Redis in `data/redis/`, media in `data/media/`, temporary uploads in
 `data/tmp/`, and Nginx logs in `data/nginx/`.
 
+### Automatic startup with systemd (systemctl)
+
+To keep Dogmedia running across system reboots and manage it as a system daemon, use the provided unit template [`systemd/dogmedia.service`](systemd/dogmedia.service).
+
+#### Option A: Rootless User Service (Recommended for Podman)
+
+Running Podman rootless is the recommended security best practice. A user-level systemd unit manages the Podman Compose stack without requiring root privileges:
+
+```bash
+# 1. Create the systemd user configuration directory
+mkdir -p ~/.config/systemd/user
+
+# 2. Copy the unit file
+cp systemd/dogmedia.service ~/.config/systemd/user/
+
+# 3. Ensure WorkingDirectory in ~/.config/systemd/user/dogmedia.service matches your clone location
+#    (defaults to %h/Dogmedia where %h is your home directory)
+
+# 4. Enable user lingering so containers start on boot and stay running after logout
+loginctl enable-linger $USER
+
+# 5. Reload systemd user daemon, enable and start the service
+systemctl --user daemon-reload
+systemctl --user enable --now dogmedia
+```
+
+Manage the user service:
+
+```bash
+systemctl --user status dogmedia     # check service status
+systemctl --user restart dogmedia    # restart compose stack
+systemctl --user stop dogmedia       # stop compose stack
+journalctl --user-unit dogmedia -f   # view startup/shutdown logs
+```
+
+#### Option B: System-wide Service
+
+If Dogmedia is deployed to `/opt/dogmedia` or another global directory:
+
+```bash
+# 1. Copy the unit file to the systemd system directory
+sudo cp systemd/dogmedia.service /etc/systemd/system/
+
+# 2. Edit /etc/systemd/system/dogmedia.service:
+#    - Set WorkingDirectory to the absolute repository path (e.g. /opt/dogmedia)
+#    - (Optional) Uncomment User= and Group= if running under a dedicated user
+#    - Change WantedBy=default.target to WantedBy=multi-user.target
+
+# 3. Reload daemon, enable and start the service
+sudo systemctl daemon-reload
+sudo systemctl enable --now dogmedia
+```
+
+Manage the system service:
+
+```bash
+sudo systemctl status dogmedia
+sudo systemctl restart dogmedia
+sudo systemctl stop dogmedia
+sudo journalctl -u dogmedia -f
+```
+
 ### Development with live reload
 
 The development override bind-mounts `server/` and `web/`, runs Fastify with

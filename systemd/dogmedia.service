@@ -1,0 +1,35 @@
+[Unit]
+Description=Dogmedia Multimedia Streaming Service (Podman Compose)
+Documentation=https://github.com/Doglexable/Dogmedia
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Path where Dogmedia is cloned.
+# For user service (~/.config/systemd/user/), %h expands to the user's home directory (e.g. /home/username/Dogmedia).
+# For system-wide service (/etc/systemd/system/), set the absolute path (e.g. /opt/dogmedia).
+WorkingDirectory=%h/Dogmedia
+
+# If running as a system-wide service under /etc/systemd/system/, uncomment and set the desired user/group:
+# User=pfs
+# Group=pfs
+
+# Commands to start, stop, and reload the Podman Compose stack.
+# Verify your podman binary location with `which podman` (/usr/bin/podman is standard).
+ExecStart=/usr/bin/podman compose up -d
+ExecStop=/usr/bin/podman compose down
+ExecReload=/usr/bin/podman compose restart
+
+# Timeouts to allow container startup and graceful shutdown
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+# For user service (~/.config/systemd/user/):
+WantedBy=default.target
+
+# For system-wide service (/etc/systemd/system/), use:
+# WantedBy=multi-user.target
