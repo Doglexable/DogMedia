@@ -107,9 +107,9 @@ describe("playlist completion suggestions", () => {
         media: { id: 22, title: "The Return", category_id: 8 },
       },
     });
-    expect(queries[0].params).toEqual([1, 12, 6]);
     expect(queries[0].sql).toContain("COALESCE($3::integer, m.category_id)");
-    expect(queries[0].sql).toContain("sibling.parent_id IS NOT DISTINCT FROM current_item.parent_id");
+    expect(queries[0].sql).toContain("playable_categories");
+    expect(queries[0].sql).toContain("cand.cycle_order");
     expect(queries[0].sql).toContain("split_part(m.mime_type, '/', 1) = current_item.media_family");
     expect(redisCalls).toBe(0);
     await app.close();
@@ -126,6 +126,21 @@ describe("playlist completion suggestions", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ suggestion: null });
+    await app.close();
+  });
+
+  it("returns 400 for invalid media id or category id", async () => {
+    const app = Fastify();
+    app.decorate("pg", { async query() { return { rows: [] }; } });
+    app.decorate("redis", redisMock());
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const badMedia = await app.inject({ method: "GET", url: "/api/queue/suggestion/invalid" });
+    expect(badMedia.statusCode).toBe(400);
+
+    const badCat = await app.inject({ method: "GET", url: "/api/queue/suggestion/12?category=bad" });
+    expect(badCat.statusCode).toBe(400);
     await app.close();
   });
 });

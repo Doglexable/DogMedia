@@ -174,48 +174,57 @@ export default async function (fastify) {
            ac.id AS category_id,
            split_part(m.mime_type, '/', 1) AS media_family,
            ac.parent_id,
-           ac.sort_order
+           ac.sort_order,
+           ac.order_parts
          FROM media_assets m
          JOIN accessible_categories ac ON ac.id = COALESCE($3::integer, m.category_id)
          WHERE m.id = $2
        ),
-       sibling_roots AS (
-         SELECT
-           sibling.id,
-           sibling.name,
-           sibling.path_parts,
-           sibling.order_parts,
+       playable_categories AS (
+         SELECT DISTINCT
+           ac.id,
+           ac.name,
+           ac.parent_id,
+           ac.sort_order,
+           ac.cover_path,
+           ac.path_parts,
+           ac.order_parts,
            CASE
-             WHEN ROW(sibling.sort_order, sibling.id) > ROW(current_item.sort_order, current_item.category_id)
+             WHEN ROW(ac.order_parts, ac.id) > ROW(current_item.order_parts, current_item.category_id)
                THEN 0
              ELSE 1
            END AS cycle_order
-         FROM accessible_categories sibling
+         FROM accessible_categories ac
          CROSS JOIN current_item
-         WHERE sibling.parent_id IS NOT DISTINCT FROM current_item.parent_id
-           AND sibling.id <> current_item.category_id
+         JOIN media_assets m ON m.category_id = ac.id
+         WHERE split_part(m.mime_type, '/', 1) = current_item.media_family
+           AND ac.id <> current_item.category_id
+           AND NOT (
+             ac.order_parts[1:cardinality(current_item.order_parts)] = current_item.order_parts
+             AND cardinality(ac.order_parts) >= cardinality(current_item.order_parts)
+           )
+       ),
+       fallback_categories AS (
+         SELECT DISTINCT
+           ac.id,
+           ac.name,
+           ac.parent_id,
+           ac.sort_order,
+           ac.cover_path,
+           ac.path_parts,
+           ac.order_parts,
+           0 AS cycle_order
+         FROM accessible_categories ac
+         CROSS JOIN current_item
+         JOIN media_assets m ON m.category_id = ac.id
+         WHERE split_part(m.mime_type, '/', 1) = current_item.media_family
+           AND NOT EXISTS (SELECT 1 FROM playable_categories)
+           AND m.id <> current_item.media_id
        ),
        candidate_categories AS (
-         SELECT
-           sibling.id AS root_id,
-           sibling.name AS root_name,
-           sibling.path_parts AS root_path_parts,
-           sibling.order_parts AS root_order_parts,
-           sibling.cycle_order,
-           sibling.id AS category_id,
-           sibling.order_parts AS category_order_parts
-         FROM sibling_roots sibling
+         SELECT * FROM playable_categories
          UNION ALL
-         SELECT
-           candidate.root_id,
-           candidate.root_name,
-           candidate.root_path_parts,
-           candidate.root_order_parts,
-           candidate.cycle_order,
-           child.id,
-           child.order_parts
-         FROM candidate_categories candidate
-         JOIN accessible_categories child ON child.parent_id = candidate.category_id
+         SELECT * FROM fallback_categories
        )
        SELECT
          m.id,
@@ -227,19 +236,19 @@ export default async function (fastify) {
          COALESCE(m.thumbnail_path, media_category.cover_path) AS artwork_version,
          media_category.name AS category_name,
          array_to_string(media_category.path_parts, ' / ') AS category_path,
-         candidate.root_id AS suggested_category_id,
-         candidate.root_name AS suggested_category_name,
-         array_to_string(candidate.root_path_parts, ' / ') AS suggested_category_path
-       FROM candidate_categories candidate
+         cand.id AS suggested_category_id,
+         cand.name AS suggested_category_name,
+         array_to_string(cand.path_parts, ' / ') AS suggested_category_path
+       FROM candidate_categories cand
        CROSS JOIN current_item
-       JOIN media_assets m ON m.category_id = candidate.category_id
+       JOIN media_assets m ON m.category_id = cand.id
        JOIN accessible_categories media_category ON media_category.id = m.category_id
        WHERE split_part(m.mime_type, '/', 1) = current_item.media_family
+         AND (cand.id <> current_item.category_id OR m.id <> current_item.media_id)
        ORDER BY
-         candidate.cycle_order,
-         candidate.root_order_parts,
-         candidate.root_id,
-         candidate.category_order_parts,
+         cand.cycle_order,
+         cand.order_parts,
+         cand.id,
          (m.track_order IS NULL)::integer,
          COALESCE(m.track_order, 0),
          m.id

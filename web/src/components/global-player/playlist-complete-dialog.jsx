@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { mediaThumbnailUrl } from "../../api";
 
 export function PlaylistCompleteDialog({ suggestion, onDismiss, onPlay }) {
@@ -23,7 +24,7 @@ export function PlaylistCompleteDialog({ suggestion, onDismiss, onPlay }) {
 
   if (!media || !category) return null;
 
-  return (
+  const content = (
     <div
       className="sleep-timer-complete-overlay"
       onMouseDown={(event) => { if (event.target === event.currentTarget) onDismiss(); }}
@@ -68,4 +69,8 @@ export function PlaylistCompleteDialog({ suggestion, onDismiss, onPlay }) {
       </div>
     </div>
   );
+
+  const container = typeof document !== "undefined" ? (document.fullscreenElement || document.body) : null;
+  return container ? createPortal(content, container) : content;
 }
+
