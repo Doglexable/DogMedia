@@ -1225,7 +1225,7 @@ textarea {
 .video-player-root {
   position: fixed;
   inset: 0;
-  z-index: 260;
+  z-index: 500;
   width: 100vw;
   height: 100dvh;
   background: #000;

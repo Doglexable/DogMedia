@@ -683,7 +683,7 @@ export default function Dashboard() {
       </main>
 
       {/* Now Playing Floating Quick Pill (FAB) */}
-      {tier >= 100 && nowPlaying.length > 0 && !nowPlayingOpen && (
+      {tier >= 100 && nowPlaying.length > 0 && !nowPlayingOpen && !player?.isFullPlayer && (
         <NowPlayingFloatingPill
           count={nowPlaying.length}
           firstSession={nowPlaying[0]}
@@ -692,7 +692,7 @@ export default function Dashboard() {
       )}
 
       {/* Now Playing Floating Panel / Drawer */}
-      {tier >= 100 && nowPlayingOpen && (
+      {tier >= 100 && nowPlayingOpen && !player?.isFullPlayer && (
         <NowPlayingPanel
           sessions={nowPlaying}
           onClose={() => setNowPlayingOpen(false)}

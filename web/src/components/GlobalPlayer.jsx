@@ -1578,13 +1578,14 @@ export function GlobalPlayerProvider({ children }) {
     addCategoryToQueue,
     addToQueue,
     currentMedia,
+    isFullPlayer,
     isLiked: (mediaId) => likedIds.has(Number(mediaId)),
     likedIds,
     playMedia,
     playNext,
     stopPlayback,
     toggleLike,
-  }), [addCategoryToQueue, addToQueue, currentMedia, likedIds, playMedia, playNext, stopPlayback, toggleLike]);
+  }), [addCategoryToQueue, addToQueue, currentMedia, isFullPlayer, likedIds, playMedia, playNext, stopPlayback, toggleLike]);
 
   return (
     <PlayerLibraryContext.Provider value={libraryContextValue}>

@@ -86,7 +86,9 @@
 }
 body.player-expanded .global-sidebar,
 body.player-expanded .global-sidebar-toggle,
-body.player-expanded .global-sidebar-backdrop {
+body.player-expanded .global-sidebar-backdrop,
+body.player-expanded .now-playing-floating-pill,
+body.player-expanded .now-playing-floating-panel {
   visibility: hidden;
   pointer-events: none;
 }

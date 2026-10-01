@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { VideoPlayer } from "./video-player";
 
@@ -118,5 +119,18 @@ describe("VideoPlayer", () => {
     );
 
     expect(markup).toContain("Resume from 0:04");
+  });
+
+  it("uses z-index 500 so active session floating pill and panels stay underneath", () => {
+    const vaultCss = readFileSync(new URL("../../vault-theme.css", import.meta.url), "utf8");
+    const themeCss = readFileSync(new URL("../../theme.css", import.meta.url), "utf8");
+    const nowPlayingCss = readFileSync(new URL("../dashboard/now-playing.css", import.meta.url), "utf8");
+
+    // video-player-root must be z-index 500 to match fullscreen-player and sit above dashboard floating pill (310) and panel (320)
+    expect(vaultCss).toMatch(/\.video-player-root\s*\{[^}]*z-index:\s*500/s);
+
+    // player-expanded must hide the floating pill and panel
+    expect(themeCss).toContain("body.player-expanded .now-playing-floating-pill");
+    expect(nowPlayingCss).toContain("body.player-expanded .now-playing-floating-pill");
   });
 });

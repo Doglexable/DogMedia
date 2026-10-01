@@ -76,6 +76,11 @@
   user-select: none;
 }
 
+body.player-expanded .now-playing-floating-pill,
+body.player-expanded .now-playing-floating-panel {
+  display: none !important;
+}
+
 .now-playing-floating-pill:hover {
   transform: translateY(-2px);
   border-color: var(--primary);
