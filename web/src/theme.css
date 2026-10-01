@@ -4327,9 +4327,6 @@ body {
     font-size: clamp(1.85rem, 5.8vw, 2.35rem);
     text-align: center;
   }
-  .fullscreen-player-stage-lyrics .fullscreen-lyrics-share {
-    align-self: center;
-  }
   .fullscreen-player-stage-lyrics .fullscreen-lyrics--empty p {
     font-size: 1.35rem;
     text-align: center;
@@ -4673,25 +4670,6 @@ body {
   color: var(--primary);
   outline: none;
   transform: translateY(-1px);
-}
-.fullscreen-lyrics-share {
-  position: absolute;
-  top: 20px;
-  right: 8px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--card-border) 76%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 76%, transparent);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.76rem;
-  font-weight: 850;
-  backdrop-filter: blur(16px);
 }
 .lyrics-share-overlay {
   position: fixed;
@@ -5116,10 +5094,6 @@ body {
   }
   .lyrics-share-actions {
     padding-bottom: max(14px, env(safe-area-inset-bottom));
-  }
-  .fullscreen-lyrics-share {
-    top: 12px;
-    right: 0;
   }
 }
 @media (max-width: 700px) and (max-height: 520px) {

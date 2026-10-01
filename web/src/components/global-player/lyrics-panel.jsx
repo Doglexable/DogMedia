@@ -302,14 +302,13 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
 
 
 
-export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position, lyrics: propLyrics, lyricsLoading = false }) {
+export function FullscreenLyrics({ artworkUrl: _artworkUrl, media, mediaId, onSeek, position, lyrics: propLyrics, lyricsLoading = false }) {
   const resolvedMediaId = Number(media?.id ?? media?.mediaId ?? mediaId);
   const fallbackLyrics = useSynchronizedLyrics(propLyrics !== undefined ? null : resolvedMediaId);
   const rawLyrics = propLyrics !== undefined ? propLyrics : fallbackLyrics;
   const lyrics = (rawLyrics && (!rawLyrics.mediaId || Number(rawLyrics.mediaId) === resolvedMediaId))
     ? rawLyrics
     : null;
-  const [shareOpen, setShareOpen] = useState(false);
   const listRef = useRef(null);
   const lineRefs = useRef([]);
 
@@ -324,14 +323,14 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position,
   );
 
   useEffect(() => {
-    if (!shareOpen && listRef.current) {
+    if (listRef.current) {
       requestAnimationFrame(() => {
         const list = listRef.current;
         const activeLine = lineRefs.current[focusIndex];
         scrollActiveLineIntoView(list, activeLine);
       });
     }
-  }, [focusIndex, shareOpen]);
+  }, [focusIndex]);
 
   if (!lyrics?.segments?.length) {
     return (
@@ -347,7 +346,6 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position,
 
   return (
     <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
-      <button type="button" className="fullscreen-lyrics-share" aria-label="Share lyrics" title="Share lyrics" onClick={() => setShareOpen(true)}><FontAwesomeIcon icon={faShareNodes} /> Share lyrics</button>
       <div ref={listRef} className="fullscreen-lyrics-list">
         {displaySegments.map((segment, index) => {
           const distance = Math.max(Math.min(index - focusIndex, 4), -4);
@@ -367,18 +365,6 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position,
           );
         })}
       </div>
-      {shareOpen && (
-        <AudioShareDialog
-          artworkUrl={artworkUrl}
-          currentMedia={media}
-          duration={media?.duration}
-          initialPosition={position}
-          initialTab="lyrics"
-          lyrics={lyrics}
-          lyricsLoading={lyricsLoading}
-          onClose={() => setShareOpen(false)}
-        />
-      )}
     </section>
   );
 }
