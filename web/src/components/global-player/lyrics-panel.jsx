@@ -1,22 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
 import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
-import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
 import { fetchLyrics, getCachedLyrics } from "./lyrics-cache";
-import {
-  createLyricsSelection,
-  getLyricsCandidateWindow,
-  getLyricsShareIndex,
-  getLyricsShareMetadata,
-  getSelectedLyrics,
-  LYRICS_CARD,
-  sanitizeLyricsFilename,
-  shareLyricsBlob,
-  updateLyricsSelection,
-} from "./lyrics-share";
+import { AudioShareDialog } from "./audio-share-dialog";
+import { LyricsShareCard } from "./lyrics-card-preview";
+
+export { LyricsShareCard };
 
 export function findActiveLyricsIndex(segments, position) {
   if (!Array.isArray(segments) || !Number.isFinite(position)) return -1;
@@ -98,144 +89,19 @@ function LyricsLines({ activeIndex, focusIndex, lineRefs, onSeek, segments, vari
   });
 }
 
-async function waitForCardAssets(node) {
-  await document.fonts?.ready;
-  await Promise.all([...node.querySelectorAll("img")].map(async (image) => {
-    if (!image.complete) await new Promise((resolve) => {
-      image.addEventListener("load", resolve, { once: true });
-      image.addEventListener("error", resolve, { once: true });
-    });
-    await image.decode?.().catch(() => {});
-  }));
-  await new Promise((resolve) => requestAnimationFrame(resolve));
-}
-
-export function LyricsShareCard({ artworkFailed, cardRef, metadata, onArtworkError, selected }) {
+export function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }) {
+  const initialPosition = Number(segments?.[activeIndex]?.start || 0);
   return (
-    <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview">
-      {metadata.artworkUrl && !artworkFailed && (
-        <img className="lyrics-share-card-backdrop" src={metadata.artworkUrl} alt="" crossOrigin="anonymous" onError={onArtworkError} />
-      )}
-      <div className="lyrics-share-card-wash" />
-      <div className="lyrics-share-card-brand">
-        <img
-          src="/web-app-manifest-192x192.png"
-          alt="Dogmedia"
-          className="lyrics-share-card-logo"
-          width="26"
-          height="26"
-          crossOrigin="anonymous"
-        />
-        <span className="lyrics-share-card-brand-title">Dogmedia</span>
-      </div>
-      <div className="lyrics-share-card-copy">
-        <div className="lyrics-share-card-rule" />
-        {selected.map((segment, index) => <p key={`${segment.start}-${index}`}>{segment.text}</p>)}
-      </div>
-      <footer className="lyrics-share-card-footer">
-        {metadata.artworkUrl && !artworkFailed ? (
-          <img src={metadata.artworkUrl} alt="" crossOrigin="anonymous" onError={onArtworkError} />
-        ) : <span className="lyrics-share-card-art-fallback"><FontAwesomeIcon icon={faQuoteRight} /></span>}
-        <div><strong>{metadata.title}</strong><span>{metadata.artists}</span></div>
-      </footer>
-    </div>
+    <AudioShareDialog
+      artworkUrl={artworkUrl}
+      currentMedia={media}
+      duration={media?.duration}
+      initialPosition={initialPosition}
+      initialTab="lyrics"
+      lyrics={segments ? { segments } : null}
+      onClose={onClose}
+    />
   );
-}
-
-function LyricsShareDialog({ activeIndex, artworkUrl, media, onClose, segments }) {
-  const [anchorIndex] = useState(() => activeIndex >= 0 ? activeIndex : 0);
-  const [selection, setSelection] = useState(() => createLyricsSelection(anchorIndex, segments.length));
-  const [sharing, setSharing] = useState(false);
-  const [error, setError] = useState("");
-  const [artworkFailed, setArtworkFailed] = useState(false);
-  const cardRef = useRef(null);
-  const pickerRef = useRef(null);
-  const pickerLineRefs = useRef([]);
-  const metadata = useMemo(() => getLyricsShareMetadata(media, artworkUrl), [artworkUrl, media]);
-  const selected = useMemo(() => getSelectedLyrics(segments, selection), [segments, selection]);
-  const selectionWindow = useMemo(() => getLyricsCandidateWindow(anchorIndex, segments.length), [anchorIndex, segments.length]);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKeyDown = (event) => { if (event.key === "Escape" && !sharing) onClose(); };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [onClose, sharing]);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      scrollActiveLineIntoView(pickerRef.current, pickerLineRefs.current[anchorIndex]);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [anchorIndex]);
-
-  const share = useCallback(async () => {
-    if (!cardRef.current || selected.length === 0 || sharing) return;
-    setSharing(true);
-    setError("");
-    try {
-      await waitForCardAssets(cardRef.current);
-      const { toBlob } = await import("html-to-image");
-      const blob = await toBlob(cardRef.current, {
-        backgroundColor: "#12131a",
-        cacheBust: true,
-        width: LYRICS_CARD.cssWidth,
-        height: LYRICS_CARD.cssHeight,
-        pixelRatio: LYRICS_CARD.pixelRatio,
-        style: { transform: "none", borderRadius: "0" },
-      });
-      if (!blob) throw new Error("Image capture returned no data");
-      await shareLyricsBlob(blob, { filename: sanitizeLyricsFilename(metadata.title), title: metadata.title });
-      onClose();
-    } catch (shareError) {
-      if (shareError?.name !== "AbortError") setError("Could not create the lyrics card. Try sharing again.");
-    } finally {
-      setSharing(false);
-    }
-  }, [metadata.title, onClose, selected.length, sharing]);
-
-  return createPortal((
-    <div className="lyrics-share-overlay" role="dialog" aria-modal="true" aria-labelledby="lyrics-share-title">
-      <button className="lyrics-share-dismiss" type="button" aria-label="Close lyrics sharing" onClick={onClose} />
-      <section className="lyrics-share-dialog">
-        <header className="lyrics-share-dialog-header">
-          <div><span>Share a verse</span><h2 id="lyrics-share-title">Choose up to 5 lines</h2></div>
-          <button autoFocus type="button" className="lyrics-share-close" aria-label="Close lyrics sharing" onClick={onClose}><FontAwesomeIcon icon={faXmark} /></button>
-        </header>
-        <div className="lyrics-share-layout">
-          <div ref={pickerRef} className="lyrics-share-picker" aria-label="Choose lyrics to share">
-            {segments.map((segment, index) => {
-              const selectedLine = selection && index >= selection.start && index <= selection.end;
-              const selectable = index >= selectionWindow.start && index <= selectionWindow.end;
-              return (
-                <button
-                  key={`${segment.start}-${index}`}
-                  ref={(node) => { pickerLineRefs.current[index] = node; }}
-                  type="button"
-                  className={`lyrics-share-picker-line${selectedLine ? " lyrics-share-picker-line--selected" : ""}${!selectable ? " lyrics-share-picker-line--disabled" : ""}`}
-                  aria-pressed={Boolean(selectedLine)}
-                  disabled={!selectable}
-                  onClick={() => setSelection((current) => updateLyricsSelection(current, index, segments.length))}
-                >
-                  {segment.text}
-                </button>
-              );
-            })}
-          </div>
-          <div className="lyrics-share-preview-shell"><div className="lyrics-share-preview-frame"><LyricsShareCard artworkFailed={artworkFailed} cardRef={cardRef} metadata={metadata} onArtworkError={() => setArtworkFailed(true)} selected={selected} /></div></div>
-        </div>
-        {error && <p className="lyrics-share-error" role="alert">{error}</p>}
-        <footer className="lyrics-share-actions">
-          <span>{selected.length}/5 lines selected</span>
-          <button type="button" disabled={sharing || selected.length === 0} onClick={share}><FontAwesomeIcon icon={faShareNodes} /> {sharing ? "Creating card…" : "Share image"}</button>
-        </footer>
-      </section>
-    </div>
-  ), document.body);
 }
 
 function useSynchronizedLyrics(mediaId) {
@@ -322,11 +188,6 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
     () => findLyricsFocusIndex(displaySegments, position),
     [displaySegments, position]
   );
-  const activeLyricsIndex = useMemo(
-    () => findActiveLyricsIndex(lyrics?.segments, position),
-    [lyrics?.segments, position]
-  );
-  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
 
   useEffect(() => {
     if (!shareOpen && drawerOpen && drawerListRef.current) {
@@ -423,7 +284,18 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
           </Drawer.Portal>
         </Drawer.Root>
       )}
-      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={closeShare} segments={lyrics.segments} />}
+      {shareOpen && (
+        <AudioShareDialog
+          artworkUrl={artworkUrl}
+          currentMedia={media}
+          duration={media?.duration}
+          initialPosition={position}
+          initialTab="lyrics"
+          lyrics={lyrics}
+          lyricsLoading={false}
+          onClose={closeShare}
+        />
+      )}
     </section>
   );
 }
@@ -450,11 +322,6 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position,
     () => findLyricsFocusIndex(displaySegments, position),
     [displaySegments, position]
   );
-  const activeLyricsIndex = useMemo(
-    () => findActiveLyricsIndex(lyrics?.segments, position),
-    [lyrics?.segments, position]
-  );
-  const shareIndex = useMemo(() => getLyricsShareIndex(lyrics?.segments, position, activeLyricsIndex), [activeLyricsIndex, lyrics?.segments, position]);
 
   useEffect(() => {
     if (!shareOpen && listRef.current) {
@@ -500,7 +367,18 @@ export function FullscreenLyrics({ artworkUrl, media, mediaId, onSeek, position,
           );
         })}
       </div>
-      {shareOpen && <LyricsShareDialog activeIndex={shareIndex} artworkUrl={artworkUrl} media={media} onClose={() => setShareOpen(false)} segments={lyrics.segments} />}
+      {shareOpen && (
+        <AudioShareDialog
+          artworkUrl={artworkUrl}
+          currentMedia={media}
+          duration={media?.duration}
+          initialPosition={position}
+          initialTab="lyrics"
+          lyrics={lyrics}
+          lyricsLoading={lyricsLoading}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </section>
   );
 }

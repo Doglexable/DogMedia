@@ -4749,6 +4749,72 @@ body {
   font-size: clamp(1.3rem, 3vw, 1.8rem);
   letter-spacing: -0.035em;
 }
+.audio-share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.audio-share-header-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.audio-share-header-meta h2 {
+  max-width: 320px;
+}
+.audio-share-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-bg) 85%, rgba(255, 255, 255, 0.06));
+  border: 1px solid color-mix(in srgb, var(--card-border) 75%, transparent);
+}
+.audio-share-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+.audio-share-tab:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--hover-fill) 60%, transparent);
+}
+.audio-share-tab--active {
+  background: var(--primary) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.audio-share-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.audio-share-tab-badge {
+  font-family: var(--font-data, monospace);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+.audio-share-clip-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 .lyrics-share-layout {
   display: grid;
   flex: 1 1 auto;
@@ -5006,6 +5072,23 @@ body {
   .lyrics-share-dialog-header,
   .lyrics-share-actions {
     padding: 14px 16px;
+  }
+  .audio-share-header {
+    gap: 12px;
+  }
+  .audio-share-header-meta h2 {
+    max-width: 100%;
+  }
+  .audio-share-tabs {
+    width: 100%;
+    order: 3;
+    justify-content: stretch;
+  }
+  .audio-share-tab {
+    flex: 1 1 0;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 11px;
   }
   .lyrics-share-layout {
     grid-template-columns: minmax(0, 1fr);

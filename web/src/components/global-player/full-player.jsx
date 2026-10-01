@@ -18,7 +18,7 @@ import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { PlayerBar } from "./player-bar";
 import { SettingsControl } from "./settings-panel";
 import { FullscreenLyrics } from "./lyrics-panel";
-import { MusicReelDialog } from "./music-share-dialog";
+import { AudioShareDialog } from "./audio-share-dialog";
 import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
@@ -275,7 +275,7 @@ export function FullPlayer({
                 className={shareOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
                 aria-label="Share music clip"
                 aria-pressed={shareOpen}
-                title="Share 10-second music clip"
+                title="Share track (lyric card & clip)"
                 onClick={() => setShareOpen(true)}
               >
                 <FontAwesomeIcon icon={faShareNodes} />
@@ -396,11 +396,14 @@ export function FullPlayer({
           </div>
         )}
         {shareOpen && (
-          <MusicReelDialog
-            favorites={[currentMedia]}
-            singleTrack
+          <AudioShareDialog
+            artworkUrl={effectiveArtworkSrc}
+            currentMedia={currentMedia}
             duration={duration || currentMedia.duration || 0}
-            initialStart={position}
+            initialPosition={position}
+            initialTab="auto"
+            lyrics={lyrics}
+            lyricsLoading={lyricsLoading}
             onClose={() => setShareOpen(false)}
           />
         )}

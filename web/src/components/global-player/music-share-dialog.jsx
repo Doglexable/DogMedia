@@ -8,29 +8,29 @@ import { faShareNodes } from "@fortawesome/free-solid-svg-icons/faShareNodes";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { api } from "../../api";
 
-const ACTIVE_STATUSES = new Set(["queued", "processing"]);
+export const ACTIVE_STATUSES = new Set(["queued", "processing"]);
 
-function absoluteShareUrl(sharePath) {
+export function absoluteShareUrl(sharePath) {
   return new URL(sharePath, window.location.origin).toString();
 }
 
-function reelTokenKey(reelId) {
+export function reelTokenKey(reelId) {
   return `dogmedia:music-reel:${reelId}`;
 }
 
-function clampClipStart(value, duration) {
+export function clampClipStart(value, duration) {
   const start = Math.max(0, Number(value) || 0);
   const maxStart = Math.max(0, (Number(duration) || 0) - 10);
   return Math.min(start, maxStart);
 }
 
-function formatClipTime(value) {
+export function formatClipTime(value) {
   const seconds = Math.max(0, Number(value) || 0);
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
 }
 
-function statusCopy(status, singleTrack = false) {
+export function statusCopy(status, singleTrack = false) {
   if (status === "queued") return "Your reel is in the render queue.";
   if (status === "processing") return singleTrack ? "The server is cutting a 10-second music clip." : "The server is cutting each track into a 10-second scene.";
   if (status === "ready") return singleTrack ? "Your 4:3 music clip is ready to share." : "Your 4:3 music reel is ready to share.";
