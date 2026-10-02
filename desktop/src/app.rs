@@ -107,6 +107,7 @@ mod tests {
             artwork_version: None,
             liked: false,
             source_version: None,
+            created_at: None,
         }
     }
 

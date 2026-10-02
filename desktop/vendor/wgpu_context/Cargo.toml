@@ -1,0 +1,13 @@
+[package]
+name = "wgpu_context"
+description = "Context for managing WGPU surfaces"
+version = "0.1.2"
+documentation = "https://docs.rs/wgpu_context"
+homepage = "https://github.com/dioxuslabs/anyrender"
+repository = "https://github.com/dioxuslabs/anyrender"
+license = "MIT OR Apache-2.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "26"
+futures-intrusive = "0.5.0"

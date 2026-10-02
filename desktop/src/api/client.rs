@@ -53,7 +53,12 @@ impl ApiError {
                 }
                 None => "Playback is active on another device.".to_owned(),
             },
-            Self::PlaybackLeaseLost { .. } => "Playback moved to another device.".to_owned(),
+            Self::PlaybackLeaseLost { retry_after } => match retry_after {
+                Some(seconds) => {
+                    format!("Playback moved to another device. Retry in {seconds}s.")
+                }
+                None => "Playback moved to another device.".to_owned(),
+            },
             Self::QueueChanged => "Queue changed; refresh and try again.".to_owned(),
             Self::Http {
                 status, message, ..
@@ -257,5 +262,28 @@ fn map_status(response: RawResponse) -> ApiError {
             code,
             message,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playback_conflict_messages_preserve_retry_hints() {
+        assert_eq!(
+            ApiError::PlaybackInUse {
+                retry_after: Some(8)
+            }
+            .user_message(),
+            "Playback is active on another device. Retry in 8s."
+        );
+        assert_eq!(
+            ApiError::PlaybackLeaseLost {
+                retry_after: Some(4)
+            }
+            .user_message(),
+            "Playback moved to another device. Retry in 4s."
+        );
     }
 }

@@ -1,104 +1,115 @@
-use iced::{
-    Alignment, Element, Fill, FillPortion, Length,
-    widget::{button, column, container, image, pick_list, row, slider, text},
-};
+use dioxus_native::prelude::*;
 
-use crate::domain::{Media, Quality};
+use super::super::*;
 
-use super::super::application::{Dogmedia, Message};
-use super::super::{components, theme};
-use crate::playback::PlaybackStatus;
+#[component]
+pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) -> Element {
+    let snapshot = app.read().clone();
+    let playback = snapshot.coordinator.snapshot();
+    let Some(media) = playback.media.as_ref() else {
+        return rsx! {};
+    };
+    let playing = playback.status == PlaybackStatus::Playing;
+    let source = if media.is_photo() {
+        snapshot.photo_data_url.clone()
+    } else {
+        artwork_url(&snapshot, media)
+    };
+    let fallback = if media.is_video() {
+        "▶"
+    } else if media.is_photo() {
+        "▧"
+    } else {
+        "♪"
+    };
 
-pub(crate) fn render(app: &Dogmedia) -> Element<'_, Message> {
-    let snapshot = app.coordinator.snapshot();
-    let playing = snapshot.status == PlaybackStatus::Playing;
-    let title = snapshot
-        .media
-        .as_ref()
-        .map_or("Nothing playing", Media::title);
-    let subtitle = snapshot
-        .media
-        .as_ref()
-        .map(Media::subtitle)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("Select something from your library");
-    let duration = snapshot.duration.max(1.0);
-    let seek = slider(
-        0.0..=duration,
-        snapshot.position.min(duration),
-        Message::Seek,
-    );
-    let time = format!(
-        "{} / {}",
-        components::format_duration(snapshot.position),
-        components::format_duration(snapshot.duration)
-    );
-
-    let mut deck = column![].spacing(8);
-    if let Some(handle) = &app.artwork {
-        deck = deck.push(
-            container(
-                image(handle.clone())
-                    .height(Length::Fixed(210.0))
-                    .width(Fill),
-            )
-            .height(220)
-            .width(Fill),
-        );
+    rsx! {
+        section { class: "mini-player", "aria-label": "Media player",
+            button {
+                class: "mini-identity",
+                title: "Open full player",
+                onclick: move |_| app.write().player_expanded = true,
+                Artwork {
+                    source,
+                    alt: media.title().to_owned(),
+                    fallback: fallback.to_owned(),
+                    class: "mini-art".to_owned()
+                }
+                span { class: "mini-copy",
+                    strong { "{media.title()}" }
+                    small { "{media.subtitle()}" }
+                }
+            }
+            div { class: "mini-transport",
+                div { class: "transport-buttons",
+                    IconButton { label: "Previous".to_owned(), icon: IconName::Previous, onclick: move |_| navigate_queue(app, engine, false, false) }
+                    if !media.is_photo() {
+                        IconButton {
+                            label: if playing { "Pause".to_owned() } else { "Play".to_owned() },
+                            icon: if playing { IconName::Pause } else { IconName::Play },
+                            class: "play".to_owned(),
+                            onclick: move |_| toggle_playback(app, engine)
+                        }
+                    }
+                    IconButton { label: "Next".to_owned(), icon: IconName::Next, onclick: move |_| navigate_queue(app, engine, true, false) }
+                }
+                if !media.is_photo() {
+                    div { class: "mini-progress",
+                        span { "{format_duration(Some(playback.position))}" }
+                        input {
+                            r#type: "range",
+                            min: "0",
+                            max: "{playback.duration.max(1.0)}",
+                            step: "0.1",
+                            value: "{playback.position.min(playback.duration.max(1.0))}",
+                            "aria-label": "Playback position",
+                            oninput: move |event| if let Ok(position) = event.value().parse() { seek(app, engine, position); }
+                        }
+                        span { "{format_duration(Some(playback.duration))}" }
+                    }
+                }
+            }
+            div { class: "mini-tools",
+                if !media.is_photo() {
+                    Select {
+                        value: "{playback.quality.as_str()}",
+                        onchange: move |event: FormEvent| if let Ok(quality) = event.value().parse() { change_quality(app, engine, quality); },
+                        for quality in Quality::ALL {
+                            option { value: "{quality.as_str()}", "{quality}" }
+                        }
+                    }
+                }
+                if media.is_audio() {
+                    IconButton {
+                        label: if media.liked { "Remove from favorites".to_owned() } else { "Add to favorites".to_owned() },
+                        icon: IconName::Heart,
+                        class: if media.liked { "favorite active".to_owned() } else { "favorite".to_owned() },
+                        onclick: { let liked = !media.liked; move |_| set_favorite(app, liked) }
+                    }
+                }
+                if !media.is_photo() {
+                    label { class: "mini-volume",
+                        span { "Vol" }
+                        input {
+                            r#type: "range",
+                            min: "0",
+                            max: "1",
+                            step: "0.01",
+                            value: "{snapshot.settings.volume.get()}",
+                            "aria-label": "Volume",
+                            oninput: move |event| if let Ok(volume) = event.value().parse() { set_volume(app, engine, volume); }
+                        }
+                    }
+                }
+                IconButton {
+                    label: "Queue".to_owned(),
+                    icon: IconName::List,
+                    class: if snapshot.queue_open { "active".to_owned() } else { String::new() },
+                    onclick: move |_| { let open = app.read().queue_open; app.write().queue_open = !open; }
+                }
+                IconButton { label: "Open full player".to_owned(), icon: IconName::Expand, onclick: move |_| app.write().player_expanded = true }
+                IconButton { label: "Stop playback".to_owned(), icon: IconName::Stop, onclick: move |_| stop_playback(app, engine) }
+            }
+        }
     }
-    let transport = row![
-        button("⏮").on_press(Message::Previous),
-        button(if playing { "Pause" } else { "Play" })
-            .on_press(Message::TogglePlayback)
-            .style(button::primary),
-        button("Stop").on_press(Message::Stop),
-        button("⏭").on_press(Message::Next),
-        column![
-            text(title).size(17),
-            text(subtitle).size(theme::type_scale::BODY_SMALL)
-        ]
-        .spacing(2)
-        .width(FillPortion(2)),
-        column![seek, text(time).size(theme::type_scale::CAPTION)]
-            .spacing(2)
-            .width(FillPortion(3)),
-        pick_list(
-            Quality::ALL,
-            Some(snapshot.quality),
-            Message::QualityChanged
-        ),
-        button(if snapshot.media.as_ref().is_some_and(|m| m.liked) {
-            "★"
-        } else {
-            "☆"
-        })
-        .on_press(Message::FavoriteChanged(
-            !snapshot.media.as_ref().is_some_and(|m| m.liked)
-        )),
-        button("+ Queue").on_press(Message::AddToQueue(false)),
-        button("Play next").on_press(Message::AddToQueue(true)),
-        text("Vol").size(theme::type_scale::CAPTION),
-        slider(0.0..=1.0, app.volume.get(), Message::VolumeChanged).width(90),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
-    deck = deck.push(transport);
-    if !app.lyrics.is_empty() {
-        deck = deck.push(text(&app.lyrics).size(theme::type_scale::BODY));
-    }
-    if !app.subtitles.is_empty() {
-        deck = deck.push(
-            pick_list(
-                app.subtitle_choices(),
-                Some(app.subtitle.clone()),
-                Message::SubtitleChanged,
-            )
-            .width(220),
-        );
-    }
-    container(deck)
-        .padding([12, 18])
-        .width(Fill)
-        .style(theme::card_style)
-        .into()
 }

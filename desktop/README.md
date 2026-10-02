@@ -1,12 +1,15 @@
 # Dogmedia Desktop
 
-Dogmedia Desktop is a native Linux client written in Rust with Iced and
-GStreamer. It is not an Electron/Tauri wrapper and does not
-load the web application in an embedded browser.
+Dogmedia Desktop is a native Linux client written in Rust with Dioxus Native,
+Blitz/WGPU, and GStreamer. It is not an Electron/Tauri wrapper and does not
+load the web application in an embedded browser. Dioxus Native and Blitz are
+still beta software, so GPU/backend-specific rendering issues should be
+reported with the `RUST_LOG=info` startup output.
 
 ## Requirements
 
-- Rust 1.88 or newer (required by Iced 0.14)
+- Rust 1.88 or newer
+- Vulkan loader and a Mesa or vendor GPU driver
 - GStreamer 1.24 or newer, including the base plugins and codecs needed by
   your media library
 - `pkg-config`, a C toolchain, and Git
@@ -19,7 +22,7 @@ Arch Linux / Manjaro:
 ```bash
 sudo pacman -S --needed base-devel rust gstreamer \
   gst-plugins-base gst-plugins-good gst-plugins-bad \
-  gst-plugins-ugly gst-libav
+  gst-plugins-ugly gst-libav vulkan-icd-loader
 ```
 
 Debian 13 or newer:
@@ -28,7 +31,7 @@ Debian 13 or newer:
 sudo apt install build-essential cargo rustc pkg-config \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad gstreamer1.0-libav
+  gstreamer1.0-plugins-bad gstreamer1.0-libav libvulkan1 mesa-vulkan-drivers
 ```
 
 Fedora 41 or newer:
@@ -37,7 +40,8 @@ Fedora 41 or newer:
 sudo dnf install gcc rust cargo pkgconf-pkg-config \
   gstreamer1-devel gstreamer1-plugins-base-devel \
   gstreamer1-plugins-base gstreamer1-plugins-good \
-  gstreamer1-plugins-bad-free gstreamer1-plugin-libav
+  gstreamer1-plugins-bad-free gstreamer1-plugin-libav \
+  vulkan-loader mesa-vulkan-drivers
 ```
 
 If the packaged Rust compiler is older than 1.88, install current stable Rust
@@ -52,8 +56,90 @@ cargo build --release --manifest-path desktop/Cargo.toml
 ./desktop/target/release/dogmedia-desktop
 ```
 
-For development, `npm run dev:desktop` runs the debug build. Tests are
-available through `npm run test:desktop`.
+For development, `npm run dev:desktop` runs the Dioxus Native client through
+the `dx` CLI with the Blitz renderer. Install Dioxus CLI 0.7.10 first with
+`cargo install dioxus-cli --version 0.7.10 --locked`. Tests are available
+through `npm run test:desktop` and
+`npm run test:desktop:native`.
+
+The native client provides the shell, live library
+browsing and filters, protected audio playback, resume/seek/volume controls,
+queue navigation and mutation, favorites, lyrics, subtitle selection, and
+ten-second playback lease heartbeats. Video frames use a persistent WGPU
+texture, while protected photos render directly from their fetched bytes.
+
+## Interface
+
+The desktop uses the same Dogmedia Vault hierarchy as the web client while
+remaining a native Dioxus/Blitz application. A persistent library rail provides
+All Media, Favorites, category navigation, connection state, and settings. The
+workspace combines header search, media-type filters, an artwork-led featured
+item, and a dense paginated media list.
+
+Active media appears in a compact player anchored to the bottom of the window.
+Open it to enter the full player: audio uses a cover-and-lyrics layout, video
+uses the single persistent WGPU surface with subtitle overlay, and photos use a
+contained image stage. Queue and settings open as focused panels without
+interrupting playback. Light, dark, and system appearances share the web
+client's paper, ink, and rose design tokens.
+
+The supported minimum window width is 760px. At narrower desktop widths the
+interface removes secondary metadata before primary navigation or playback
+controls. See `docs/web-ui-parity.md` for the web/native surface matrix and
+Blitz CSS compatibility decisions.
+
+### Dioxus Native video spike
+
+The Phase 0 renderer spike is an isolated binary that feeds the existing
+GStreamer RGBA appsink frames into a persistent Blitz/WGPU texture. The
+preferred real-stream test creates, renews, and releases its own protected
+playback session. Run it in a graphical
+session with the server origin and a 1080p24 video media ID:
+
+```bash
+cargo run --release --manifest-path desktop/Cargo.toml \
+  --no-default-features --features video-spike --bin video-spike -- \
+  --media 'https://media.example.com/' 42 ori
+```
+
+Quality defaults to `ori`; use `high` if the client IP does not have original
+quality access. A random viewer ID is generated for the benchmark, or a stable
+one can be supplied after the quality argument. The legacy form accepting a
+stream URL, session ID, and viewer ID remains available for diagnosing a
+session created elsewhere. Managed `--media` playback loops at end-of-stream
+so even a short benchmark clip can produce several five-second cadence
+windows. Close it after at least three stable reports.
+
+The spike prints the source dimensions and five-second upload-rate windows to
+stderr. It also reports GStreamer end-of-stream and playback errors, so a
+failed protected request or missing decoder is distinguishable from renderer
+failure. The Phase 0 gate requires a 1080p24 source to remain visually smooth
+at approximately 24 uploaded frames per second. The GStreamer handoff is a
+single replaceable frame slot, so its queue capacity cannot grow beyond one.
+Close the window to stop playback. Session and viewer IDs are sent as the same
+protected request headers used by the production playback engine. Managed
+sessions send the same ten-second heartbeat as the production client and are
+released when the window closes.
+
+For a renderer-only smoke test when an HTTP media source is unavailable, use
+`--synthetic` instead of the URL and IDs. This drives the same Blitz/WGPU
+texture upload path with a generated 1920×1080 frame at 24fps, but it does
+not satisfy the protected-stream Phase 0 gate. Always benchmark a release
+build; debug builds add enough per-frame overhead to invalidate throughput
+measurements.
+
+Run the native dependency/source guard with
+`npm run check:desktop:native` and validate the package scripts/manifests with
+`npm run check:desktop:packaging`. To exercise the same spike with GPU access
+in a Flatpak sandbox, install the GNOME 50 runtime/SDK and Rust extension
+listed below, then run:
+
+```bash
+flatpak-builder --user --install --force-clean .flatpak-video-spike \
+  desktop/flatpak/com.dogmedia.VideoSpike.yml
+flatpak run com.dogmedia.VideoSpike \
+  --media 'https://media.example.com/' 42 ori
+```
 
 To install the release for the current user:
 
@@ -150,13 +236,13 @@ with the selected container engine when no longer needed.
 ## Flatpak
 
 Install Flatpak and Flatpak Builder, then add the Flathub repository and the
-GNOME 47 SDK/runtime:
+GNOME 50 SDK/runtime:
 
 ```bash
-flatpak remote-add --if-not-exists flathub \
+flatpak remote-add --user --if-not-exists flathub \
   https://flathub.org/repo/flathub.flatpakrepo
-flatpak install flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
-  org.freedesktop.Sdk.Extension.rust-stable//24.08
+flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+  org.freedesktop.Sdk.Extension.rust-stable//25.08
 ```
 
 Build from the repository root. The local manifest permits network access

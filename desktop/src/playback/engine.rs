@@ -36,6 +36,17 @@ pub struct PlaybackEngine {
     frame: Arc<Mutex<Option<VideoFrame>>>,
 }
 
+#[derive(Clone, Default)]
+pub struct VideoFrameReceiver {
+    frame: Arc<Mutex<Option<VideoFrame>>>,
+}
+
+impl VideoFrameReceiver {
+    pub fn take_frame(&self) -> Option<VideoFrame> {
+        self.frame.lock().ok()?.take()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoFrame {
     pub width: u32,
@@ -193,6 +204,12 @@ impl PlaybackEngine {
 
     pub fn take_frame(&self) -> Option<VideoFrame> {
         self.frame.lock().ok()?.take()
+    }
+
+    pub fn frame_receiver(&self) -> VideoFrameReceiver {
+        VideoFrameReceiver {
+            frame: Arc::clone(&self.frame),
+        }
     }
 
     pub fn poll_event(&self) -> Option<EngineEvent> {

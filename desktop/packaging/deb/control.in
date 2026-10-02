@@ -5,9 +5,9 @@ Priority: optional
 Architecture: @ARCHITECTURE@
 Installed-Size: @INSTALLED_SIZE@
 Maintainer: Dogmedia <support@dogmedia.invalid>
-Depends: libgstreamer1.0-0 (>= 1.24), gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, ca-certificates
+Depends: libgstreamer1.0-0 (>= 1.24), gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, libssl3t64, libvulkan1, mesa-vulkan-drivers, ca-certificates
 Recommends: gstreamer1.0-plugins-bad, gstreamer1.0-libav
 Homepage: https://github.com/Doglexable/Dogmedia
 Description: Native desktop client for Dogmedia
  Browse photos, music, and videos from a self-hosted Dogmedia server using a
- native Iced interface and GStreamer playback, without an embedded browser.
+ native Dioxus/Blitz interface and GStreamer playback, without an embedded browser.

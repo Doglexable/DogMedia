@@ -1,57 +1,67 @@
-use iced::{
-    Element, Fill, FillPortion,
-    widget::{button, column, container, row, rule, scrollable, text},
-};
+use dioxus_native::prelude::*;
 
-use super::super::application::{Dogmedia, Message};
-use super::super::{components, theme};
+use super::super::*;
 
-pub(crate) fn render(app: &Dogmedia) -> Element<'_, Message> {
-    let mut items = column![].spacing(3);
-    if let Some(queue) = &app.queue {
-        for item in &queue.items {
-            let current = Some(item.media.id) == queue.current_media_id;
-            let selected = app.selected_queue == Some(item.media.id);
-            let label = row![
-                text(if current { "▶" } else { " " }).width(20),
-                text(item.media.title()).size(14),
-            ]
-            .spacing(6);
-            let item_button = button(label)
-                .on_press(Message::QueuePressed(item.media.id))
-                .width(Fill);
-            let item_button = if current || selected {
-                item_button.style(button::secondary)
-            } else {
-                item_button.style(button::text)
-            };
-            items = items.push(item_button);
+#[component]
+pub(crate) fn QueuePanel(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+) -> Element {
+    let snapshot = app.read().clone();
+    let total = snapshot.queue.as_ref().map_or(0, |queue| queue.total);
+
+    rsx! {
+        aside { class: "queue-panel", "aria-label": "Playback queue",
+            header { class: "panel-header",
+                div {
+                    p { class: "eyebrow", "Up next" }
+                    h2 { "Queue" }
+                    span { "{total} item(s) queued" }
+                }
+                IconButton { label: "Close queue".to_owned(), icon: IconName::Close, onclick: move |_| app.write().queue_open = false }
+            }
+            div { class: "queue-list",
+                if let Some(queue) = snapshot.queue.as_ref() {
+                    if queue.items.is_empty() {
+                        div { class: "queue-empty", "Queue is empty." }
+                    }
+                    for item in &queue.items {
+                        div { class: if Some(item.media.id) == queue.current_media_id { "queue-item active" } else { "queue-item" },
+                            button {
+                                class: "queue-select",
+                                title: "Play {item.media.title()}",
+                                onclick: { let id = item.media.id; move |_| select_queue(app, engine, id) },
+                                span { class: "queue-indicator",
+                                    if Some(item.media.id) == queue.current_media_id {
+                                        Icon { name: IconName::Play }
+                                    }
+                                }
+                                span { class: "queue-copy",
+                                    strong { "{item.media.title()}" }
+                                    if Some(item.media.id) == queue.current_media_id {
+                                        small { "Now playing · Locked" }
+                                    } else {
+                                        small { "{item.media.subtitle()}" }
+                                    }
+                                }
+                                span { class: "duration", "{format_duration(item.media.duration)}" }
+                            }
+                            IconButton {
+                                label: "Remove from queue".to_owned(),
+                                icon: IconName::Close,
+                                class: "queue-remove".to_owned(),
+                                onclick: { let id = item.media.id; move |_| queue_remove(app, id) }
+                            }
+                        }
+                    }
+                } else {
+                    Skeleton {}
+                }
+            }
+            footer { class: "queue-actions",
+                Button { label: "Shuffle".to_owned(), class: "secondary".to_owned(), onclick: move |_| queue_shuffle(app) }
+                Button { label: "Clear queue".to_owned(), class: "danger".to_owned(), onclick: move |_| queue_clear(app) }
+            }
         }
     }
-    let actions = row![
-        button("Remove").on_press_maybe(app.selected_queue.map(|_| Message::QueueRemove)),
-        button("Shuffle").on_press(Message::QueueShuffle),
-        button("Clear").on_press(Message::QueueClear),
-    ]
-    .spacing(6);
-    container(
-        column![
-            components::section_header(
-                "Up next",
-                theme::type_scale::TITLE,
-                app.queue
-                    .as_ref()
-                    .map_or("0".into(), |queue| queue.total.to_string()),
-            ),
-            rule::horizontal(1),
-            scrollable(items).height(Fill),
-            actions,
-        ]
-        .spacing(10),
-    )
-    .padding([14, 16])
-    .width(FillPortion(1))
-    .height(Fill)
-    .style(theme::card_style)
-    .into()
 }

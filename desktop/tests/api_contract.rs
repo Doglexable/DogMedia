@@ -7,7 +7,10 @@ use std::{
 use async_trait::async_trait;
 use dogmedia_desktop::{
     api::{ApiClient, ApiError, RawResponse, RequestSpec, Transport, TransportError},
-    domain::{BrowseQuery, CategoryId, Cursor, Limit, MediaId, Quality, SubtitleId},
+    domain::{
+        BrowseQuery, CategoryId, Cursor, DashboardQuery, Limit, MediaFilter, MediaId, Quality,
+        SubtitleId,
+    },
 };
 
 #[derive(Default)]
@@ -330,4 +333,78 @@ async fn missing_lyrics_is_an_empty_state() {
     )
     .unwrap();
     assert!(client.lyrics(MediaId::new(9)).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn dashboard_and_thumbnail_use_typed_desktop_requests() {
+    let transport = FakeTransport::scripted([
+        FakeTransport::json(
+            200,
+            serde_json::json!({
+                "featuredId": 12,
+                "quickAccessIds": [12],
+                "media": [{
+                    "id": 12,
+                    "title": "Featured",
+                    "mime_type": "audio/mpeg",
+                    "futureField": true
+                }],
+                "futureField": true
+            }),
+        ),
+        Ok(RawResponse {
+            status: 200,
+            body: vec![0x52, 0x49, 0x46, 0x46],
+        }),
+    ]);
+    let client = ApiClient::with_transport(
+        "https://media.test/prefix",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    )
+    .unwrap();
+
+    let summary = client
+        .dashboard(&DashboardQuery {
+            liked: true,
+            category_id: Some(CategoryId::new(7)),
+            media_type: MediaFilter::Audio,
+        })
+        .await
+        .unwrap();
+    assert_eq!(summary.featured_id, Some(MediaId::new(12)));
+    assert_eq!(summary.media[0].title(), "Featured");
+    assert_eq!(
+        client.media_thumbnail(MediaId::new(12)).await.unwrap(),
+        vec![0x52, 0x49, 0x46, 0x46]
+    );
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests[0].url.path(), "/prefix/api/playback/dashboard");
+    let query: std::collections::HashMap<_, _> =
+        requests[0].url.query_pairs().into_owned().collect();
+    assert_eq!(query["view"], "liked");
+    assert_eq!(query["category_id"], "7");
+    assert_eq!(query["type"], "audio");
+    assert_eq!(requests[1].url.path(), "/prefix/api/media/12/thumbnail");
+    assert_eq!(requests[1].headers["X-Client-Platform"], "desktop");
+    assert!(!requests[1].headers.contains_key("X-Playback-Session"));
+}
+
+#[tokio::test]
+async fn missing_thumbnail_is_a_typed_http_error() {
+    let transport = FakeTransport::scripted([FakeTransport::json(
+        404,
+        serde_json::json!({"error": "No thumbnail available"}),
+    )]);
+    let client = ApiClient::with_transport(
+        "http://localhost:3001",
+        "viewer_abcdefghijklmnopqrst",
+        transport,
+    )
+    .unwrap();
+    assert!(matches!(
+        client.media_thumbnail(MediaId::new(99)).await,
+        Err(ApiError::Http { status: 404, .. })
+    ));
 }

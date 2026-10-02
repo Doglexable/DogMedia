@@ -1,0 +1,28 @@
+app-id: com.dogmedia.VideoSpike
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: video-spike
+
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+
+modules:
+  - name: dogmedia-video-spike
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      build-args:
+        - --share=network
+    build-commands:
+      - cargo build --release --locked --no-default-features --features video-spike --bin video-spike
+      - install -Dm755 target/release/video-spike /app/bin/video-spike
+    sources:
+      - type: dir
+        path: ..

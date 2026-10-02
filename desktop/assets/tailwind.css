@@ -1,0 +1,20 @@
+/* Blitz-safe theme tokens shared by the vendored rust-ui-style primitives. */
+:root {
+  --background: #111113;
+  --surface: #181719;
+  --surface-hover: #251e22;
+  --border: #2e2b2e;
+  --foreground: #f7f5f5;
+  --muted-foreground: #938d91;
+  --accent: #9e435c;
+  --accent-border: #b54e6a;
+}
+
+.shell.light {
+  --background: #f7f4f5;
+  --surface: #ffffff;
+  --surface-hover: #f7edf0;
+  --border: #ddd6d9;
+  --foreground: #211d20;
+  --muted-foreground: #746d71;
+}

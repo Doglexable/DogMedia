@@ -12,11 +12,14 @@ use super::transport::HttpMethod;
 pub enum Endpoint {
     CheckAccess,
     Categories,
+    CategoryThumbnail(CategoryId),
     /// Rendered `api/media/browse` query string (see [`BrowseQuery::query_string`]).
     ///
     /// [`BrowseQuery::query_string`]: crate::domain::BrowseQuery::query_string
     Browse(String),
+    Dashboard(String),
     Media(MediaId),
+    MediaThumbnail(MediaId),
     PlaybackSession(MediaId),
     LeaseHeartbeat,
     LeaseRelease,
@@ -81,8 +84,11 @@ impl Endpoint {
         match self {
             Self::CheckAccess => "api/check-access".to_owned(),
             Self::Categories => "api/categories".to_owned(),
+            Self::CategoryThumbnail(id) => format!("api/categories/{id}/thumbnail"),
             Self::Browse(query) => format!("api/media/browse?{query}"),
+            Self::Dashboard(query) => format!("api/playback/dashboard?{query}"),
             Self::Media(id) => format!("api/media/{id}"),
+            Self::MediaThumbnail(id) => format!("api/media/{id}/thumbnail"),
             Self::PlaybackSession(id) => format!("api/media/{id}/playback-session"),
             Self::LeaseHeartbeat => "api/playback/lease/heartbeat".to_owned(),
             Self::LeaseRelease => "api/playback/lease".to_owned(),
@@ -132,6 +138,14 @@ mod tests {
     #[test]
     fn routes_render_with_typed_ids() {
         assert_eq!(Endpoint::Media(MediaId::new(4)).path(), "api/media/4");
+        assert_eq!(
+            Endpoint::CategoryThumbnail(CategoryId::new(7)).path(),
+            "api/categories/7/thumbnail"
+        );
+        assert_eq!(
+            Endpoint::MediaThumbnail(MediaId::new(4)).path(),
+            "api/media/4/thumbnail"
+        );
         assert_eq!(
             Endpoint::QueueAutoCategory {
                 category: CategoryId::new(7),

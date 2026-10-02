@@ -11,6 +11,7 @@ RUN dnf install -y \
         gstreamer1-plugins-base-devel \
         gstreamer1-plugins-good \
         make \
+        openssl-devel \
         pkgconf-pkg-config \
         rpm-build \
         rust \

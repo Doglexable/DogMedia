@@ -46,4 +46,6 @@ mobile
 plans/*
 example*/
 mobile/
-desktop/
+# Desktop sources are required by the deb/rpm packaging Containerfiles.
+# Keep only Cargo's generated output out of every container context.
+desktop/target/

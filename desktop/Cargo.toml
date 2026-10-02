@@ -3,19 +3,29 @@ name = "dogmedia-desktop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Native Iced desktop client for Dogmedia"
+default-run = "dogmedia-desktop"
+description = "Native Dioxus/Blitz desktop client for Dogmedia"
 license = "MIT"
 repository = "https://github.com/Doglexable/Dogmedia"
 
 [features]
-default = []
+default = ["native-ui"]
+video-spike = ["dep:dioxus-native", "dep:wgpu"]
+native-ui = ["dep:base64", "dep:dioxus-native", "dep:image", "dep:wgpu"]
 
 [dependencies]
 async-trait = "0.1"
+base64 = { version = "0.22", optional = true }
 directories = "6"
+# dioxus-native 0.7.10's Config::default references dioxus_cli_config
+# unconditionally, so its `hot-reload` feature is currently required even in
+# release builds. Remove it when upstream gates that reference correctly.
+dioxus-native = { version = "=0.7.10", default-features = false, features = ["hot-reload", "net", "prelude", "svg", "system-fonts"], optional = true }
 gstreamer = "0.24"
 gstreamer-video = "0.24"
-iced = { version = "0.14", features = ["advanced", "image", "tokio"] }
+# Blitz disables every raster decoder on its image dependency. Enable the
+# formats accepted by Artwork so fetched thumbnails can actually be painted.
+image = { version = "=0.25.6", default-features = false, features = ["gif", "jpeg", "png", "webp"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,10 +35,26 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
+wgpu = { version = "26", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
 
+[patch.crates-io]
+# wgpu_context 0.1.2 panics on recoverable surface timeouts. Keep AnyRender's
+# compatible release line and patch only its surface-acquisition policy.
+wgpu_context = { path = "vendor/wgpu_context" }
+
 [profile.release]
 lto = "thin"
 strip = "symbols"
+
+[[bin]]
+name = "video-spike"
+path = "src/bin/video-spike.rs"
+required-features = ["video-spike"]
+
+[[bin]]
+name = "dogmedia-desktop"
+path = "src/main.rs"
+required-features = ["native-ui"]

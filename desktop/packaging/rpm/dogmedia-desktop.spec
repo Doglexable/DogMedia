@@ -17,12 +17,15 @@ Requires:       gstreamer1 >= 1.24
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       ca-certificates
+Requires:       openssl-libs
+Requires:       vulkan-loader
+Requires:       mesa-vulkan-drivers
 Recommends:     gstreamer1-plugins-bad-free
 Recommends:     gstreamer1-plugin-libav
 
 %description
 Browse photos, music, and videos from a self-hosted Dogmedia server using a
-native Iced interface and GStreamer playback, without an embedded browser.
+native Dioxus/Blitz interface and GStreamer playback, without an embedded browser.
 
 %prep
 

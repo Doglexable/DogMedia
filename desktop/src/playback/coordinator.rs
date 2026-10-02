@@ -62,7 +62,7 @@ pub enum Effect {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PlaybackCoordinator {
     snapshot: PlaybackSnapshot,
     released_sequence: Option<u64>,
@@ -193,6 +193,10 @@ impl PlaybackCoordinator {
             self.released_sequence = Some(self.snapshot.sequence);
         }
         self.snapshot.status = PlaybackStatus::Idle;
+        self.snapshot.media = None;
+        self.snapshot.position = 0.0;
+        self.snapshot.duration = 0.0;
+        self.snapshot.error = None;
         effects
     }
 

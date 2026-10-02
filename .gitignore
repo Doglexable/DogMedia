@@ -9,20 +9,36 @@ coverage/
 test-results/
 playwright-report/
 *.tsbuildinfo
-desktop/target/
-dist/packages/
+
+# Desktop client (Rust / Cargo / Dioxus / Packaging)
+target/
+**/target/
+**/*.rs.bk
+cargo-timing*.html
+.dioxus/
+**/.dioxus/
+bundle/
+desktop/bundle/
+*.deb
+*.rpm
+.flatpak-builder/
+.flatpak-build/
+.flatpak*
+gst-registry.*.bin
 
 # Local environment and secrets
 .env
 .env.*
 !.env.example
 
-# Runtime data and logs
+# Runtime data, crash dumps, and logs
 data/
 logs/
 *.log
 *.pid
 *.pid.lock
+core
+core.*
 
 # Tool caches
 .cache/
@@ -43,6 +59,7 @@ AGENTS.md
 .codex/
 .expo/
 .agents/
+!plans/README.md
 plans/*
 *PLAN*.*
 *plan*.*
@@ -52,3 +69,4 @@ plans/*
 *audit*.*
 *VALIDATION*.*
 *validation*.*
+example*/*

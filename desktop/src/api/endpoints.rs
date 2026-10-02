@@ -4,9 +4,9 @@ use serde::Serialize;
 
 use super::{ApiClient, ApiError, Endpoint};
 use crate::domain::{
-    AccessStatus, BrowsePage, BrowseQuery, Category, CategoryId, Lyrics, Media, MediaId,
-    PlaybackReport, PlaybackSession, Quality, QueueAutoResult, QueueOrder, QueueOrderResult,
-    QueueSelection, QueueWindow, ResumePosition, StreamPath, SubtitleTrack,
+    AccessStatus, BrowsePage, BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary,
+    Lyrics, Media, MediaId, PlaybackReport, PlaybackSession, Quality, QueueAutoResult, QueueOrder,
+    QueueOrderResult, QueueSelection, QueueWindow, ResumePosition, StreamPath, SubtitleTrack,
 };
 
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(20);
@@ -44,6 +44,15 @@ impl ApiClient {
             .await
     }
 
+    pub async fn category_thumbnail(&self, category_id: CategoryId) -> Result<Vec<u8>, ApiError> {
+        self.bytes(
+            super::transport::HttpMethod::Get,
+            &Endpoint::CategoryThumbnail(category_id).path(),
+            None,
+        )
+        .await
+    }
+
     pub async fn browse(&self, query: &BrowseQuery) -> Result<BrowsePage, ApiError> {
         self.json_endpoint(
             &Endpoint::Browse(query.query_string()),
@@ -60,6 +69,25 @@ impl ApiClient {
             None::<&()>,
             None,
             NORMAL_TIMEOUT,
+        )
+        .await
+    }
+
+    pub async fn dashboard(&self, query: &DashboardQuery) -> Result<DashboardSummary, ApiError> {
+        self.json_endpoint(
+            &Endpoint::Dashboard(query.query_string()),
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
+        )
+        .await
+    }
+
+    pub async fn media_thumbnail(&self, media_id: MediaId) -> Result<Vec<u8>, ApiError> {
+        self.bytes(
+            super::transport::HttpMethod::Get,
+            &Endpoint::MediaThumbnail(media_id).path(),
+            None,
         )
         .await
     }

@@ -62,6 +62,8 @@ pub struct Media {
     pub liked: bool,
     #[serde(default)]
     pub source_version: Option<i64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
 }
 
 impl Media {
@@ -170,5 +172,19 @@ mod tests {
                 .collect();
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs["type"], "all");
+    }
+
+    #[test]
+    fn media_accepts_the_server_added_timestamp() {
+        let media: Media = serde_json::from_value(serde_json::json!({
+            "id": 9,
+            "created_at": "2026-09-29T12:30:00.000Z"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            media.created_at.as_deref(),
+            Some("2026-09-29T12:30:00.000Z")
+        );
     }
 }

@@ -30,7 +30,12 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
-cargo build --release --manifest-path "$manifest"
+cargo build --release --locked --manifest-path "$manifest" --bin dogmedia-desktop
+
+if ldd "$binary" | grep -Eiq 'webkit|javascriptcore|gtk-3|gtk-4|wry'; then
+  echo "error: packaged binary links a forbidden webview/GTK runtime" >&2
+  exit 1
+fi
 
 architecture=$(dpkg --print-architecture)
 staging_dir=$(mktemp -d "${TMPDIR:-/tmp}/dogmedia-deb.XXXXXX")
@@ -41,6 +46,13 @@ install -Dm644 "$desktop_dir/resources/com.dogmedia.Desktop.desktop" \
   "$staging_dir/usr/share/applications/com.dogmedia.Desktop.desktop"
 install -Dm644 "$desktop_dir/resources/icons/com.dogmedia.Desktop.svg" \
   "$staging_dir/usr/share/icons/hicolor/scalable/apps/com.dogmedia.Desktop.svg"
+for size in 16 24 32 48 64 128 256 512; do
+  icon_path="$desktop_dir/resources/icons/hicolor/${size}x${size}/apps/com.dogmedia.Desktop.png"
+  if [[ -f "$icon_path" ]]; then
+    install -Dm644 "$icon_path" \
+      "$staging_dir/usr/share/icons/hicolor/${size}x${size}/apps/com.dogmedia.Desktop.png"
+  fi
+done
 install -Dm644 "$desktop_dir/resources/com.dogmedia.Desktop.metainfo.xml" \
   "$staging_dir/usr/share/metainfo/com.dogmedia.Desktop.metainfo.xml"
 install -Dm644 "$repo_dir/LICENSE" \

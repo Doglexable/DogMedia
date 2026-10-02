@@ -13,10 +13,13 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:web": "npm run dev --workspace=web",
     "dev:mobile": "npm --workspace=mobile run dev --",
-    "dev:desktop": "cargo run --manifest-path desktop/Cargo.toml",
+    "dev:desktop": "cd desktop && dx serve --desktop --renderer native --bin dogmedia-desktop",
     "worker": "npm run worker --workspace=server",
     "build": "npm run build --workspace=web",
-    "build:desktop": "cargo build --release --manifest-path desktop/Cargo.toml",
+    "build:desktop": "cargo build --release --manifest-path desktop/Cargo.toml --bin dogmedia-desktop",
+    "check:desktop:native": "desktop/scripts/check-native-deps.sh",
+    "check:desktop:packaging": "desktop/scripts/check-packaging.sh",
+    "generate:desktop:icons": "desktop/scripts/generate-icons.sh",
     "package:desktop:deb": "desktop/packaging/deb/build-deb.sh",
     "package:desktop:rpm": "desktop/packaging/rpm/build-rpm.sh",
     "package:desktop:containers": "desktop/packaging/containers/build-packages.sh",
@@ -28,7 +31,8 @@
     "test:server": "npm run test --workspace=server",
     "test:web": "npm run test --workspace=web",
     "test:mobile": "npm run test --workspace=mobile",
-    "test:desktop": "cargo test --manifest-path desktop/Cargo.toml"
+    "test:desktop": "cargo test --manifest-path desktop/Cargo.toml",
+    "test:desktop:native": "cargo test --manifest-path desktop/Cargo.toml --no-default-features --features native-ui --lib"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",

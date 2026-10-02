@@ -30,7 +30,12 @@ if [[ -z "$version" ]]; then
   exit 1
 fi
 
-cargo build --release --manifest-path "$manifest"
+cargo build --release --locked --manifest-path "$manifest" --bin dogmedia-desktop
+
+if ldd "$binary" | grep -Eiq 'webkit|javascriptcore|gtk-3|gtk-4|wry'; then
+  echo "error: packaged binary links a forbidden webview/GTK runtime" >&2
+  exit 1
+fi
 
 top_dir=$(mktemp -d "${TMPDIR:-/tmp}/dogmedia-rpm.XXXXXX")
 trap 'rm -rf -- "$top_dir"' EXIT

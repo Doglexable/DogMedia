@@ -17,6 +17,7 @@ fn media(id: MediaId) -> Media {
         artwork_version: None,
         liked: false,
         source_version: Some(1),
+        created_at: None,
     }
 }
 
@@ -71,6 +72,8 @@ fn stop_is_idempotent_and_queue_modes_are_bounded() {
     let mut coordinator = PlaybackCoordinator::default();
     coordinator.load(media(MediaId::new(1)));
     assert!(coordinator.stop().contains(&Effect::ReleaseLease));
+    assert!(coordinator.snapshot().media.is_none());
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Idle);
     assert!(coordinator.stop().is_empty());
     coordinator.set_repeat(RepeatMode::Queue);
     assert_eq!(coordinator.next_index(2, 3), Some(0));

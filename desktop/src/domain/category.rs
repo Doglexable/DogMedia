@@ -18,4 +18,6 @@ pub struct Category {
     pub media_count: u32,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub cover_path: Option<String>,
 }

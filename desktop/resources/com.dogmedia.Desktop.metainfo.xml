@@ -11,7 +11,7 @@
   <description>
     <p>
       Browse photos, music, and videos from a self-hosted Dogmedia server using
-      a native Iced interface and GStreamer playback.
+      a native Dioxus/Blitz interface and GStreamer playback.
     </p>
     <p>
       Search and filter the library, manage favorites and the playback queue,

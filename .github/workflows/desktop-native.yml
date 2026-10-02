@@ -1,0 +1,76 @@
+name: Desktop native checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-native.yml'
+      - 'desktop/**'
+      - 'package.json'
+  push:
+    paths:
+      - '.github/workflows/desktop-native.yml'
+      - 'desktop/**'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build dependencies
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install --yes
+          libgstreamer1.0-dev
+          libgstreamer-plugins-base1.0-dev
+          pkg-config
+          ripgrep
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy,rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path desktop/Cargo.toml -- --check
+
+      - name: Test renderer-independent core
+        run: cargo test --manifest-path desktop/Cargo.toml --locked
+
+      - name: Test Dioxus Native state and helpers
+        run: >-
+          cargo test
+          --manifest-path desktop/Cargo.toml
+          --no-default-features
+          --features native-ui
+          --lib
+          --locked
+
+      - name: Lint Dioxus Native spike
+        run: >-
+          cargo clippy
+          --manifest-path desktop/Cargo.toml
+          --no-default-features
+          --features video-spike
+          --bin video-spike
+          --locked -- -D warnings
+
+      - name: Lint Dioxus Native application
+        run: >-
+          cargo clippy
+          --manifest-path desktop/Cargo.toml
+          --no-default-features
+          --features native-ui
+          --bin dogmedia-desktop
+          --locked -- -D warnings
+
+      - name: Reject webview dependencies and APIs
+        run: desktop/scripts/check-native-deps.sh
+
+      - name: Validate native packaging metadata
+        run: desktop/scripts/check-packaging.sh

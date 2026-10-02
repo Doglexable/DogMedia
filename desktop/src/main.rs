@@ -1,7 +1,7 @@
-fn main() -> iced::Result {
+fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .without_time()
         .init();
-    dogmedia_desktop::ui::run()
+    dogmedia_desktop::ui::run();
 }
