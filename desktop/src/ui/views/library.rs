@@ -119,7 +119,11 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     strong { "{media.title()}" }
                                     small { "{media.subtitle()}" }
                                 }
-                                span { class: "track-folder", "{media_folder(media)}" }
+                                span {
+                                    class: "track-folder",
+                                    title: "{media.category_path.as_deref().or(media.category_name.as_deref()).unwrap_or(\"Library\")}",
+                                    "{media_folder(media)}"
+                                }
                                 span { class: "track-added", "{format_added_date(media.created_at.as_deref())}" }
                                 span { class: "duration", "{format_duration(media.duration)}" }
                             }

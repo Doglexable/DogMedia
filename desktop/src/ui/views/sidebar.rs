@@ -78,7 +78,7 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                                     Icon { name: IconName::Folder }
                                 }
                             }
-                            span { class: "category-name", "{category.name}" }
+                            span { class: "category-name", "{truncate_category_name(&category.name, category.depth)}" }
                             span { class: "category-count", "{category.media_count}" }
                         }
                     }
@@ -90,6 +90,8 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                     class: "sidebar-settings",
                     r#type: "button",
                     onclick: move |_| {
+                        let current_url = app.read().settings.server_url.to_string();
+                        app.write().settings_url = current_url;
                         app.write().queue_open = false;
                         app.write().settings_open = true;
                     },
@@ -102,5 +104,21 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                 div { class: "sidebar-version", "Desktop v{version}" }
             }
         }
+    }
+}
+
+pub(crate) fn truncate_category_name(name: &str, depth: u32) -> String {
+    let max_chars = match depth {
+        0 => 20,
+        1 => 18,
+        2 => 16,
+        3 => 14,
+        _ => 12,
+    };
+    if name.chars().count() > max_chars {
+        let truncated: String = name.chars().take(max_chars.saturating_sub(1)).collect();
+        format!("{truncated}…")
+    } else {
+        name.to_owned()
     }
 }

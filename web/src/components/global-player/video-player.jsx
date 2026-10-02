@@ -22,6 +22,7 @@ import { SettingsControl } from "./settings-panel";
 import { formatDuration } from "./player-utils";
 import { SubtitlesMenu, formatLanguageLabel } from "./subtitles-menu";
 import { AssSubtitleController } from "./ass-subtitle-manager";
+import { mediaViewTransitionName } from "../../utils/view-transitions";
 
 function getVolumeIcon(volume, muted) {
   if (muted || volume <= 0) return faVolumeXmark;
@@ -473,6 +474,7 @@ export function VideoPlayer({
       <div
         ref={cardRef}
         className="video-player-stage"
+        style={{ viewTransitionName: mediaViewTransitionName(currentMedia?.id) }}
       >
         {/* HTML5 Video Element - Full Viewport Coverage */}
         <video

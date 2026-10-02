@@ -4,6 +4,7 @@ import {
   getAutoQueueEndpoint,
   getCompletionAction,
   formatDuration,
+  getMediaFolderName,
   getMediaMeta,
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
@@ -457,5 +458,28 @@ describe("getQueueItemSubtitle", () => {
   it("handles null or missing item safely", () => {
     expect(getQueueItemSubtitle(null)).toBe("");
     expect(getQueueItemSubtitle(undefined)).toBe("");
+  });
+});
+
+describe("getMediaFolderName", () => {
+  it("extracts the leaf parent folder from category_path", () => {
+    expect(getMediaFolderName({ category_path: "Music / Muse / Absolution" })).toBe("Absolution");
+    expect(getMediaFolderName({ category_path: "Shows/Season Two/Episodes" })).toBe("Episodes");
+  });
+
+  it("prioritizes category_name when available", () => {
+    expect(getMediaFolderName({
+      category_name: "Absolution",
+      category_path: "Music / Muse / Absolution",
+    })).toBe("Absolution");
+  });
+
+  it("extracts parent folder from file_path when category is missing", () => {
+    expect(getMediaFolderName({ file_path: "Audio/Rock/Song.flac" })).toBe("Rock");
+  });
+
+  it("falls back to Library when no folder information exists", () => {
+    expect(getMediaFolderName(null)).toBe("Library");
+    expect(getMediaFolderName({})).toBe("Library");
   });
 });

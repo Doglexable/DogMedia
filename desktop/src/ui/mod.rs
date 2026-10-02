@@ -16,14 +16,16 @@ use crate::{
         Volume,
     },
     playback::{
-        EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, VideoFrameReceiver,
+        EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RepeatMode,
+        VideoFrameReceiver,
     },
     store::{ColorScheme, Settings, SettingsStore},
 };
 
-use kit::{
-    Artwork, Button, Chip, Icon, IconButton, IconName, Input, MediaListSkeleton, Notice, Select,
-    Skeleton, StatusBadge, ThemeToggle,
+pub(crate) use kit::{
+    Artwork, Button, Chip, Icon, IconButton, IconName, Input, MediaListSkeleton, MusicProgress,
+    Notice, Popover, PopoverAlign, PopoverContent, PopoverContext, PopoverDescription, PopoverSide,
+    PopoverTitle, PopoverTrigger, Select, Skeleton, StatusBadge, ThemeToggle,
 };
 use video_surface::VideoPaintSource;
 use views::Shell;
@@ -219,14 +221,57 @@ impl NativeApp {
     }
 }
 
+fn app_window_icon() -> Option<winit::window::Icon> {
+    let img = image::load_from_memory(include_bytes!("../../assets/brand-mark.png")).ok()?;
+    let rgba = img.into_rgba8();
+    let (width, height) = rgba.dimensions();
+    winit::window::Icon::from_rgba(rgba.into_raw(), width, height).ok()
+}
+
 pub fn run() {
+    // Ensure environment variables for Dioxus CLI config have Dogmedia identity
+    if std::env::var("DIOXUS_APP_TITLE").is_err() {
+        // SAFETY: Called on main thread before spawning background threads or runtime.
+        unsafe { std::env::set_var("DIOXUS_APP_TITLE", "Dogmedia") };
+    }
+    if std::env::var("DIOXUS_PRODUCT_NAME").is_err() {
+        // SAFETY: Called on main thread before spawning background threads or runtime.
+        unsafe { std::env::set_var("DIOXUS_PRODUCT_NAME", "Dogmedia") };
+    }
+
     // Dioxus Native owns the main-thread event loop, while API requests and
     // timers use Tokio. Keep a multithread runtime alive and entered for the
     // full Blitz event-loop lifetime so hooks can create Tokio I/O and timers.
     let runtime =
         tokio::runtime::Runtime::new().expect("failed to initialize the native async runtime");
     let _runtime_guard = runtime.enter();
-    dioxus_native::launch(App);
+
+    let mut window_attributes = dioxus_native::WindowAttributes::default()
+        .with_title("Dogmedia")
+        .with_inner_size(dioxus_native::LogicalSize::new(1280.0, 800.0))
+        .with_min_inner_size(dioxus_native::LogicalSize::new(800.0, 560.0));
+
+    #[cfg(target_os = "linux")]
+    {
+        use winit::platform::wayland::WindowAttributesExtWayland;
+        use winit::platform::x11::WindowAttributesExtX11;
+        window_attributes = WindowAttributesExtWayland::with_name(
+            window_attributes,
+            "com.dogmedia.Desktop",
+            "dogmedia-desktop",
+        );
+        window_attributes = WindowAttributesExtX11::with_name(
+            window_attributes,
+            "dogmedia-desktop",
+            "com.dogmedia.Desktop",
+        );
+    }
+
+    if let Some(icon) = app_window_icon() {
+        window_attributes = window_attributes.with_window_icon(Some(icon));
+    }
+
+    dioxus_native::launch_cfg(App, vec![], vec![Box::new(window_attributes)]);
 }
 
 #[component]
@@ -870,6 +915,34 @@ fn set_volume(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>
     }
 }
 
+fn toggle_mute(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    let current = app.read().settings.volume.get();
+    if current > 0.0 {
+        set_volume(app, engine, 0.0);
+    } else {
+        set_volume(app, engine, 0.75);
+    }
+}
+
+fn toggle_repeat(mut app: Signal<NativeApp>) {
+    let current = app.read().coordinator.snapshot().repeat;
+    let next = match current {
+        RepeatMode::None => RepeatMode::Queue,
+        RepeatMode::Queue => RepeatMode::One,
+        RepeatMode::One => RepeatMode::None,
+    };
+    app.write().coordinator.set_repeat(next);
+}
+
+fn toggle_shuffle(mut app: Signal<NativeApp>) {
+    let current = app.read().coordinator.snapshot().shuffle;
+    let next = !current;
+    app.write().coordinator.set_shuffle(next);
+    if next {
+        queue_shuffle(app);
+    }
+}
+
 fn load_queue(mut app: Signal<NativeApp>) {
     let Some(client) = app.read().client.clone() else {
         return;
@@ -1266,10 +1339,21 @@ async fn send_report(
     }
 }
 
+pub(crate) fn set_color_scheme(mut app: Signal<NativeApp>, scheme: ColorScheme) {
+    app.write().settings.color_scheme = scheme;
+    let settings = app.read().settings.clone();
+    if let Err(error) = app.read().store.save(&settings) {
+        tracing::warn!(%error, "failed to persist updated color scheme");
+    }
+}
+
 fn save_settings(mut app: Signal<NativeApp>) {
     let mut candidate = app.read().settings.clone();
     let settings_url = app.read().settings_url.clone();
     let allow_http = app.read().allow_http;
+    let previous_url = app.read().settings.server_url.clone();
+    let is_connected = app.read().library.access == AccessView::Ready;
+
     match candidate.set_server_url(&settings_url) {
         Ok(true) if !allow_http => {
             app.write().status =
@@ -1281,6 +1365,14 @@ fn save_settings(mut app: Signal<NativeApp>) {
                 app.write().status = Some(error.to_string());
                 return;
             }
+
+            let url_changed = candidate.server_url != previous_url;
+            if !url_changed && is_connected && app.read().client.is_some() {
+                app.write().settings = candidate;
+                app.write().settings_open = false;
+                return;
+            }
+
             match ApiClient::new(
                 &candidate.server_url.to_string(),
                 candidate.viewer_id.clone(),
@@ -1308,15 +1400,42 @@ fn media_kind(media: &crate::domain::Media) -> &str {
         .unwrap_or("media")
 }
 
-fn media_folder(media: &crate::domain::Media) -> &str {
-    media
-        .category_path
-        .as_deref()
-        .or(media.category_name.as_deref())
-        .unwrap_or("Library")
+pub(crate) fn media_folder_name(folder: &str) -> &str {
+    let trimmed = folder.trim().trim_end_matches(['/', '\\']).trim();
+    if let Some(last_part) = trimmed.rsplit(['/', '\\']).next() {
+        let part_trimmed = last_part.trim();
+        if !part_trimmed.is_empty() {
+            return part_trimmed;
+        }
+    }
+    if !trimmed.is_empty() {
+        trimmed
+    } else {
+        "Library"
+    }
 }
 
-fn format_duration(duration: Option<f64>) -> String {
+pub(crate) fn media_folder(media: &crate::domain::Media) -> &str {
+    if let Some(name) = media
+        .category_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return media_folder_name(name);
+    }
+    if let Some(path) = media
+        .category_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return media_folder_name(path);
+    }
+    "Library"
+}
+
+pub(crate) fn format_duration(duration: Option<f64>) -> String {
     let seconds = duration.unwrap_or_default().max(0.0) as u64;
     format!("{}:{:02}", seconds / 60, seconds % 60)
 }
@@ -1444,5 +1563,90 @@ mod tests {
         ] {
             assert!(format.reading_enabled(), "{format:?} decoder is disabled");
         }
+    }
+
+    #[test]
+    fn progress_and_duration_format_correctly() {
+        use super::kit::Progress;
+
+        assert_eq!(format_duration(Some(0.0)), "0:00");
+        assert_eq!(format_duration(Some(65.0)), "1:05");
+        assert_eq!(format_duration(Some(3600.0)), "60:00");
+        assert_eq!(format_duration(None), "0:00");
+
+        let _ = rsx! {
+            Progress { value: 50.0, max: 100.0 }
+        };
+    }
+
+    #[test]
+    fn category_name_truncates_without_wrapping() {
+        use super::views::truncate_category_name;
+
+        assert_eq!(truncate_category_name("Short Name", 0), "Short Name");
+        assert_eq!(
+            truncate_category_name("Electronic & Ambient Music", 0),
+            "Electronic & Ambien…"
+        );
+        assert_eq!(
+            truncate_category_name("Nested Category Long", 2),
+            "Nested Category…"
+        );
+    }
+
+    #[test]
+    fn media_folder_shows_leaf_parent_only() {
+        use crate::domain::{Media, MediaId};
+
+        assert_eq!(
+            super::media_folder_name("Music / Muse / Absolution"),
+            "Absolution"
+        );
+        assert_eq!(
+            super::media_folder_name("Shows / Season Two /"),
+            "Season Two"
+        );
+        assert_eq!(super::media_folder_name("SingleFolder"), "SingleFolder");
+        assert_eq!(super::media_folder_name(""), "Library");
+
+        let media_with_path = Media {
+            id: MediaId::new(1),
+            title: Some("Hysteria".to_string()),
+            artists: None,
+            description: None,
+            duration: None,
+            mime_type: Some("audio/flac".to_string()),
+            category_id: None,
+            category_name: None,
+            category_path: Some("Music / Muse / Absolution".to_string()),
+            artwork_version: None,
+            liked: false,
+            source_version: None,
+            created_at: None,
+        };
+        assert_eq!(super::media_folder(&media_with_path), "Absolution");
+
+        let media_with_both = Media {
+            category_name: Some("Absolution".to_string()),
+            ..media_with_path.clone()
+        };
+        assert_eq!(super::media_folder(&media_with_both), "Absolution");
+
+        let media_empty = Media {
+            id: MediaId::new(2),
+            title: None,
+            artists: None,
+            description: None,
+            duration: None,
+            mime_type: None,
+            category_id: None,
+            category_name: None,
+            category_path: None,
+            artwork_version: None,
+            liked: false,
+            source_version: None,
+            created_at: None,
+        };
+        assert_eq!(super::media_folder(&media_empty), "Library");
     }
 }

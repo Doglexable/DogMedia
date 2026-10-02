@@ -10,8 +10,9 @@ mod sidebar;
 pub(crate) use featured::Featured;
 pub(crate) use full_player::FullPlayer;
 pub(crate) use library::Library;
-pub(crate) use player_bar::PlayerBar;
+pub(crate) use player_bar::{PlayerBar, QualityPopover};
 pub(crate) use queue_panel::QueuePanel;
 pub(crate) use settings_dialog::SettingsDialog;
 pub(crate) use shell::Shell;
-pub(crate) use sidebar::Sidebar;
+#[allow(unused_imports)]
+pub(crate) use sidebar::{Sidebar, truncate_category_name};

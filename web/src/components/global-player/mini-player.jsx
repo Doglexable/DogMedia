@@ -9,6 +9,7 @@ import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { PlayerBar } from "./player-bar";
 import { formatDuration, getMediaFolderName } from "./player-utils";
+import { mediaViewTransitionName } from "../../utils/view-transitions";
 
 function VideoMiniPlayer({
   currentMedia,
@@ -56,6 +57,7 @@ function VideoMiniPlayer({
       {/* ── 16:9 Video Preview / Thumbnail ── */}
       <div
         className="video-mini-preview group/preview"
+        style={{ viewTransitionName: mediaViewTransitionName(currentMedia?.id) }}
         onClick={onOpenFull}
       >
         {thumbSrc && !thumbError ? (

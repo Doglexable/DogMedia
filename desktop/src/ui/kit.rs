@@ -22,10 +22,16 @@ pub enum IconName {
     Play,
     Previous,
     Refresh,
+    Repeat,
+    RepeatOne,
     Search,
     Settings,
+    Shuffle,
     Stop,
     Sun,
+    Volume,
+    VolumeLow,
+    VolumeMute,
 }
 
 #[component]
@@ -87,6 +93,19 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         IconName::Refresh => {
             rsx! { path { d: "M20 7h-5V2M4 17h5v5M19 12a7 7 0 0 0-12-5l-3 3M5 12a7 7 0 0 0 12 5l3-3" } }
         }
+        IconName::Repeat => rsx! {
+            path { d: "m17 2 4 4-4 4" }
+            path { d: "M3 11v-1a4 4 0 0 1 4-4h14" }
+            path { d: "m7 22-4-4 4-4" }
+            path { d: "M21 13v1a4 4 0 0 1-4 4H3" }
+        },
+        IconName::RepeatOne => rsx! {
+            path { d: "m17 2 4 4-4 4" }
+            path { d: "M3 11v-1a4 4 0 0 1 4-4h14" }
+            path { d: "m7 22-4-4 4-4" }
+            path { d: "M21 13v1a4 4 0 0 1-4 4H3" }
+            path { d: "M11 10h1v4" }
+        },
         IconName::Search => rsx! {
             circle { cx: "11", cy: "11", r: "7" }
             path { d: "m20 20-4-4" }
@@ -95,10 +114,30 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             circle { cx: "12", cy: "12", r: "3" }
             path { d: "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" }
         },
+        IconName::Shuffle => rsx! {
+            path { d: "M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.6-8.6c.8-1.1 2-1.7 3.3-1.7H22" }
+            path { d: "m18 2 4 4-4 4" }
+            path { d: "M2 6h1.4c1.3 0 2.5.6 3.3 1.7l2 2.6" }
+            path { d: "m14.7 14.7 1.6 2.1c.8 1.1 2 1.7 3.3 1.7H22" }
+            path { d: "m18 14 4 4-4 4" }
+        },
         IconName::Stop => rsx! { rect { x: "5", y: "5", width: "14", height: "14", rx: "2" } },
         IconName::Sun => rsx! {
             circle { cx: "12", cy: "12", r: "4" }
             path { d: "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" }
+        },
+        IconName::Volume => rsx! {
+            path { d: "M11 5 6 9H2v6h4l5 4V5Z" }
+            path { d: "M15.54 8.46a5 5 0 0 1 0 7.07" }
+            path { d: "M19.07 4.93a10 10 0 0 1 0 14.14" }
+        },
+        IconName::VolumeLow => rsx! {
+            path { d: "M11 5 6 9H2v6h4l5 4V5Z" }
+            path { d: "M15.54 8.46a5 5 0 0 1 0 7.07" }
+        },
+        IconName::VolumeMute => rsx! {
+            path { d: "M11 5 6 9H2v6h4l5 4V5Z" }
+            path { d: "m22 9-6 6M16 9l6 6" }
         },
     };
 
@@ -319,13 +358,225 @@ pub fn Input(
 }
 
 #[component]
-pub fn Select(value: String, onchange: EventHandler<FormEvent>, children: Element) -> Element {
+pub fn Select(
+    value: String,
+    onchange: EventHandler<FormEvent>,
+    #[props(default)] class: String,
+    children: Element,
+) -> Element {
+    let class_name = if class.is_empty() {
+        "select".to_owned()
+    } else {
+        format!("select {class}")
+    };
     rsx! {
         select {
-            class: "select",
+            class: "{class_name}",
             value,
             onchange: move |event| onchange.call(event),
             {children}
         }
+    }
+}
+
+#[component]
+pub fn Progress(
+    #[props(default = 0.0)] value: f64,
+    #[props(default = 100.0)] max: f64,
+    #[props(default = String::new())] class: String,
+) -> Element {
+    let max = max.max(0.001);
+    let pct = (value / max * 100.0).clamp(0.0, 100.0);
+    let style = format!("width: {pct:.2}%;");
+
+    rsx! {
+        div {
+            "data-name": "Progress",
+            role: "progressbar",
+            "aria-valuemin": "0",
+            "aria-valuemax": "{max}",
+            "aria-valuenow": "{value}",
+            class: "progress {class}",
+            div {
+                class: "progress-fill",
+                style: "{style}",
+            }
+        }
+    }
+}
+
+#[component]
+pub fn MusicProgress(
+    position: f64,
+    duration: f64,
+    onseek: EventHandler<f64>,
+    #[props(default = String::new())] class: String,
+) -> Element {
+    let max = duration.max(1.0);
+    let current = position.min(max);
+    let pct = (current / max * 100.0).clamp(0.0, 100.0);
+
+    rsx! {
+        div { class: "music-progress-wrap {class}",
+            span { class: "progress-time", "{super::format_duration(Some(position))}" }
+            div { class: "music-progress-track-wrap",
+                Progress { value: current, max }
+                div {
+                    class: "progress-thumb",
+                    style: "left: {pct:.2}%;",
+                }
+                input {
+                    r#type: "range",
+                    class: "progress-slider-overlay",
+                    min: "0",
+                    max: "{max}",
+                    step: "0.1",
+                    value: "{current}",
+                    "aria-label": "Playback position",
+                    oninput: move |event| if let Ok(pos) = event.value().parse() { onseek.call(pos); }
+                }
+            }
+            span { class: "progress-time progress-duration", "{super::format_duration(Some(duration))}" }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum PopoverAlign {
+    #[allow(dead_code)]
+    Start,
+    #[default]
+    End,
+    #[allow(dead_code)]
+    Center,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum PopoverSide {
+    #[default]
+    Top,
+    #[allow(dead_code)]
+    Bottom,
+    #[allow(dead_code)]
+    Left,
+    #[allow(dead_code)]
+    Right,
+}
+
+#[derive(Clone, Copy)]
+pub struct PopoverContext {
+    pub open: Signal<bool>,
+    pub align: PopoverAlign,
+    pub side: PopoverSide,
+}
+
+#[component]
+pub fn Popover(
+    #[props(default = PopoverAlign::End)] align: PopoverAlign,
+    #[props(default = PopoverSide::Top)] side: PopoverSide,
+    #[props(default = String::new())] class: String,
+    children: Element,
+) -> Element {
+    let open = use_signal(|| false);
+    provide_context(PopoverContext { open, align, side });
+
+    rsx! {
+        div {
+            "data-name": "Popover",
+            class: "popover-root {class}",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn PopoverTrigger(
+    #[props(default = String::new())] class: String,
+    #[props(default = false)] disabled: bool,
+    #[props(default = String::new())] aria_label: String,
+    children: Element,
+) -> Element {
+    let mut ctx = use_context::<PopoverContext>();
+    let is_open = *ctx.open.read();
+
+    rsx! {
+        button {
+            "data-name": "PopoverTrigger",
+            r#type: "button",
+            class: "popover-trigger {class}",
+            disabled,
+            "aria-expanded": "{is_open}",
+            "aria-haspopup": "dialog",
+            "aria-label": if !aria_label.is_empty() { Some(aria_label) } else { None },
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                let current = *ctx.open.read();
+                ctx.open.set(!current);
+            },
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn PopoverContent(
+    #[props(default = String::new())] class: String,
+    children: Element,
+) -> Element {
+    let ctx = use_context::<PopoverContext>();
+    let is_open = *ctx.open.read();
+
+    if !is_open {
+        return rsx! {};
+    }
+
+    let side_class = match ctx.side {
+        PopoverSide::Top => "side-top",
+        PopoverSide::Bottom => "side-bottom",
+        PopoverSide::Left => "side-left",
+        PopoverSide::Right => "side-right",
+    };
+
+    let align_class = match ctx.align {
+        PopoverAlign::Start => "align-start",
+        PopoverAlign::End => "align-end",
+        PopoverAlign::Center => "align-center",
+    };
+
+    rsx! {
+        div {
+            class: "popover-backdrop",
+            onclick: {
+                let mut open = ctx.open;
+                move |event: MouseEvent| {
+                    event.stop_propagation();
+                    open.set(false);
+                }
+            },
+        }
+        div {
+            "data-name": "PopoverContent",
+            class: "popover-content {side_class} {align_class} {class}",
+            role: "dialog",
+            onclick: move |event: MouseEvent| event.stop_propagation(),
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn PopoverTitle(#[props(default = String::new())] class: String, children: Element) -> Element {
+    rsx! {
+        h4 { "data-name": "PopoverTitle", class: "popover-title {class}", {children} }
+    }
+}
+
+#[component]
+pub fn PopoverDescription(
+    #[props(default = String::new())] class: String,
+    children: Element,
+) -> Element {
+    rsx! {
+        p { "data-name": "PopoverDescription", class: "popover-description {class}", {children} }
     }
 }

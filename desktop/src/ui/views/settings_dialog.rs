@@ -5,6 +5,14 @@ use super::super::*;
 #[component]
 pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
     let snapshot = app.read().clone();
+    let url_changed = snapshot.settings_url.trim().trim_end_matches('/')
+        != snapshot.settings.server_url.as_str().trim_end_matches('/');
+    let save_label = if url_changed || !snapshot.settings.configured {
+        "Save and connect".to_owned()
+    } else {
+        "Save".to_owned()
+    };
+
     rsx! {
         div { class: "dialog-backdrop",
             section { class: "settings-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "settings-title",
@@ -40,11 +48,11 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                             small { "Enable only for a server you control on the local network." }
                         }
                     }
-                    label { class: "field",
+                    div { class: "field",
                         span { "Appearance" }
                         ThemeToggle {
                             value: snapshot.settings.color_scheme,
-                            onchange: move |scheme| app.write().settings.color_scheme = scheme
+                            onchange: move |scheme| set_color_scheme(app, scheme)
                         }
                         small { "Use your desktop preference or choose a fixed theme." }
                     }
@@ -56,7 +64,7 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                         disabled: !snapshot.settings.configured,
                         onclick: move |_| app.write().settings_open = false
                     }
-                    Button { label: "Save and connect".to_owned(), class: "primary".to_owned(), onclick: move |_| save_settings(app) }
+                    Button { label: save_label, class: "primary".to_owned(), onclick: move |_| save_settings(app) }
                 }
             }
         }

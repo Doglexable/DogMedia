@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons/faEllipsis";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
-import { formatDuration } from "../global-player/player-utils";
+import { formatDuration, getMediaFolderName } from "../global-player/player-utils";
 
 function getMediaLabel(mime) {
   if (typeof mime !== "string") return "File";
@@ -37,7 +37,8 @@ function formatAddedDate(value) {
 
 function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
-  const category = item.category_path || item.category_name || "Uncategorized";
+  const fullFolder = item.category_path || item.category_name || "Uncategorized";
+  const folderName = (item.category_path || item.category_name) ? getMediaFolderName(item) : fullFolder;
   const isAudio = item.mime_type?.startsWith("audio/");
 
   useEffect(() => {
@@ -96,7 +97,7 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
           </span>
         </span>
 
-        <span className="media-track-folder" title={category}>{category}</span>
+        <span className="media-track-folder" title={fullFolder}>{folderName}</span>
         <span className="media-track-added">{formatAddedDate(item.created_at)}</span>
         <span className="media-track-duration">{item.duration ? formatDuration(item.duration) : "-"}</span>
       </button>

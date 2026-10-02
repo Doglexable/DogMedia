@@ -39,15 +39,27 @@ function LoopIcon({ mode }) {
   );
 }
 
+export function ShuffleButton({ active, onClick }) {
+  return (
+    <button type="button" className={`player-ghost-button ${active ? "text-[var(--primary)]" : "text-muted"}`} aria-label="Shuffle" aria-pressed={active} onClick={onClick} title="Shuffle">
+      <FontAwesomeIcon icon={faShuffle} />
+    </button>
+  );
+}
+
+export function LoopButton({ mode, onClick }) {
+  return (
+    <button type="button" className={`player-ghost-button ${mode !== "none" ? "text-[var(--primary)]" : "text-muted"}`} aria-label={getLoopButtonTitle(mode)} aria-pressed={mode !== "none"} onClick={onClick} title={getLoopButtonTitle(mode)}>
+      <LoopIcon mode={mode} />
+    </button>
+  );
+}
+
 export function PlayerModeControls({ loopMode, queueOpen, shuffleEnabled, onOpenQueue, onToggleLoop, onToggleShuffle }) {
   return (
     <>
-      <button type="button" className={`player-ghost-button ${shuffleEnabled ? "text-[var(--primary)]" : "text-muted"}`} aria-label="Shuffle" aria-pressed={shuffleEnabled} onClick={onToggleShuffle} title="Shuffle">
-        <FontAwesomeIcon icon={faShuffle} />
-      </button>
-      <button type="button" className={`player-ghost-button ${loopMode !== "none" ? "text-[var(--primary)]" : "text-muted"}`} aria-label={getLoopButtonTitle(loopMode)} aria-pressed={loopMode !== "none"} onClick={onToggleLoop} title={getLoopButtonTitle(loopMode)}>
-        <LoopIcon mode={loopMode} />
-      </button>
+      <ShuffleButton active={shuffleEnabled} onClick={onToggleShuffle} />
+      <LoopButton mode={loopMode} onClick={onToggleLoop} />
       {onOpenQueue && (
         <button type="button" className={`player-ghost-button ${queueOpen ? "text-[var(--primary)]" : "text-muted"}`} aria-label="Queue" aria-pressed={queueOpen} onClick={onOpenQueue} title="Queue">
           <FontAwesomeIcon icon={faList} />

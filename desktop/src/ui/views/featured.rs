@@ -11,11 +11,12 @@ pub(crate) fn Featured(
 ) -> Element {
     let snapshot = app.read().clone();
     let source = artwork_url(&snapshot, &media);
-    let category = media
+    let full_category = media
         .category_path
         .as_deref()
         .or(media.category_name.as_deref())
         .unwrap_or("Library");
+    let category = media_folder(&media);
     let description = media
         .description
         .as_deref()
@@ -34,7 +35,7 @@ pub(crate) fn Featured(
                 p { class: "eyebrow", "Featured signal · {media_kind(&media)}" }
                 h1 { "{media.title()}" }
                 div { class: "featured-meta",
-                    span { "{category}" }
+                    span { title: "{full_category}", "{category}" }
                     span { "{format_duration(media.duration)}" }
                 }
                 if let Some(description) = description {

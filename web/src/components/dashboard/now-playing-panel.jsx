@@ -31,6 +31,7 @@ export function NowPlayingFloatingPill({ count = 0, firstSession, onClick }) {
     <button
       type="button"
       className="now-playing-floating-pill"
+      style={{ viewTransitionName: "now-playing-panel" }}
       onClick={onClick}
       aria-label={`Open now playing panel: ${count} active session${count === 1 ? "" : "s"}`}
       title="View active playback sessions on this server"
@@ -93,6 +94,7 @@ export function NowPlayingPanel({ sessions = [], onClose }) {
     <div
       ref={panelRef}
       className="now-playing-floating-panel"
+      style={{ viewTransitionName: "now-playing-panel" }}
       role="region"
       aria-label="Active playback sessions on server"
     >

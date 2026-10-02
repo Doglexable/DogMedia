@@ -366,7 +366,10 @@ export function AudioShareDialog({
         aria-label="Close share dialog"
         onClick={onClose}
       />
-      <section className="lyrics-share-dialog audio-share-dialog">
+      <section
+        className="lyrics-share-dialog audio-share-dialog"
+        style={{ viewTransitionName: "share-media-dialog" }}
+      >
         {/* Unified Header */}
         <header className="lyrics-share-dialog-header audio-share-header">
           <div className="audio-share-header-meta">

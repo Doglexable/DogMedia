@@ -35,8 +35,12 @@ export function getMediaFolder(media) {
 }
 
 export function getMediaFolderName(media) {
+  if (typeof media?.category_name === "string" && media.category_name.trim()) {
+    const parts = media.category_name.split(/[/\\]+/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 0) return parts.at(-1);
+  }
   const folder = getMediaFolder(media);
-  const parts = folder.split("/").map((part) => part.trim()).filter(Boolean);
+  const parts = folder.split(/[/\\]+/).map((part) => part.trim()).filter(Boolean);
   return parts.at(-1) || folder;
 }
 

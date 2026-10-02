@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { runThemeViewTransition } from "../utils/view-transitions";
 
 const THEME_MODES = ["system", "light", "dark"];
 
@@ -36,13 +37,17 @@ export function ThemeToggle({ style, className }) {
     return () => media.removeEventListener("change", syncSystemTheme);
   }, []);
 
-  const toggle = useCallback(() => {
-    setMode((current) => {
-      const next = THEME_MODES[(THEME_MODES.indexOf(current) + 1) % THEME_MODES.length];
+  const toggle = useCallback((event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const next = THEME_MODES[(THEME_MODES.indexOf(mode) + 1) % THEME_MODES.length];
+    runThemeViewTransition(() => {
       applyThemeMode(next);
-      return next;
+      setMode(next);
+    }, {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
     });
-  }, []);
+  }, [mode]);
 
   return (
     <button

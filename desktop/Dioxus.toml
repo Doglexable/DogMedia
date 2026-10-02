@@ -1,3 +1,10 @@
 [application]
 name = "Dogmedia"
 default_platform = "desktop"
+
+[bundle]
+identifier = "com.dogmedia.Desktop"
+publisher = "Dogmedia"
+icon = ["resources/icons/com.dogmedia.Desktop.png"]
+short_description = "Private media vault desktop player"
+long_description = "Browse and play media from a Dogmedia server with a native interface and GStreamer playback."

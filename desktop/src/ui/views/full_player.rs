@@ -1,6 +1,7 @@
 use dioxus_native::prelude::*;
 
 use super::super::*;
+use super::QualityPopover;
 
 #[component]
 pub(crate) fn FullPlayer(
@@ -37,6 +38,17 @@ pub(crate) fn FullPlayer(
         "♪"
     };
 
+    let repeat_icon = match playback.repeat {
+        RepeatMode::One => IconName::RepeatOne,
+        _ => IconName::Repeat,
+    };
+    let repeat_active = playback.repeat != RepeatMode::None;
+    let repeat_title = match playback.repeat {
+        RepeatMode::None => "Repeat: off".to_owned(),
+        RepeatMode::Queue => "Repeat: all".to_owned(),
+        RepeatMode::One => "Repeat: one".to_owned(),
+    };
+
     rsx! {
         section { class: "full-player", "aria-label": "Full player",
             IconButton {
@@ -66,25 +78,30 @@ pub(crate) fn FullPlayer(
                         }
                     }
                     div { class: "full-meta",
-                        p { "{media_folder(media)}" }
+                        p {
+                            title: "{media.category_path.as_deref().or(media.category_name.as_deref()).unwrap_or(\"Library\")}",
+                            "{media_folder(media)}"
+                        }
                         h1 { "{media.title()}" }
                         span { "{media.subtitle()}" }
                     }
                     if !media.is_photo() {
-                        div { class: "full-progress",
-                            input {
-                                r#type: "range",
-                                min: "0",
-                                max: "{playback.duration.max(1.0)}",
-                                step: "0.1",
-                                value: "{playback.position.min(playback.duration.max(1.0))}",
-                                "aria-label": "Playback position",
-                                oninput: move |event| if let Ok(position) = event.value().parse() { seek(app, engine, position); }
-                            }
-                            div { span { "{format_duration(Some(playback.position))}" } span { "{format_duration(Some(playback.duration))}" } }
+                        MusicProgress {
+                            position: playback.position,
+                            duration: playback.duration,
+                            class: "full-music-progress".to_owned(),
+                            onseek: move |position| seek(app, engine, position),
                         }
                     }
                     div { class: "full-controls",
+                        if !media.is_photo() {
+                            IconButton {
+                                label: if playback.shuffle { "Shuffle: on".to_owned() } else { "Shuffle: off".to_owned() },
+                                icon: IconName::Shuffle,
+                                class: if playback.shuffle { "transport active".to_owned() } else { "transport".to_owned() },
+                                onclick: move |_| toggle_shuffle(app)
+                            }
+                        }
                         IconButton { label: "Previous".to_owned(), icon: IconName::Previous, class: "transport".to_owned(), onclick: move |_| navigate_queue(app, engine, false, false) }
                         if !media.is_photo() {
                             IconButton {
@@ -95,6 +112,14 @@ pub(crate) fn FullPlayer(
                             }
                         }
                         IconButton { label: "Next".to_owned(), icon: IconName::Next, class: "transport".to_owned(), onclick: move |_| navigate_queue(app, engine, true, false) }
+                        if !media.is_photo() {
+                            IconButton {
+                                label: repeat_title,
+                                icon: repeat_icon,
+                                class: if repeat_active { "transport active".to_owned() } else { "transport".to_owned() },
+                                onclick: move |_| toggle_repeat(app)
+                            }
+                        }
                     }
                     div { class: "full-tools",
                         if media.is_audio() {
@@ -106,10 +131,12 @@ pub(crate) fn FullPlayer(
                             }
                         }
                         if !media.is_photo() {
-                            Select {
-                                value: "{playback.quality.as_str()}",
-                                onchange: move |event: FormEvent| if let Ok(quality) = event.value().parse() { change_quality(app, engine, quality); },
-                                for quality in Quality::ALL { option { value: "{quality.as_str()}", "{quality}" } }
+                            QualityPopover {
+                                app,
+                                engine,
+                                quality: playback.quality,
+                                is_video: media.is_video(),
+                                side: PopoverSide::Top,
                             }
                         }
                         IconButton {

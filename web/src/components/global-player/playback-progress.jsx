@@ -8,7 +8,7 @@ export function PlaybackProgress({ currentMedia, duration, isImage, position, on
   const max = Math.max(mediaDuration, safePosition, 1);
 
   return (
-    <div className="grid w-full grid-cols-[38px_minmax(80px,1fr)_38px] items-center gap-2 text-[11px] font-medium tabular-nums text-muted">
+    <div className="player-bar-progress">
       <span className="text-right">{formatDuration(safePosition)}</span>
       <input
         type="range"

@@ -103,7 +103,7 @@ describe("AmbientArtwork & AlbumArt LCP optimization", () => {
     );
 
     // Must match outer container hierarchy
-    expect(markup).toContain('class="order-1 flex min-w-0 items-center gap-3"');
+    expect(markup).toContain('class="web-mini-identity-wrap"');
     expect(markup).toContain('class="ambient-artwork-button');
     expect(markup).toContain('class="ambient-artwork ambient-artwork--player-bar');
 

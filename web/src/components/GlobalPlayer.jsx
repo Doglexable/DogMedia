@@ -28,6 +28,7 @@ import {
 } from "./global-player/player-utils";
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
 import { useEqualizer } from "./global-player/use-equalizer";
+import { runViewTransition } from "../utils/view-transitions";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
@@ -1032,7 +1033,7 @@ export function GlobalPlayerProvider({ children }) {
 
   const openFullPlayer = useCallback(() => {
     if (!currentMedia) return;
-    setPlayerExpanded(true);
+    runViewTransition(() => setPlayerExpanded(true), { className: "player-expand-transition" });
   }, [currentMedia]);
 
   const closeFullPlayer = useCallback(() => {
@@ -1048,8 +1049,10 @@ export function GlobalPlayerProvider({ children }) {
       }
       setPaused(true);
     }
-    setPlayerExpanded(false);
-    if (isRouteFullPlayer) navigate("/");
+    runViewTransition(() => {
+      setPlayerExpanded(false);
+      if (isRouteFullPlayer) navigate("/");
+    }, { className: "player-view-transition" });
   }, [isAudio, isRouteFullPlayer, navigate, position]);
 
   const prevIsRouteFullPlayerRef = useRef(isRouteFullPlayer);

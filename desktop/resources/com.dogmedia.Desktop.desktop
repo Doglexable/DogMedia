@@ -8,4 +8,5 @@ Terminal=false
 Categories=AudioVideo;Audio;Video;Player;
 Keywords=media;music;audio;video;streaming;
 StartupNotify=true
+StartupWMClass=com.dogmedia.Desktop
 DBusActivatable=false

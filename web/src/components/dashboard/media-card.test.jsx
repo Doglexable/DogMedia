@@ -31,6 +31,7 @@ describe("dashboard animated media list", () => {
     expect(markup).toContain("Night Drive");
     expect(markup).toContain("The Satellites");
     expect(markup).toContain("Music / Favorites");
+    expect(markup).toContain(">Favorites<");
     expect(markup).toContain("01:05:00");
     expect(markup).toContain('aria-label="Play Night Drive"');
     expect(markup).toContain('aria-haspopup="menu"');

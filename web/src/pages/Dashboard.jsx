@@ -17,10 +17,11 @@ import {
   NowPlayingFloatingPill,
   NowPlayingPanel,
 } from "../components/dashboard/now-playing-panel";
-import { formatDuration } from "../components/global-player/player-utils";
+import { formatDuration, getMediaFolderName } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
 import { shouldShowBrowse } from "./dashboard-utils";
+import { mediaViewTransitionName, runViewTransition } from "../utils/view-transitions";
 
 const NOW_PLAYING_POLL_MS = 10000;
 
@@ -80,7 +81,9 @@ function getMimeMeta(mime) {
 }
 
 function mediaCategory(item) {
-  return item?.category_path || item?.category_name || "Library";
+  return (item?.category_path || item?.category_name)
+    ? getMediaFolderName(item)
+    : "Library";
 }
 
 function EmptyLibraryMark() {
@@ -104,7 +107,7 @@ function EmptySearchMark() {
   );
 }
 
-function MediaCover({ circular = false, item, priority = false, size = "regular" }) {
+function MediaCover({ circular = false, item, priority = false, size = "regular", transitionName }) {
   const [failed, setFailed] = useState(false);
   const meta = getMimeMeta(item?.mime_type);
   const isHero = size === "hero" || priority;
@@ -113,7 +116,10 @@ function MediaCover({ circular = false, item, priority = false, size = "regular"
   useEffect(() => setFailed(false), [thumbnailSrc]);
 
   return (
-    <span className={`library-cover library-cover--${size}${circular ? " library-cover--circle" : ""}`}>
+    <span
+      className={`library-cover library-cover--${size}${circular ? " library-cover--circle" : ""}`}
+      style={{ viewTransitionName: transitionName }}
+    >
       {!failed && item?.id ? (
         <img
           src={thumbnailSrc}
@@ -206,7 +212,7 @@ function openCardContextMenu(event, setMenu) {
   });
 }
 
-function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
+function FeaturedPanel({ isActive, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -226,7 +232,7 @@ function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext
             <p className="library-eyebrow">Featured signal · {meta.label}</p>
             <h1 id={`featured-media-${item.id}`}>{item.title}</h1>
             <p className="library-featured-meta">
-              <span>{mediaCategory(item)}</span>
+              <span title={item.category_path || item.category_name || "Library"}>{mediaCategory(item)}</span>
               {item.duration > 0 && <span>{formatDuration(item.duration)}</span>}
             </p>
             {description && <p className="library-featured-description">{description}</p>}
@@ -247,7 +253,12 @@ function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext
           </div>
           <div className="library-featured-art">
             <div className="library-signal-disc" aria-hidden="true" />
-            <MediaCover item={item} size="hero" priority />
+            <MediaCover
+              item={item}
+              size="hero"
+              priority
+              transitionName={isActive ? "none" : mediaViewTransitionName(item.id)}
+            />
           </div>
         </section>
       </SpotlightCard>
@@ -365,6 +376,8 @@ export default function Dashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [dashboardSummary, setDashboardSummary] = useState(null);
   const browseGenerationRef = useRef(0);
+  const committedBrowseScopeRef = useRef(null);
+  const hasLoadedMediaRef = useRef(false);
   const loadingMoreRef = useRef(false);
 
   const libraryView = searchParams.get("view") === "liked" ? "liked" : "all";
@@ -385,10 +398,13 @@ export default function Dashboard() {
   useEffect(() => {
     const controller = new AbortController();
     const generation = browseGenerationRef.current + 1;
+    const browseScope = `${libraryView}:${selectedCategory || "all"}`;
     browseGenerationRef.current = generation;
-    setMediaLoading(true);
-    setLoaded(false);
-    setMedia([]);
+    if (!hasLoadedMediaRef.current) {
+      setMediaLoading(true);
+      setLoaded(false);
+      setMedia([]);
+    }
     setNextCursor(null);
     const params = new URLSearchParams({ limit: "50", view: libraryView });
     if (selectedCategory) params.set("category_id", selectedCategory);
@@ -401,17 +417,29 @@ export default function Dashboard() {
       })
       .then((data) => {
         if (browseGenerationRef.current !== generation) return;
-        setMedia(Array.isArray(data.items) ? data.items : []);
-        setNextCursor(data.nextCursor || null);
-      })
-      .catch((error) => {
-        if (error.name !== "AbortError" && browseGenerationRef.current === generation) setNotice("Could not load media.");
-      })
-      .finally(() => {
-        if (browseGenerationRef.current === generation) {
+        const isCategoryChange = committedBrowseScopeRef.current !== null
+          && committedBrowseScopeRef.current !== browseScope;
+        runViewTransition(() => {
+          setMedia(Array.isArray(data.items) ? data.items : []);
+          setNextCursor(data.nextCursor || null);
           setLoaded(true);
           setMediaLoading(false);
-        }
+        }, isCategoryChange ? { className: "category-view-transition" } : undefined);
+        committedBrowseScopeRef.current = browseScope;
+        hasLoadedMediaRef.current = true;
+      })
+      .catch((error) => {
+        if (error.name === "AbortError" || browseGenerationRef.current !== generation) return;
+        const isCategoryChange = committedBrowseScopeRef.current !== null
+          && committedBrowseScopeRef.current !== browseScope;
+        runViewTransition(() => {
+          setMedia([]);
+          setLoaded(true);
+          setMediaLoading(false);
+          setNotice("Could not load media.");
+        }, isCategoryChange ? { className: "category-view-transition" } : undefined);
+        committedBrowseScopeRef.current = browseScope;
+        hasLoadedMediaRef.current = true;
       });
     return () => controller.abort();
   }, [debouncedSearch, selectedCategory, libraryView, mediaType]);
@@ -523,11 +551,13 @@ export default function Dashboard() {
   });
 
   const playMedia = useCallback((item) => {
-    playMediaAction?.(
-      item,
-      libraryView === "liked" ? "liked" : selectedCategory,
-      libraryView === "liked" ? { context: "liked" } : {}
-    );
+    runViewTransition(() => {
+      playMediaAction?.(
+        item,
+        libraryView === "liked" ? "liked" : selectedCategory,
+        libraryView === "liked" ? { context: "liked" } : {}
+      );
+    }, { className: "player-view-transition" });
   }, [libraryView, playMediaAction, selectedCategory]);
 
   return (
@@ -636,6 +666,7 @@ export default function Dashboard() {
             {!normalizedSearch && (
               <div className="vault-reveal">
                 <FeaturedPanel
+                  isActive={Number(currentMediaId) === Number(featuredMedia?.id)}
                   item={featuredMedia}
                   isLiked={player?.isLiked?.(featuredMedia?.id) || false}
                   onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
@@ -687,7 +718,10 @@ export default function Dashboard() {
         <NowPlayingFloatingPill
           count={nowPlaying.length}
           firstSession={nowPlaying[0]}
-          onClick={() => setNowPlayingOpen(true)}
+          onClick={() => runViewTransition(
+            () => setNowPlayingOpen(true),
+            { className: "now-playing-view-transition" },
+          )}
         />
       )}
 
@@ -695,7 +729,10 @@ export default function Dashboard() {
       {tier >= 100 && nowPlayingOpen && !player?.isFullPlayer && (
         <NowPlayingPanel
           sessions={nowPlaying}
-          onClose={() => setNowPlayingOpen(false)}
+          onClose={() => runViewTransition(
+            () => setNowPlayingOpen(false),
+            { className: "now-playing-view-transition" },
+          )}
         />
       )}
 

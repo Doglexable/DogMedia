@@ -49,6 +49,10 @@ impl ServerUrl {
         &self.0
     }
 
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
     /// Join a typed API path onto the origin, preserving a sub-path prefix.
     pub fn join(&self, path: &str) -> Result<Url, ServerUrlError> {
         self.0

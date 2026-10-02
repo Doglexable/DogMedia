@@ -23,6 +23,26 @@ import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getLoopButtonTitle, getMediaFolderName } from "./player-utils";
+import { mediaViewTransitionName, runViewTransition } from "../../utils/view-transitions";
+
+const PLAYER_LYRICS_VISIBLE_KEY = "pfs:player-lyrics-visible";
+
+function readStoredLyricsVisibility() {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(PLAYER_LYRICS_VISIBLE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function storeLyricsVisibility(visible) {
+  try {
+    window.localStorage.setItem(PLAYER_LYRICS_VISIBLE_KEY, String(visible));
+  } catch {
+    // Playback controls should keep working when storage is unavailable.
+  }
+}
 
 function getVolumeIcon(volume, muted) {
   if (muted || volume <= 0) return faVolumeXmark;
@@ -56,7 +76,7 @@ export function FullPlayer({
   const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
   const [shareOpen, setShareOpen] = useState(false);
   const [showLyricsMobile, setShowLyricsMobile] = useState(false);
-  const [showLyricsDesktop, setShowLyricsDesktop] = useState(true);
+  const [showLyricsDesktop, setShowLyricsDesktop] = useState(readStoredLyricsVisibility);
   const [isSingleColumn, setIsSingleColumn] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia("(max-width: 899px)").matches;
@@ -72,12 +92,22 @@ export function FullPlayer({
 
   const hasLyrics = Boolean(lyrics?.segments?.length > 0 || lyricsLoading);
   const lyricsActive = isSingleColumn ? showLyricsMobile : showLyricsDesktop;
+  const openShareDialog = () => runViewTransition(
+    () => setShareOpen(true),
+    { className: "modal-view-transition" },
+  );
+  const closeShareDialog = () => runViewTransition(
+    () => setShareOpen(false),
+    { className: "modal-view-transition" },
+  );
 
   const onToggleLyrics = () => {
     if (isSingleColumn) {
       setShowLyricsMobile((prev) => !prev);
     } else {
-      setShowLyricsDesktop((prev) => !prev);
+      const nextVisible = !showLyricsDesktop;
+      setShowLyricsDesktop(nextVisible);
+      storeLyricsVisibility(nextVisible);
     }
   };
 
@@ -202,6 +232,7 @@ export function FullPlayer({
                       src={effectiveArtworkSrc}
                       alt={currentMedia.title}
                       className="fullscreen-player-artwork"
+                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id) }}
                       draggable={false}
                       onContextMenu={onPreventMenu}
                       onError={onThumbError}
@@ -211,7 +242,10 @@ export function FullPlayer({
                       }}
                     />
                   ) : (
-                    <div className="fullscreen-player-artwork fullscreen-player-artwork--fallback">
+                    <div
+                      className="fullscreen-player-artwork fullscreen-player-artwork--fallback"
+                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id) }}
+                    >
                       <FontAwesomeIcon icon={meta.icon} />
                     </div>
                   )}
@@ -273,10 +307,11 @@ export function FullPlayer({
               <button
                 type="button"
                 className={shareOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
+                style={{ viewTransitionName: shareOpen ? "none" : "share-media-dialog" }}
                 aria-label="Share music clip"
                 aria-pressed={shareOpen}
                 title="Share track (lyric card & clip)"
-                onClick={() => setShareOpen(true)}
+                onClick={openShareDialog}
               >
                 <FontAwesomeIcon icon={faShareNodes} />
               </button>
@@ -404,7 +439,7 @@ export function FullPlayer({
             initialTab="auto"
             lyrics={lyrics}
             lyricsLoading={lyricsLoading}
-            onClose={() => setShareOpen(false)}
+            onClose={closeShareDialog}
           />
         )}
       </div>
@@ -492,6 +527,7 @@ export function FullPlayer({
             <img
               src={streamSrc}
               alt={currentMedia.title}
+              style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id) }}
               onContextMenu={onPreventMenu}
               draggable={false}
               className="full-player-image"

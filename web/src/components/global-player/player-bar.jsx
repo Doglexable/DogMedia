@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faExpand } from "@fortawesome/free-solid-svg-icons/faExpand";
+import { faStop } from "@fortawesome/free-solid-svg-icons/faStop";
 import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
-import { PlayerModeControls, QualityControl, QueueButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
+import { LoopButton, QualityControl, QueueButton, ShuffleButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
 import { TrackInfo } from "./track-info";
 import { getMediaFolderName } from "./player-utils";
+import { mediaViewTransitionName } from "../../utils/view-transitions";
 
 export function PlayerBar({
   currentMedia, duration, hasNext, hasPrev, isImage, liked, loopMode, onAdvance,
@@ -13,7 +16,7 @@ export function PlayerBar({
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
   shuffleEnabled, sleepTimerRemaining, sleepTimerMode, hasPlaylist, streamSrc, thumbSrc, volume, onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
-  isMini = false,
+  isMini = false, onClose,
 }) {
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -26,43 +29,46 @@ export function PlayerBar({
   const isAudio = Boolean(typeof currentMedia?.mime_type === "string" && currentMedia.mime_type.startsWith("audio/"));
   const artSrc = isImage ? streamSrc : thumbSrc;
   const album = getMediaFolderName(currentMedia);
-  const sectionCols = isMini
-    ? "sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5 xl:grid-cols-[minmax(220px,1fr)_minmax(360px,1.5fr)_minmax(220px,1fr)] xl:gap-6"
-    : "sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5 lg:grid-cols-[minmax(220px,1fr)_minmax(360px,1.5fr)_minmax(220px,1fr)] lg:gap-6";
-
-  const middleOrder = isMini
-    ? "order-2 flex flex-col items-center gap-2 sm:order-3 sm:col-span-2 xl:order-2 xl:col-span-1"
-    : "order-2 flex flex-col items-center gap-2 sm:order-3 sm:col-span-2 lg:order-2 lg:col-span-1";
-
-  const rightOrder = isMini
-    ? "order-3 flex items-center justify-center gap-1 sm:order-2 sm:justify-end xl:order-3"
-    : "order-3 flex items-center justify-center gap-1 sm:order-2 sm:justify-end lg:order-3";
-
   return (
     <section
       aria-label="Media player"
       onContextMenu={(event) => event.preventDefault()}
-      className={`themed-player-bar fixed inset-x-0 bottom-0 z-[180] grid min-h-[var(--player-height)] grid-cols-1 items-center gap-3 border-t border-card-border bg-card px-4 py-3 text-content shadow-[0_-18px_60px_rgba(0,0,0,0.22)] backdrop-blur-2xl ${sectionCols}`}
+      className={`themed-player-bar web-mini-player${isMini ? " web-mini-player--compact" : ""}`}
     >
-      <div className="order-1 flex min-w-0 items-center gap-3">
+      <div className="web-mini-identity-wrap">
         <AlbumArt
           src={artSrc}
           alt={currentMedia?.title}
           onClick={onOpenFull}
           priority
+          transitionName={mediaViewTransitionName(currentMedia?.id)}
         />
-        <TrackInfo
-          album={album}
-          artists={currentMedia?.artists || currentMedia?.artist}
-          currentMedia={currentMedia}
-          media={currentMedia}
-          onOpenFull={onOpenFull}
-          title={currentMedia?.title}
-        />
+        <button type="button" className="web-mini-copy-button" onClick={onOpenFull} title="Open full player">
+          <TrackInfo
+            album={album}
+            artists={currentMedia?.artists || currentMedia?.artist}
+            currentMedia={currentMedia}
+            media={currentMedia}
+            title={currentMedia?.title}
+          />
+        </button>
+        {isAudio && (
+          <button
+            type="button"
+            aria-label={liked ? "Remove from favorites" : "Add to favorites"}
+            aria-pressed={liked}
+            onClick={onToggleLike}
+            className={`player-ghost-button web-mini-favorite ${liked ? "text-[var(--primary)]" : "text-muted"}`}
+            title={liked ? "Remove from favorites" : "Add to favorites"}
+          >
+            <FontAwesomeIcon icon={faBookmark} className={`transition-transform duration-200 ${liked ? "scale-110" : "scale-100"}`} />
+          </button>
+        )}
       </div>
 
-      <div className={middleOrder}>
-        <div className="flex items-center gap-3">
+      <div className="web-mini-transport">
+        <div className="web-mini-transport-buttons">
+          {!isImage && <ShuffleButton active={shuffleEnabled} onClick={onToggleShuffle} />}
           <TransportControls
             hasNext={hasNext}
             hasPrev={hasPrev}
@@ -71,6 +77,7 @@ export function PlayerBar({
             onToggle={onToggle}
             paused={paused}
           />
+          {!isImage && <LoopButton mode={loopMode} onClick={onToggleLoop} />}
         </div>
         <PlaybackProgress
           currentMedia={currentMedia}
@@ -81,7 +88,7 @@ export function PlayerBar({
         />
       </div>
 
-      <div className={rightOrder}>
+      <div className="web-mini-tools">
         <QualityControl
           currentMedia={currentMedia}
           quality={quality}
@@ -89,30 +96,12 @@ export function PlayerBar({
           onChangeQuality={onChangeQuality}
           variant="ghost"
         />
-        {isAudio && (
-          <button
-            type="button"
-            aria-label={liked ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={liked}
-            onClick={onToggleLike}
-            className={`player-ghost-button ${liked ? "text-[var(--primary)]" : "text-muted"}`}
-            title={liked ? "Remove from favorites" : "Add to favorites"}
-          >
-            <FontAwesomeIcon icon={faBookmark} className={`transition-transform duration-200 ${liked ? "scale-110" : "scale-100"}`} />
-          </button>
-        )}
         <VolumeControl
           isImage={isImage}
           muted={muted}
           volume={volume}
           onChangeVolume={onChangeVolume}
           onToggleMute={onToggleMute}
-        />
-        <PlayerModeControls
-          loopMode={loopMode}
-          shuffleEnabled={shuffleEnabled}
-          onToggleLoop={onToggleLoop}
-          onToggleShuffle={onToggleShuffle}
         />
         <SleepTimerControl
           remainingSeconds={sleepTimerRemaining}
@@ -121,6 +110,14 @@ export function PlayerBar({
           onSetSleepTimer={onSetSleepTimer}
         />
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
+        <button type="button" className="player-ghost-button web-mini-expand" aria-label="Open full player" title="Open full player" onClick={onOpenFull}>
+          <FontAwesomeIcon icon={faExpand} />
+        </button>
+        {onClose && (
+          <button type="button" className="player-ghost-button web-mini-stop" aria-label="Stop playback" title="Stop playback" onClick={onClose}>
+            <FontAwesomeIcon icon={faStop} />
+          </button>
+        )}
       </div>
     </section>
   );

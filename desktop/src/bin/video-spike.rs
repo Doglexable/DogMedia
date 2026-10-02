@@ -684,5 +684,11 @@ fn main() {
         .set(config)
         .unwrap_or_else(|_| unreachable!("video spike config is initialized only once"));
 
-    dioxus_native::launch(app);
+    if std::env::var("DIOXUS_APP_TITLE").is_err() {
+        // SAFETY: Called on main thread before spawning background threads or runtime.
+        unsafe { std::env::set_var("DIOXUS_APP_TITLE", "Dogmedia Video Spike") };
+    }
+    let window_attributes =
+        dioxus_native::WindowAttributes::default().with_title("Dogmedia Video Spike");
+    dioxus_native::launch_cfg(app, vec![], vec![Box::new(window_attributes)]);
 }
