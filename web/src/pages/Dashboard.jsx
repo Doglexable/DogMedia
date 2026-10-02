@@ -417,27 +417,45 @@ export default function Dashboard() {
       })
       .then((data) => {
         if (browseGenerationRef.current !== generation) return;
+        const isInitialLoad = !hasLoadedMediaRef.current;
         const isCategoryChange = committedBrowseScopeRef.current !== null
           && committedBrowseScopeRef.current !== browseScope;
-        runViewTransition(() => {
+        const commitMedia = () => {
           setMedia(Array.isArray(data.items) ? data.items : []);
           setNextCursor(data.nextCursor || null);
           setLoaded(true);
           setMediaLoading(false);
-        }, isCategoryChange ? { className: "category-view-transition" } : undefined);
+        };
+        if (isInitialLoad) {
+          commitMedia();
+        } else {
+          runViewTransition(
+            commitMedia,
+            isCategoryChange ? { className: "category-view-transition" } : undefined,
+          );
+        }
         committedBrowseScopeRef.current = browseScope;
         hasLoadedMediaRef.current = true;
       })
       .catch((error) => {
         if (error.name === "AbortError" || browseGenerationRef.current !== generation) return;
+        const isInitialLoad = !hasLoadedMediaRef.current;
         const isCategoryChange = committedBrowseScopeRef.current !== null
           && committedBrowseScopeRef.current !== browseScope;
-        runViewTransition(() => {
+        const commitError = () => {
           setMedia([]);
           setLoaded(true);
           setMediaLoading(false);
           setNotice("Could not load media.");
-        }, isCategoryChange ? { className: "category-view-transition" } : undefined);
+        };
+        if (isInitialLoad) {
+          commitError();
+        } else {
+          runViewTransition(
+            commitError,
+            isCategoryChange ? { className: "category-view-transition" } : undefined,
+          );
+        }
         committedBrowseScopeRef.current = browseScope;
         hasLoadedMediaRef.current = true;
       });

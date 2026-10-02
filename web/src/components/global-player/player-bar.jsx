@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
-import { faExpand } from "@fortawesome/free-solid-svg-icons/faExpand";
-import { faStop } from "@fortawesome/free-solid-svg-icons/faStop";
 import { AlbumArt } from "./album-art";
 import { PlaybackProgress } from "./playback-progress";
 import { LoopButton, QualityControl, QueueButton, ShuffleButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
@@ -16,7 +14,7 @@ export function PlayerBar({
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
   shuffleEnabled, sleepTimerRemaining, sleepTimerMode, hasPlaylist, streamSrc, thumbSrc, volume, onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
-  isMini = false, onClose,
+  isMini = false,
 }) {
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -110,14 +108,6 @@ export function PlayerBar({
           onSetSleepTimer={onSetSleepTimer}
         />
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
-        <button type="button" className="player-ghost-button web-mini-expand" aria-label="Open full player" title="Open full player" onClick={onOpenFull}>
-          <FontAwesomeIcon icon={faExpand} />
-        </button>
-        {onClose && (
-          <button type="button" className="player-ghost-button web-mini-stop" aria-label="Stop playback" title="Stop playback" onClick={onClose}>
-            <FontAwesomeIcon icon={faStop} />
-          </button>
-        )}
       </div>
     </section>
   );

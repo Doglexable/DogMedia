@@ -1,9 +1,5 @@
 @import "tailwindcss";
 
-@view-transition {
-  navigation: auto;
-}
-
 ::view-transition-group(*) {
   animation-duration: 420ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
@@ -2412,12 +2408,6 @@ body {
   width: 34px;
   height: 34px;
 }
-.web-mini-stop:hover {
-  color: #f87171 !important;
-}
-.web-mini-expand:hover {
-  color: var(--primary) !important;
-}
 .web-mini-player .player-progress-range {
   height: 4px;
 }
@@ -2466,8 +2456,7 @@ body {
     justify-content: center;
   }
   .web-mini-tools .player-quality-control,
-  .web-mini-tools .player-sleep-control,
-  .web-mini-tools .web-mini-expand {
+  .web-mini-tools .player-sleep-control {
     display: none;
   }
   .player-bar-progress {
