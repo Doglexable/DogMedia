@@ -14,6 +14,7 @@ export const PAUSE_CACHE_TTL_SECONDS = 30 * 60;
 export const ACTIVE_PLAYING_TTL_SECONDS = 300;
 export const PAUSE_MAX_IDLE_MS = PAUSE_CACHE_TTL_SECONDS * 1000;
 const DASHBOARD_LOOKBACK_DAYS = 90;
+const PLAYBACK_EVENTS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const ACTIVE_INDEX_KEY = "playback:active:index";
 
 export function normalizeTrigger(value) {
@@ -538,6 +539,7 @@ export default async function (fastify) {
     const redis = getRedis(fastify);
     const multi = redis.multi();
     multi.zadd(eventsKey, now, JSON.stringify(event));
+    multi.zremrangebyscore(eventsKey, "-inf", now - PLAYBACK_EVENTS_RETENTION_MS);
 
     const resumeKey = `playback:resume:${event.ip}:${event.mediaId}`;
     if (event.action === "pause") {
@@ -668,13 +670,14 @@ export default async function (fastify) {
     const redis = getRedis(fastify);
     const sessionId = request.headers["x-playback-session"];
     const viewerId = readViewerId(request);
+    const clientIp = request.clientIp || request.ip;
     const session = await readPlaybackSession(redis, sessionId);
-    if (!session || !viewerId || session.viewerId !== viewerId) {
+    if (!session || !viewerId || session.viewerId !== viewerId || session.clientIp !== clientIp) {
       return reply.code(401).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session is no longer valid" });
     }
     if (!session.leaseRequired) return { ok: true, bypassed: true };
 
-    const refreshed = await refreshExclusiveLease(redis, viewerId, sessionId);
+    const refreshed = await refreshExclusiveLease(redis, viewerId, sessionId, clientIp);
     if (!refreshed.refreshed) {
       return reply.code(409).send({
         code: "PLAYBACK_LEASE_LOST",
@@ -689,12 +692,13 @@ export default async function (fastify) {
     const redis = getRedis(fastify);
     const sessionId = request.headers["x-playback-session"];
     const viewerId = readViewerId(request);
+    const clientIp = request.clientIp || request.ip;
     const session = await readPlaybackSession(redis, sessionId);
-    if (!session || !viewerId || session.viewerId !== viewerId) {
+    if (!session || !viewerId || session.viewerId !== viewerId || session.clientIp !== clientIp) {
       return reply.code(401).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session is no longer valid" });
     }
     const released = session.leaseRequired
-      ? await releaseExclusiveLease(redis, viewerId, sessionId)
+      ? await releaseExclusiveLease(redis, viewerId, sessionId, clientIp)
       : false;
     await revokePlaybackSession(redis, sessionId);
     return { ok: true, released };
@@ -703,7 +707,7 @@ export default async function (fastify) {
   fastify.get("/lease", async (request) => {
     const lease = await getExclusiveLease(getRedis(fastify));
     if (!lease) return { state: "available", expiresIn: 0 };
-    const owned = readViewerId(request) === lease.viewerId;
+    const owned = (request.clientIp || request.ip) === lease.clientIp;
     return {
       state: owned ? "owned" : "busy",
       expiresIn: lease.expiresIn,
@@ -723,7 +727,12 @@ export default async function (fastify) {
     const key = `playback:resume:${request.clientIp || request.ip}:${mediaId}`;
     const raw = await redis.get(key);
     if (!raw) return { position: null };
-    return JSON.parse(raw);
+    try {
+      return JSON.parse(raw);
+    } catch {
+      request.log.warn({ key }, "corrupted resume entry in Redis, treating as cache miss");
+      return { position: null };
+    }
   });
 
   fastify.post("/resume/:mediaId", async (request) => {

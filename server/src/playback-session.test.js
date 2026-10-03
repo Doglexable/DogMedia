@@ -7,6 +7,7 @@ import {
   playbackCookieName,
   refreshExclusiveLease,
   releaseExclusiveLease,
+  requiresExclusiveLease,
   validatePlaybackSession,
 } from "./playback-session.js";
 
@@ -21,7 +22,7 @@ function memoryRedis() {
     async eval(script, keyCount, key, ...args) {
       if (script.includes("previousSessionId")) {
         const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-        if (current && current.viewerId !== args[0]) {
+        if (current && current.clientIp !== args[0]) {
           return [0, Math.max(0, expiresAt.get(key) - Date.now())];
         }
         values.set(key, args[1]);
@@ -30,14 +31,14 @@ function memoryRedis() {
       }
       if (script.includes("lastHeartbeatAt")) {
         const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1]) return [0, -2];
-        current.lastHeartbeatAt = Number(args[2]);
+        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) return [0, -2];
+        current.lastHeartbeatAt = Number(args[3]);
         values.set(key, JSON.stringify(current));
-        expiresAt.set(key, Date.now() + Number(args[3]));
-        return [1, Number(args[3])];
+        expiresAt.set(key, Date.now() + Number(args[4]));
+        return [1, Number(args[4])];
       }
       const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-      if (!current || current.viewerId !== args[0] || (args[1] && current.sessionId !== args[1])) return 0;
+      if (!current || current.viewerId !== args[0] || (args[1] && current.sessionId !== args[1]) || current.clientIp !== args[2]) return 0;
       values.delete(key);
       expiresAt.delete(key);
       return 1;
@@ -83,7 +84,7 @@ describe("protected playback sessions", () => {
     });
   });
 
-  it("allows one viewer, renews its lease, and rejects a competing viewer", async () => {
+  it("allows one IP, renews its lease, and rejects the same viewer from another IP", async () => {
     const redis = memoryRedis();
     const first = await acquireExclusiveLease(redis, {
       viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
@@ -95,10 +96,10 @@ describe("protected playback sessions", () => {
     expect(first.acquired).toBe(true);
 
     const competing = await acquireExclusiveLease(redis, {
-      viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
       sessionId: "session_bbbbbbbbbbbbbbbbbbb",
       mediaId: 2,
-      clientIp: "192.168.1.2",
+      clientIp: "192.168.1.3",
       platform: "mobile",
     });
     expect(competing).toMatchObject({ acquired: false });
@@ -107,21 +108,23 @@ describe("protected playback sessions", () => {
     await expect(refreshExclusiveLease(
       redis,
       "viewer_aaaaaaaaaaaaaaaaaaaa",
-      "session_aaaaaaaaaaaaaaaaaaa"
+      "session_aaaaaaaaaaaaaaaaaaa",
+      "192.168.1.2"
     )).resolves.toMatchObject({ refreshed: true });
     await expect(getExclusiveLease(redis)).resolves.toMatchObject({ mediaId: 1, platform: "web" });
     await expect(releaseExclusiveLease(
       redis,
       "viewer_aaaaaaaaaaaaaaaaaaaa",
-      "session_aaaaaaaaaaaaaaaaaaa"
+      "session_aaaaaaaaaaaaaaaaaaa",
+      "192.168.1.2"
     )).resolves.toBe(true);
     await expect(getExclusiveLease(redis)).resolves.toBeNull();
   });
 
-  it("lets the same viewer replace its session and exposes the old session for revocation", async () => {
+  it("lets another app on the same IP replace the session and exposes the old session for revocation", async () => {
     const redis = memoryRedis();
     await acquireExclusiveLease(redis, {
-      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
       sessionId: "session_aaaaaaaaaaaaaaaaaaa",
       mediaId: 1,
       clientIp: "192.168.1.2",
@@ -136,5 +139,13 @@ describe("protected playback sessions", () => {
       acquired: true,
       previousSessionId: "session_aaaaaaaaaaaaaaaaaaa",
     });
+  });
+
+  it("requires a lease for protected playback at every access tier", () => {
+    for (const tier of [0, 100, 999, 10_000]) {
+      expect(requiresExclusiveLease(tier, "audio/mpeg")).toBe(true);
+      expect(requiresExclusiveLease(tier, "video/mp4")).toBe(true);
+    }
+    expect(requiresExclusiveLease(0, "image/jpeg")).toBe(false);
   });
 });

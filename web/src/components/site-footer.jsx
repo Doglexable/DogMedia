@@ -105,13 +105,17 @@ function InfoModal({ infoKey, onClose }) {
   const titleId = useId();
 
   useEffect(() => {
+    const root = document.documentElement;
+    const previousRootOverflow = root.style.overflow;
     const previousOverflow = document.body.style.overflow;
+    root.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     const handleKeyDown = (event) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
+      root.style.overflow = previousRootOverflow;
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };

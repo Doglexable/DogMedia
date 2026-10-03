@@ -3,10 +3,6 @@ import { randomBytes, timingSafeEqual } from "crypto";
 export const PLAYBACK_SESSION_HEADER = "x-playback-session";
 export const VIEWER_ID_HEADER = "x-viewer-id";
 export const EXCLUSIVE_PLAYBACK_ENABLED = process.env.EXCLUSIVE_PLAYBACK_ENABLED !== "false";
-export const EXCLUSIVE_PLAYBACK_TIER_CUTOFF = Math.max(
-  0,
-  Number.parseInt(process.env.EXCLUSIVE_PLAYBACK_TIER_CUTOFF || "100", 10) || 100
-);
 export const EXCLUSIVE_PLAYBACK_LEASE_SECONDS = Math.max(
   15,
   Number.parseInt(process.env.EXCLUSIVE_PLAYBACK_LEASE_SECONDS || "30", 10) || 30
@@ -23,7 +19,7 @@ local currentRaw = redis.call('GET', KEYS[1])
 local previousSessionId = ''
 if currentRaw then
   local current = cjson.decode(currentRaw)
-  if current.viewerId ~= ARGV[1] then
+  if current.clientIp ~= ARGV[1] then
     return {0, redis.call('PTTL', KEYS[1])}
   end
   previousSessionId = current.sessionId or ''
@@ -36,12 +32,12 @@ const REFRESH_LEASE_SCRIPT = `
 local currentRaw = redis.call('GET', KEYS[1])
 if not currentRaw then return {0, -2} end
 local current = cjson.decode(currentRaw)
-if current.viewerId ~= ARGV[1] or current.sessionId ~= ARGV[2] then
+if current.viewerId ~= ARGV[1] or current.sessionId ~= ARGV[2] or current.clientIp ~= ARGV[3] then
   return {0, redis.call('PTTL', KEYS[1])}
 end
-current.lastHeartbeatAt = tonumber(ARGV[3])
-redis.call('SET', KEYS[1], cjson.encode(current), 'PX', ARGV[4])
-return {1, tonumber(ARGV[4])}
+current.lastHeartbeatAt = tonumber(ARGV[4])
+redis.call('SET', KEYS[1], cjson.encode(current), 'PX', ARGV[5])
+return {1, tonumber(ARGV[5])}
 `;
 
 const RELEASE_LEASE_SCRIPT = `
@@ -50,6 +46,7 @@ if not currentRaw then return 0 end
 local current = cjson.decode(currentRaw)
 if current.viewerId ~= ARGV[1] then return 0 end
 if ARGV[2] ~= '' and current.sessionId ~= ARGV[2] then return 0 end
+if current.clientIp ~= ARGV[3] then return 0 end
 return redis.call('DEL', KEYS[1])
 `;
 
@@ -185,9 +182,8 @@ export async function validatePlaybackSession(redis, sessionId, expected) {
   return valid ? { valid: true, session } : { valid: false, reason: "mismatch" };
 }
 
-export function requiresExclusiveLease(accessTier, mimeType) {
+export function requiresExclusiveLease(_accessTier, mimeType) {
   return EXCLUSIVE_PLAYBACK_ENABLED
-    && Number(accessTier) < EXCLUSIVE_PLAYBACK_TIER_CUTOFF
     && (mimeType?.startsWith("audio/") || mimeType?.startsWith("video/"));
 }
 
@@ -207,7 +203,7 @@ export async function acquireExclusiveLease(redis, details) {
     ACQUIRE_LEASE_SCRIPT,
     1,
     EXCLUSIVE_LEASE_KEY,
-    details.viewerId,
+    String(details.clientIp),
     JSON.stringify(lease),
     ttlMs
   );
@@ -219,7 +215,7 @@ export async function acquireExclusiveLease(redis, details) {
   };
 }
 
-export async function refreshExclusiveLease(redis, viewerId, sessionId) {
+export async function refreshExclusiveLease(redis, viewerId, sessionId, clientIp) {
   const ttlMs = EXCLUSIVE_PLAYBACK_LEASE_SECONDS * 1000;
   const result = await redis.eval(
     REFRESH_LEASE_SCRIPT,
@@ -227,6 +223,7 @@ export async function refreshExclusiveLease(redis, viewerId, sessionId) {
     EXCLUSIVE_LEASE_KEY,
     viewerId,
     sessionId,
+    String(clientIp),
     Date.now(),
     ttlMs
   );
@@ -236,13 +233,14 @@ export async function refreshExclusiveLease(redis, viewerId, sessionId) {
   };
 }
 
-export async function releaseExclusiveLease(redis, viewerId, sessionId = "") {
+export async function releaseExclusiveLease(redis, viewerId, sessionId = "", clientIp) {
   return Number(await redis.eval(
     RELEASE_LEASE_SCRIPT,
     1,
     EXCLUSIVE_LEASE_KEY,
     viewerId,
-    sessionId || ""
+    sessionId || "",
+    String(clientIp)
   )) === 1;
 }
 

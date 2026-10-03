@@ -4,12 +4,15 @@ use crate::store::ColorScheme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IconName {
+    Check,
     ChevronDown,
     Clock,
     Close,
+    Compress,
     Expand,
     Folder,
     Grid,
+    GripVertical,
     Heart,
     Library,
     List,
@@ -24,10 +27,14 @@ pub enum IconName {
     Refresh,
     Repeat,
     RepeatOne,
+    RotateCcw,
+    RotateCw,
     Search,
     Settings,
     Shuffle,
+    Signal,
     Stop,
+    Subtitles,
     Sun,
     Volume,
     VolumeLow,
@@ -43,12 +50,16 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
     };
 
     let shape = match name {
+        IconName::Check => rsx! { path { d: "M20 6 9 17l-5-5" } },
         IconName::ChevronDown => rsx! { path { d: "m6 9 6 6 6-6" } },
         IconName::Clock => rsx! {
             circle { cx: "12", cy: "12", r: "9" }
             path { d: "M12 7v5l3 2" }
         },
         IconName::Close => rsx! { path { d: "M18 6 6 18M6 6l12 12" } },
+        IconName::Compress => rsx! {
+            path { d: "M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" }
+        },
         IconName::Expand => rsx! { path { d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" } },
         IconName::Folder => {
             rsx! { path { d: "M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" } }
@@ -58,6 +69,14 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             rect { x: "14", y: "3", width: "7", height: "7", rx: "1" }
             rect { x: "3", y: "14", width: "7", height: "7", rx: "1" }
             rect { x: "14", y: "14", width: "7", height: "7", rx: "1" }
+        },
+        IconName::GripVertical => rsx! {
+            circle { cx: "9", cy: "12", r: "1.2", fill: "currentColor" }
+            circle { cx: "9", cy: "5", r: "1.2", fill: "currentColor" }
+            circle { cx: "9", cy: "19", r: "1.2", fill: "currentColor" }
+            circle { cx: "15", cy: "12", r: "1.2", fill: "currentColor" }
+            circle { cx: "15", cy: "5", r: "1.2", fill: "currentColor" }
+            circle { cx: "15", cy: "19", r: "1.2", fill: "currentColor" }
         },
         IconName::Heart => {
             rsx! { path { d: "M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" } }
@@ -85,10 +104,10 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         },
         IconName::Next => rsx! { path { d: "m5 4 10 8-10 8V4ZM19 5v14" } },
         IconName::Pause => rsx! {
-            rect { x: "6", y: "4", width: "4", height: "16", rx: "1" }
-            rect { x: "14", y: "4", width: "4", height: "16", rx: "1" }
+            rect { x: "6", y: "4", width: "4", height: "16", rx: "1", fill: "currentColor" }
+            rect { x: "14", y: "4", width: "4", height: "16", rx: "1", fill: "currentColor" }
         },
-        IconName::Play => rsx! { path { d: "m7 4 13 8-13 8V4Z" } },
+        IconName::Play => rsx! { path { d: "m7 4 13 8-13 8V4Z", fill: "currentColor" } },
         IconName::Previous => rsx! { path { d: "m19 4-10 8 10 8V4ZM5 5v14" } },
         IconName::Refresh => {
             rsx! { path { d: "M20 7h-5V2M4 17h5v5M19 12a7 7 0 0 0-12-5l-3 3M5 12a7 7 0 0 0 12 5l3-3" } }
@@ -106,6 +125,14 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             path { d: "M21 13v1a4 4 0 0 1-4 4H3" }
             path { d: "M11 10h1v4" }
         },
+        IconName::RotateCcw => rsx! {
+            path { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" }
+            path { d: "M3 3v5h5" }
+        },
+        IconName::RotateCw => rsx! {
+            path { d: "M21 12a9 9 0 1 1-9-9c2.52 0 4.85.83 6.74 2.74L21 8" }
+            path { d: "M21 3v5h-5" }
+        },
         IconName::Search => rsx! {
             circle { cx: "11", cy: "11", r: "7" }
             path { d: "m20 20-4-4" }
@@ -121,7 +148,20 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             path { d: "m14.7 14.7 1.6 2.1c.8 1.1 2 1.7 3.3 1.7H22" }
             path { d: "m18 14 4 4-4 4" }
         },
-        IconName::Stop => rsx! { rect { x: "5", y: "5", width: "14", height: "14", rx: "2" } },
+        IconName::Signal => rsx! {
+            path { d: "M2 20h.01" }
+            path { d: "M7 20v-4" }
+            path { d: "M12 20v-8" }
+            path { d: "M17 20v-12" }
+            path { d: "M22 20V4" }
+        },
+        IconName::Stop => {
+            rsx! { rect { x: "5", y: "5", width: "14", height: "14", rx: "2", fill: "currentColor" } }
+        }
+        IconName::Subtitles => rsx! {
+            rect { x: "2", y: "4", width: "20", height: "16", rx: "2" }
+            path { d: "M7 15h4M15 15h2M7 11h2M13 11h4" }
+        },
         IconName::Sun => rsx! {
             circle { cx: "12", cy: "12", r: "4" }
             path { d: "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" }
@@ -164,17 +204,36 @@ pub fn Button(
     #[props(default)] disabled: bool,
     onclick: EventHandler<MouseEvent>,
 ) -> Element {
+    let button_class = if icon.is_some() {
+        if class.is_empty() {
+            "button has-icon".to_owned()
+        } else {
+            format!("button has-icon {class}")
+        }
+    } else if class.is_empty() {
+        "button".to_owned()
+    } else {
+        format!("button {class}")
+    };
+
     rsx! {
         button {
-            class: "button {class}",
+            class: "{button_class}",
             r#type: "button",
             disabled,
             "aria-label": "{label}",
             onclick: move |event| onclick.call(event),
-            if let Some(icon) = icon {
-                Icon { name: icon, class: "button-icon".to_owned() }
+            {
+                match icon {
+                    Some(icon) => rsx! {
+                        Icon { name: icon, class: "button-icon".to_owned() }
+                        span { class: "button-label", "{label}" }
+                    },
+                    None => rsx! {
+                        span { class: "button-label", "{label}" }
+                    },
+                }
             }
-            span { class: "button-label", "{label}" }
         }
     }
 }
@@ -405,38 +464,197 @@ pub fn Progress(
     }
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SliderVariant {
+    #[default]
+    Round,
+    #[allow(dead_code)]
+    Flat,
+}
+
+impl SliderVariant {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Round => "Round",
+            Self::Flat => "Flat",
+        }
+    }
+}
+
+pub(super) fn slider_value_at(index: usize, min: f64, max: f64, step: f64) -> f64 {
+    let range = (max - min).max(f64::EPSILON);
+    let raw = min + range * (index.min(100) as f64 / 100.0);
+    let value = if step > 0.0 {
+        min + ((raw - min) / step).round() * step
+    } else {
+        raw
+    };
+    value.clamp(min, max)
+}
+
+#[component]
+pub fn Slider(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] variant: SliderVariant,
+    #[props(default = 0.0)] min: f64,
+    #[props(default = 100.0)] max: f64,
+    #[props(default = 1.0)] step: f64,
+    #[props(default = 50.0)] value: f64,
+    #[props(optional)] disabled: bool,
+    #[props(into, optional)] aria_label: Option<String>,
+    #[props(optional)] onchange: Option<EventHandler<f64>>,
+) -> Element {
+    let base_class = if disabled {
+        "slider slider-disabled"
+    } else {
+        "slider"
+    };
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    let range = (max - min).max(f64::EPSILON);
+    let percentage = ((value - min) / range * 100.0).clamp(0.0, 100.0);
+    let fill_style = format!("width: {percentage:.2}%;");
+    let thumb_style = format!("left: {percentage:.2}%;");
+    let mut dragging = use_signal(|| false);
+    let commit = move |index: usize| {
+        if disabled {
+            return;
+        }
+        if let Some(handler) = &onchange {
+            handler.call(slider_value_at(index, min, max, step));
+        }
+    };
+
+    rsx! {
+        div {
+            "data-name": "Slider",
+            "data-variant": "{variant.as_str()}",
+            class: "{merged}",
+            role: "slider",
+            tabindex: if disabled { "-1" } else { "0" },
+            "aria-label": aria_label.as_deref().unwrap_or("Slider"),
+            "aria-valuemin": "{min}",
+            "aria-valuemax": "{max}",
+            "aria-valuenow": "{value}",
+            "aria-disabled": "{disabled}",
+            onkeydown: move |event: KeyboardEvent| {
+                if disabled {
+                    return;
+                }
+                let next = match event.key() {
+                    Key::ArrowLeft | Key::ArrowDown => Some(value - step),
+                    Key::ArrowRight | Key::ArrowUp => Some(value + step),
+                    Key::Home => Some(min),
+                    Key::End => Some(max),
+                    _ => None,
+                };
+                if let (Some(next), Some(handler)) = (next, &onchange) {
+                    handler.call(next.clamp(min, max));
+                }
+            },
+            div {
+                class: "slider-hit-area",
+                onmouseleave: move |_| dragging.set(false),
+                for index in 0..=100usize {
+                    span {
+                        class: "slider-hit-zone",
+                        onmousedown: move |event: MouseEvent| {
+                            event.stop_propagation();
+                            dragging.set(true);
+                            commit(index);
+                        },
+                        onmouseenter: move |_| {
+                            if dragging() {
+                                commit(index);
+                            }
+                        },
+                        onmouseup: move |event: MouseEvent| {
+                            event.stop_propagation();
+                            if dragging() {
+                                commit(index);
+                            }
+                            dragging.set(false);
+                        },
+                    }
+                }
+            }
+            div { class: "slider-visual", "aria-hidden": "true",
+                div { class: "slider-track",
+                    div { class: "slider-fill", style: "{fill_style}" }
+                }
+                div { class: "slider-thumb", style: "{thumb_style}" }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn MusicProgress(
     position: f64,
     duration: f64,
     onseek: EventHandler<f64>,
+    #[props(default)] variant: SliderVariant,
     #[props(default = String::new())] class: String,
 ) -> Element {
     let max = duration.max(1.0);
-    let current = position.min(max);
-    let pct = (current / max * 100.0).clamp(0.0, 100.0);
+    let mut value = use_signal(|| position.min(max));
+    use_effect(use_reactive(
+        (&position, &duration),
+        move |(position, duration)| {
+            value.set(position.min(duration.max(1.0)));
+        },
+    ));
+    let current = value().min(max);
 
     rsx! {
         div { class: "music-progress-wrap {class}",
-            span { class: "progress-time", "{super::format_duration(Some(position))}" }
-            div { class: "music-progress-track-wrap",
-                Progress { value: current, max }
-                div {
-                    class: "progress-thumb",
-                    style: "left: {pct:.2}%;",
-                }
-                input {
-                    r#type: "range",
-                    class: "progress-slider-overlay",
-                    min: "0",
-                    max: "{max}",
-                    step: "0.1",
-                    value: "{current}",
-                    "aria-label": "Playback position",
-                    oninput: move |event| if let Ok(pos) = event.value().parse() { onseek.call(pos); }
-                }
+            span { class: "progress-time", "{super::format_duration(Some(current))}" }
+            Slider {
+                variant,
+                min: 0.0,
+                max,
+                step: 0.1,
+                value: current,
+                aria_label: "Playback position".to_owned(),
+                class: "music-progress-slider".to_string(),
+                onchange: move |position: f64| {
+                    value.set(position);
+                    onseek.call(position);
+                },
             }
             span { class: "progress-time progress-duration", "{super::format_duration(Some(duration))}" }
+        }
+    }
+}
+
+#[component]
+pub fn VolumeSlider(
+    value: f64,
+    onchange: EventHandler<f64>,
+    #[props(default = String::new())] class: String,
+) -> Element {
+    let initial = (value * 100.0).clamp(0.0, 100.0);
+    let mut slider_value = use_signal(|| initial);
+    use_effect(use_reactive((&value,), move |(value,)| {
+        slider_value.set((value * 100.0).clamp(0.0, 100.0));
+    }));
+
+    rsx! {
+        Slider {
+            class,
+            variant: SliderVariant::Round,
+            min: 0.0,
+            max: 100.0,
+            step: 1.0,
+            value: slider_value(),
+            aria_label: "Volume",
+            onchange: move |next: f64| {
+                let next = next.clamp(0.0, 100.0);
+                slider_value.set(next);
+                onchange.call(next / 100.0);
+            }
         }
     }
 }
@@ -478,12 +696,13 @@ pub fn Popover(
     children: Element,
 ) -> Element {
     let open = use_signal(|| false);
+    let is_open = *open.read();
     provide_context(PopoverContext { open, align, side });
 
     rsx! {
         div {
             "data-name": "Popover",
-            class: "popover-root {class}",
+            class: if is_open { "popover-root popover-open {class}" } else { "popover-root {class}" },
             {children}
         }
     }
@@ -494,6 +713,7 @@ pub fn PopoverTrigger(
     #[props(default = String::new())] class: String,
     #[props(default = false)] disabled: bool,
     #[props(default = String::new())] aria_label: String,
+    #[props(optional)] ondoubleclick: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
     let mut ctx = use_context::<PopoverContext>();
@@ -512,6 +732,11 @@ pub fn PopoverTrigger(
                 event.stop_propagation();
                 let current = *ctx.open.read();
                 ctx.open.set(!current);
+            },
+            ondoubleclick: move |event: MouseEvent| {
+                if let Some(handler) = &ondoubleclick {
+                    handler.call(event);
+                }
             },
             {children}
         }
@@ -578,5 +803,84 @@ pub fn PopoverDescription(
 ) -> Element {
     rsx! {
         p { "data-name": "PopoverDescription", class: "popover-description {class}", {children} }
+    }
+}
+
+#[component]
+pub fn Draggable(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+    let base_class = "draggable-root flex flex-col gap-1 w-full";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        div {
+            "data-name": "Draggable",
+            class: "{merged}",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DraggableZone(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+    let base_class = "draggable-zone draggable__container flex flex-col gap-1 w-full";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        div {
+            "data-name": "DraggableZone",
+            class: "{merged}",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DraggableItem(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = true)] draggable: bool,
+    #[props(default = false)] dragging: bool,
+    #[props(default = false)] drag_over: bool,
+    #[props(optional)] ondragstart: Option<EventHandler<DragEvent>>,
+    #[props(optional)] ondragover: Option<EventHandler<DragEvent>>,
+    #[props(optional)] ondragenter: Option<EventHandler<DragEvent>>,
+    #[props(optional)] ondragleave: Option<EventHandler<DragEvent>>,
+    #[props(optional)] ondrop: Option<EventHandler<DragEvent>>,
+    #[props(optional)] ondragend: Option<EventHandler<DragEvent>>,
+    #[props(optional)] onmouseenter: Option<EventHandler<MouseEvent>>,
+    #[props(optional)] onmouseup: Option<EventHandler<MouseEvent>>,
+    children: Element,
+) -> Element {
+    let mut base_class = "draggable draggable-item".to_string();
+    if dragging {
+        base_class.push_str(" dragging opacity-50");
+    }
+    if drag_over {
+        base_class.push_str(" drag-over");
+    }
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class,
+    };
+
+    rsx! {
+        div {
+            "data-name": "DraggableItem",
+            class: "{merged}",
+            draggable: if draggable { "true" } else { "false" },
+            tabindex: "0",
+            ondragstart: move |e| if let Some(h) = &ondragstart { h.call(e); },
+            ondragover: move |e| if let Some(h) = &ondragover { h.call(e); },
+            ondragenter: move |e| if let Some(h) = &ondragenter { h.call(e); },
+            ondragleave: move |e| if let Some(h) = &ondragleave { h.call(e); },
+            ondrop: move |e| if let Some(h) = &ondrop { h.call(e); },
+            ondragend: move |e| if let Some(h) = &ondragend { h.call(e); },
+            onmouseenter: move |e| if let Some(h) = &onmouseenter { h.call(e); },
+            onmouseup: move |e| if let Some(h) = &onmouseup { h.call(e); },
+            {children}
+        }
     }
 }

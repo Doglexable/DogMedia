@@ -111,7 +111,7 @@ describe("QualityControl", () => {
     expect(markup).toContain('aria-haspopup="listbox"');
     expect(markup).toContain("player-quality-control");
     expect(markup).not.toContain("player-quality-control--open");
-    expect(markup).toContain("Original");
+    expect(markup).toContain("Very High");
     expect(markup).toContain("High");
     expect(markup).toContain("Medium");
     expect(markup).toContain("Low");
@@ -145,7 +145,7 @@ describe("QualityControl", () => {
 
     const videoMedia = { mime_type: "video/mp4" };
     expect(getQualityBitrateLabel("high", videoMedia)).toContain("1080p");
-    expect(getQualityBitrateLabel("ori", videoMedia)).toBe("Original");
+    expect(getQualityBitrateLabel("ori", videoMedia)).toBe("Very High");
 
     const audioMedia = { mime_type: "audio/mp3" };
     expect(getQualityBitrateLabel("high", audioMedia)).toBe("256 kbps");

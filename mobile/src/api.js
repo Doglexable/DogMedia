@@ -105,6 +105,8 @@ export async function readJson(response, fallbackMessage = "Request failed") {
   if (!response.ok) {
     const error = new Error(data?.error || fallbackMessage);
     error.status = response.status;
+    error.code = data?.code;
+    error.retryAfter = data?.retryAfter;
     error.data = data;
     throw error;
   }

@@ -90,14 +90,14 @@ function createMockRedis(initialKeys = {}) {
     async eval(script, keyCount, key, ...args) {
       if (script.includes("lastHeartbeatAt")) {
         const current = store.has(key) ? JSON.parse(store.get(key)) : null;
-        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1]) return [0, -2];
-        current.lastHeartbeatAt = Number(args[2]);
+        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) return [0, -2];
+        current.lastHeartbeatAt = Number(args[3]);
         store.set(key, JSON.stringify(current));
-        expiresAt.set(key, Date.now() + Number(args[3]));
-        return [1, Number(args[3])];
+        expiresAt.set(key, Date.now() + Number(args[4]));
+        return [1, Number(args[4])];
       }
       const current = store.has(key) ? JSON.parse(store.get(key)) : null;
-      if (!current || current.viewerId !== args[0] || (args[1] && current.sessionId !== args[1])) return 0;
+      if (!current || current.viewerId !== args[0] || (args[1] && current.sessionId !== args[1]) || current.clientIp !== args[2]) return 0;
       store.delete(key);
       expiresAt.delete(key);
       return 1;
@@ -170,6 +170,32 @@ function createMockRedis(initialKeys = {}) {
     _zsets: zsets,
   };
 }
+
+describe("playback resume routes", () => {
+  it("treats a corrupted Redis resume value as a cache miss", async () => {
+    const redis = createMockRedis({
+      "playback:resume:127.0.0.1:42": "not-json",
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/playback/resume/42",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ position: null });
+
+    await app.close();
+  });
+});
 
 describe("playback active cache routes", () => {
   it("stores active pause session with 1800s TTL and trigger metadata", async () => {
@@ -443,19 +469,19 @@ describe("playback active cache routes", () => {
 });
 
 describe("exclusive playback lease routes", () => {
-  it("renews and releases a lease only for its bound viewer and session", async () => {
+  it("renews and releases a lease only for its bound viewer, session, and IP", async () => {
     const viewerId = "viewer_aaaaaaaaaaaaaaaaaaaa";
     const sessionId = "session_aaaaaaaaaaaaaaaaaaa";
     const redis = createMockRedis({
-      [`stream:session:${sessionId}`]: JSON.stringify({ viewerId, leaseRequired: true }),
-      "stream:exclusive:standard": JSON.stringify({ viewerId, sessionId, mediaId: 42, platform: "web" }),
+      [`stream:session:${sessionId}`]: JSON.stringify({ viewerId, clientIp: "127.0.0.1", leaseRequired: true }),
+      "stream:exclusive:standard": JSON.stringify({ viewerId, sessionId, clientIp: "127.0.0.1", mediaId: 42, platform: "web" }),
     });
     const app = Fastify();
     app.decorate("redis", redis);
     app.decorate("pg", { query: async () => ({ rows: [] }) });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = request.headers["x-test-client-ip"] || "127.0.0.1";
     });
     await app.register(playbackRoutes, { prefix: "/api/playback" });
 
@@ -465,6 +491,17 @@ describe("exclusive playback lease routes", () => {
       headers: { "x-playback-session": sessionId, "x-viewer-id": "viewer_bbbbbbbbbbbbbbbbbbbb" },
     });
     expect(denied.statusCode).toBe(401);
+
+    const deniedFromAnotherIp = await app.inject({
+      method: "POST",
+      url: "/api/playback/lease/heartbeat",
+      headers: {
+        "x-playback-session": sessionId,
+        "x-viewer-id": viewerId,
+        "x-test-client-ip": "192.168.1.20",
+      },
+    });
+    expect(deniedFromAnotherIp.statusCode).toBe(401);
 
     const heartbeat = await app.inject({
       method: "POST",

@@ -27,7 +27,7 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                 }
                 div { class: "brand-copy",
                     strong { "Dogmedia" }
-                    small { "Private media vault" }
+                    small { title: "Your media. Your space. Your story. Your rhythm.", "Your media. Your space. Your story. Your rhythm." }
                 }
             }
             nav { class: "sidebar-primary",
@@ -92,6 +92,7 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                     onclick: move |_| {
                         let current_url = app.read().settings.server_url.to_string();
                         app.write().settings_url = current_url;
+                        app.write().settings_error = None;
                         app.write().queue_open = false;
                         app.write().settings_open = true;
                     },

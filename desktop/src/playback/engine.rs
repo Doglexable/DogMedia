@@ -144,6 +144,7 @@ impl PlaybackEngine {
                 viewer_id: session.viewer_id.clone(),
             });
         }
+        let _ = self.playbin.set_state(gst::State::Null);
         self.playbin.set_property("uri", stream_url.as_str());
         if let Ok(mut frame) = self.frame.lock() {
             *frame = None;

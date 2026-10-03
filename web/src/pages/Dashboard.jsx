@@ -400,6 +400,8 @@ export default function Dashboard() {
     const generation = browseGenerationRef.current + 1;
     const browseScope = `${libraryView}:${selectedCategory || "all"}`;
     browseGenerationRef.current = generation;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     if (!hasLoadedMediaRef.current) {
       setMediaLoading(true);
       setLoaded(false);

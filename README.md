@@ -210,7 +210,9 @@ cargo build --release --locked --manifest-path desktop/Cargo.toml
 
 The first launch asks for the Dogmedia server URL. The server continues to
 authorize the computer by IP; the desktop app creates and retains a viewer ID
-for playback leases and resume state. Use HTTPS outside a trusted LAN.
+for playback leases and resume state. Audio and video playback is protected by
+a single global IP lease: another IP cannot start playback until the active
+client releases its lease or the lease expires. Use HTTPS outside a trusted LAN.
 
 Build native Debian or Fedora packages with:
 

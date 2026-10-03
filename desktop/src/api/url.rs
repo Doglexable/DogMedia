@@ -6,6 +6,45 @@ use url::Url;
 
 use crate::domain::StreamPath;
 
+fn is_local_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            ip.is_loopback()
+                || ip.is_private()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                // RFC 6598 shared address space, commonly used by Tailscale
+                // and carrier-grade/private overlay networks.
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        }
+        std::net::IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unicast_link_local()
+                // RFC 4193 unique-local addresses (fc00::/7).
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|mapped| is_local_ip(mapped.into()))
+        }
+    }
+}
+
+fn is_local_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return is_local_ip(ip);
+    }
+
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.ends_with(".lan")
+        || host.ends_with(".home.arpa")
+        || !host.contains('.')
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ServerUrlError {
     #[error("invalid server URL: {0}")]
@@ -65,16 +104,10 @@ impl ServerUrl {
         self.join(path.as_str())
     }
 
-    /// True for plain HTTP to a non-loopback host: allowed only with an
-    /// explicit trusted-LAN confirmation.
+    /// True for plain HTTP to a public/non-local host. Loopback, private,
+    /// link-local, overlay-network, and conventional LAN hostnames are local.
     pub fn is_insecure_remote(&self) -> bool {
-        self.0.scheme() == "http"
-            && self.0.host_str().is_some_and(|host| {
-                host != "localhost"
-                    && host
-                        .parse::<std::net::IpAddr>()
-                        .map_or(true, |ip| !ip.is_loopback())
-            })
+        self.0.scheme() == "http" && self.0.host_str().is_some_and(|host| !is_local_host(host))
     }
 }
 
@@ -133,18 +166,29 @@ mod tests {
 
     #[test]
     fn insecure_remote_detection_matches_loopback_rules() {
+        for local in [
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://192.168.1.8:3001",
+            "http://10.0.0.8:3001",
+            "http://172.16.20.8:3001",
+            "http://100.100.20.8:3001",
+            "http://[fd12:3456::8]:3001",
+            "http://dogmedia.local:3001",
+            "http://dogmedia:3001",
+        ] {
+            assert!(
+                !ServerUrl::parse(local).unwrap().is_insecure_remote(),
+                "{local}"
+            );
+        }
         assert!(
-            ServerUrl::parse("http://192.168.1.8:3001")
+            ServerUrl::parse("http://203.0.113.8:3001")
                 .unwrap()
                 .is_insecure_remote()
         );
         assert!(
-            !ServerUrl::parse("http://localhost:3001")
-                .unwrap()
-                .is_insecure_remote()
-        );
-        assert!(
-            !ServerUrl::parse("http://127.0.0.1:3001")
+            ServerUrl::parse("http://media.example.test")
                 .unwrap()
                 .is_insecure_remote()
         );

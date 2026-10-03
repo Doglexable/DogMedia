@@ -1,7 +1,10 @@
 use dioxus_native::prelude::*;
 
 use super::super::*;
-use super::{FullPlayer, Library, PlayerBar, QueuePanel, SettingsDialog, Sidebar};
+use super::{
+    FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog, Sidebar,
+    VideoMiniPlayer,
+};
 
 #[component]
 pub(crate) fn Shell(
@@ -16,6 +19,7 @@ pub(crate) fn Shell(
         ColorScheme::System => "vault-shell system",
     };
     let has_media = snapshot.coordinator.snapshot().media.is_some();
+    let playback = snapshot.coordinator.snapshot();
 
     rsx! {
         style { {CSS} }
@@ -54,10 +58,28 @@ pub(crate) fn Shell(
                 Library { app, engine }
             }
             if has_media && !snapshot.player_expanded {
-                PlayerBar { app, engine }
+                if let Some(media) = playback.media.as_ref()
+                    && media.is_video()
+                {
+                    VideoMiniPlayer { app, engine, video_source_id }
+                } else {
+                    PlayerBar { app, engine }
+                }
             }
             if snapshot.player_expanded && has_media {
                 FullPlayer { app, engine, video_source_id }
+            }
+            if snapshot.quality_popover_open {
+                if let Some(media) = playback.media.as_ref() {
+                    QualityOverlay {
+                        app,
+                        engine,
+                        quality: playback.quality,
+                        is_video: media.is_video(),
+                        expanded: snapshot.player_expanded,
+                        has_lyrics: !snapshot.lyrics.trim().is_empty(),
+                    }
+                }
             }
             if snapshot.queue_open {
                 QueuePanel { app, engine }

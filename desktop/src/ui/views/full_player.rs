@@ -2,6 +2,7 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::QualityPopover;
+use super::VideoPlayer;
 
 #[component]
 pub(crate) fn FullPlayer(
@@ -14,6 +15,15 @@ pub(crate) fn FullPlayer(
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
     };
+    if media.is_video() {
+        return rsx! {
+            VideoPlayer {
+                app,
+                engine,
+                video_source_id,
+            }
+        };
+    }
     let playing = playback.status == PlaybackStatus::Playing;
     let active_subtitle = snapshot
         .subtitle_cues
@@ -47,6 +57,22 @@ pub(crate) fn FullPlayer(
         RepeatMode::None => "Repeat: off".to_owned(),
         RepeatMode::Queue => "Repeat: all".to_owned(),
         RepeatMode::One => "Repeat: one".to_owned(),
+    };
+
+    let vol = snapshot.settings.volume.get();
+    let vol_percent = (vol * 100.0).round() as i32;
+    let is_muted = vol <= 0.0;
+    let vol_icon = if is_muted {
+        IconName::VolumeMute
+    } else if vol < 0.5 {
+        IconName::VolumeLow
+    } else {
+        IconName::Volume
+    };
+    let vol_label = if is_muted {
+        "Volume (Muted)".to_owned()
+    } else {
+        format!("Volume {vol_percent}%")
     };
 
     rsx! {
@@ -89,6 +115,7 @@ pub(crate) fn FullPlayer(
                         MusicProgress {
                             position: playback.position,
                             duration: playback.duration,
+                            variant: SliderVariant::Round,
                             class: "full-music-progress".to_owned(),
                             onseek: move |position| seek(app, engine, position),
                         }
@@ -121,6 +148,22 @@ pub(crate) fn FullPlayer(
                             }
                         }
                     }
+                    if !media.is_photo() {
+                        div {
+                            class: "full-volume",
+                            IconButton {
+                                label: vol_label,
+                                icon: vol_icon,
+                                class: if is_muted { "full-volume-btn muted".to_owned() } else { "full-volume-btn".to_owned() },
+                                onclick: move |_| toggle_mute(app, engine),
+                            }
+                            VolumeSlider {
+                                class: "full-volume-range",
+                                value: vol,
+                                onchange: move |value| set_volume(app, engine, value),
+                            }
+                        }
+                    }
                     div { class: "full-tools",
                         if media.is_audio() {
                             IconButton {
@@ -133,10 +176,7 @@ pub(crate) fn FullPlayer(
                         if !media.is_photo() {
                             QualityPopover {
                                 app,
-                                engine,
                                 quality: playback.quality,
-                                is_video: media.is_video(),
-                                side: PopoverSide::Top,
                             }
                         }
                         IconButton {

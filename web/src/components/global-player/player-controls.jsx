@@ -19,7 +19,7 @@ import { getLoopButtonTitle } from "./player-utils";
 
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 const QUALITY_OPTIONS = [
-  { value: "ori", label: "Original", badge: "ORI" },
+  { value: "ori", label: "Very High", badge: "VH" },
   { value: "high", label: "High", badge: "HD" },
   { value: "med", label: "Medium", badge: "MED" },
   { value: "low", label: "Low", badge: "LOW" },
@@ -238,14 +238,14 @@ export function getQualityBitrateLabel(optValue, currentMedia) {
     if (optValue === "high") return "1080p • ~5 Mbps";
     if (optValue === "med") return "720p • ~2.5 Mbps";
     if (optValue === "low") return "480p • ~1 Mbps";
-    if (optValue === "ori") return "Original";
+    if (optValue === "ori") return "Very High";
   }
 
   if (isAudio) {
     if (optValue === "high") return "256 kbps";
     if (optValue === "med") return "160 kbps";
     if (optValue === "low") return "96 kbps";
-    if (optValue === "ori") return "Source";
+    if (optValue === "ori") return "Very High";
   }
 
   return null;

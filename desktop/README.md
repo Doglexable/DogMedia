@@ -102,7 +102,7 @@ cargo run --release --manifest-path desktop/Cargo.toml \
   --media 'https://media.example.com/' 42 ori
 ```
 
-Quality defaults to `ori`; use `high` if the client IP does not have original
+Quality defaults to `ori`; use `high` if the client IP does not have very high
 quality access. A random viewer ID is generated for the benchmark, or a stable
 one can be supplied after the quality argument. The legacy form accepting a
 stream URL, session ID, and viewer ID remains available for diagnosing a
@@ -261,9 +261,11 @@ This is a developer/local-build manifest, not a published Flathub package.
 1. Start Dogmedia and confirm this computer's IP is allowed by the server.
 2. Open Dogmedia Desktop and enter the origin that exposes the Dogmedia API,
    for example `https://media.example.com/` or `http://192.168.1.20:3001/`.
-3. Confirm plain HTTP only for a server on a trusted LAN. Use HTTPS across
-   untrusted networks.
+3. Private LAN and loopback HTTP addresses are accepted automatically. Public
+   HTTP hosts require explicit confirmation; prefer HTTPS outside your LAN.
 4. Search or filter the library, then select an item to begin playback.
+
+For complete requirements on valid server URLs, Fastify API endpoints, IP whitelisting tiers, and Settings error diagnostics, see the [Server Source Guide](docs/SERVER_SOURCE_GUIDE.md).
 
 The client creates a persistent viewer ID on first launch. It is not a login
 credential: the server's PostgreSQL IP whitelist remains the access control.
@@ -278,14 +280,16 @@ The current release supports native browsing, search, media-type/category and
 favorite filters, photo viewing, GStreamer audio/video playback, seeking,
 volume and quality selection, next/previous navigation, resume positions,
 favorites, queue add/play-next/remove/clear/shuffle/select, plain lyric text,
-and subtitle track selection.
+subtitle track selection, and MPRIS playback controls for GNOME/KDE media
+surfaces and hardware media keys.
 
 - Lyrics are shown as complete text. Time-synchronized lyric highlighting is
   not available yet.
 - Queue order can be viewed and changed through the available queue actions,
   but drag-and-drop/manual queue reordering is not available yet.
-- Offline downloads, library administration, MPRIS/media-key integration, and
-  desktop notifications are not included in this release.
+- Offline downloads, library administration, and standalone desktop
+  notification banners are not included in this release. The system media
+  surface exposed by MPRIS depends on the active Linux desktop environment.
 - Playback codec availability depends on the installed GStreamer plugins.
 
 ## Troubleshooting
@@ -301,3 +305,6 @@ installation with `gst-inspect-1.0 playbin3` and install the codec/plugin
 package for the media format. An access-denied screen means the computer's IP
 does not have the required server whitelist tier; it is not fixed by changing
 the local viewer ID.
+
+MPRIS requires the user session D-Bus. If that bus is unavailable, Dogmedia
+logs one warning and keeps the in-app playback controls working normally.

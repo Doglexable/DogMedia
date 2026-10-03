@@ -170,6 +170,20 @@ impl ApiClient {
             .await
     }
 
+    pub async fn queue_window_at(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<QueueWindow, ApiError> {
+        self.json_endpoint(
+            &Endpoint::QueueWindowAt { offset, limit },
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
+        )
+        .await
+    }
+
     pub async fn queue_add(&self, media_id: MediaId, play_next: bool) -> Result<(), ApiError> {
         let endpoint = if play_next {
             Endpoint::QueueNextItem

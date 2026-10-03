@@ -81,15 +81,76 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                     if snapshot.library.loading && snapshot.library.items.is_empty() {
                         MediaListSkeleton { rows: 7 }
                     } else if snapshot.library.items.is_empty() {
-                        div { class: "empty-state",
-                            div { class: "empty-mark", Icon { name: IconName::Library } }
-                            h3 { if snapshot.search.trim().is_empty() { "Nothing here yet" } else { "No matching media" } }
-                            p { if snapshot.search.trim().is_empty() { "Choose another category or media type." } else { "Clear the search or try a different title." } }
-                            if !snapshot.search.trim().is_empty() {
-                                Button { label: "Clear search".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
-                                    app.write().search.clear();
-                                    begin_browse(app);
-                                } }
+                        match &snapshot.library.access {
+                            AccessView::FirstRun => {
+                                rsx! {
+                                    div { class: "empty-state",
+                                        div { class: "empty-mark", Icon { name: IconName::Library } }
+                                        h3 { "Configure Server Connection" }
+                                        p { "Please enter your Dogmedia server URL in Settings to connect to your library." }
+                                        div { class: "empty-actions",
+                                            Button { label: "Open Settings".to_owned(), class: "primary".to_owned(), onclick: move |_| {
+                                                let current_url = app.read().settings.server_url.to_string();
+                                                app.write().settings_url = current_url;
+                                                app.write().settings_error = None;
+                                                app.write().settings_open = true;
+                                            } }
+                                        }
+                                    }
+                                }
+                            }
+                            AccessView::Denied => {
+                                rsx! {
+                                    div { class: "empty-state",
+                                        div { class: "empty-mark", Icon { name: IconName::Close } }
+                                        h3 { "Server Access Denied" }
+                                        p { "This computer's IP address is not whitelisted by the server (requires tier 100 or higher). Add this IP in the server administration or PostgreSQL 'ip_whitelist' table." }
+                                        div { class: "empty-actions",
+                                            Button { label: "Open Settings".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                                let current_url = app.read().settings.server_url.to_string();
+                                                app.write().settings_url = current_url;
+                                                app.write().settings_error = None;
+                                                app.write().settings_open = true;
+                                            } }
+                                            Button { label: "Retry Connection".to_owned(), class: "primary".to_owned(), onclick: move |_| refresh(app) }
+                                        }
+                                    }
+                                }
+                            }
+                            AccessView::Unreachable(err) => {
+                                rsx! {
+                                    div { class: "empty-state",
+                                        div { class: "empty-mark", Icon { name: IconName::Close } }
+                                        h3 { "Cannot Connect to Server" }
+                                        p { "Unable to reach server at '{snapshot.settings.server_url}': {err}. Make sure the server is running, the host/port are correct, and network access is available." }
+                                        div { class: "empty-actions",
+                                            Button { label: "Edit Server in Settings".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                                let current_url = app.read().settings.server_url.to_string();
+                                                app.write().settings_url = current_url;
+                                                app.write().settings_error = None;
+                                                app.write().settings_open = true;
+                                            } }
+                                            Button { label: "Retry Connection".to_owned(), class: "primary".to_owned(), onclick: move |_| refresh(app) }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                rsx! {
+                                    div { class: "empty-state",
+                                        div { class: "empty-mark", Icon { name: IconName::Library } }
+                                        h3 { if snapshot.search.trim().is_empty() { "Nothing here yet" } else { "No matching media" } }
+                                        p { if snapshot.search.trim().is_empty() { "Choose another category or media type." } else { "Clear the search or try a different title." } }
+                                        if !snapshot.search.trim().is_empty() {
+                                            div { class: "empty-actions",
+                                                Button { label: "Clear search".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                                    app.write().search.clear();
+                                                    begin_browse(app);
+                                                } }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

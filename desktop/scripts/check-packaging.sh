@@ -44,6 +44,8 @@ done
 grep -Eq '^command: dogmedia-desktop$' \
   "$desktop_dir/flatpak/com.dogmedia.Desktop.yml"
 grep -Eq -- '--device=dri' "$desktop_dir/flatpak/com.dogmedia.Desktop.yml"
+grep -Fxq '  - --own-name=org.mpris.MediaPlayer2.com.dogmedia.Desktop' \
+  "$desktop_dir/flatpak/com.dogmedia.Desktop.yml"
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$desktop_dir/resources/com.dogmedia.Desktop.desktop"

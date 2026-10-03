@@ -28,6 +28,10 @@ pub enum Endpoint {
     Resume(MediaId),
     ResumeSave(MediaId),
     QueueWindow,
+    QueueWindowAt {
+        offset: usize,
+        limit: usize,
+    },
     QueueItems,
     QueueNextItem,
     QueueItem(MediaId),
@@ -96,6 +100,9 @@ impl Endpoint {
             Self::PlaybackEvent => "api/playback/event".to_owned(),
             Self::Resume(id) | Self::ResumeSave(id) => format!("api/playback/resume/{id}"),
             Self::QueueWindow => "api/queue/window?limit=100".to_owned(),
+            Self::QueueWindowAt { offset, limit } => {
+                format!("api/queue/window?offset={offset}&limit={limit}")
+            }
             Self::QueueItems => "api/queue/items".to_owned(),
             Self::QueueNextItem => "api/queue/items/next".to_owned(),
             Self::QueueItem(id) => format!("api/queue/items/{id}"),
@@ -157,6 +164,14 @@ mod tests {
         assert_eq!(
             Endpoint::QueueAutoAll { start: None }.path(),
             "api/queue/auto?compact=1"
+        );
+        assert_eq!(
+            Endpoint::QueueWindowAt {
+                offset: 0,
+                limit: 1
+            }
+            .path(),
+            "api/queue/window?offset=0&limit=1"
         );
         assert_eq!(Endpoint::Like(MediaId::new(3)).method(), HttpMethod::Put);
         assert_eq!(

@@ -338,7 +338,7 @@ describe("quality-aware streaming", () => {
           redisValues.set(key, args[1]);
           return [1, Number(args[2]), ""];
         }
-        if (script.includes("lastHeartbeatAt")) return [1, Number(args[3])];
+        if (script.includes("lastHeartbeatAt")) return [1, Number(args[4])];
         return 1;
       },
     });
@@ -431,15 +431,19 @@ describe("media artwork", () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  it("deletes media files, thumbnails, and directory on DELETE /api/media/:id", async () => {
+  it("deletes media files, thumbnails, media directory, and subtitles on DELETE /api/media/:id", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "pfs-delete-test-"));
     const catDir = join(dataDir, "7");
     const mediaDir = join(catDir, "1");
+    const subtitleDir = join(dataDir, "subtitles", "1");
     await mkdir(mediaDir, { recursive: true });
+    await mkdir(subtitleDir, { recursive: true });
     const mediaFile = join(catDir, "1.mp3");
     const thumbFile = join(mediaDir, "cover.webp");
+    const subtitleFile = join(subtitleDir, "1_0.vtt");
     await writeFile(mediaFile, "audio");
     await writeFile(thumbFile, "thumb");
+    await writeFile(subtitleFile, "WEBVTT");
 
     let deletedMediaId = null;
     const app = Fastify();
@@ -468,6 +472,7 @@ describe("media artwork", () => {
     await expect(stat(mediaFile)).rejects.toThrow();
     await expect(stat(thumbFile)).rejects.toThrow();
     await expect(stat(mediaDir)).rejects.toThrow();
+    await expect(stat(subtitleDir)).rejects.toThrow();
 
     await app.close();
     await rm(dataDir, { recursive: true, force: true });

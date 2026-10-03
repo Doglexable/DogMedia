@@ -547,7 +547,8 @@ export default async function (fastify) {
     multi.del(idxKey);
     if (nextQueue.length > 0) {
       multi.rpush(key, ...nextQueue);
-      multi.set(idxKey, nextIndex);
+      multi.expire(key, QUEUE_TTL_SECONDS);
+      multi.set(idxKey, nextIndex, "EX", QUEUE_TTL_SECONDS);
     }
     await multi.exec();
     await bumpQueueRevision(fastify.redis, revisionKey);

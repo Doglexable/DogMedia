@@ -1181,6 +1181,7 @@ export default async function (fastify, options = {}) {
     }
 
     await rm(join(dataDir, String(rows[0].category_id), String(id)), { recursive: true, force: true }).catch(() => {});
+    await rm(join(dataDir, "subtitles", String(id)), { recursive: true, force: true }).catch(() => {});
 
     await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [id]);
     return reply.code(204).send();
@@ -1294,7 +1295,12 @@ export default async function (fastify, options = {}) {
       return reply.code(401).send({ error: "A valid playback session is required" });
     }
     if (validation.session.leaseRequired) {
-      const lease = await refreshExclusiveLease(fastify.redis, viewerId, sessionId);
+      const lease = await refreshExclusiveLease(
+        fastify.redis,
+        viewerId,
+        sessionId,
+        request.clientIp || request.ip
+      );
       if (!lease.refreshed) {
         reply.header("Cache-Control", "no-store");
         return reply.code(409).send({

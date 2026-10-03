@@ -34,20 +34,6 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
         RepeatMode::One => "Repeat: one".to_owned(),
     };
 
-    let vol = snapshot.settings.volume.get();
-    let vol_icon = if vol <= 0.0 {
-        IconName::VolumeMute
-    } else if vol < 0.5 {
-        IconName::VolumeLow
-    } else {
-        IconName::Volume
-    };
-    let vol_label = if vol <= 0.0 {
-        "Unmute (currently muted)".to_owned()
-    } else {
-        format!("Mute (volume {}%)", (vol * 100.0).round() as i32)
-    };
-
     let media_badge = if media.is_video() {
         Some("VIDEO")
     } else if media.is_photo() {
@@ -121,6 +107,7 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                     MusicProgress {
                         position: playback.position,
                         duration: playback.duration,
+                        variant: SliderVariant::Round,
                         onseek: move |position| seek(app, engine, position),
                     }
                 }
@@ -129,29 +116,13 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                 if !media.is_photo() {
                     QualityPopover {
                         app,
-                        engine,
                         quality: playback.quality,
-                        is_video: media.is_video(),
                     }
                 }
                 if !media.is_photo() {
-                    div { class: "mini-volume",
-                        IconButton {
-                            label: vol_label,
-                            icon: vol_icon,
-                            class: "volume-btn".to_owned(),
-                            onclick: move |_| toggle_mute(app, engine)
-                        }
-                        input {
-                            class: "volume-slider",
-                            r#type: "range",
-                            min: "0",
-                            max: "1",
-                            step: "0.01",
-                            value: "{vol}",
-                            "aria-label": "Volume",
-                            oninput: move |event| if let Ok(volume) = event.value().parse() { set_volume(app, engine, volume); }
-                        }
+                    VolumePopover {
+                        app,
+                        engine,
                     }
                 }
                 IconButton {
@@ -169,7 +140,7 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
 
 pub(crate) fn quality_badge(quality: Quality) -> &'static str {
     match quality {
-        Quality::Ori => "ORI",
+        Quality::Ori => "VH",
         Quality::High => "HD",
         Quality::Med => "MED",
         Quality::Low => "LOW",
@@ -179,14 +150,14 @@ pub(crate) fn quality_badge(quality: Quality) -> &'static str {
 pub(crate) fn quality_description(quality: Quality, is_video: bool) -> &'static str {
     if is_video {
         match quality {
-            Quality::Ori => "Original source",
+            Quality::Ori => "Very high source",
             Quality::High => "1080p • Highest",
             Quality::Med => "720p • Balanced",
             Quality::Low => "480p • Data saver",
         }
     } else {
         match quality {
-            Quality::Ori => "Lossless source",
+            Quality::Ori => "Very high source",
             Quality::High => "256 kbps • High",
             Quality::Med => "160 kbps • Standard",
             Quality::Low => "96 kbps • Efficient",
@@ -201,58 +172,157 @@ fn QualityOption(
     is_video: bool,
     onselect: EventHandler<Quality>,
 ) -> Element {
-    let mut ctx = use_context::<PopoverContext>();
-
     rsx! {
         button {
             r#type: "button",
-            class: if is_active { "quality-option-item active" } else { "quality-option-item" },
-            onclick: move |_| {
-                ctx.open.set(false);
+            class: if is_active { "player-quality-preset player-quality-preset--active" } else { "player-quality-preset" },
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
                 onselect.call(opt);
             },
-            div { class: "quality-item-info",
-                span { class: "quality-item-name", "{opt}" }
-                span { class: "quality-item-desc", "{quality_description(opt, is_video)}" }
+            div { class: "player-quality-preset-info",
+                span { class: "player-quality-preset-name", "{opt}" }
+                span { class: "player-quality-preset-bitrate", "{quality_description(opt, is_video)}" }
             }
-            span { class: "quality-item-tag", "{quality_badge(opt)}" }
+            span { class: "player-quality-preset-tag", "{quality_badge(opt)}" }
         }
     }
 }
 
 #[component]
-pub(crate) fn QualityPopover(
-    app: Signal<NativeApp>,
+pub(crate) fn QualityPopover(mut app: Signal<NativeApp>, quality: Quality) -> Element {
+    let active_badge = quality_badge(quality);
+    let is_modified = quality != Quality::Ori;
+    let is_open = app.read().quality_popover_open;
+
+    rsx! {
+        button {
+            r#type: "button",
+            class: if is_modified || is_open { "player-quality-btn player-quality-btn--modified" } else { "player-quality-btn" },
+            aria_label: format!("Quality: {quality}"),
+            "aria-expanded": "{is_open}",
+            "aria-haspopup": "dialog",
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                let open = app.read().quality_popover_open;
+                app.write().quality_popover_open = !open;
+            },
+            Icon { name: IconName::Signal }
+            if is_modified || is_open {
+                span { class: "player-quality-badge", "{active_badge}" }
+            }
+        }
+    }
+}
+
+#[component]
+pub(crate) fn QualityOverlay(
+    mut app: Signal<NativeApp>,
     engine: Signal<Option<PlaybackEngine>>,
     quality: Quality,
     is_video: bool,
-    #[props(default = PopoverSide::Top)] side: PopoverSide,
-    #[props(default = PopoverAlign::End)] align: PopoverAlign,
+    expanded: bool,
+    has_lyrics: bool,
 ) -> Element {
-    let active_badge = quality_badge(quality);
+    let active_desc = quality_description(quality, is_video);
+    let layer_class = if !expanded {
+        "quality-layer quality-layer--mini"
+    } else if is_video {
+        "quality-layer quality-layer--video"
+    } else if has_lyrics {
+        "quality-layer quality-layer--full quality-layer--full-with-lyrics"
+    } else {
+        "quality-layer quality-layer--full"
+    };
+
+    rsx! {
+        div {
+            class: layer_class,
+            role: "presentation",
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                app.write().quality_popover_open = false;
+            },
+            div {
+                class: "quality-layer-card",
+                role: "dialog",
+                "aria-label": "Playback quality",
+                onclick: move |event: MouseEvent| event.stop_propagation(),
+                div { class: "player-quality-popover",
+                    div { class: "player-quality-header",
+                        span { "Quality" }
+                        span { class: "player-quality-bitrate-active", "{active_desc}" }
+                    }
+                    div { class: "player-quality-presets",
+                        for opt in [Quality::Ori, Quality::High, Quality::Med, Quality::Low] {
+                            QualityOption {
+                                opt,
+                                is_active: quality == opt,
+                                is_video,
+                                onselect: move |selected| {
+                                    app.write().quality_popover_open = false;
+                                    change_quality(app, engine, selected);
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(crate) fn VolumePopover(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    #[props(default = PopoverSide::Top)] side: PopoverSide,
+    #[props(default = PopoverAlign::Center)] align: PopoverAlign,
+) -> Element {
+    let vol = app.read().settings.volume.get();
+    let vol_percent = (vol * 100.0).round() as i32;
+    let is_muted = vol <= 0.0;
+    let vol_icon = if is_muted {
+        IconName::VolumeMute
+    } else if vol < 0.5 {
+        IconName::VolumeLow
+    } else {
+        IconName::Volume
+    };
+    let vol_label = if is_muted {
+        "Volume (Muted)".to_owned()
+    } else {
+        format!("Volume {vol_percent}%")
+    };
 
     rsx! {
         Popover {
             align,
             side,
             PopoverTrigger {
-                class: "mini-quality-btn".to_owned(),
-                aria_label: format!("Quality: {quality}"),
-                span { class: "quality-badge-text", "{active_badge}" }
+                class: if is_muted { "player-volume-button player-volume-control--muted" } else { "player-volume-button" },
+                aria_label: vol_label.clone(),
+                ondoubleclick: move |_| toggle_mute(app, engine),
+                Icon { name: vol_icon }
             }
             PopoverContent {
-                class: "quality-popover-content".to_owned(),
-                PopoverTitle { "Stream Quality" }
-                PopoverDescription { "{quality_description(quality, is_video)}" }
-                div { class: "quality-options-list",
-                    for opt in [Quality::Ori, Quality::High, Quality::Med, Quality::Low] {
-                        QualityOption {
-                            opt,
-                            is_active: quality == opt,
-                            is_video,
-                            onselect: move |selected| change_quality(app, engine, selected),
-                        }
+                class: "player-volume-popover-content".to_owned(),
+                div {
+                    class: "player-volume-popover",
+                    button {
+                        r#type: "button",
+                        class: "player-volume-popover-mute",
+                        title: if is_muted { "Unmute" } else { "Mute" },
+                        aria_label: if is_muted { "Unmute" } else { "Mute" },
+                        onclick: move |_| toggle_mute(app, engine),
+                        Icon { name: vol_icon }
                     }
+                    VolumeSlider {
+                        class: "player-volume-range",
+                        value: vol,
+                        onchange: move |value| set_volume(app, engine, value),
+                    }
+                    span { class: "player-volume-percent-label", "{vol_percent}%" }
                 }
             }
         }

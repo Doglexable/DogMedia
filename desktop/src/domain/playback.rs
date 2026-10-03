@@ -33,7 +33,7 @@ impl fmt::Display for Quality {
             Self::Low => "Low",
             Self::Med => "Medium",
             Self::High => "High",
-            Self::Ori => "Original",
+            Self::Ori => "Very High",
         })
     }
 }
@@ -57,7 +57,7 @@ impl FromStr for Quality {
             "low" | "Low" => Ok(Self::Low),
             "med" | "Medium" => Ok(Self::Med),
             "high" | "High" => Ok(Self::High),
-            "ori" | "Original" => Ok(Self::Ori),
+            "ori" | "Original" | "very high" | "Very High" | "Very high" => Ok(Self::Ori),
             _ => Err(QualityParseError),
         }
     }

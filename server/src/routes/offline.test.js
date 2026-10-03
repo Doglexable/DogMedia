@@ -14,8 +14,9 @@ afterEach(async () => {
 async function fixture() {
   const dataDir = await mkdtemp(join(tmpdir(), "pfs-offline-route-"));
   tempDirs.push(dataDir);
-  await mkdir(join(dataDir, "7"));
+  await mkdir(join(dataDir, "7/1"), { recursive: true });
   await writeFile(join(dataDir, "7/1.mp3"), "offline-audio");
+  await writeFile(join(dataDir, "7/1/high.mp3"), "encoded-high");
   return dataDir;
 }
 
@@ -23,11 +24,14 @@ function mediaRow() {
   return {
     id: 1, category_id: 7, category_name: "Folder", category_path: "Folder",
     title: "Track", description: null, artists: "Artist", duration: 30,
-    track_order: 3, mime_type: "audio/mpeg", file_path: "7/1.mp3", has_lyrics: true, liked: true,
+    track_order: 3, mime_type: "audio/mpeg", file_path: "7/1.mp3", source_version: 1,
+    has_lyrics: true, liked: true,
   };
 }
 
-async function buildApp(dataDir) {
+async function buildApp(dataDir, { accessTier = 0, variants = [{
+  quality: "high", file_path: "7/1/high.mp3", mime_type: "audio/mpeg",
+}] } = {}) {
   const app = Fastify();
   const queries = [];
   const redisCommands = [];
@@ -38,6 +42,7 @@ async function buildApp(dataDir) {
         const ids = Array.isArray(params.at(-1)) ? params.at(-1) : null;
         return { rows: ids && !ids.includes(1) ? [] : [mediaRow()], rowCount: 1 };
       }
+      if (sql.includes("FROM media_encoding_variants")) return { rows: variants, rowCount: variants.length };
       if (sql.includes("SELECT id FROM media_assets")) return { rows: [{ id: 1 }, { id: 2 }], rowCount: 2 };
       if (sql.includes("SELECT 1 FROM media_assets")) return { rows: [{ "?column?": 1 }], rowCount: 1 };
       if (sql.includes("INSERT INTO playback_events")) {
@@ -61,7 +66,7 @@ async function buildApp(dataDir) {
     },
   });
   app.addHook("onRequest", async (request) => {
-    request.accessTier = 0;
+    request.accessTier = accessTier;
     request.clientIp = "127.0.0.1";
   });
   await app.register(offlineRoutes, { prefix: "/api/offline", dataDir });
@@ -69,6 +74,57 @@ async function buildApp(dataDir) {
 }
 
 describe("offline routes", () => {
+  it("falls back from original to high quality for a guest download", async () => {
+    const { app } = await buildApp(await fixture(), { accessTier: 0 });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/offline/media/1/download?quality=ori",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-media-quality"]).toBe("high");
+    expect(response.body).toBe("encoded-high");
+    await app.close();
+  });
+
+  it("serves original quality to an administrator", async () => {
+    const { app } = await buildApp(await fixture(), { accessTier: 100 });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/offline/media/1/download?quality=ori",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-media-quality"]).toBe("ori");
+    expect(response.body).toBe("offline-audio");
+    await app.close();
+  });
+
+  it("serves an explicitly requested high-quality variant to a guest", async () => {
+    const { app } = await buildApp(await fixture(), { accessTier: 0 });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/offline/media/1/download?quality=high",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-media-quality"]).toBe("high");
+    expect(response.body).toBe("encoded-high");
+    await app.close();
+  });
+
+  it("never falls back to original for a guest when an encoded variant is unavailable", async () => {
+    const { app } = await buildApp(await fixture(), { accessTier: 0, variants: [] });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/offline/media/1/download?quality=high",
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: "Original quality requires admin access" });
+    await app.close();
+  });
+
   it("returns an audio-only direct-folder manifest with version metadata", async () => {
     const { app, queries } = await buildApp(await fixture());
     const response = await app.inject({ method: "GET", url: "/api/offline/manifest?category_id=7" });

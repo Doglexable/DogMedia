@@ -12,6 +12,7 @@ import { normalizeRequestedQuality, selectActualQuality } from "../media-quality
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const MAX_BATCH_ITEMS = 500;
+const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
 const ACCESSIBLE_AUDIO_SQL = `
   WITH RECURSIVE accessible_categories AS (
     SELECT c.id, c.parent_id, c.name,
@@ -185,13 +186,21 @@ export default async function offlineRoutes(fastify, options = {}) {
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: [mediaId] });
     if (rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
     const media = rows[0];
-    let selected = await resolveQualityFile(fastify.pg, media, requestedQuality);
+    const canAccessOriginal = request.accessTier >= ORIGINAL_QUALITY_MIN_TIER;
+    const effectiveQuality = requestedQuality === "ori" && !canAccessOriginal
+      ? "high"
+      : requestedQuality;
+    let selected = await resolveQualityFile(fastify.pg, media, effectiveQuality);
+    if (selected.quality === "ori" && !canAccessOriginal) {
+      return reply.code(403).send({ error: "Original quality requires admin access" });
+    }
     let filePath = join(dataDir, selected.path);
     let stats;
     try {
       stats = await stat(filePath);
     } catch {
       if (selected.quality === "ori") return reply.code(404).send({ error: "File not found on disk" });
+      if (!canAccessOriginal) return reply.code(404).send({ error: "Requested quality is not available" });
       selected = { path: media.file_path, mimeType: media.mime_type, quality: "ori" };
       filePath = join(dataDir, selected.path);
       try {
@@ -329,7 +338,14 @@ export default async function offlineRoutes(fastify, options = {}) {
       const resume = acceptedResumes[index];
       const key = `playback:resume:${clientIp}:${resume.mediaId}`;
       const remoteRaw = remoteValues[index];
-      const remote = remoteRaw ? JSON.parse(remoteRaw) : null;
+      let remote = null;
+      if (remoteRaw) {
+        try {
+          remote = JSON.parse(remoteRaw);
+        } catch {
+          // Treat corrupted resume as absent so the offline value takes precedence.
+        }
+      }
       if (isNewerOfflineResume(resume.updatedAt, remote?.timestamp)) {
         if (resume.duration && resume.position >= resume.duration - 3) resumePipeline.del(key);
         else resumePipeline.set(key, JSON.stringify({ position: resume.position, duration: resume.duration, timestamp: resume.updatedAt }), "EX", 604800);

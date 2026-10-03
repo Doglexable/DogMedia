@@ -8,24 +8,27 @@ use base64::Engine as _;
 use dioxus_native::prelude::*;
 
 use crate::{
-    api::{ApiClient, ApiError, Endpoint},
+    api::{ApiClient, ApiError, Endpoint, ServerUrlError},
     app::{AccessView, AppState},
     domain::{
         BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, Media,
-        MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality, QueueWindow, SubtitleTrack,
-        Volume,
+        MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality, QueueItem, QueueOrder,
+        QueueWindow, SubtitleTrack, Volume,
     },
+    integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
         EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RepeatMode,
         VideoFrameReceiver,
     },
-    store::{ColorScheme, Settings, SettingsStore},
+    store::{ColorScheme, Settings, SettingsError, SettingsStore},
 };
 
+#[allow(unused_imports)]
 pub(crate) use kit::{
-    Artwork, Button, Chip, Icon, IconButton, IconName, Input, MediaListSkeleton, MusicProgress,
-    Notice, Popover, PopoverAlign, PopoverContent, PopoverContext, PopoverDescription, PopoverSide,
-    PopoverTitle, PopoverTrigger, Select, Skeleton, StatusBadge, ThemeToggle,
+    Artwork, Button, Chip, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName,
+    Input, MediaListSkeleton, MusicProgress, Notice, Popover, PopoverAlign, PopoverContent,
+    PopoverContext, PopoverDescription, PopoverSide, PopoverTitle, PopoverTrigger, Select,
+    Skeleton, Slider, SliderVariant, StatusBadge, ThemeToggle, VolumeSlider,
 };
 use video_surface::VideoPaintSource;
 use views::Shell;
@@ -139,9 +142,12 @@ pub(crate) struct NativeApp {
     subtitle_cues: Vec<SubtitleCue>,
     photo_data_url: Option<String>,
     player_expanded: bool,
+    quality_popover_open: bool,
     queue_open: bool,
     settings_open: bool,
     settings_url: String,
+    settings_error: Option<String>,
+    settings_connecting: bool,
     allow_http: bool,
     status: Option<String>,
 }
@@ -201,9 +207,12 @@ impl NativeApp {
             subtitle_cues: Vec::new(),
             photo_data_url: None,
             player_expanded: false,
+            quality_popover_open: false,
             queue_open: false,
             settings_open,
             settings_url,
+            settings_error: None,
+            settings_connecting: false,
             allow_http: false,
             status,
         }
@@ -278,6 +287,7 @@ pub fn run() {
 fn App() -> Element {
     let mut app = use_signal(NativeApp::boot);
     let engine = use_signal(|| PlaybackEngine::new().ok());
+    let mpris = use_hook(MprisBridge::start);
     let frames = use_hook(|| {
         engine
             .read()
@@ -313,10 +323,25 @@ fn App() -> Element {
             }
         }
     });
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            tick_playback(app, engine);
+    let playback_mpris = mpris.clone();
+    use_future(move || {
+        let playback_mpris = playback_mpris.clone();
+        async move {
+            publish_mpris_state(app, engine, &playback_mpris);
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                tick_playback(app, engine);
+                publish_mpris_state(app, engine, &playback_mpris);
+            }
+        }
+    });
+    let command_mpris = mpris.clone();
+    use_future(move || {
+        let command_mpris = command_mpris.clone();
+        async move {
+            while let Some(command) = command_mpris.next_command().await {
+                handle_mpris_command(app, engine, command);
+            }
         }
     });
     use_future(move || async move {
@@ -337,6 +362,8 @@ fn connect(mut app: Signal<NativeApp>) {
         match client.check_access().await {
             Ok(_) => {
                 app.write().library.access = AccessView::Ready;
+                app.write().settings_connecting = false;
+                app.write().settings_error = None;
                 match client.categories().await {
                     Ok(value) => {
                         app.write().categories = value.clone();
@@ -350,12 +377,19 @@ fn connect(mut app: Signal<NativeApp>) {
                 load_queue(app);
             }
             Err(ApiError::AccessDenied) => {
+                let msg = "Access Denied: Server reached, but this computer's IP is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
                 app.write().library.access = AccessView::Denied;
-                app.write().status = Some(ApiError::AccessDenied.user_message());
+                app.write().settings_connecting = false;
+                app.write().status = Some(msg);
             }
             Err(error) => {
-                app.write().library.access = AccessView::Unreachable(error.user_message());
-                app.write().status = Some(error.user_message());
+                let user_msg = error.user_message();
+                let msg = format!(
+                    "Cannot connect to server: {user_msg}. Please check the server address, port, and network connection."
+                );
+                app.write().library.access = AccessView::Unreachable(user_msg);
+                app.write().settings_connecting = false;
+                app.write().status = Some(msg);
             }
         }
     });
@@ -585,7 +619,9 @@ fn play_media_at(
         let _ = engine.stop();
     }
     app.write().coordinator.load(media.clone());
-    app.write().player_expanded = media.is_video();
+    if media.is_video() {
+        app.write().player_expanded = true;
+    }
     let sequence = app.read().coordinator.snapshot().sequence;
     let quality = app.read().settings.quality;
     app.write().lyrics.clear();
@@ -620,12 +656,20 @@ fn play_media_at(
     spawn(async move {
         let resume = match resume_at {
             Some(position) => position,
-            None => client
-                .resume(media.id)
-                .await
-                .ok()
-                .and_then(|value| value.position)
-                .unwrap_or(0.0),
+            None => {
+                let stored = client
+                    .resume(media.id)
+                    .await
+                    .ok()
+                    .and_then(|value| value.position)
+                    .unwrap_or(0.0);
+                let duration = media.duration.unwrap_or(0.0);
+                if stored < 2.0 || (duration > 0.0 && stored >= duration - 3.0) {
+                    0.0
+                } else {
+                    stored
+                }
+            }
         };
         let result = async {
             let session = client.create_playback_session(media.id, quality).await?;
@@ -770,27 +814,50 @@ fn change_quality(
 }
 
 fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
-    if app.read().coordinator.snapshot().media.is_none() {
+    let app_read = app.read();
+    let snapshot = app_read.coordinator.snapshot().clone();
+    drop(app_read);
+    if snapshot.media.is_none()
+        || snapshot.status == PlaybackStatus::Ended
+        || snapshot.status == PlaybackStatus::Loading
+    {
         return;
     }
     let event = engine.read().as_ref().and_then(PlaybackEngine::poll_event);
-    match event {
-        Some(EngineEvent::Ended) => {
-            app.write().coordinator.ended();
-            navigate_queue(app, engine, true, true);
-            return;
-        }
-        Some(EngineEvent::Failed(error)) => {
-            let sequence = app.read().coordinator.snapshot().sequence;
-            app.write().coordinator.failed(sequence, &error);
-            app.write().status = Some(format!("Playback failed: {error}"));
-            return;
-        }
-        None => {}
-    }
     let position = engine.read().as_ref().and_then(PlaybackEngine::position);
     let duration = engine.read().as_ref().and_then(PlaybackEngine::duration);
-    if let (Some(position), Some(duration)) = (position, duration) {
+
+    let effective_duration = duration
+        .filter(|&d| d > 0.0)
+        .or_else(|| snapshot.media.as_ref().and_then(|m| m.duration))
+        .or(if snapshot.duration > 0.0 {
+            Some(snapshot.duration)
+        } else {
+            None
+        });
+
+    let is_ended = matches!(event, Some(EngineEvent::Ended))
+        || (snapshot.status == PlaybackStatus::Playing
+            && position.is_some()
+            && effective_duration.is_some()
+            && effective_duration.unwrap_or(0.0) > 1.0
+            && position.unwrap_or(0.0) >= effective_duration.unwrap_or(0.0) - 0.25);
+
+    if is_ended {
+        app.write().coordinator.ended();
+        navigate_queue(app, engine, true, true);
+        return;
+    }
+
+    if let Some(EngineEvent::Failed(error)) = event {
+        let sequence = snapshot.sequence;
+        app.write().coordinator.failed(sequence, &error);
+        app.write().status = Some(format!("Playback failed: {error}"));
+        return;
+    }
+
+    if let Some(position) = position {
+        let duration = effective_duration.unwrap_or(position);
         app.write().coordinator.update_timing(position, duration);
     }
 }
@@ -813,23 +880,37 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
         .as_ref()
         .and_then(PlaybackEngine::duration)
         .unwrap_or(app.read().coordinator.snapshot().duration);
+    let status = app.read().coordinator.snapshot().status;
     spawn(async move {
         if session.lease_required
             && let Err(error) = client.heartbeat(&session).await
         {
-            if matches!(error, ApiError::PlaybackLeaseLost { .. }) {
-                if let Some(engine) = engine.read().as_ref() {
-                    let _ = engine.pause();
-                }
-                app.write().coordinator.lease_lost();
+            if let Some(engine) = engine.read().as_ref() {
+                let _ = engine.pause();
             }
+            app.write().coordinator.lease_lost();
             app.write().status = Some(error.user_message());
+            return;
         }
-        send_report(&client, &media, "play", position, duration, false).await;
+        let action = if status == PlaybackStatus::Playing {
+            "play"
+        } else {
+            "pause"
+        };
+        send_report(&client, &media, action, position, duration, false).await;
     });
 }
 
-fn toggle_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+fn toggle_playback(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    let requested_playing = app.read().coordinator.snapshot().status != PlaybackStatus::Playing;
+    set_playback_playing(app, engine, requested_playing);
+}
+
+fn set_playback_playing(
+    mut app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    requested_playing: bool,
+) {
     let Some(media) = app.read().coordinator.snapshot().media.clone() else {
         return;
     };
@@ -837,18 +918,21 @@ fn toggle_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEng
         return;
     };
     let playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing;
+    if playing == requested_playing {
+        return;
+    }
     let result = engine.read().as_ref().map(|engine| {
-        if playing {
-            engine.pause()
-        } else {
+        if requested_playing {
             engine.play()
+        } else {
+            engine.pause()
         }
     });
     if matches!(result, Some(Ok(()))) {
-        if playing {
-            app.write().coordinator.pause();
-        } else {
+        if requested_playing {
             app.write().coordinator.play();
+        } else {
+            app.write().coordinator.pause();
         }
         let position = app.read().coordinator.snapshot().position;
         let duration = app.read().coordinator.snapshot().duration;
@@ -856,7 +940,7 @@ fn toggle_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEng
             send_report(
                 &client,
                 &media,
-                if playing { "pause" } else { "play" },
+                if requested_playing { "play" } else { "pause" },
                 position,
                 duration,
                 true,
@@ -864,6 +948,35 @@ fn toggle_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEng
             .await;
         });
     }
+}
+
+fn handle_mpris_command(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    command: MprisCommand,
+) {
+    match command {
+        MprisCommand::SetPlaying(playing) => set_playback_playing(app, engine, playing),
+        MprisCommand::Toggle => toggle_playback(app, engine),
+        MprisCommand::Previous => navigate_queue(app, engine, false, false),
+        MprisCommand::Next => navigate_queue(app, engine, true, false),
+    }
+}
+
+fn publish_mpris_state(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    mpris: &MprisBridge,
+) {
+    let model = app.read();
+    let state = MprisState::from_playback(
+        model.coordinator.snapshot(),
+        model.queue.as_ref(),
+        model.settings.volume,
+        engine.read().is_some(),
+    );
+    drop(model);
+    mpris.publish(state);
 }
 
 fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
@@ -900,6 +1013,15 @@ fn seek(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, posi
         engine.seek(position);
     }
     app.write().coordinator.update_position(position);
+}
+
+fn skip_seconds(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, offset: f64) {
+    let app_ref = app.read();
+    let playback = app_ref.coordinator.snapshot();
+    let duration = playback.duration.max(playback.position);
+    let target = (playback.position + offset).clamp(0.0, duration.max(0.0));
+    drop(app_ref);
+    seek(app, engine, target);
 }
 
 fn set_volume(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, value: f64) {
@@ -987,7 +1109,10 @@ fn select_queue(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, 
         }
         .await;
         match result {
-            Ok(media) => play_media(app, engine, media, false),
+            Ok(media) => {
+                play_media(app, engine, media, false);
+                load_queue(app);
+            }
             Err(error) => {
                 let mut app = app;
                 app.write().status = Some(error.user_message());
@@ -1002,22 +1127,86 @@ fn navigate_queue(
     forward: bool,
     from_eos: bool,
 ) {
-    let Some(client) = app.read().client.clone() else {
+    let app_read = app.read();
+    let playback = app_read.coordinator.snapshot().clone();
+    let current_media = playback.media.clone();
+    let repeat = playback.repeat;
+    let position = playback.position;
+    let client = app_read.client.clone();
+    drop(app_read);
+
+    // Loop current media if RepeatMode::One and triggered by EOS
+    if from_eos
+        && repeat == RepeatMode::One
+        && let Some(media) = current_media
+    {
+        play_media_at(app, engine, media, false, Some(0.0));
+        return;
+    }
+
+    if !forward && !from_eos && position > 3.0 {
+        seek(app, engine, 0.0);
+        return;
+    }
+
+    let Some(client) = client else {
         return;
     };
+
     spawn(async move {
+        let current_id = current_media.as_ref().map(|m| m.id);
         let result = async {
             let selection = client.queue_navigate(forward).await?;
             let id = selection.media_id.ok_or(ApiError::QueueEmpty)?;
-            client.media(id).await
+
+            // When navigating and server returned the same media (reached boundary of queue)
+            if Some(id) == current_id {
+                match repeat {
+                    RepeatMode::Queue => {
+                        if forward {
+                            // Loop queue forward: wrap around to first item
+                            let window = client.queue_window_at(0, 1).await?;
+                            let first_id = window
+                                .items
+                                .first()
+                                .map(|item| item.media.id)
+                                .ok_or(ApiError::QueueEmpty)?;
+                            client.queue_select(first_id).await?;
+                            client.media(first_id).await
+                        } else {
+                            // Loop queue backward: wrap around to last item
+                            let initial = client.queue_window_at(0, 1).await?;
+                            let last_offset = initial.total.saturating_sub(1);
+                            let window = client.queue_window_at(last_offset, 1).await?;
+                            let last_id = window
+                                .items
+                                .last()
+                                .map(|item| item.media.id)
+                                .ok_or(ApiError::QueueEmpty)?;
+                            client.queue_select(last_id).await?;
+                            client.media(last_id).await
+                        }
+                    }
+                    _ => {
+                        // No loop: stop playback at boundary
+                        Err(ApiError::QueueEmpty)
+                    }
+                }
+            } else {
+                client.media(id).await
+            }
         }
         .await;
+
         match result {
-            Ok(media) => play_media(app, engine, media, false),
+            Ok(media) => {
+                play_media(app, engine, media, false);
+                load_queue(app);
+            }
             Err(error) => {
                 if from_eos {
                     stop_playback(app, engine);
-                } else {
+                } else if !matches!(error, ApiError::QueueEmpty) {
                     let mut app = app;
                     app.write().status = Some(error.user_message());
                 }
@@ -1062,6 +1251,60 @@ fn queue_remove(app: Signal<NativeApp>, id: MediaId) {
             app.write().status = Some(error.user_message());
         }
         load_queue(app);
+    });
+}
+
+fn queue_reorder(mut app: Signal<NativeApp>, reordered_ids: Vec<MediaId>) {
+    let Some(client) = app.read().client.clone() else {
+        return;
+    };
+    let Some(queue) = app.read().queue.clone() else {
+        return;
+    };
+
+    // Optimistically reorder queue items locally
+    {
+        let mut app_write = app.write();
+        if let Some(q) = app_write.queue.as_mut() {
+            let mut map: HashMap<MediaId, QueueItem> = q
+                .items
+                .drain(..)
+                .map(|item| (item.media.id, item))
+                .collect();
+            for id in &reordered_ids {
+                if let Some(item) = map.remove(id) {
+                    q.items.push(item);
+                }
+            }
+            for (_, item) in map {
+                q.items.push(item);
+            }
+        }
+    }
+
+    spawn(async move {
+        let order = QueueOrder {
+            offset: queue.offset,
+            revision: queue.revision,
+            media_ids: &reordered_ids,
+        };
+        match client.queue_reorder(&order).await {
+            Ok(result) => {
+                let mut app = app;
+                if let Some(q) = app.write().queue.as_mut() {
+                    q.revision = result.revision;
+                    q.total = result.total;
+                    q.current_index = result.current_index;
+                    q.current_media_id = result.current_media_id;
+                }
+                load_queue(app);
+            }
+            Err(error) => {
+                let mut app = app;
+                app.write().status = Some(error.user_message());
+                load_queue(app);
+            }
+        }
     });
 }
 
@@ -1332,7 +1575,11 @@ async fn send_report(
         artists: media.artists.as_deref(),
         source: "desktop",
     };
-    let _ = client.save_resume(media.id, position, duration).await;
+    if position >= 2.0 && (duration == 0.0 || position < duration - 3.0) {
+        let _ = client.save_resume(media.id, position, duration).await;
+    } else if duration > 0.0 && position >= duration - 3.0 {
+        let _ = client.save_resume(media.id, 0.0, duration).await;
+    }
     let _ = client.report(&Endpoint::PlaybackActive, &report).await;
     if record_event {
         let _ = client.report(&Endpoint::PlaybackEvent, &report).await;
@@ -1356,19 +1603,16 @@ fn save_settings(mut app: Signal<NativeApp>) {
 
     match candidate.set_server_url(&settings_url) {
         Ok(true) if !allow_http => {
-            app.write().status =
-                Some("Plain HTTP requires the trusted-LAN confirmation.".to_owned());
+            let msg = "Plain HTTP to a remote server requires checking 'Trust plain HTTP for a remote server' below.".to_owned();
+            app.write().settings_error = Some(msg.clone());
+            app.write().status = Some(msg);
         }
         Ok(_) => {
-            let save_result = app.read().store.save(&candidate);
-            if let Err(error) = save_result {
-                app.write().status = Some(error.to_string());
-                return;
-            }
-
             let url_changed = candidate.server_url != previous_url;
             if !url_changed && is_connected && app.read().client.is_some() {
+                let _ = app.read().store.save(&candidate);
                 app.write().settings = candidate;
+                app.write().settings_error = None;
                 app.write().settings_open = false;
                 return;
             }
@@ -1378,17 +1622,85 @@ fn save_settings(mut app: Signal<NativeApp>) {
                 candidate.viewer_id.clone(),
             ) {
                 Ok(client) => {
+                    let save_result = app.read().store.save(&candidate);
+                    if let Err(error) = save_result {
+                        let msg = format!("Failed to save settings: {error}");
+                        app.write().settings_error = Some(msg.clone());
+                        app.write().status = Some(msg);
+                        return;
+                    }
+
                     app.write().settings = candidate;
-                    app.write().client = Some(client);
-                    app.write().settings_open = false;
+                    app.write().client = Some(client.clone());
+                    app.write().settings_error = None;
+                    app.write().settings_connecting = true;
                     app.write().library.access = AccessView::Checking;
-                    app.write().status = Some("Checking server access…".to_owned());
-                    connect(app);
+                    app.write().status = Some("Verifying server connection…".to_owned());
+
+                    spawn(async move {
+                        match client.check_access().await {
+                            Ok(_) => {
+                                app.write().library.access = AccessView::Ready;
+                                app.write().settings_open = false;
+                                app.write().settings_connecting = false;
+                                app.write().settings_error = None;
+                                app.write().status =
+                                    Some("Connected to server successfully.".to_owned());
+
+                                match client.categories().await {
+                                    Ok(value) => {
+                                        app.write().categories = value.clone();
+                                        for category in value {
+                                            ensure_category_artwork(app, category);
+                                        }
+                                    }
+                                    Err(error) => app.write().status = Some(error.user_message()),
+                                }
+                                begin_browse(app);
+                                load_queue(app);
+                            }
+                            Err(ApiError::AccessDenied) => {
+                                let msg = "Access Denied: The server received the request, but this computer's IP address is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
+                                app.write().library.access = AccessView::Denied;
+                                app.write().settings_connecting = false;
+                                app.write().settings_error = Some(msg.clone());
+                                app.write().status = Some(msg);
+                                app.write().settings_open = true;
+                            }
+                            Err(error) => {
+                                let user_msg = error.user_message();
+                                let msg = format!(
+                                    "Cannot connect to server: {user_msg}. Please check the server address, port, and network connection."
+                                );
+                                app.write().library.access = AccessView::Unreachable(user_msg);
+                                app.write().settings_connecting = false;
+                                app.write().settings_error = Some(msg.clone());
+                                app.write().status = Some(msg);
+                                app.write().settings_open = true;
+                            }
+                        }
+                    });
                 }
-                Err(error) => app.write().status = Some(error.user_message()),
+                Err(error) => {
+                    let msg = error.user_message();
+                    app.write().settings_error = Some(msg.clone());
+                    app.write().status = Some(msg);
+                }
             }
         }
-        Err(error) => app.write().status = Some(error.to_string()),
+        Err(error) => {
+            let msg = match &error {
+                SettingsError::InvalidUrl(ServerUrlError::UnsupportedScheme) => {
+                    "Invalid URL: Protocol must be http:// or https:// (e.g. http://127.0.0.1:3001/)".to_owned()
+                }
+                SettingsError::InvalidUrl(ServerUrlError::MissingHost) => {
+                    "Invalid URL: Please specify a valid host (e.g. 127.0.0.1 or media.example.com)".to_owned()
+                }
+                other => format!("Invalid server URL: {other}"),
+            };
+            app.write().settings_error = Some(msg.clone());
+            app.write().status = Some(msg);
+        }
     }
 }
 
@@ -1468,12 +1780,41 @@ fn format_added_date(value: Option<&str>) -> String {
     format!("{month} {day}, {year}")
 }
 
+pub(crate) fn format_language_label(code: Option<&str>) -> String {
+    let Some(code) = code else {
+        return "Unknown".to_owned();
+    };
+    match code.to_lowercase().as_str() {
+        "ind" | "id" | "indonesia" | "indonesian" => "Indonesia".to_owned(),
+        "eng" | "en" | "english" => "English".to_owned(),
+        "jpn" | "ja" | "japanese" | "jepang" => "Jepang".to_owned(),
+        "spa" | "es" | "spanish" | "spanyol" => "Spanyol".to_owned(),
+        "fra" | "fr" | "french" | "prancis" => "Prancis".to_owned(),
+        "deu" | "de" | "german" | "jerman" => "Jerman".to_owned(),
+        "zho" | "zh" | "chinese" | "mandarin" => "Mandarin".to_owned(),
+        "kor" | "ko" | "korean" | "korea" => "Korea".to_owned(),
+        "und" => "Unknown".to_owned(),
+        other => {
+            if let Some(first) = other.chars().next() {
+                format!("{}{}", first.to_uppercase(), &other[first.len_utf8()..])
+            } else {
+                "Unknown".to_owned()
+            }
+        }
+    }
+}
+
 fn subtitle_label(track: &SubtitleTrack) -> String {
-    track
-        .title
-        .clone()
-        .or_else(|| track.language.clone())
-        .unwrap_or_else(|| "Subtitle".to_owned())
+    let lang = format_language_label(track.language.as_deref());
+    if let Some(title) = track.title.as_deref() {
+        if !title.is_empty() && track.language.as_deref() != Some(title) {
+            format!("{lang} ({title})")
+        } else {
+            lang
+        }
+    } else {
+        lang
+    }
 }
 
 #[cfg(test)]
@@ -1495,6 +1836,53 @@ mod tests {
         );
         assert_eq!(format_added_date(None), "—");
         assert_eq!(format_added_date(Some("invalid")), "—");
+    }
+
+    #[test]
+    fn format_language_label_matches_web() {
+        assert_eq!(format_language_label(Some("ind")), "Indonesia");
+        assert_eq!(format_language_label(Some("eng")), "English");
+        assert_eq!(format_language_label(Some("jpn")), "Jepang");
+        assert_eq!(format_language_label(Some("spa")), "Spanyol");
+        assert_eq!(format_language_label(Some("fra")), "Prancis");
+        assert_eq!(format_language_label(Some("deu")), "Jerman");
+        assert_eq!(format_language_label(Some("zho")), "Mandarin");
+        assert_eq!(format_language_label(Some("kor")), "Korea");
+        assert_eq!(format_language_label(Some("und")), "Unknown");
+        assert_eq!(format_language_label(None), "Unknown");
+        assert_eq!(format_language_label(Some("ita")), "Ita");
+    }
+
+    #[test]
+    fn subtitle_label_combines_language_and_title() {
+        use crate::domain::{StreamPath, SubtitleId};
+
+        let track_both = SubtitleTrack {
+            id: SubtitleId::new(1),
+            language: Some("eng".to_string()),
+            title: Some("Full Commentary".to_string()),
+            vtt_url: StreamPath::new("api/media/1/subtitles/1/vtt"),
+            ass_url: None,
+        };
+        assert_eq!(subtitle_label(&track_both), "English (Full Commentary)");
+
+        let track_same = SubtitleTrack {
+            id: SubtitleId::new(2),
+            language: Some("ind".to_string()),
+            title: Some("ind".to_string()),
+            vtt_url: StreamPath::new("api/media/1/subtitles/2/vtt"),
+            ass_url: None,
+        };
+        assert_eq!(subtitle_label(&track_same), "Indonesia");
+
+        let track_no_title = SubtitleTrack {
+            id: SubtitleId::new(3),
+            language: Some("jpn".to_string()),
+            title: None,
+            vtt_url: StreamPath::new("api/media/1/subtitles/3/vtt"),
+            ass_url: None,
+        };
+        assert_eq!(subtitle_label(&track_no_title), "Jepang");
     }
 
     #[test]
@@ -1567,15 +1955,44 @@ mod tests {
 
     #[test]
     fn progress_and_duration_format_correctly() {
-        use super::kit::Progress;
+        use super::kit::{Progress, SliderVariant, slider_value_at};
 
         assert_eq!(format_duration(Some(0.0)), "0:00");
         assert_eq!(format_duration(Some(65.0)), "1:05");
         assert_eq!(format_duration(Some(3600.0)), "60:00");
         assert_eq!(format_duration(None), "0:00");
 
+        assert_eq!(SliderVariant::Round.as_str(), "Round");
+        assert_eq!(SliderVariant::Flat.as_str(), "Flat");
+        assert_eq!(slider_value_at(0, 0.0, 240.0, 0.1), 0.0);
+        assert_eq!(slider_value_at(50, 0.0, 240.0, 0.1), 120.0);
+        assert_eq!(slider_value_at(100, 0.0, 240.0, 0.1), 240.0);
+        assert_eq!(slider_value_at(75, 0.0, 100.0, 1.0), 75.0);
+
         let _ = rsx! {
             Progress { value: 50.0, max: 100.0 }
+        };
+    }
+
+    #[test]
+    fn draggable_components_render_correctly() {
+        use super::kit::{Draggable, DraggableItem, DraggableZone};
+
+        let _ = rsx! {
+            Draggable {
+                DraggableZone {
+                    DraggableItem {
+                        draggable: true,
+                        dragging: false,
+                        span { "Item 1" }
+                    }
+                    DraggableItem {
+                        draggable: true,
+                        dragging: true,
+                        span { "Item 2" }
+                    }
+                }
+            }
         };
     }
 
@@ -1648,5 +2065,18 @@ mod tests {
             created_at: None,
         };
         assert_eq!(super::media_folder(&media_empty), "Library");
+    }
+
+    #[test]
+    fn settings_url_validation_identifies_invalid_schemes_and_hosts() {
+        let mut settings = Settings::default();
+        let err1 = settings.set_server_url("ftp://127.0.0.1:3001").unwrap_err();
+        assert!(matches!(
+            err1,
+            SettingsError::InvalidUrl(ServerUrlError::UnsupportedScheme)
+        ));
+
+        let err2 = settings.set_server_url("not a url").unwrap_err();
+        assert!(matches!(err2, SettingsError::InvalidUrl(_)));
     }
 }

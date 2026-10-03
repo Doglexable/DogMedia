@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data/postgres:/var/lib/postgresql/data:Z
     ports:
-      - "5440:5432"
+      - "127.0.0.1:5440:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pfs"]
       interval: 5s
@@ -18,13 +18,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${PFS_REDIS_PASSWORD:-pfs_redis_secret}"]
     ports:
-      - "16379:6379"
+      - "127.0.0.1:16379:6379"
     volumes:
       - ./data/redis:/data:Z
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${PFS_REDIS_PASSWORD:-pfs_redis_secret}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -44,7 +44,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
-      REDIS_URL: redis://127.0.0.1:16379
+      REDIS_URL: redis://:${PFS_REDIS_PASSWORD:-pfs_redis_secret}@127.0.0.1:16379
       DATA_DIR: /app/data/media
       UPLOAD_TMP_DIR: /app/data/tmp
       PORT: 3001
@@ -73,7 +73,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
-      REDIS_URL: redis://127.0.0.1:16379
+      REDIS_URL: redis://:${PFS_REDIS_PASSWORD:-pfs_redis_secret}@127.0.0.1:16379
       DATA_DIR: /app/data/media
       UPLOAD_TMP_DIR: /app/data/tmp
       MEDIA_CLEANUP_INTERVAL_MS: ${MEDIA_CLEANUP_INTERVAL_MS:-3600000}

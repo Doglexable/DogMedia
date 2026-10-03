@@ -415,6 +415,8 @@ export function PlayerProvider({ children }) {
         setPaused(true);
         soundRef.current?.pause?.();
         videoControllerRef.current?.pause?.();
+        playbackSourceRef.current = null;
+        setPlaybackSource(null);
       });
     };
     const interval = setInterval(heartbeat, 10_000);

@@ -80,6 +80,8 @@ app.pg.query = async (...args) => {
 const slowRequestMs = Number.parseInt(process.env.SLOW_REQUEST_MS || "250", 10);
 app.addHook("onSend", async (_request, reply) => {
   reply.header("X-App-Version", SERVER_VERSION);
+  reply.header("X-Frame-Options", "DENY");
+  reply.header("X-Content-Type-Options", "nosniff");
 });
 app.addHook("onResponse", async (request, reply) => {
   const durationMs = reply.elapsedTime;

@@ -273,8 +273,9 @@ export function GlobalPlayerProvider({ children }) {
       const sessionId = playbackSessionIdRef.current;
       if (!sessionId) return;
       heartbeatPlaybackLease(sessionId).catch((error) => {
-        if (stopped || error.code !== "PLAYBACK_LEASE_LOST") return;
+        if (stopped) return;
         mediaRef.current?.pause?.();
+        playbackSessionIdRef.current = null;
         setStreamSrc("");
         setPaused(true);
         setShouldAutoPlay(false);

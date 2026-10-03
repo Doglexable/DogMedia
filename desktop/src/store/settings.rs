@@ -56,8 +56,8 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Returns `true` when the URL uses plain HTTP toward a non-loopback host
-    /// and therefore needs an explicit trusted-LAN confirmation.
+    /// Returns `true` when the URL uses plain HTTP toward a public/non-local
+    /// host and therefore needs explicit confirmation.
     pub fn set_server_url(&mut self, input: &str) -> Result<bool, SettingsError> {
         let parsed = ServerUrl::parse(input)?;
         let insecure = parsed.is_insecure_remote();
@@ -161,9 +161,14 @@ mod tests {
     }
 
     #[test]
-    fn insecure_lan_url_requires_confirmation() {
+    fn local_http_is_accepted_but_public_http_requires_confirmation() {
         let mut settings = Settings::default();
-        assert!(settings.set_server_url("http://192.168.1.8:3001").unwrap());
+        assert!(!settings.set_server_url("http://192.168.1.8:3001").unwrap());
         assert!(!settings.set_server_url("http://localhost:3001").unwrap());
+        assert!(
+            settings
+                .set_server_url("http://media.example.test")
+                .unwrap()
+        );
     }
 }

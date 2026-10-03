@@ -9,7 +9,7 @@ services:
     command: npm run dev --workspace=server
     environment:
       DATABASE_URL: postgres://pfs:${PFS_DB_PASSWORD:-pfs_secret}@127.0.0.1:5440/pfs
-      REDIS_URL: redis://127.0.0.1:16379
+      REDIS_URL: redis://:${PFS_REDIS_PASSWORD:-pfs_redis_secret}@127.0.0.1:16379
       DATA_DIR: /app/data/media
       UPLOAD_TMP_DIR: /app/data/tmp
       PORT: 3001

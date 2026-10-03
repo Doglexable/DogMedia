@@ -6,13 +6,17 @@ mod queue_panel;
 mod settings_dialog;
 mod shell;
 mod sidebar;
+mod video_mini_player;
+mod video_player;
 
 pub(crate) use featured::Featured;
 pub(crate) use full_player::FullPlayer;
 pub(crate) use library::Library;
-pub(crate) use player_bar::{PlayerBar, QualityPopover};
+pub(crate) use player_bar::{PlayerBar, QualityOverlay, QualityPopover};
 pub(crate) use queue_panel::QueuePanel;
 pub(crate) use settings_dialog::SettingsDialog;
 pub(crate) use shell::Shell;
 #[allow(unused_imports)]
 pub(crate) use sidebar::{Sidebar, truncate_category_name};
+pub(crate) use video_mini_player::VideoMiniPlayer;
+pub(crate) use video_player::VideoPlayer;
