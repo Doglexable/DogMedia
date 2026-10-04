@@ -12,7 +12,7 @@ use dogmedia_desktop::{
         BrowseQuery, Limit, MediaFilter, MediaId, PlaybackSession, Quality, SessionId, StreamPath,
         ViewerId,
     },
-    playback::{EngineEvent, PlaybackEngine, VideoFrame},
+    playback::{EngineEvent, PlaybackEngine, VideoFrame, VideoPixelFormat},
 };
 use wgpu::{
     Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
@@ -492,6 +492,7 @@ fn synthetic_1080p_frame() -> VideoFrame {
     VideoFrame {
         width: WIDTH,
         height: HEIGHT,
+        format: VideoPixelFormat::Rgba,
         pixels,
     }
 }

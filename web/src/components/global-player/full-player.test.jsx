@@ -141,4 +141,13 @@ describe("FullPlayer", () => {
     expect(css).toContain("body.player-expanded .global-sidebar");
     expect(css).toMatch(/\.fullscreen-player\s*\{[^}]*z-index:\s*500/s);
   });
+
+  it("provides focus-visible styling for interactive buttons and sliders", () => {
+    const css = readFileSync(new URL("../../theme.css", import.meta.url), "utf8");
+
+    expect(css).toContain(".fullscreen-player-close:focus-visible");
+    expect(css).toContain(".fullscreen-player-play:focus-visible");
+    expect(css).toContain(".fullscreen-player-progress-range:focus-visible");
+    expect(css).toContain(".fullscreen-player-volume-range:focus-visible");
+  });
 });

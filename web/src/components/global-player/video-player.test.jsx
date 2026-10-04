@@ -133,4 +133,79 @@ describe("VideoPlayer", () => {
     expect(themeCss).toContain("body.player-expanded .now-playing-floating-pill");
     expect(nowPlayingCss).toContain("body.player-expanded .now-playing-floating-pill");
   });
+
+  it("locks screen orientation to landscape on small screens and unlocks when requested", async () => {
+    const { lockScreenToLandscape, unlockScreenOrientation } = await import("./video-player");
+    const lockMock = vi.fn().mockResolvedValue(undefined);
+    const unlockMock = vi.fn();
+
+    const hadWindow = "window" in globalThis;
+    const originalWindow = globalThis.window;
+
+    try {
+      globalThis.window = {
+        innerWidth: 412,
+        innerHeight: 892,
+        screen: {
+          width: 412,
+          height: 892,
+          orientation: {
+            lock: lockMock,
+            unlock: unlockMock,
+          },
+        },
+      };
+
+      await lockScreenToLandscape();
+      expect(lockMock).toHaveBeenCalledWith("landscape");
+
+      unlockScreenOrientation();
+      expect(unlockMock).toHaveBeenCalled();
+    } finally {
+      if (hadWindow) {
+        globalThis.window = originalWindow;
+      } else {
+        delete globalThis.window;
+      }
+    }
+  });
+
+  it("does not lock screen orientation on large desktop displays", async () => {
+    const { lockScreenToLandscape } = await import("./video-player");
+    const lockMock = vi.fn().mockResolvedValue(undefined);
+
+    const hadWindow = "window" in globalThis;
+    const originalWindow = globalThis.window;
+
+    try {
+      globalThis.window = {
+        innerWidth: 1920,
+        innerHeight: 1080,
+        screen: {
+          width: 1920,
+          height: 1080,
+          orientation: {
+            lock: lockMock,
+          },
+        },
+      };
+
+      await lockScreenToLandscape();
+      expect(lockMock).not.toHaveBeenCalled();
+    } finally {
+      if (hadWindow) {
+        globalThis.window = originalWindow;
+      } else {
+        delete globalThis.window;
+      }
+    }
+  });
+
+  it("provides landscape orientation responsiveness and safe-area insets in CSS", () => {
+    const vaultCss = readFileSync(new URL("../../vault-theme.css", import.meta.url), "utf8");
+
+    expect(vaultCss).toContain("env(safe-area-inset-top)");
+    expect(vaultCss).toContain("env(safe-area-inset-bottom)");
+    expect(vaultCss).toMatch(/@media\s*\(max-height:\s*500px\)\s*and\s*\(orientation:\s*landscape\)/);
+  });
 });

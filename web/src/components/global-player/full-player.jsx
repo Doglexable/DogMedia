@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBackwardStep } from "@fortawesome/free-solid-svg-icons/faBackwardStep";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
@@ -22,7 +22,7 @@ import { AudioShareDialog } from "./audio-share-dialog";
 import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { playerStyles as styles } from "./player-styles";
-import { formatDuration, getLoopButtonTitle, getMediaFolderName } from "./player-utils";
+import { formatDuration, getLoopButtonTitle, getMediaFolderName, isEditableTarget } from "./player-utils";
 import { mediaViewTransitionName, runViewTransition } from "../../utils/view-transitions";
 
 const PLAYER_LYRICS_VISIBLE_KEY = "pfs:player-lyrics-visible";
@@ -92,24 +92,74 @@ export function FullPlayer({
 
   const hasLyrics = Boolean(lyrics?.segments?.length > 0 || lyricsLoading);
   const lyricsActive = isSingleColumn ? showLyricsMobile : showLyricsDesktop;
-  const openShareDialog = () => runViewTransition(
+  const openShareDialog = useCallback(() => runViewTransition(
     () => setShareOpen(true),
     { className: "modal-view-transition" },
-  );
-  const closeShareDialog = () => runViewTransition(
+  ), []);
+  const closeShareDialog = useCallback(() => runViewTransition(
     () => setShareOpen(false),
     { className: "modal-view-transition" },
-  );
+  ), []);
 
-  const onToggleLyrics = () => {
+  const onToggleLyrics = useCallback(() => {
     if (isSingleColumn) {
       setShowLyricsMobile((prev) => !prev);
     } else {
-      const nextVisible = !showLyricsDesktop;
-      setShowLyricsDesktop(nextVisible);
-      storeLyricsVisibility(nextVisible);
+      setShowLyricsDesktop((prev) => {
+        const nextVisible = !prev;
+        storeLyricsVisibility(nextVisible);
+        return nextVisible;
+      });
     }
-  };
+  }, [isSingleColumn]);
+
+  useEffect(() => {
+    if (isVideo) return undefined;
+
+    const handleKeyDown = (e) => {
+      if (e.defaultPrevented) return;
+      if (isEditableTarget(e.target)) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (shareOpen) {
+          closeShareDialog();
+        } else {
+          onCloseFull?.();
+        }
+        return;
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      switch (key) {
+        case "l":
+          if (hasLyrics) {
+            e.preventDefault();
+            onToggleLyrics();
+          }
+          break;
+        case "q":
+          e.preventDefault();
+          onOpenQueue?.();
+          break;
+        case "s":
+          e.preventDefault();
+          onToggleShuffle?.();
+          break;
+        case "r":
+          e.preventDefault();
+          onToggleLoop?.();
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeShareDialog, hasLyrics, isVideo, onCloseFull, onOpenQueue, onToggleLoop, onToggleLyrics, onToggleShuffle, shareOpen]);
 
   useEffect(() => {
     if (!hasLyrics && showLyricsMobile) {

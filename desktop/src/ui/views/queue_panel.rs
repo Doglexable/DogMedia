@@ -78,7 +78,23 @@ pub(crate) fn QueuePanel(
     };
 
     rsx! {
-        aside { class: "queue-panel", "aria-label": "Playback queue",
+        aside {
+            class: "queue-panel",
+            "aria-label": "Playback queue",
+            tabindex: "0",
+            autofocus: true,
+            onkeydown: move |event: KeyboardEvent| {
+                tracing::info!(
+                    target: "dogmedia_desktop::keyboard",
+                    layer = "queue-panel",
+                    key = ?event.key(),
+                    "DOM keyboard event"
+                );
+                if event.key() == Key::Escape {
+                    event.stop_propagation();
+                    app.write().queue_open = false;
+                }
+            },
             header { class: "panel-header",
                 div {
                     p { class: "eyebrow", "Up next" }

@@ -75,8 +75,97 @@ pub(crate) fn FullPlayer(
         format!("Volume {vol_percent}%")
     };
 
+    let is_photo = media.is_photo();
+    let on_key_down = move |event: KeyboardEvent| {
+        tracing::info!(
+            target: "dogmedia_desktop::keyboard",
+            layer = "full-player",
+            key = ?event.key(),
+            "DOM keyboard event"
+        );
+        event.stop_propagation();
+        match event.key() {
+            Key::Escape => {
+                app.write().player_expanded = false;
+            }
+            Key::Character(ref ch) if ch == " " || ch == "k" || ch == "K" => {
+                if !is_photo {
+                    toggle_playback(app, engine);
+                }
+            }
+            Key::ArrowLeft => {
+                if !is_photo {
+                    skip_seconds(app, engine, -10.0);
+                }
+            }
+            Key::ArrowRight => {
+                if !is_photo {
+                    skip_seconds(app, engine, 10.0);
+                }
+            }
+            Key::Character(ref ch) if ch == "j" || ch == "J" => {
+                if !is_photo {
+                    skip_seconds(app, engine, -10.0);
+                }
+            }
+            Key::Character(ref ch) if ch == "l" || ch == "L" => {
+                if !is_photo {
+                    skip_seconds(app, engine, 10.0);
+                }
+            }
+            Key::ArrowUp => {
+                let new_vol = (vol + 0.1).min(1.0);
+                set_volume(app, engine, new_vol);
+            }
+            Key::ArrowDown => {
+                let new_vol = (vol - 0.1).max(0.0);
+                set_volume(app, engine, new_vol);
+            }
+            Key::Character(ref ch) if ch == "m" || ch == "M" => {
+                toggle_mute(app, engine);
+            }
+            Key::Character(ref ch) if ch == "n" || ch == "N" => {
+                navigate_queue(app, engine, true, false);
+            }
+            Key::Character(ref ch) if ch == "p" || ch == "P" => {
+                navigate_queue(app, engine, false, false);
+            }
+            Key::Character(ref ch) if ch == "s" || ch == "S" => {
+                if !is_photo {
+                    toggle_shuffle(app);
+                }
+            }
+            Key::Character(ref ch) if ch == "r" || ch == "R" => {
+                if !is_photo {
+                    toggle_repeat(app);
+                }
+            }
+            Key::Character(ref ch) if ch == "q" || ch == "Q" => {
+                let open = app.read().queue_open;
+                app.write().queue_open = !open;
+            }
+            _ => {}
+        }
+    };
+
     rsx! {
-        section { class: "full-player", "aria-label": "Full player",
+        section {
+            class: "full-player",
+            "aria-label": "Full player",
+            tabindex: "0",
+            autofocus: true,
+            onkeydown: on_key_down,
+            if !snapshot.queue_open
+                && !snapshot.quality_popover_open
+                && !snapshot.settings_open
+            {
+                div {
+                    class: "keyboard-focus-sink",
+                    tabindex: "-1",
+                    autofocus: true,
+                    "aria-hidden": "true",
+                }
+            }
             IconButton {
                 label: "Close full player".to_owned(),
                 icon: IconName::ChevronDown,

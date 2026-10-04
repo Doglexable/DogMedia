@@ -167,8 +167,14 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                 onkeydown: {
                                     let media = media.clone();
                                     move |event: KeyboardEvent| {
-                                        if event.key() == Key::Enter {
-                                            play_media(app, engine, media.clone(), true);
+                                        match event.key() {
+                                            Key::Enter => {
+                                                play_media(app, engine, media.clone(), true);
+                                            }
+                                            Key::Character(ref ch) if ch == " " => {
+                                                play_media(app, engine, media.clone(), true);
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 },

@@ -293,3 +293,16 @@ export function shouldHandleSpaceKey(event) {
 
   return true;
 }
+
+export function isRangeTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName?.toLowerCase();
+  return tag === "input" && target.type?.toLowerCase() === "range";
+}
+
+export function shouldHandleMediaHotkeys(event) {
+  if (!event) return false;
+  if (event.defaultPrevented) return false;
+  if (event.ctrlKey || event.metaKey || event.altKey) return false;
+  return !isEditableTarget(event.target);
+}

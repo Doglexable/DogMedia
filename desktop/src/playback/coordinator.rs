@@ -111,6 +111,15 @@ impl PlaybackCoordinator {
         true
     }
 
+    pub fn loaded_paused(&mut self, sequence: u64, position: f64) -> bool {
+        if sequence != self.snapshot.sequence {
+            return false;
+        }
+        self.snapshot.position = position.max(0.0);
+        self.snapshot.status = PlaybackStatus::Paused;
+        true
+    }
+
     pub fn failed(&mut self, sequence: u64, message: impl Into<String>) -> bool {
         if sequence != self.snapshot.sequence {
             return false;
@@ -123,14 +132,17 @@ impl PlaybackCoordinator {
     pub fn play(&mut self) {
         if matches!(
             self.snapshot.status,
-            PlaybackStatus::Paused | PlaybackStatus::Ended
+            PlaybackStatus::Paused | PlaybackStatus::Ended | PlaybackStatus::Loading
         ) {
             self.snapshot.status = PlaybackStatus::Playing;
         }
     }
 
     pub fn pause(&mut self) {
-        if self.snapshot.status == PlaybackStatus::Playing {
+        if matches!(
+            self.snapshot.status,
+            PlaybackStatus::Playing | PlaybackStatus::Loading
+        ) {
             self.snapshot.status = PlaybackStatus::Paused;
         }
     }

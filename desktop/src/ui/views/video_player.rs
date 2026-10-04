@@ -1,4 +1,6 @@
 use dioxus_native::prelude::*;
+use std::sync::Arc;
+use winit::window::{Fullscreen, Window};
 
 use super::super::*;
 use super::QualityPopover;
@@ -105,6 +107,21 @@ pub(crate) fn VideoPlayer(
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
     };
+    let native_window = consume_context::<Arc<Window>>();
+    use_hook({
+        let native_window = native_window.clone();
+        move || {
+            native_window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+            tracing::info!("video player entered native fullscreen");
+        }
+    });
+    use_drop({
+        let native_window = native_window.clone();
+        move || {
+            native_window.set_fullscreen(None);
+            tracing::info!("video player exited native fullscreen");
+        }
+    });
     let playing = playback.status == PlaybackStatus::Playing;
     let active_subtitle = snapshot
         .subtitle_cues
@@ -197,6 +214,13 @@ pub(crate) fn VideoPlayer(
     let on_key_down = {
         let show_toast = show_feedback_toast;
         move |event: KeyboardEvent| {
+            tracing::info!(
+                target: "dogmedia_desktop::keyboard",
+                layer = "video-player",
+                key = ?event.key(),
+                "DOM keyboard event"
+            );
+            event.stop_propagation();
             on_activity();
             match event.key() {
                 Key::Character(ref ch) if ch == " " || ch == "k" || ch == "K" => {
@@ -255,6 +279,19 @@ pub(crate) fn VideoPlayer(
                         }),
                     );
                 }
+                Key::Character(ref ch) if ch == "f" || ch == "F" => {
+                    app.write().player_expanded = false;
+                }
+                Key::Character(ref ch) if ch == "n" || ch == "N" => {
+                    navigate_queue(app, engine, true, false);
+                }
+                Key::Character(ref ch) if ch == "p" || ch == "P" => {
+                    navigate_queue(app, engine, false, false);
+                }
+                Key::Character(ref ch) if ch == "q" || ch == "Q" => {
+                    let open = app.read().queue_open;
+                    app.write().queue_open = !open;
+                }
                 Key::Escape => {
                     app.write().player_expanded = false;
                 }
@@ -267,8 +304,21 @@ pub(crate) fn VideoPlayer(
         div {
             class: "video-player-root",
             tabindex: "0",
+            autofocus: true,
             onmousemove: move |_| on_activity(),
             onkeydown: on_key_down,
+            if !snapshot.queue_open
+                && !snapshot.quality_popover_open
+                && !snapshot.settings_open
+                && !*subtitles_open.read()
+            {
+                div {
+                    class: "keyboard-focus-sink",
+                    tabindex: "-1",
+                    autofocus: true,
+                    "aria-hidden": "true",
+                }
+            }
 
             div { class: "video-player-ambient-glow", "aria-hidden": "true" }
 

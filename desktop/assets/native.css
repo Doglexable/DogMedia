@@ -2039,6 +2039,15 @@ select:focus-visible {
 .vault-shell.light .settings-error-text strong { color: #be123c; }
 .settings-error-text span { font-size: 11px; opacity: 0.95; }
 
+/* Persistent keyboard target used when a transient player/dialog is removed. */
+.keyboard-focus-sink {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 @media (max-width: 1120px) {
   .mini-player { grid-template-columns: minmax(190px, 1fr) minmax(290px, 1.2fr) auto; gap: 12px; padding-inline: 16px; }
   .mini-volume { display: none; }

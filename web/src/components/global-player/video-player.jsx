@@ -29,6 +29,67 @@ function getVolumeIcon(volume, muted) {
   return volume < 0.5 ? faVolumeLow : faVolumeHigh;
 }
 
+export async function lockScreenToLandscape() {
+  if (typeof window === "undefined") return;
+  const isSmallScreen =
+    window.innerWidth <= 1024 ||
+    window.innerHeight <= 1024 ||
+    (window.screen?.width && window.screen.width <= 1024) ||
+    (window.screen?.height && window.screen.height <= 1024);
+
+  if (!isSmallScreen) return;
+
+  if (window.screen?.orientation && typeof window.screen.orientation.lock === "function") {
+    try {
+      await window.screen.orientation.lock("landscape");
+      return;
+    } catch {
+      try {
+        await window.screen.orientation.lock("landscape-primary");
+        return;
+      } catch {
+        // Browser security policy may restrict orientation lock
+      }
+    }
+  }
+
+  const legacyLock =
+    window.screen?.lockOrientation ||
+    window.screen?.mozLockOrientation ||
+    window.screen?.msLockOrientation;
+  if (typeof legacyLock === "function") {
+    try {
+      legacyLock.call(window.screen, "landscape");
+    } catch {
+      // Ignored
+    }
+  }
+}
+
+export function unlockScreenOrientation() {
+  if (typeof window === "undefined") return;
+  if (window.screen?.orientation && typeof window.screen.orientation.unlock === "function") {
+    try {
+      window.screen.orientation.unlock();
+      return;
+    } catch {
+      // Ignored
+    }
+  }
+
+  const legacyUnlock =
+    window.screen?.unlockOrientation ||
+    window.screen?.mozUnlockOrientation ||
+    window.screen?.msUnlockOrientation;
+  if (typeof legacyUnlock === "function") {
+    try {
+      legacyUnlock.call(window.screen);
+    } catch {
+      // Ignored
+    }
+  }
+}
+
 export function VideoPlayer({
   autoPlay,
   currentMedia,
@@ -54,6 +115,7 @@ export function VideoPlayer({
   onEnded,
   onLoadedMetadata,
   onCloseFull,
+  onOpenQueue,
   onPause,
   onPlay,
   onPreventMenu,
@@ -202,13 +264,54 @@ export function VideoPlayer({
     };
   }, []);
 
-  // Sync fullscreen state
+  // Sync fullscreen state & orientation lock
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+    const handleFullscreenChange = async () => {
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      );
+      setIsFullscreen(isFs);
+
+      if (isFs) {
+        await lockScreenToLandscape();
+      } else {
+        unlockScreenOrientation();
+      }
     };
+
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    document.addEventListener("mozfullscreenchange", handleFullscreenChange);
+    document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
+      document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+      unlockScreenOrientation();
+    };
+  }, []);
+
+  // For standalone PWA on mobile, attempt landscape orientation while video player is open
+  useEffect(() => {
+    const isStandalone =
+      typeof window !== "undefined" &&
+      (window.matchMedia?.("(display-mode: standalone)")?.matches ||
+        window.navigator?.standalone);
+
+    if (isStandalone) {
+      lockScreenToLandscape();
+    }
+
+    return () => {
+      if (isStandalone) {
+        unlockScreenOrientation();
+      }
+    };
   }, []);
 
   // Sync picture-in-picture state
@@ -253,21 +356,45 @@ export function VideoPlayer({
   // Fullscreen toggle
   const toggleFullscreen = useCallback(async () => {
     try {
-      if (!document.fullscreenElement) {
-        if (rootRef.current?.requestFullscreen) {
-          await rootRef.current.requestFullscreen();
-          showFeedbackToast("Fullscreen", faExpand);
+      const isFs = Boolean(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      );
+
+      if (!isFs) {
+        const el = rootRef.current;
+        if (el?.requestFullscreen) {
+          await el.requestFullscreen();
+        } else if (el?.webkitRequestFullscreen) {
+          await el.webkitRequestFullscreen();
+        } else if (el?.mozRequestFullScreen) {
+          await el.mozRequestFullScreen();
+        } else if (el?.msRequestFullscreen) {
+          await el.msRequestFullscreen();
+        } else if (mediaRef.current?.webkitEnterFullscreen) {
+          mediaRef.current.webkitEnterFullscreen();
         }
+        showFeedbackToast("Fullscreen", faExpand);
+        await lockScreenToLandscape();
       } else {
         if (document.exitFullscreen) {
           await document.exitFullscreen();
-          showFeedbackToast("Exit Fullscreen", faCompress);
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+          await document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+          await document.msExitFullscreen();
         }
+        unlockScreenOrientation();
+        showFeedbackToast("Exit Fullscreen", faCompress);
       }
     } catch {
       // Ignored
     }
-  }, [showFeedbackToast]);
+  }, [mediaRef, showFeedbackToast]);
 
   // Picture in picture toggle
   const togglePip = useCallback(async () => {
@@ -286,6 +413,25 @@ export function VideoPlayer({
       // Ignored
     }
   }, [mediaRef, showFeedbackToast]);
+
+  // Close full player and release orientation lock
+  const handleClose = useCallback(() => {
+    const isFs = Boolean(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement
+    );
+    if (isFs) {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+    unlockScreenOrientation();
+    onCloseFull?.();
+  }, [onCloseFull]);
 
   // Playback speed
   const handleSelectRate = useCallback((rate) => {
@@ -402,7 +548,7 @@ export function VideoPlayer({
         case "escape":
           if (!document.fullscreenElement) {
             e.preventDefault();
-            onCloseFull?.();
+            handleClose();
           }
           break;
         case "0":
@@ -436,6 +582,24 @@ export function VideoPlayer({
             }
           }
           break;
+        case "n":
+          if (hasNext && onAdvance) {
+            e.preventDefault();
+            onAdvance("next");
+          }
+          break;
+        case "p":
+          if (hasPrev && onAdvance) {
+            e.preventDefault();
+            onAdvance("prev");
+          }
+          break;
+        case "q":
+          if (onOpenQueue) {
+            e.preventDefault();
+            onOpenQueue();
+          }
+          break;
         default:
           break;
       }
@@ -444,11 +608,15 @@ export function VideoPlayer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    handleClose,
     handleSkipSeconds,
+    hasNext,
+    hasPrev,
     max,
     muted,
+    onAdvance,
     onChangeVolume,
-    onCloseFull,
+    onOpenQueue,
     onSeek,
     onToggle,
     onToggleMute,
@@ -528,7 +696,7 @@ export function VideoPlayer({
                 className="video-player-btn-icon"
                 aria-label="Close fullscreen player"
                 title="Close (Esc)"
-                onClick={onCloseFull}
+                onClick={handleClose}
               >
                 <FontAwesomeIcon icon={faXmark} />
               </button>

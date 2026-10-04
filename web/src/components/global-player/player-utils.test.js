@@ -12,11 +12,13 @@ import {
   isEditableTarget,
   isPauseTimeoutExpired,
   isPlayPauseElement,
+  isRangeTarget,
   isSpaceKey,
   parseArtistFromCategory,
   parseArtistFromTitle,
   resolveMediaArtist,
   shouldCompleteSleepTimer,
+  shouldHandleMediaHotkeys,
   shouldHandleSpaceKey,
   shouldSuggestSiblingMedia,
 } from "./player-utils";
@@ -481,5 +483,45 @@ describe("getMediaFolderName", () => {
   it("falls back to Library when no folder information exists", () => {
     expect(getMediaFolderName(null)).toBe("Library");
     expect(getMediaFolderName({})).toBe("Library");
+  });
+});
+
+describe("isRangeTarget", () => {
+  it("returns true for input range elements", () => {
+    expect(isRangeTarget({ tagName: "INPUT", type: "range" })).toBe(true);
+    expect(isRangeTarget({ tagName: "input", type: "RANGE" })).toBe(true);
+  });
+
+  it("returns false for non-range inputs and other elements", () => {
+    expect(isRangeTarget({ tagName: "INPUT", type: "text" })).toBe(false);
+    expect(isRangeTarget({ tagName: "BUTTON" })).toBe(false);
+    expect(isRangeTarget(null)).toBe(false);
+  });
+});
+
+describe("shouldHandleMediaHotkeys", () => {
+  it("allows hotkeys for standard background keydown events", () => {
+    expect(shouldHandleMediaHotkeys({ key: "k", target: { tagName: "BODY" } })).toBe(true);
+    expect(shouldHandleMediaHotkeys({ key: "j", target: { tagName: "DIV" } })).toBe(true);
+  });
+
+  it("rejects hotkeys when default is prevented", () => {
+    expect(shouldHandleMediaHotkeys({ key: "k", defaultPrevented: true, target: { tagName: "BODY" } })).toBe(false);
+  });
+
+  it("rejects hotkeys with modifiers like ctrl, meta, alt", () => {
+    expect(shouldHandleMediaHotkeys({ key: "k", ctrlKey: true, target: { tagName: "BODY" } })).toBe(false);
+    expect(shouldHandleMediaHotkeys({ key: "k", metaKey: true, target: { tagName: "BODY" } })).toBe(false);
+    expect(shouldHandleMediaHotkeys({ key: "k", altKey: true, target: { tagName: "BODY" } })).toBe(false);
+  });
+
+  it("rejects hotkeys when focus is inside text input, textarea, or contentEditable", () => {
+    expect(shouldHandleMediaHotkeys({ key: "k", target: { tagName: "INPUT", type: "text" } })).toBe(false);
+    expect(shouldHandleMediaHotkeys({ key: "k", target: { tagName: "TEXTAREA" } })).toBe(false);
+    expect(shouldHandleMediaHotkeys({ key: "k", target: { isContentEditable: true } })).toBe(false);
+  });
+
+  it("allows hotkeys on range inputs (slider logic checked separately)", () => {
+    expect(shouldHandleMediaHotkeys({ key: "k", target: { tagName: "INPUT", type: "range" } })).toBe(true);
   });
 });

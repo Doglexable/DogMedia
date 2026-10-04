@@ -22,7 +22,9 @@ import {
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
   isPauseTimeoutExpired,
+  isRangeTarget,
   shouldCompleteSleepTimer,
+  shouldHandleMediaHotkeys,
   shouldHandleSpaceKey,
   shouldSuggestSiblingMedia,
 } from "./global-player/player-utils";
@@ -1535,12 +1537,101 @@ export function GlobalPlayerProvider({ children }) {
   }, [toggleLike]);
 
   useEffect(() => {
-    if (!currentMedia || isImage) return undefined;
+    if (!currentMedia && !queueOpen && !isFullPlayer) return undefined;
 
     const handleKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+
+      if (event.key === "Escape") {
+        if (queueOpen) {
+          event.preventDefault();
+          setQueueOpen(false);
+          return;
+        }
+        if (isFullPlayer) {
+          event.preventDefault();
+          closeFullPlayer();
+          return;
+        }
+      }
+
+      if (!currentMedia || isImage) return;
+
       if (shouldHandleSpaceKey(event)) {
         event.preventDefault();
         togglePlayback();
+        return;
+      }
+
+      if (!shouldHandleMediaHotkeys(event)) return;
+
+      const isRange = isRangeTarget(event.target);
+      const key = event.key.toLowerCase();
+
+      switch (key) {
+        case "k":
+          event.preventDefault();
+          togglePlayback();
+          break;
+        case "j":
+          event.preventDefault();
+          seek(Math.max((mediaRef.current?.currentTime ?? position ?? 0) - 10, 0));
+          break;
+        case "l": {
+          event.preventDefault();
+          const curDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
+          const curPos = mediaRef.current?.currentTime ?? position ?? 0;
+          const nextPos = curPos + 10;
+          seek(curDuration > 0 ? Math.min(nextPos, curDuration) : nextPos);
+          break;
+        }
+        case "arrowleft":
+          if (!isRange) {
+            event.preventDefault();
+            const delta = event.shiftKey ? -10 : -5;
+            seek(Math.max((mediaRef.current?.currentTime ?? position ?? 0) + delta, 0));
+          }
+          break;
+        case "arrowright":
+          if (!isRange) {
+            event.preventDefault();
+            const delta = event.shiftKey ? 10 : 5;
+            const curDuration = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
+            const curPos = mediaRef.current?.currentTime ?? position ?? 0;
+            const nextPos = curPos + delta;
+            seek(curDuration > 0 ? Math.min(nextPos, curDuration) : nextPos);
+          }
+          break;
+        case "arrowup":
+          if (!isRange) {
+            event.preventDefault();
+            changeVolume(Math.min(volume + 0.1, 1));
+          }
+          break;
+        case "arrowdown":
+          if (!isRange) {
+            event.preventDefault();
+            changeVolume(Math.max(volume - 0.1, 0));
+          }
+          break;
+        case "m":
+          event.preventDefault();
+          toggleMute();
+          break;
+        case "n":
+          if (canGoNext) {
+            event.preventDefault();
+            advance("next", { trigger: "user" });
+          }
+          break;
+        case "p":
+          if (canGoPrev) {
+            event.preventDefault();
+            advance("prev", { trigger: "user" });
+          }
+          break;
+        default:
+          break;
       }
     };
 
@@ -1548,7 +1639,23 @@ export function GlobalPlayerProvider({ children }) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentMedia, isImage, togglePlayback]);
+  }, [
+    advance,
+    canGoNext,
+    canGoPrev,
+    changeVolume,
+    closeFullPlayer,
+    currentMedia,
+    duration,
+    isFullPlayer,
+    isImage,
+    position,
+    queueOpen,
+    seek,
+    toggleMute,
+    togglePlayback,
+    volume,
+  ]);
 
   const contextValue = useMemo(() => ({
     addCategoryToQueue,

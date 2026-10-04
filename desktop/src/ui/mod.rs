@@ -3,6 +3,7 @@ mod video_surface;
 mod views;
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use base64::Engine as _;
 use dioxus_native::prelude::*;
@@ -286,7 +287,55 @@ pub fn run() {
 #[component]
 fn App() -> Element {
     let mut app = use_signal(NativeApp::boot);
-    let engine = use_signal(|| PlaybackEngine::new().ok());
+    let native_window = try_consume_context::<Arc<winit::window::Window>>();
+    let redraw_handle = try_consume_context::<WindowRedrawHandle>();
+    let trigger_redraw = {
+        let redraw_handle = redraw_handle.clone();
+        let native_window = native_window.clone();
+        Arc::new(move || {
+            if let Some(handle) = redraw_handle.as_ref() {
+                handle.request_redraw();
+            } else if let Some(window) = native_window.as_ref() {
+                window.request_redraw();
+            }
+        })
+    };
+    let engine = {
+        let trigger = trigger_redraw.clone();
+        use_signal(|| {
+            let eng = PlaybackEngine::new().ok();
+            if let Some(eng_ref) = eng.as_ref() {
+                eng_ref.set_redraw_callback(trigger);
+            }
+            eng
+        })
+    };
+    let effect_trigger = trigger_redraw.clone();
+    use_effect(move || {
+        if let Some(engine_ref) = engine.read().as_ref() {
+            engine_ref.set_redraw_callback(effect_trigger.clone());
+        }
+    });
+    let video_trigger = trigger_redraw.clone();
+    use_future(move || {
+        let video_trigger = video_trigger.clone();
+        async move {
+            loop {
+                let is_video_playing = {
+                    let snapshot = app.read();
+                    let coordinator = snapshot.coordinator.snapshot();
+                    coordinator.status == PlaybackStatus::Playing
+                        && coordinator.media.as_ref().is_some_and(|m| m.is_video())
+                };
+                if is_video_playing {
+                    video_trigger();
+                    tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                }
+            }
+        }
+    });
     let mpris = use_hook(MprisBridge::start);
     let frames = use_hook(|| {
         engine
@@ -585,7 +634,7 @@ fn play_media(
     media: Media,
     auto_queue: bool,
 ) {
-    play_media_at(app, engine, media, auto_queue, None);
+    play_media_at(app, engine, media, auto_queue, None, true);
 }
 
 fn play_media_at(
@@ -594,6 +643,7 @@ fn play_media_at(
     media: Media,
     auto_queue: bool,
     resume_at: Option<f64>,
+    autoplay: bool,
 ) {
     ensure_artwork(app, media.clone());
     if media.is_photo() {
@@ -616,10 +666,13 @@ fn play_media_at(
         .and_then(PlaybackEngine::duration)
         .unwrap_or(app.read().coordinator.snapshot().duration);
     if let Some(engine) = engine.read().as_ref() {
-        let _ = engine.stop();
+        let _ = engine.pause();
     }
     app.write().coordinator.load(media.clone());
-    if media.is_video() {
+    if let Some(pos) = resume_at {
+        app.write().coordinator.update_position(pos);
+    }
+    if media.is_video() && resume_at.is_none() {
         app.write().player_expanded = true;
     }
     let sequence = app.read().coordinator.snapshot().sequence;
@@ -631,7 +684,9 @@ fn play_media_at(
     app.write().photo_data_url = None;
     app.write().status = None;
 
-    if let Some(previous) = previous {
+    if let Some(previous) = previous
+        && previous.id != media.id
+    {
         let release_client = client.clone();
         spawn(async move {
             send_report(
@@ -643,9 +698,6 @@ fn play_media_at(
                 true,
             )
             .await;
-            if let Some(session) = previous_session {
-                let _ = release_client.release(&session).await;
-            }
         });
     }
 
@@ -654,6 +706,9 @@ fn play_media_at(
     }
     load_extras(app, media.id);
     spawn(async move {
+        if let Some(session) = previous_session {
+            let _ = client.release(&session).await;
+        }
         let resume = match resume_at {
             Some(position) => position,
             None => {
@@ -691,10 +746,15 @@ fn play_media_at(
             let _ = client.release(&session).await;
             return;
         }
-        let started = engine
-            .read()
-            .as_ref()
-            .map(|engine| engine.open(&session, &stream).and_then(|_| engine.play()));
+        let started = engine.read().as_ref().map(|engine| {
+            engine.open(&session, &stream).and_then(|_| {
+                if autoplay {
+                    engine.play()
+                } else {
+                    engine.pause()
+                }
+            })
+        });
         match started {
             Some(Ok(())) => {
                 if let Some(engine) = engine.read().as_ref() {
@@ -704,11 +764,15 @@ fn play_media_at(
                     engine.set_volume(app.read().settings.volume);
                 }
                 app.write().session = Some(session);
-                app.write().coordinator.loaded(sequence, resume);
+                if autoplay {
+                    app.write().coordinator.loaded(sequence, resume);
+                } else {
+                    app.write().coordinator.loaded_paused(sequence, resume);
+                }
                 send_report(
                     &client,
                     &media,
-                    "play",
+                    if autoplay { "play" } else { "pause" },
                     resume,
                     media.duration.unwrap_or(0.0),
                     true,
@@ -796,8 +860,17 @@ fn change_quality(
     if app.read().coordinator.snapshot().quality == quality {
         return;
     }
+    let was_playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing
+        || engine
+            .read()
+            .as_ref()
+            .is_some_and(PlaybackEngine::is_playing);
     let media = app.read().coordinator.snapshot().media.clone();
-    let position = app.read().coordinator.snapshot().position;
+    let position = engine
+        .read()
+        .as_ref()
+        .and_then(PlaybackEngine::position)
+        .unwrap_or(app.read().coordinator.snapshot().position);
     app.write().coordinator.set_quality(quality);
     app.write().settings.quality = quality;
     {
@@ -809,7 +882,7 @@ fn change_quality(
         }
     }
     if let Some(media) = media {
-        play_media_at(app, engine, media, false, Some(position));
+        play_media_at(app, engine, media, false, Some(position), was_playing);
     }
 }
 
@@ -817,11 +890,26 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     let app_read = app.read();
     let snapshot = app_read.coordinator.snapshot().clone();
     drop(app_read);
-    if snapshot.media.is_none()
-        || snapshot.status == PlaybackStatus::Ended
-        || snapshot.status == PlaybackStatus::Loading
-    {
+    if snapshot.media.is_none() || snapshot.status == PlaybackStatus::Ended {
         return;
+    }
+    if snapshot.status == PlaybackStatus::Loading {
+        if engine
+            .read()
+            .as_ref()
+            .is_some_and(PlaybackEngine::is_playing)
+        {
+            app.write().coordinator.play();
+        } else {
+            return;
+        }
+    } else if snapshot.status == PlaybackStatus::Paused
+        && engine
+            .read()
+            .as_ref()
+            .is_some_and(PlaybackEngine::is_playing)
+    {
+        app.write().coordinator.play();
     }
     let event = engine.read().as_ref().and_then(PlaybackEngine::poll_event);
     let position = engine.read().as_ref().and_then(PlaybackEngine::position);
@@ -1140,7 +1228,7 @@ fn navigate_queue(
         && repeat == RepeatMode::One
         && let Some(media) = current_media
     {
-        play_media_at(app, engine, media, false, Some(0.0));
+        play_media_at(app, engine, media, false, Some(0.0), true);
         return;
     }
 
@@ -2078,5 +2166,13 @@ mod tests {
 
         let err2 = settings.set_server_url("not a url").unwrap_err();
         assert!(matches!(err2, SettingsError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn native_css_includes_keyboard_focus_visible_styling() {
+        assert!(super::CSS.contains(":focus-visible"));
+        assert!(super::CSS.contains("outline: 2px solid var(--focus)"));
+        assert!(super::CSS.contains(".chip:focus-visible"));
+        assert!(super::CSS.contains(".track-main:focus-visible"));
     }
 }

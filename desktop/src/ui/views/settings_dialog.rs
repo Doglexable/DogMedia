@@ -17,7 +17,26 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
 
     rsx! {
         div { class: "dialog-backdrop",
-            section { class: "settings-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "settings-title",
+            section {
+                class: "settings-dialog",
+                role: "dialog",
+                "aria-modal": "true",
+                "aria-labelledby": "settings-title",
+                tabindex: "0",
+                autofocus: true,
+                onkeydown: move |event: KeyboardEvent| {
+                    tracing::info!(
+                        target: "dogmedia_desktop::keyboard",
+                        layer = "settings-dialog",
+                        key = ?event.key(),
+                        "DOM keyboard event"
+                    );
+                    if event.key() == Key::Escape && snapshot.settings.configured && !snapshot.settings_connecting {
+                        event.stop_propagation();
+                        app.write().settings_open = false;
+                        app.write().settings_error = None;
+                    }
+                },
                 header { class: "panel-header settings-header",
                     div {
                         p { class: "eyebrow", "Desktop client" }

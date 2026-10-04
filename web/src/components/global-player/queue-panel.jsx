@@ -184,8 +184,22 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
     run(onReorder(nextItems.map((item) => Number(item.id))));
   };
 
+  useEffect(() => {
+    if (mobile) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        onClose?.();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mobile, onClose]);
+
   const panel = (
     <div
+      role={mobile ? undefined : "region"}
+      aria-label={mobile ? undefined : "Playback queue"}
       className={mobile ? "premium-queue-panel premium-queue-panel--drawer" : "premium-queue-panel"}
       onContextMenu={(event) => event.preventDefault()}
       style={mobile ? {

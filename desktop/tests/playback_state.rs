@@ -28,7 +28,33 @@ fn stale_load_is_rejected() {
     let stale = coordinator.snapshot().sequence;
     coordinator.load(media(MediaId::new(2)));
     assert!(!coordinator.loaded(stale, 0.0));
+    assert!(!coordinator.loaded_paused(stale, 0.0));
     assert_eq!(coordinator.snapshot().status, PlaybackStatus::Loading);
+}
+
+#[test]
+fn loaded_paused_sets_paused_status_at_position() {
+    let mut coordinator = PlaybackCoordinator::default();
+    coordinator.load(media(MediaId::new(1)));
+    let sequence = coordinator.snapshot().sequence;
+    assert!(coordinator.loaded_paused(sequence, 15.5));
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
+    assert_eq!(coordinator.snapshot().position, 15.5);
+}
+
+#[test]
+fn play_and_pause_from_loading_state_transition_properly() {
+    let mut coordinator = PlaybackCoordinator::default();
+    coordinator.load(media(MediaId::new(1)));
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Loading);
+    coordinator.play();
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Playing);
+
+    let mut coordinator2 = PlaybackCoordinator::default();
+    coordinator2.load(media(MediaId::new(1)));
+    assert_eq!(coordinator2.snapshot().status, PlaybackStatus::Loading);
+    coordinator2.pause();
+    assert_eq!(coordinator2.snapshot().status, PlaybackStatus::Paused);
 }
 
 #[test]

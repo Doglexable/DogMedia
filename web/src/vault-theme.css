@@ -1344,7 +1344,10 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: clamp(16px, 2.5vw, 28px) clamp(20px, 3vw, 40px);
+  padding: max(clamp(16px, 2.5vw, 28px), env(safe-area-inset-top))
+    max(clamp(20px, 3vw, 40px), env(safe-area-inset-right))
+    clamp(16px, 2.5vw, 28px)
+    max(clamp(20px, 3vw, 40px), env(safe-area-inset-left));
 }
 
 .video-player-hud-center {
@@ -1415,7 +1418,10 @@ textarea {
 .video-player-hud-bottom {
   position: relative;
   z-index: 2;
-  padding: 0 clamp(20px, 3vw, 40px) clamp(16px, 2.5vw, 28px);
+  padding: 0
+    max(clamp(20px, 3vw, 40px), env(safe-area-inset-right))
+    max(clamp(16px, 2.5vw, 28px), env(safe-area-inset-bottom))
+    max(clamp(20px, 3vw, 40px), env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1835,6 +1841,45 @@ textarea {
   background: var(--vault-rose, #e11d48);
   color: #fff;
   font-weight: 700;
+}
+
+/* Small screen landscape video responsiveness */
+@media (max-height: 500px) and (orientation: landscape) {
+  .video-player-hud-top {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: 4px;
+  }
+  .video-player-hud-bottom {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+  .video-player-center-btn {
+    width: 52px;
+    height: 52px;
+    font-size: 18px;
+  }
+  .video-player-ctrl-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+  }
+  .video-player-ctrl-btn--primary {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  .video-player-controls-row {
+    gap: 6px;
+  }
+  .video-player-controls-group {
+    gap: 4px;
+  }
+  .video-player-time-display {
+    font-size: 10px;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════

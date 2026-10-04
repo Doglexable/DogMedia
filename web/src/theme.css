@@ -4304,6 +4304,11 @@ body {
   accent-color: var(--primary);
   background: color-mix(in srgb, var(--text) 16%, transparent);
 }
+.fullscreen-player-progress-range:focus-visible,
+.fullscreen-player-volume-range:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 72%, transparent);
+  outline-offset: 4px;
+}
 .fullscreen-player-progress-range::-webkit-slider-thumb,
 .fullscreen-player-volume-range::-webkit-slider-thumb {
   width: 12px;

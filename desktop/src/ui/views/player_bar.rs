@@ -238,7 +238,21 @@ pub(crate) fn QualityOverlay(
     rsx! {
         div {
             class: layer_class,
+            tabindex: "0",
+            autofocus: true,
             role: "presentation",
+            onkeydown: move |event: KeyboardEvent| {
+                tracing::info!(
+                    target: "dogmedia_desktop::keyboard",
+                    layer = "quality-overlay",
+                    key = ?event.key(),
+                    "DOM keyboard event"
+                );
+                if event.key() == Key::Escape {
+                    event.stop_propagation();
+                    app.write().quality_popover_open = false;
+                }
+            },
             onclick: move |event: MouseEvent| {
                 event.stop_propagation();
                 app.write().quality_popover_open = false;

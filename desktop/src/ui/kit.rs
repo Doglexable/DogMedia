@@ -411,7 +411,10 @@ pub fn Input(
             value,
             placeholder,
             oninput: move |event| oninput.call(event),
-            onkeydown: move |event| if let Some(handler) = onkeydown.as_ref() { handler.call(event); }
+            onkeydown: move |event: KeyboardEvent| {
+                event.stop_propagation();
+                if let Some(handler) = onkeydown.as_ref() { handler.call(event); }
+            }
         }
     }
 }
