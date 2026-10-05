@@ -60,7 +60,6 @@ AGENTS.md
 .expo/
 .agents/
 !plans/README.md
-plans/*
 *PLAN*.*
 *plan*.*
 *CONTEXT*.*
