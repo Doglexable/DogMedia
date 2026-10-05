@@ -8,6 +8,7 @@ import {
   normalizeOfflineMediaId,
   normalizeOfflineResume,
 } from "../offline.js";
+import { RESUME_TTL_SECONDS } from "./playback.js";
 import { normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
@@ -348,7 +349,7 @@ export default async function offlineRoutes(fastify, options = {}) {
       }
       if (isNewerOfflineResume(resume.updatedAt, remote?.timestamp)) {
         if (resume.duration && resume.position >= resume.duration - 3) resumePipeline.del(key);
-        else resumePipeline.set(key, JSON.stringify({ position: resume.position, duration: resume.duration, timestamp: resume.updatedAt }), "EX", 604800);
+        else resumePipeline.set(key, JSON.stringify({ position: resume.position, duration: resume.duration, timestamp: resume.updatedAt }), "EX", RESUME_TTL_SECONDS);
       }
       acceptedResumeIds.push(resume.mediaId);
     }

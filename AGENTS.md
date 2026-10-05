@@ -95,7 +95,7 @@ podman exec -it pfs-server sh
 - **Queue** — per-IP media queue via Redis lists. Auto-filled from category when clicking media. Next/prev navigation via atomic operations.
 - **Playback events** — sorted set (`playback:events`) for wrapped timeline/stats.
 - **Active sessions** — per-IP string with 5min TTL (`playback:active:<ip>`), polled for now-playing dashboard.
-- **Resume positions** — per-IP+media string with 7d TTL (`playback:resume:<ip>:<mediaId>`).
+- **Resume positions** — per-IP+media string with 15m TTL (`playback:resume:<ip>:<mediaId>`, see `RESUME_TTL_SECONDS`).
 - Development requires Redis on localhost:6379 (or `REDIS_URL` env).
 
 ## Gotchas

@@ -49,7 +49,7 @@ await app.register(cors, {
     callback(null, !origin || ALLOWED_ORIGINS.has(origin));
   },
   credentials: true,
-  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform"],
+  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name"],
   exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
 });
 await app.register(multipart, {

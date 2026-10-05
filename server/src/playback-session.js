@@ -19,13 +19,13 @@ local currentRaw = redis.call('GET', KEYS[1])
 local previousSessionId = ''
 if currentRaw then
   local current = cjson.decode(currentRaw)
-  if current.clientIp ~= ARGV[1] then
-    return {0, redis.call('PTTL', KEYS[1])}
+  if current.viewerId ~= ARGV[1] or current.clientIp ~= ARGV[2] then
+    return {0, currentRaw, redis.call('PTTL', KEYS[1])}
   end
   previousSessionId = current.sessionId or ''
 end
-redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
-return {1, tonumber(ARGV[3]), previousSessionId}
+redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
+return {1, tonumber(ARGV[4]), previousSessionId}
 `;
 
 const REFRESH_LEASE_SCRIPT = `
@@ -33,7 +33,7 @@ local currentRaw = redis.call('GET', KEYS[1])
 if not currentRaw then return {0, -2} end
 local current = cjson.decode(currentRaw)
 if current.viewerId ~= ARGV[1] or current.sessionId ~= ARGV[2] or current.clientIp ~= ARGV[3] then
-  return {0, redis.call('PTTL', KEYS[1])}
+  return {0, currentRaw, redis.call('PTTL', KEYS[1])}
 end
 current.lastHeartbeatAt = tonumber(ARGV[4])
 redis.call('SET', KEYS[1], cjson.encode(current), 'PX', ARGV[5])
@@ -187,14 +187,66 @@ export function requiresExclusiveLease(_accessTier, mimeType) {
     && (mimeType?.startsWith("audio/") || mimeType?.startsWith("video/"));
 }
 
+const HOLDER_PLATFORMS = ["web", "desktop", "mobile"];
+const PLATFORM_DISPLAY_LABELS = {
+  web: "Dogmedia Web",
+  desktop: "Dogmedia Desktop",
+  mobile: "Dogmedia Mobile",
+};
+
+/// Normalize a client-supplied device label (`X-Client-Name`) into a safe
+/// display string. Never derives identity from viewer/session IDs or IPs.
+export function normalizeDeviceLabel(value, platform) {
+  const fallback = PLATFORM_DISPLAY_LABELS[platform] || "Another device";
+  if (typeof value !== "string") return fallback;
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return fallback;
+  return Array.from(cleaned).slice(0, 64).join("").trimEnd();
+}
+
+/// Build the public holder descriptor for conflict/status responses.
+/// Contains only safe display metadata — never viewer/session IDs or IPs.
+export function publicLeaseHolder(lease, expiresIn) {
+  if (!lease || typeof lease !== "object") return null;
+  if (!HOLDER_PLATFORMS.includes(lease.platform)) return null;
+  const platform = lease.platform;
+  const mediaId = Number(lease.mediaId);
+  const holder = {
+    platform,
+    deviceLabel: normalizeDeviceLabel(lease.deviceLabel, lease.platform),
+    expiresIn: Math.max(0, Math.floor(Number(expiresIn) || 0)),
+  };
+  if (Number.isInteger(mediaId) && mediaId > 0) holder.mediaId = mediaId;
+  return holder;
+}
+
+function parseLeaseHolder(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function retryAfterSeconds(ttlMs) {
+  return Math.max(1, Math.ceil(Math.max(0, Number(ttlMs) || 0) / 1000));
+}
+
 export async function acquireExclusiveLease(redis, details) {
   const now = Date.now();
+  const platform = details.platform || "web";
   const lease = {
     viewerId: details.viewerId,
     sessionId: details.sessionId,
     mediaId: Number(details.mediaId),
     clientIp: String(details.clientIp),
-    platform: details.platform || "web",
+    platform,
+    deviceLabel: normalizeDeviceLabel(details.deviceLabel, platform),
     acquiredAt: now,
     lastHeartbeatAt: now,
   };
@@ -203,14 +255,17 @@ export async function acquireExclusiveLease(redis, details) {
     ACQUIRE_LEASE_SCRIPT,
     1,
     EXCLUSIVE_LEASE_KEY,
+    String(details.viewerId),
     String(details.clientIp),
     JSON.stringify(lease),
     ttlMs
   );
+  const acquired = Number(result?.[0]) === 1;
   return {
-    acquired: Number(result?.[0]) === 1,
-    retryAfter: Math.max(1, Math.ceil(Math.max(0, Number(result?.[1]) || 0) / 1000)),
-    previousSessionId: result?.[2] || null,
+    acquired,
+    retryAfter: retryAfterSeconds(acquired ? result?.[1] : result?.[2]),
+    previousSessionId: acquired ? result?.[2] || null : null,
+    holder: acquired ? null : parseLeaseHolder(result?.[1]),
     lease,
   };
 }
@@ -227,9 +282,12 @@ export async function refreshExclusiveLease(redis, viewerId, sessionId, clientIp
     Date.now(),
     ttlMs
   );
+  const refreshed = Number(result?.[0]) === 1;
+  const conflictRaw = !refreshed && typeof result?.[1] === "string" ? result[1] : null;
   return {
-    refreshed: Number(result?.[0]) === 1,
-    retryAfter: Math.max(1, Math.ceil(Math.max(0, Number(result?.[1]) || 0) / 1000)),
+    refreshed,
+    retryAfter: retryAfterSeconds(refreshed ? result?.[1] : result?.[2]),
+    holder: conflictRaw ? parseLeaseHolder(conflictRaw) : null,
   };
 }
 

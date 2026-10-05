@@ -449,3 +449,125 @@ describe("queue TTL enforcement", () => {
     await app.close();
   });
 });
+
+describe("exclusive lease queue guard", () => {
+  const HOLDER_VIEWER = "a".repeat(24);
+  const OTHER_VIEWER = "b".repeat(24);
+  const HOLDER_IP = "192.168.1.50";
+
+  function leaseRedis({ lease = null } = {}) {
+    const leaseRaw = lease ? JSON.stringify(lease) : null;
+    return {
+      async get(key) {
+        if (key === "stream:exclusive:standard") return leaseRaw;
+        if (key.startsWith("queue:index:")) return "0";
+        if (key.startsWith("queue:revision:")) return "0";
+        return null;
+      },
+      async pttl() { return 24000; },
+      async incr() { return 1; },
+      async expire() { return 1; },
+      async lrange() { return []; },
+      async llen() { return 0; },
+      multi() {
+        const chain = {
+          del: () => chain,
+          rpush: () => chain,
+          expire: () => chain,
+          set: () => chain,
+          exec: async () => [],
+        };
+        return chain;
+      },
+    };
+  }
+
+  function holderLease() {
+    return {
+      viewerId: HOLDER_VIEWER,
+      sessionId: "c".repeat(43),
+      mediaId: 7,
+      clientIp: HOLDER_IP,
+      platform: "desktop",
+      deviceLabel: "Studio PC",
+      acquiredAt: Date.now(),
+      lastHeartbeatAt: Date.now(),
+    };
+  }
+
+  async function leaseGuardApp({ lease, clientIp }) {
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("WITH ORDINALITY")) return { rows: [] };
+        return { rows: [{ id: 1 }, { id: 2 }] };
+      },
+    });
+    app.decorate("redis", leaseRedis({ lease }));
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = clientIp;
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+    return app;
+  }
+
+  function postAuto(app, viewerId) {
+    return app.inject({
+      method: "POST",
+      url: "/api/queue/auto/7?start=1",
+      headers: viewerId ? { "x-viewer-id": viewerId } : {},
+    });
+  }
+
+  it("rejects queue replacement from a non-holder on the same IP", async () => {
+    const app = await leaseGuardApp({ lease: holderLease(), clientIp: HOLDER_IP });
+    const response = await postAuto(app, OTHER_VIEWER);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      code: "PLAYBACK_IN_USE",
+      activeSession: { platform: "desktop", deviceLabel: "Studio PC" },
+    });
+    await app.close();
+  });
+
+  it("rejects queue replacement when the request carries no viewer identity", async () => {
+    const app = await leaseGuardApp({ lease: holderLease(), clientIp: HOLDER_IP });
+    const response = await postAuto(app, null);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: "PLAYBACK_IN_USE" });
+    await app.close();
+  });
+
+  it("allows queue replacement for the lease holder", async () => {
+    const app = await leaseGuardApp({ lease: holderLease(), clientIp: HOLDER_IP });
+    const response = await postAuto(app, HOLDER_VIEWER);
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("allows queue replacement from a different IP with its own queue namespace", async () => {
+    const app = await leaseGuardApp({ lease: holderLease(), clientIp: "10.0.0.9" });
+    const response = await postAuto(app, OTHER_VIEWER);
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("allows queue replacement when no lease is held", async () => {
+    const app = await leaseGuardApp({ lease: null, clientIp: HOLDER_IP });
+    const response = await postAuto(app, OTHER_VIEWER);
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("keeps queue reads open for observers", async () => {
+    const app = await leaseGuardApp({ lease: holderLease(), clientIp: HOLDER_IP });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/queue/window",
+      headers: { "x-viewer-id": OTHER_VIEWER },
+    });
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+});

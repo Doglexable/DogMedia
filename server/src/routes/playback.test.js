@@ -4,6 +4,7 @@ import playbackRoutes, {
   isSessionPauseExpired,
   normalizeTrigger,
   PAUSE_MAX_IDLE_MS,
+  RESUME_TTL_SECONDS,
 } from "./playback.js";
 
 describe("playback pause cache helpers", () => {
@@ -90,7 +91,11 @@ function createMockRedis(initialKeys = {}) {
     async eval(script, keyCount, key, ...args) {
       if (script.includes("lastHeartbeatAt")) {
         const current = store.has(key) ? JSON.parse(store.get(key)) : null;
-        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) return [0, -2];
+        if (!current) return [0, -2];
+        if (current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) {
+          const ttl = Math.max(0, (expiresAt.get(key) ?? Date.now()) - Date.now());
+          return [0, JSON.stringify(current), ttl];
+        }
         current.lastHeartbeatAt = Number(args[3]);
         store.set(key, JSON.stringify(current));
         expiresAt.set(key, Date.now() + Number(args[4]));
@@ -172,6 +177,45 @@ function createMockRedis(initialKeys = {}) {
 }
 
 describe("playback resume routes", () => {
+  it("keeps resume positions for RESUME_TTL_SECONDS (15 minutes by default)", () => {
+    expect(RESUME_TTL_SECONDS).toBe(900);
+  });
+
+  it("stores POSTed resume positions with the resume TTL", async () => {
+    const setCalls = [];
+    const base = createMockRedis();
+    const redis = {
+      ...base,
+      async set(key, value, mode, duration) {
+        setCalls.push([key, mode, duration]);
+        return base.set(key, value, mode, duration);
+      },
+    };
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/playback/resume/42",
+      payload: { position: 120, duration: 300 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(setCalls).toContainEqual([
+      "playback:resume:127.0.0.1:42",
+      "EX",
+      RESUME_TTL_SECONDS,
+    ]);
+
+    await app.close();
+  });
+
   it("treats a corrupted Redis resume value as a cache miss", async () => {
     const redis = createMockRedis({
       "playback:resume:127.0.0.1:42": "not-json",
@@ -516,7 +560,12 @@ describe("exclusive playback lease routes", () => {
       url: "/api/playback/lease",
       headers: { "x-viewer-id": viewerId },
     });
-    expect(status.json()).toMatchObject({ state: "owned", mediaId: 42 });
+    expect(status.json()).toMatchObject({
+      state: "owned",
+      activeSession: { mediaId: 42, platform: "web" },
+    });
+    expect(status.json().activeSession).not.toHaveProperty("viewerId");
+    expect(status.json().activeSession).not.toHaveProperty("sessionId");
 
     const released = await app.inject({
       method: "DELETE",
@@ -526,6 +575,245 @@ describe("exclusive playback lease routes", () => {
     expect(released.json()).toEqual({ ok: true, released: true });
     expect(await redis.get("stream:exclusive:standard")).toBeNull();
     expect(await redis.get(`stream:session:${sessionId}`)).toBeNull();
+    await app.close();
+  });
+
+  it("reports the safe holder when a heartbeat loses the lease", async () => {
+    const holderSessionId = "session_hhhhhhhhhhhhhhhhhhh";
+    const redis = createMockRedis({
+      "stream:session:session_aaaaaaaaaaaaaaaaaaa": JSON.stringify({
+        viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+        clientIp: "127.0.0.1",
+        leaseRequired: true,
+      }),
+      "stream:exclusive:standard": JSON.stringify({
+        viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+        sessionId: holderSessionId,
+        mediaId: 7,
+        clientIp: "127.0.0.1",
+        platform: "mobile",
+        deviceLabel: "Phone",
+      }),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const heartbeat = await app.inject({
+      method: "POST",
+      url: "/api/playback/lease/heartbeat",
+      headers: {
+        "x-playback-session": "session_aaaaaaaaaaaaaaaaaaa",
+        "x-viewer-id": "viewer_aaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+    expect(heartbeat.statusCode).toBe(409);
+    const body = heartbeat.json();
+    expect(body.code).toBe("PLAYBACK_LEASE_LOST");
+    expect(body.error).toContain("Phone");
+    expect(body.activeSession).toMatchObject({
+      platform: "mobile",
+      deviceLabel: "Phone",
+      mediaId: 7,
+    });
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("viewer_bbbbbbbbbbbbbbbbbbbb");
+    expect(raw).not.toContain(holderSessionId);
+    expect(body).not.toHaveProperty("viewerId");
+    expect(body).not.toHaveProperty("sessionId");
+    await app.close();
+  });
+
+  it("exposes the holder on busy lease status without sensitive identifiers", async () => {
+    const redis = createMockRedis({
+      "stream:exclusive:standard": JSON.stringify({
+        viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+        sessionId: "session_hhhhhhhhhhhhhhhhhhh",
+        mediaId: 7,
+        clientIp: "10.9.9.9",
+        platform: "desktop",
+        deviceLabel: "Studio PC",
+      }),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const busy = await app.inject({ method: "GET", url: "/api/playback/lease" });
+    expect(busy.json()).toMatchObject({
+      state: "busy",
+      activeSession: { platform: "desktop", deviceLabel: "Studio PC", mediaId: 7 },
+    });
+    const raw = JSON.stringify(busy.json());
+    expect(raw).not.toContain("viewer_bbbbbbbbbbbbbbbbbbbb");
+    expect(raw).not.toContain("10.9.9.9");
+
+    const empty = createMockRedis();
+    const app2 = Fastify();
+    app2.decorate("redis", empty);
+    app2.decorate("pg", { query: async () => ({ rows: [] }) });
+    app2.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app2.register(playbackRoutes, { prefix: "/api/playback" });
+    expect((await app2.inject({ method: "GET", url: "/api/playback/lease" })).json())
+      .toEqual({ state: "available", expiresIn: 0 });
+    await app.close();
+    await app2.close();
+  });
+
+  it("reports lease ownership only when both viewer and IP match", async () => {
+    const redis = createMockRedis({
+      "stream:exclusive:standard": JSON.stringify({
+        viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+        sessionId: "session_hhhhhhhhhhhhhhhhhhh",
+        mediaId: 7,
+        clientIp: "192.168.1.20",
+        platform: "desktop",
+        deviceLabel: "Studio PC",
+      }),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.20";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const sameIpDifferentViewer = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: { "x-viewer-id": "viewer_aaaaaaaaaaaaaaaaaaaa" },
+    });
+    expect(sameIpDifferentViewer.json().state).toBe("busy");
+
+    const owner = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: { "x-viewer-id": "viewer_bbbbbbbbbbbbbbbbbbbb" },
+    });
+    expect(owner.json()).toMatchObject({
+      state: "owned",
+      activeSession: { platform: "desktop", deviceLabel: "Studio PC", mediaId: 7 },
+    });
+    await app.close();
+  });
+
+  it("mirrors the owner snapshot and rejects duplicate position reporters", async () => {
+    const ownerViewer = "viewer_bbbbbbbbbbbbbbbbbbbb";
+    const ownerSession = "session_hhhhhhhhhhhhhhhhhhh";
+    const activeKey = `playback:active:${ownerViewer}`;
+    const originalSnapshot = {
+      mediaId: 7,
+      title: "Owner supplied title",
+      action: "play",
+      state: "playing",
+      position: 31,
+      duration: 180,
+      loopMode: "queue",
+      shuffleEnabled: true,
+      timestamp: "2026-10-05T08:00:00.000Z",
+      ip: "192.168.1.20",
+    };
+    const redis = createMockRedis({
+      "stream:exclusive:standard": JSON.stringify({
+        viewerId: ownerViewer,
+        sessionId: ownerSession,
+        mediaId: 7,
+        clientIp: "192.168.1.20",
+        platform: "desktop",
+        deviceLabel: "Studio PC",
+      }),
+      [`stream:session:${ownerSession}`]: JSON.stringify({
+        viewerId: ownerViewer,
+        mediaId: 7,
+        clientIp: "192.168.1.20",
+        leaseRequired: true,
+      }),
+      [activeKey]: JSON.stringify(originalSnapshot),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = Number(request.headers["x-test-tier"] || 0);
+      request.clientIp = "192.168.1.20";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const observed = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: { "x-viewer-id": "viewer_aaaaaaaaaaaaaaaaaaaa" },
+    });
+    expect(observed.json()).toMatchObject({
+      state: "busy",
+      activeSession: {
+        deviceLabel: "Studio PC",
+        playback: {
+          mediaId: 7,
+          action: "play",
+          position: 31,
+          duration: 180,
+          loopMode: "queue",
+          shuffleEnabled: true,
+        },
+      },
+    });
+    expect(JSON.stringify(observed.json())).not.toContain("192.168.1.20");
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/playback/active",
+      headers: {
+        "x-viewer-id": "viewer_aaaaaaaaaaaaaaaaaaaa",
+        "x-playback-session": "session_aaaaaaaaaaaaaaaaaaa",
+      },
+      payload: { mediaId: 7, mediaType: "audio/mpeg", action: "play", position: 99, duration: 180 },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json().code).toBe("PLAYBACK_NOT_OWNER");
+    expect(JSON.parse(await redis.get(activeKey)).position).toBe(31);
+
+    const disguisedDuplicate = await app.inject({
+      method: "POST",
+      url: "/api/playback/active",
+      headers: { "x-viewer-id": "viewer_aaaaaaaaaaaaaaaaaaaa" },
+      payload: { mediaId: 8, action: "play", position: 77, duration: 200 },
+    });
+    expect(disguisedDuplicate.statusCode).toBe(409);
+    expect(disguisedDuplicate.json().code).toBe("PLAYBACK_NOT_OWNER");
+    expect(await redis.get("playback:active:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeNull();
+
+    const owner = await app.inject({
+      method: "POST",
+      url: "/api/playback/active",
+      headers: { "x-viewer-id": ownerViewer, "x-playback-session": ownerSession },
+      payload: { mediaId: 7, mediaType: "audio/mpeg", action: "play", position: 42, duration: 180 },
+    });
+    expect(owner.statusCode).toBe(200);
+    expect(JSON.parse(await redis.get(activeKey)).position).toBe(42);
+
+    const takeover = await app.inject({
+      method: "DELETE",
+      url: "/api/playback/lease/admin",
+      headers: { "x-test-tier": "100" },
+    });
+    expect(takeover.json()).toEqual({ ok: true, released: true });
+    expect(await redis.get(activeKey)).toBeNull();
     await app.close();
   });
 

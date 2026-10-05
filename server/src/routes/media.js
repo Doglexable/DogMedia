@@ -21,6 +21,7 @@ import { shouldNormalizeMatroskaSource } from "../video-source-normalization.js"
 import {
   acquireExclusiveLease,
   createPlaybackSession,
+  publicLeaseHolder,
   readPlaybackSessionId,
   readViewerId,
   refreshExclusiveLease,
@@ -1221,6 +1222,7 @@ export default async function (fastify, options = {}) {
       duration: media.duration,
     });
     if (leaseRequired) {
+      const platform = normalizeClientPlatform(request.headers);
       let lease;
       try {
         lease = await acquireExclusiveLease(fastify.redis, {
@@ -1228,7 +1230,8 @@ export default async function (fastify, options = {}) {
           sessionId: created.sessionId,
           mediaId: media.id,
           clientIp: request.clientIp || request.ip,
-          platform: normalizeClientPlatform(request.headers),
+          platform,
+          deviceLabel: request.headers["x-client-name"],
         });
       } catch (error) {
         await revokePlaybackSession(fastify.redis, created.sessionId).catch(() => {});
@@ -1237,10 +1240,12 @@ export default async function (fastify, options = {}) {
       }
       if (!lease.acquired) {
         await revokePlaybackSession(fastify.redis, created.sessionId);
+        const holder = publicLeaseHolder(lease.holder, lease.retryAfter);
         return reply.code(409).send({
           code: "PLAYBACK_IN_USE",
-          error: "Media is currently playing on another device",
+          error: holder ? `Playback is active on ${holder.deviceLabel}` : "Media is currently playing on another device",
           retryAfter: lease.retryAfter,
+          ...(holder ? { activeSession: holder } : {}),
         });
       }
       if (lease.previousSessionId && lease.previousSessionId !== created.sessionId) {
@@ -1303,10 +1308,12 @@ export default async function (fastify, options = {}) {
       );
       if (!lease.refreshed) {
         reply.header("Cache-Control", "no-store");
+        const holder = publicLeaseHolder(lease.holder, lease.retryAfter);
         return reply.code(409).send({
           code: "PLAYBACK_LEASE_LOST",
-          error: "Playback access is no longer active on this device",
+          error: holder ? `Playback is active on ${holder.deviceLabel}` : "Playback access is no longer active on this device",
           retryAfter: lease.retryAfter,
+          ...(holder ? { activeSession: holder } : {}),
         });
       }
     }

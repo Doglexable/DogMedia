@@ -3,8 +3,10 @@ import {
   acquireExclusiveLease,
   createPlaybackSession,
   getExclusiveLease,
+  normalizeDeviceLabel,
   parseCookies,
   playbackCookieName,
+  publicLeaseHolder,
   refreshExclusiveLease,
   releaseExclusiveLease,
   requiresExclusiveLease,
@@ -22,16 +24,21 @@ function memoryRedis() {
     async eval(script, keyCount, key, ...args) {
       if (script.includes("previousSessionId")) {
         const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-        if (current && current.clientIp !== args[0]) {
-          return [0, Math.max(0, expiresAt.get(key) - Date.now())];
+        if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+          const ttl = Math.max(0, (expiresAt.get(key) ?? Date.now()) - Date.now());
+          return [0, JSON.stringify(current), ttl];
         }
-        values.set(key, args[1]);
-        expiresAt.set(key, Date.now() + Number(args[2]));
-        return [1, Number(args[2]), current?.sessionId || ""];
+        values.set(key, args[2]);
+        expiresAt.set(key, Date.now() + Number(args[3]));
+        return [1, Number(args[3]), current?.sessionId || ""];
       }
       if (script.includes("lastHeartbeatAt")) {
         const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-        if (!current || current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) return [0, -2];
+        if (!current) return [0, -2];
+        if (current.viewerId !== args[0] || current.sessionId !== args[1] || current.clientIp !== args[2]) {
+          const ttl = Math.max(0, (expiresAt.get(key) ?? Date.now()) - Date.now());
+          return [0, JSON.stringify(current), ttl];
+        }
         current.lastHeartbeatAt = Number(args[3]);
         values.set(key, JSON.stringify(current));
         expiresAt.set(key, Date.now() + Number(args[4]));
@@ -121,7 +128,7 @@ describe("protected playback sessions", () => {
     await expect(getExclusiveLease(redis)).resolves.toBeNull();
   });
 
-  it("lets another app on the same IP replace the session and exposes the old session for revocation", async () => {
+  it("lets the same viewer on the same IP rotate sessions and exposes the old session for revocation", async () => {
     const redis = memoryRedis();
     await acquireExclusiveLease(redis, {
       viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
@@ -130,7 +137,7 @@ describe("protected playback sessions", () => {
       clientIp: "192.168.1.2",
     });
     const replacement = await acquireExclusiveLease(redis, {
-      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
       sessionId: "session_ccccccccccccccccccc",
       mediaId: 3,
       clientIp: "192.168.1.2",
@@ -139,6 +146,74 @@ describe("protected playback sessions", () => {
       acquired: true,
       previousSessionId: "session_aaaaaaaaaaaaaaaaaaa",
     });
+    expect(replacement.holder).toBeNull();
+  });
+
+  it("rejects a different viewer on the same IP and reports the original holder", async () => {
+    const redis = memoryRedis();
+    await acquireExclusiveLease(redis, {
+      viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+      sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+      mediaId: 1,
+      clientIp: "192.168.1.2",
+      platform: "desktop",
+      deviceLabel: "My Desktop",
+    });
+    const competing = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      sessionId: "session_ccccccccccccccccccc",
+      mediaId: 3,
+      clientIp: "192.168.1.2",
+      platform: "web",
+    });
+    expect(competing.acquired).toBe(false);
+    expect(competing.retryAfter).toBeGreaterThan(0);
+    expect(competing.previousSessionId).toBeNull();
+    expect(competing.holder).toMatchObject({
+      sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+      mediaId: 1,
+      platform: "desktop",
+    });
+    // The reported holder is the original owner, never the new attempt.
+    expect(competing.holder.sessionId).not.toBe("session_ccccccccccccccccccc");
+    expect(competing.holder.viewerId).toBe("viewer_bbbbbbbbbbbbbbbbbbbb");
+  });
+
+  it("rejects the same viewer from a different IP", async () => {
+    const redis = memoryRedis();
+    await acquireExclusiveLease(redis, {
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+      mediaId: 1,
+      clientIp: "192.168.1.2",
+    });
+    const competing = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      sessionId: "session_bbbbbbbbbbbbbbbbbbb",
+      mediaId: 2,
+      clientIp: "192.168.1.3",
+    });
+    expect(competing.acquired).toBe(false);
+    expect(competing.holder).toMatchObject({ sessionId: "session_aaaaaaaaaaaaaaaaaaa" });
+  });
+
+  it("rejects a different viewer from a different IP", async () => {
+    const redis = memoryRedis();
+    await acquireExclusiveLease(redis, {
+      viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
+      sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+      mediaId: 1,
+      clientIp: "192.168.1.2",
+    });
+    const competing = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      sessionId: "session_bbbbbbbbbbbbbbbbbbb",
+      mediaId: 2,
+      clientIp: "192.168.1.9",
+    });
+    expect(competing.acquired).toBe(false);
+    expect(competing.holder).toMatchObject({ mediaId: 1 });
+    expect(competing.holder.sessionId).not.toBe("session_bbbbbbbbbbbbbbbbbbb");
   });
 
   it("requires a lease for protected playback at every access tier", () => {
@@ -147,5 +222,37 @@ describe("protected playback sessions", () => {
       expect(requiresExclusiveLease(tier, "video/mp4")).toBe(true);
     }
     expect(requiresExclusiveLease(0, "image/jpeg")).toBe(false);
+  });
+
+  it("normalizes device labels safely with platform fallbacks", () => {
+    expect(normalizeDeviceLabel("My Desktop", "desktop")).toBe("My Desktop");
+    expect(normalizeDeviceLabel("  Living   Room  TV  ", "web")).toBe("Living Room TV");
+    expect(normalizeDeviceLabel("", "desktop")).toBe("Dogmedia Desktop");
+    expect(normalizeDeviceLabel("   ", "mobile")).toBe("Dogmedia Mobile");
+    expect(normalizeDeviceLabel(null, "web")).toBe("Dogmedia Web");
+    expect(normalizeDeviceLabel(42, "web")).toBe("Dogmedia Web");
+    expect(normalizeDeviceLabel("Bad\u0000Name\u007F", "web")).toBe("BadName");
+    expect(normalizeDeviceLabel("x".repeat(100), "web")).toHaveLength(64);
+    expect(normalizeDeviceLabel("Hi", "tv")).toBe("Hi");
+    expect(normalizeDeviceLabel("", "tv")).toBe("Another device");
+  });
+
+  it("builds a public holder without sensitive identifiers", () => {
+    expect(publicLeaseHolder({
+      platform: "desktop",
+      deviceLabel: "My Desktop",
+      mediaId: 42,
+      viewerId: "secret-viewer",
+      sessionId: "secret-session",
+      clientIp: "10.0.0.1",
+    }, 24)).toEqual({
+      platform: "desktop",
+      deviceLabel: "My Desktop",
+      expiresIn: 24,
+      mediaId: 42,
+    });
+    expect(publicLeaseHolder({ platform: "weird", mediaId: -3 }, -5)).toBeNull();
+    expect(publicLeaseHolder(null, 10)).toBeNull();
+    expect(publicLeaseHolder("nope", 10)).toBeNull();
   });
 });

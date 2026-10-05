@@ -2,6 +2,7 @@ import { buildDashboardSummary } from "../playback-dashboard-summary.js";
 import {
   forceReleaseExclusiveLease,
   getExclusiveLease,
+  publicLeaseHolder,
   readPlaybackSession,
   readViewerId,
   refreshExclusiveLease,
@@ -12,6 +13,12 @@ import {
 export const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
 export const PAUSE_CACHE_TTL_SECONDS = 30 * 60;
 export const ACTIVE_PLAYING_TTL_SECONDS = 300;
+/// How long a media resume position is kept in Redis (`playback:resume:*`).
+/// Overridable via env, minimum 1 minute, default 15 minutes.
+export const RESUME_TTL_SECONDS = Math.max(
+  60,
+  Number.parseInt(process.env.PLAYBACK_RESUME_TTL_SECONDS || "900", 10) || 900
+);
 export const PAUSE_MAX_IDLE_MS = PAUSE_CACHE_TTL_SECONDS * 1000;
 const DASHBOARD_LOOKBACK_DAYS = 90;
 const PLAYBACK_EVENTS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -120,6 +127,85 @@ function buildPlaybackEvent(request, body = {}) {
     ip: request.clientIp || request.ip,
     timestamp: nowIso,
   };
+}
+
+function publicPlaybackSnapshot(value) {
+  if (!value || typeof value !== "object") return null;
+  const mediaId = normalizePositiveMediaId(value.mediaId);
+  const action = value.action === "play" ? "play" : value.action === "pause" ? "pause" : null;
+  if (!mediaId || !action) return null;
+  const timestamp = typeof value.timestamp === "string" && Number.isFinite(Date.parse(value.timestamp))
+    ? value.timestamp
+    : null;
+  return {
+    mediaId,
+    action,
+    state: action === "play" ? "playing" : "paused",
+    position: normalizeNonNegativeInt(value.position),
+    duration: normalizeNonNegativeInt(value.duration),
+    loopMode: normalizeLoopMode(value.loopMode),
+    shuffleEnabled: Boolean(value.shuffleEnabled),
+    ...(timestamp ? { updatedAt: timestamp } : {}),
+  };
+}
+
+async function publicHolderWithPlayback(redis, lease, expiresIn) {
+  const holder = publicLeaseHolder(lease, expiresIn);
+  if (!holder || !lease?.viewerId) return holder;
+  try {
+    const raw = await redis.get(`playback:active:${lease.viewerId}`);
+    const playback = raw ? publicPlaybackSnapshot(JSON.parse(raw)) : null;
+    if (playback && playback.mediaId === holder.mediaId) holder.playback = playback;
+  } catch {}
+  return holder;
+}
+
+async function dropActivePlayback(redis, viewerId) {
+  if (!viewerId) return;
+  const multi = redis.multi();
+  multi.del(`playback:active:${viewerId}`);
+  multi.zrem(ACTIVE_INDEX_KEY, viewerId);
+  await multi.exec();
+}
+
+async function authorizeExclusiveReport(fastify, request, reply) {
+  const mediaId = normalizePositiveMediaId(request.body?.mediaId);
+  const mediaType = typeof request.body?.mediaType === "string" ? request.body.mediaType : "";
+  const redis = getRedis(fastify);
+  const lease = await getExclusiveLease(redis);
+  const targetsExclusiveMedia = Boolean(lease)
+    || mediaType.startsWith("audio/")
+    || mediaType.startsWith("video/");
+  if (!targetsExclusiveMedia) return true;
+
+  const viewerId = readViewerId(request);
+  const sessionId = request.headers["x-playback-session"];
+  const clientIp = request.clientIp || request.ip;
+  const session = await readPlaybackSession(redis, sessionId);
+  const ownsLease = Boolean(
+    mediaId
+    && lease
+    && session
+    && session.leaseRequired
+    && Number(session.mediaId) === mediaId
+    && Number(lease.mediaId) === mediaId
+    && viewerId
+    && session.viewerId === viewerId
+    && lease.viewerId === viewerId
+    && lease.sessionId === sessionId
+    && session.clientIp === clientIp
+    && lease.clientIp === clientIp
+  );
+  if (ownsLease) return true;
+
+  const holder = await publicHolderWithPlayback(redis, lease, lease?.expiresIn);
+  reply.code(409).send({
+    code: "PLAYBACK_NOT_OWNER",
+    error: holder ? `Playback is active on ${holder.deviceLabel}` : "Exclusive playback is not active on this device",
+    retryAfter: lease?.expiresIn || 0,
+    ...(holder ? { activeSession: holder } : {}),
+  });
+  return false;
 }
 
 async function hydrateSessionTitles(fastify, sessions) {
@@ -527,6 +613,7 @@ export default async function (fastify) {
     if (!normalizedAction) {
       return reply.code(400).send({ error: "Invalid playback action" });
     }
+    if (!await authorizeExclusiveReport(fastify, request, reply)) return reply;
 
     const event = buildPlaybackEvent(request, {
       ...request.body,
@@ -547,7 +634,7 @@ export default async function (fastify) {
         multi.del(resumeKey);
       } else {
         const resume = { position: event.position, timestamp: event.timestamp, duration: event.duration };
-        multi.set(resumeKey, JSON.stringify(resume), "EX", 604800);
+        multi.set(resumeKey, JSON.stringify(resume), "EX", RESUME_TTL_SECONDS);
       }
     } else if (event.action === "end") {
       multi.del(resumeKey);
@@ -565,6 +652,7 @@ export default async function (fastify) {
     if (!normalizedAction) {
       return reply.code(400).send({ error: "Invalid playback action" });
     }
+    if (!await authorizeExclusiveReport(fastify, request, reply)) return reply;
 
     const redis = getRedis(fastify);
     const ip = request.clientIp || request.ip;
@@ -679,10 +767,12 @@ export default async function (fastify) {
 
     const refreshed = await refreshExclusiveLease(redis, viewerId, sessionId, clientIp);
     if (!refreshed.refreshed) {
+      const holder = publicLeaseHolder(refreshed.holder, refreshed.retryAfter);
       return reply.code(409).send({
         code: "PLAYBACK_LEASE_LOST",
-        error: "Playback access is no longer active on this device",
+        error: holder ? `Playback is active on ${holder.deviceLabel}` : "Playback access is no longer active on this device",
         retryAfter: refreshed.retryAfter,
+        ...(holder ? { activeSession: holder } : {}),
       });
     }
     return { ok: true, expiresIn: refreshed.retryAfter };
@@ -700,6 +790,7 @@ export default async function (fastify) {
     const released = session.leaseRequired
       ? await releaseExclusiveLease(redis, viewerId, sessionId, clientIp)
       : false;
+    if (released) await dropActivePlayback(redis, viewerId);
     await revokePlaybackSession(redis, sessionId);
     return { ok: true, released };
   });
@@ -707,17 +798,24 @@ export default async function (fastify) {
   fastify.get("/lease", async (request) => {
     const lease = await getExclusiveLease(getRedis(fastify));
     if (!lease) return { state: "available", expiresIn: 0 };
-    const owned = (request.clientIp || request.ip) === lease.clientIp;
+    const viewerId = readViewerId(request);
+    const owned = Boolean(viewerId)
+      && viewerId === lease.viewerId
+      && (request.clientIp || request.ip) === lease.clientIp;
+    const holder = await publicHolderWithPlayback(getRedis(fastify), lease, lease.expiresIn);
     return {
       state: owned ? "owned" : "busy",
       expiresIn: lease.expiresIn,
-      ...(owned || request.accessTier >= 100 ? { mediaId: lease.mediaId, platform: lease.platform } : {}),
+      ...(holder ? { activeSession: holder } : {}),
     };
   });
 
   fastify.delete("/lease/admin", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
-    const released = Number(await forceReleaseExclusiveLease(getRedis(fastify))) > 0;
+    const redis = getRedis(fastify);
+    const lease = await getExclusiveLease(redis);
+    const released = Number(await forceReleaseExclusiveLease(redis)) > 0;
+    if (released) await dropActivePlayback(redis, lease?.viewerId);
     return { ok: true, released };
   });
 
@@ -752,7 +850,7 @@ export default async function (fastify) {
       return { ok: true };
     }
 
-    await redis.set(key, JSON.stringify(resume), "EX", 604800);
+    await redis.set(key, JSON.stringify(resume), "EX", RESUME_TTL_SECONDS);
 
     return { ok: true };
   });

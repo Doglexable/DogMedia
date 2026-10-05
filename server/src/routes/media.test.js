@@ -335,8 +335,12 @@ describe("quality-aware streaming", () => {
       async del(key) { return redisValues.delete(key) ? 1 : 0; },
       async eval(script, keyCount, key, ...args) {
         if (script.includes("previousSessionId")) {
-          redisValues.set(key, args[1]);
-          return [1, Number(args[2]), ""];
+          const current = redisValues.has(key) ? JSON.parse(redisValues.get(key)) : null;
+          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+            return [0, JSON.stringify(current), 15000];
+          }
+          redisValues.set(key, args[2]);
+          return [1, Number(args[3]), current?.sessionId || ""];
         }
         if (script.includes("lastHeartbeatAt")) return [1, Number(args[4])];
         return 1;
@@ -387,6 +391,78 @@ describe("quality-aware streaming", () => {
     expect((await app.inject({ method: "POST", url: "/api/media/1/playback-session", payload: { quality: "ori" } })).statusCode).toBe(403);
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("reports the safe holder on acquisition conflict without sensitive identifiers", async () => {
+    const app = Fastify();
+    const redisValues = new Map([
+      ["stream:exclusive:standard", JSON.stringify({
+        viewerId: "viewer_holder_hhhhhhhhhhhh",
+        sessionId: "session_holder_hhhhhhhhhhh",
+        mediaId: 9,
+        clientIp: "10.0.0.9",
+        platform: "desktop",
+        deviceLabel: "Studio PC",
+      })],
+    ]);
+    app.decorate("redis", {
+      async get(key) { return redisValues.get(key) || null; },
+      async set(key, value) { redisValues.set(key, value); return "OK"; },
+      async del(key) { return redisValues.delete(key) ? 1 : 0; },
+      async eval(script, keyCount, key, ...args) {
+        if (script.includes("previousSessionId")) {
+          const current = redisValues.has(key) ? JSON.parse(redisValues.get(key)) : null;
+          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+            return [0, JSON.stringify(current), 15000];
+          }
+          redisValues.set(key, args[2]);
+          return [1, Number(args[3]), current?.sessionId || ""];
+        }
+        return 1;
+      },
+    });
+    app.decorate("pg", {
+      async query() {
+        return { rows: [{ id: 1, duration: 200, mime_type: "audio/mpeg", source_version: 1 }], rowCount: 1 };
+      },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: "/api/media/1/playback-session",
+      payload: { quality: "high" },
+      headers: {
+        "x-viewer-id": "viewer_requester_rrrrrrrr",
+        "x-client-platform": "web",
+        "x-client-name": "Requester Laptop",
+      },
+    });
+    expect(conflict.statusCode).toBe(409);
+    const body = conflict.json();
+    expect(body.code).toBe("PLAYBACK_IN_USE");
+    expect(body.error).toContain("Studio PC");
+    expect(body.retryAfter).toBeGreaterThan(0);
+    expect(body.activeSession).toMatchObject({
+      platform: "desktop",
+      deviceLabel: "Studio PC",
+      mediaId: 9,
+    });
+    // The requester's own label must not leak into someone else's conflict.
+    expect(body.activeSession.deviceLabel).not.toBe("Requester Laptop");
+    // No sensitive identifiers anywhere in the payload.
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("viewer_holder_hhhhhhhhhhhh");
+    expect(raw).not.toContain("session_holder_hhhhhhhhhhh");
+    expect(raw).not.toContain("10.0.0.9");
+    expect(raw).not.toContain("viewer_requester_rrrrrrrr");
+    expect(body).not.toHaveProperty("viewerId");
+    expect(body).not.toHaveProperty("sessionId");
+    await app.close();
   });
 });
 

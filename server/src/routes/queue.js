@@ -1,3 +1,9 @@
+import {
+  getExclusiveLease,
+  publicLeaseHolder,
+  readViewerId,
+} from "../playback-session.js";
+
 const ACCESSIBLE_CATEGORY_TREE_SQL = `
   WITH RECURSIVE accessible_categories AS (
     SELECT
@@ -36,6 +42,36 @@ function queueKeys(request) {
     key: `queue:${ip}`,
     idxKey: `queue:index:${ip}`,
     revisionKey: `queue:revision:${ip}`,
+  };
+}
+
+/// Queue keys are scoped per client IP while the exclusive playback lease is
+/// global. A device that does not own the lease must not rewrite the queue the
+/// holder is playing from, so queue mutations are rejected with
+/// PLAYBACK_IN_USE when a lease is held by a different viewer on the same
+/// client IP. Reads stay open so observers can follow the holder's queue.
+async function exclusiveQueueConflict(fastify, request) {
+  let lease = null;
+  try {
+    if (typeof fastify.redis?.get !== "function") return null;
+    lease = await getExclusiveLease(fastify.redis);
+  } catch (error) {
+    fastify.log.debug({ error }, "exclusive lease lookup for queue guard failed");
+    return null;
+  }
+  if (!lease) return null;
+  const ip = String(request.clientIp || request.ip || "");
+  if (!ip || lease.clientIp !== ip) return null;
+  const viewerId = readViewerId(request);
+  if (viewerId && lease.viewerId === viewerId) return null;
+  const holder = publicLeaseHolder(lease, lease.expiresIn);
+  return {
+    code: "PLAYBACK_IN_USE",
+    error: holder
+      ? `Playback is active on ${holder.deviceLabel}`
+      : "Media is currently playing on another device",
+    retryAfter: Math.max(1, Math.ceil(Number(lease.expiresIn) || 0)),
+    ...(holder ? { activeSession: holder } : {}),
   };
 }
 
@@ -154,6 +190,12 @@ function shuffled(ids) {
 }
 
 export default async function (fastify) {
+  fastify.addHook("preHandler", async (request, reply) => {
+    if (request.method === "GET" || request.method === "HEAD") return;
+    const conflict = await exclusiveQueueConflict(fastify, request);
+    if (conflict) return reply.code(409).send(conflict);
+  });
+
   fastify.get("/suggestion/:mediaId", async (request, reply) => {
     const mediaId = normalizeStartId(request.params?.mediaId);
     const requestedCategoryId = request.query?.category == null
