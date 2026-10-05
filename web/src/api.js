@@ -35,6 +35,22 @@ export function api(path, options = {}) {
   return fetch(apiUrl(path), { ...options, credentials: "include" });
 }
 
+export async function requestPlaybackSocketTicket() {
+  const response = await api("/api/playback/socket-ticket", {
+    method: "POST",
+    headers: { "X-Client-Platform": "web", "X-Client-Name": "Dogmedia Web" },
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.ticket) throw new Error("Could not open playback updates");
+  return data.ticket;
+}
+
+export function playbackSocketUrl() {
+  const url = new URL(apiUrl("/api/playback/socket"), window.location.href);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+
 export async function createPlaybackSession(mediaId, quality = "high", { signal } = {}) {
   const response = await api(`/api/media/${Number(mediaId)}/playback-session`, {
     method: "POST",

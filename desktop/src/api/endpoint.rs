@@ -25,6 +25,7 @@ pub enum Endpoint {
     LeaseRelease,
     LeaseForceRelease,
     LeaseStatus,
+    SocketTicket,
     PlaybackActive,
     PlaybackEvent,
     Resume(MediaId),
@@ -75,6 +76,7 @@ impl Endpoint {
         match self {
             Self::PlaybackSession(_)
             | Self::LeaseHeartbeat
+            | Self::SocketTicket
             | Self::QueueItems
             | Self::QueueNextItem
             | Self::QueueSelect
@@ -114,6 +116,7 @@ impl Endpoint {
             Self::LeaseRelease => "api/playback/lease".to_owned(),
             Self::LeaseForceRelease => "api/playback/lease/admin".to_owned(),
             Self::LeaseStatus => "api/playback/lease".to_owned(),
+            Self::SocketTicket => "api/playback/socket-ticket".to_owned(),
             Self::PlaybackActive => "api/playback/active".to_owned(),
             Self::PlaybackEvent => "api/playback/event".to_owned(),
             Self::Resume(id) | Self::ResumeSave(id) => format!("api/playback/resume/{id}"),

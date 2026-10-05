@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "crypto";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 
 export const PLAYBACK_SESSION_HEADER = "x-playback-session";
 export const VIEWER_ID_HEADER = "x-viewer-id";
@@ -13,6 +13,29 @@ export const PLAYBACK_SESSION_TTL_SECONDS = Math.max(
 );
 const VIEWER_COOKIE_NAME = "pfs_viewer";
 const EXCLUSIVE_LEASE_KEY = "stream:exclusive:standard";
+const SOCKET_TICKET_TTL_SECONDS = 30;
+
+export function socketTicketKey(ticket) {
+  return `playback:socket-ticket:${createHash("sha256").update(ticket).digest("hex")}`;
+}
+
+export async function issueSocketTicket(redis, details) {
+  const ticket = randomBytes(32).toString("base64url");
+  await redis.set(socketTicketKey(ticket), JSON.stringify(details), "EX", SOCKET_TICKET_TTL_SECONDS);
+  return ticket;
+}
+
+export async function consumeSocketTicket(redis, ticket, clientIp) {
+  if (typeof ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) return null;
+  const raw = await redis.getdel(socketTicketKey(ticket));
+  if (!raw) return null;
+  try {
+    const details = JSON.parse(raw);
+    return details.clientIp === clientIp ? details : null;
+  } catch {
+    return null;
+  }
+}
 
 const ACQUIRE_LEASE_SCRIPT = `
 local currentRaw = redis.call('GET', KEYS[1])

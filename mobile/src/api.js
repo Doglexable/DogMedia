@@ -22,6 +22,20 @@ async function storeViewerId(viewerId) {
 export const API_BASE = (envApiBase || "http://localhost:3001").replace(/\/+$/, "");
 export const WEB_BASE = (envWebBase || API_BASE).replace(/\/+$/, "");
 
+export function playbackSocketUrl() {
+  return `${API_BASE.replace(/^http/, "ws")}/api/playback/socket`;
+}
+
+export async function requestPlaybackSocketTicket() {
+  const data = await apiJson("/api/playback/socket-ticket", {
+    method: "POST",
+    headers: { "X-Client-Platform": "mobile", "X-Client-Name": "Dogmedia Mobile" },
+  });
+  if (!data?.ticket) throw new Error("Could not open playback updates");
+  if (data.viewerId && data.viewerId !== await getViewerId()) await storeViewerId(data.viewerId);
+  return data.ticket;
+}
+
 export function publicShareUrl(sharePath) {
   return `${WEB_BASE}${sharePath.startsWith("/") ? sharePath : `/${sharePath}`}`;
 }

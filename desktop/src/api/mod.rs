@@ -1,6 +1,7 @@
 mod client;
 mod endpoint;
 mod endpoints;
+pub mod playback_socket;
 mod transport;
 mod url;
 

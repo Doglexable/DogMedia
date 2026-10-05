@@ -186,6 +186,18 @@ impl PlaybackCoordinator {
         self.snapshot.holder_retry_after = retry_after;
     }
 
+    pub fn remote_available(&mut self) {
+        if self.snapshot.session_unavailable {
+            self.snapshot.status = PlaybackStatus::Idle;
+            self.snapshot.media = None;
+            self.snapshot.position = 0.0;
+            self.snapshot.duration = 0.0;
+            self.snapshot.session_unavailable = false;
+            self.snapshot.holder = None;
+            self.snapshot.holder_retry_after = None;
+        }
+    }
+
     pub fn observe_remote(
         &mut self,
         media: Media,

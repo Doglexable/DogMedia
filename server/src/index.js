@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import postgres from "@fastify/postgres";
+import websocket from "@fastify/websocket";
 import { join } from "path";
 import { createRequire } from "module";
 
@@ -29,6 +30,7 @@ import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 import { hasActiveUpload, startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
 import { uploadCompletionStatusKey } from "./upload-completion-queue.js";
+import { createPlaybackSocketHub } from "./playback-socket.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
@@ -52,6 +54,7 @@ await app.register(cors, {
   allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name"],
   exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
 });
+await app.register(websocket, { options: { maxPayload: 8192 } });
 await app.register(multipart, {
   limits: {
     fileSize: 20 * 1024 * 1024,
@@ -112,6 +115,7 @@ if (process.env.RUN_CLEANUP_IN_SERVER === "true") {
   });
 }
 await redisPlugin(app);
+app.decorate("playbackSocketHub", createPlaybackSocketHub(app, { allowedOrigins: ALLOWED_ORIGINS }));
 startIncompleteUploadCleanupScheduler({
   log: app.log,
   uploadRoot: join(UPLOAD_TMP_DIR, "chunked"),

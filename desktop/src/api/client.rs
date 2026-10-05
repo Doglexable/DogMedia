@@ -182,6 +182,14 @@ impl ApiClient {
         Ok(self.base_url.join(&endpoint.path())?)
     }
 
+    pub fn playback_socket_url(&self) -> Result<url::Url, ApiError> {
+        let mut url = self.base_url.join("api/playback/socket")?;
+        let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
+        url.set_scheme(scheme)
+            .map_err(|_| ApiError::UnsupportedScheme)?;
+        Ok(url)
+    }
+
     /// Resolve a server-relative [`StreamPath`] (stream / subtitle URLs).
     pub fn absolute_url(&self, path: &StreamPath) -> Result<url::Url, ApiError> {
         Ok(self.base_url.join_stream(path)?)

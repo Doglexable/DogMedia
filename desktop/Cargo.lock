@@ -1530,6 +1530,7 @@ dependencies = [
  "base64 0.22.1",
  "dioxus-native",
  "directories",
+ "futures-util",
  "gstreamer",
  "gstreamer-video",
  "image",

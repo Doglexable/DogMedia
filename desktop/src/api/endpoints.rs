@@ -30,6 +30,17 @@ struct SaveResumeRequest {
 }
 
 impl ApiClient {
+    pub async fn playback_socket_ticket(&self) -> Result<String, ApiError> {
+        #[derive(serde::Deserialize)]
+        struct Ticket {
+            ticket: String,
+        }
+        let result: Ticket = self
+            .json_endpoint(&Endpoint::SocketTicket, None::<&()>, None, NORMAL_TIMEOUT)
+            .await?;
+        Ok(result.ticket)
+    }
+
     pub async fn check_access(&self) -> Result<AccessStatus, ApiError> {
         self.json_endpoint(
             &Endpoint::CheckAccess,

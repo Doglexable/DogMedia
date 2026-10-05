@@ -300,6 +300,28 @@ On Debian or Ubuntu, enable the required modules:
 sudo a2enmod proxy proxy_http headers ssl
 ```
 
+Playback updates use `POST /api/playback/socket-ticket` followed by a
+credential-free WebSocket upgrade at `/api/playback/socket`. The first socket
+message carries the short-lived, single-use ticket; keep the ticket and
+protected playback IDs out of URLs and proxy access logs. The bundled Nginx
+configuration forwards `Upgrade`, `Connection`, and the same normalized client
+IP headers as ordinary `/api/` requests. Apache 2.4.47 or newer upgrades
+WebSocket requests through `mod_proxy_http` with the `ProxyPass` rule below.
+For older Apache versions, enable `proxy_wstunnel` and add a more specific
+`ProxyPass /api/playback/socket ws://127.0.0.1:8030/api/playback/socket`
+before the general `ProxyPass /` rule. Keep Apache and Nginx on the same host
+so whitelist identity is consistent for HTTP and WebSocket.
+
+Connected playback clients receive immediate lease changes and safe playing
+snapshots. The server renews a bound native lease while its socket answers
+pings. A paused Web player deliberately stops renewing; the existing
+30-second lease expires unless playback resumes. On disconnect the lease keeps
+its normal Redis grace period. Clients temporarily use the HTTP heartbeat and
+lease status routes while reconnecting; those routes also support older client
+versions. Mobile background audio depends on the operating system continuing
+JavaScript and socket activity, so validate Android and iOS behavior before
+relying on uninterrupted background playback.
+
 Create `/etc/apache2/sites-available/dogmedia.conf`, replace
 `media.example.com` and the certificate paths, and use this configuration:
 

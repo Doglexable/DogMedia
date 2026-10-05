@@ -1,8 +1,9 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
+import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, playbackSocketUrl, releasePlaybackLease, requestPlaybackSocketTicket } from "../api";
 import { useAccess } from "../access-context";
 import { conflictFromError } from "./global-player/exclusive-session";
+import { createPlaybackSocket } from "./global-player/playback-socket";
 import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./global-player/lyrics-cache";
 import { MiniPlayer } from "./global-player/mini-player";
 import { lazyWithRetry } from "../utils/lazy-with-retry";
@@ -107,6 +108,9 @@ export function GlobalPlayerProvider({ children }) {
   const pauseStartedAtRef = useRef(null);
   const pauseDropTimerRef = useRef(null);
   const playbackSessionIdRef = useRef(null);
+  const playbackSocketRef = useRef(null);
+  const leaseHandlerRef = useRef(null);
+  const [socketStatus, setSocketStatus] = useState("connecting");
   const leaseStaleRef = useRef(false);
   const resumeSeqRef = useRef(0);
   const currentMediaRef = useRef(null);
@@ -225,6 +229,7 @@ export function GlobalPlayerProvider({ children }) {
     createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
       .then((session) => {
         playbackSessionIdRef.current = session.sessionId;
+        playbackSocketRef.current?.bind(session.sessionId);
         setPlaybackConflict(null);
         setStreamSrc(session.streamUrl);
       })
@@ -296,7 +301,7 @@ export function GlobalPlayerProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (!playbackSessionIdRef.current || !currentMedia || isImage) return;
+    if (socketStatus === "ready" || !playbackSessionIdRef.current || !currentMedia || isImage) return;
     // Paused heartbeats must not keep the exclusive lease alive: while paused
     // the lease is left to lapse (≤30s) so another device can take over
     // without waiting. The lease is re-acquired on resume (see togglePlayback).
@@ -322,7 +327,7 @@ export function GlobalPlayerProvider({ children }) {
       stopped = true;
       window.clearInterval(interval);
     };
-  }, [currentMedia?.id, handleLeaseLost, isImage, paused, streamSrc]);
+  }, [currentMedia?.id, handleLeaseLost, isImage, paused, socketStatus, streamSrc]);
 
   const playWithFreshLease = useCallback(() => {
     if (!mediaRef.current || !currentMedia || isImage) return;
@@ -339,6 +344,7 @@ export function GlobalPlayerProvider({ children }) {
       .then((session) => {
         if (resumeSeqRef.current !== seq) return;
         playbackSessionIdRef.current = session.sessionId;
+        playbackSocketRef.current?.bind(session.sessionId);
         setPlaybackConflict(null);
         setPlaybackAccessError("");
         mediaRef.current?.play()?.catch(() => {});
@@ -483,6 +489,58 @@ export function GlobalPlayerProvider({ children }) {
     }
   }, [playWithFreshLease]);
 
+  leaseHandlerRef.current = async (message) => {
+    if (message.state === "available") {
+      if (playbackSessionIdRef.current) leaseStaleRef.current = true;
+      setObservingExclusiveSession(false);
+      setPlaybackConflict(null);
+      return;
+    }
+    if (message.state !== "busy" || !message.activeSession) return;
+    if (playbackSessionIdRef.current) {
+      playbackSocketRef.current?.bind(null);
+      handleLeaseLost({ code: "PLAYBACK_LEASE_LOST", message: "Playback is active on another device", activeSession: message.activeSession, retryAfter: message.expiresIn });
+    }
+    const holder = message.activeSession;
+    setPlaybackConflict({ holder, retryAfter: message.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+    setObservingExclusiveSession(true);
+    const snapshot = holder.playback;
+    const mediaId = Number(snapshot?.mediaId || holder.mediaId);
+    if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
+      try {
+        const response = await api(`/api/media/${mediaId}`);
+        const mediaItem = await readMediaItem(response);
+        resetForMedia(mediaItem, { autoplay: false, observing: true, startPosition: snapshot?.position || 0 });
+      } catch {}
+    } else if (snapshot) {
+      setPosition(snapshot.position);
+      setDuration(snapshot.duration || currentMediaRef.current?.duration || 0);
+      setPaused(snapshot.action !== "play");
+      setLoopMode(snapshot.loopMode);
+      setShuffleEnabled(snapshot.shuffleEnabled);
+    }
+  };
+
+  useEffect(() => {
+    const service = createPlaybackSocket({
+      getTicket: requestPlaybackSocketTicket,
+      url: playbackSocketUrl,
+      onStatus: setSocketStatus,
+      onLease: (message) => leaseHandlerRef.current?.(message),
+      onError: (message) => {
+        if (message.code === "PLAYBACK_LEASE_LOST" && playbackSessionIdRef.current) {
+          handleLeaseLost({ code: message.code, message: message.message });
+        }
+      },
+    });
+    playbackSocketRef.current = service;
+    service.start();
+    return () => {
+      playbackSocketRef.current = null;
+      service.stop();
+    };
+  }, [handleLeaseLost]);
+
   const loadResumePosition = useCallback((mediaId) => {
     api(`/api/playback/resume/${mediaId}`)
       .then((r) => r.json())
@@ -557,6 +615,7 @@ export function GlobalPlayerProvider({ children }) {
   // observer mode immediately so the mini player follows the holder's media
   // instead of staying empty until the user taps play and hits 409.
   useEffect(() => {
+    if (socketStatus === "ready") return undefined;
     let stopped = false;
     getPlaybackLease()
       .then((status) => {
@@ -574,10 +633,10 @@ export function GlobalPlayerProvider({ children }) {
     return () => {
       stopped = true;
     };
-  }, []);
+  }, [socketStatus]);
 
   useEffect(() => {
-    if (!observingExclusiveSession) return undefined;
+    if (!observingExclusiveSession || socketStatus === "ready") return undefined;
     let stopped = false;
     let timer;
     const sync = async () => {
@@ -617,7 +676,7 @@ export function GlobalPlayerProvider({ children }) {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [observingExclusiveSession, resetForMedia]);
+  }, [observingExclusiveSession, resetForMedia, socketStatus]);
 
   const takeOverExclusiveSession = useCallback(async () => {
     if (tier < 100 || !observingExclusiveSession) return;
@@ -667,6 +726,15 @@ export function GlobalPlayerProvider({ children }) {
 
   const sendNowPlayingImmediately = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0, signal, extra = {}) => {
     if (!mediaItem || observingExclusiveSession) return;
+    if (socketStatus === "ready" && playbackSessionIdRef.current) {
+      playbackSocketRef.current?.publish({
+        mediaId: Number(mediaItem.id), action,
+        position: Math.max(0, Math.floor(nextPosition || 0)),
+        duration: Math.max(0, Math.floor(nextDuration || mediaItem.duration || 0)),
+        loopMode, shuffleEnabled,
+      });
+      return Promise.resolve();
+    }
 
     const trigger = extra.trigger || lastTriggerRef.current || "user";
     const pausedAt = action === "pause" ? (extra.pausedAt || pauseStartedAtRef.current || new Date().toISOString()) : null;
@@ -691,7 +759,7 @@ export function GlobalPlayerProvider({ children }) {
         pausedAt,
       }),
     }).catch(() => {});
-  }, [loopMode, observingExclusiveSession, shuffleEnabled]);
+  }, [loopMode, observingExclusiveSession, shuffleEnabled, socketStatus]);
 
   const cancelPendingNowPlayingPause = useCallback(() => {
     if (nowPlayingPauseTimerRef.current !== null) {
@@ -706,7 +774,7 @@ export function GlobalPlayerProvider({ children }) {
     if (!mediaItem) return;
 
     cancelPendingNowPlayingPause();
-    if (action !== "pause") {
+    if (action !== "pause" || socketStatus === "ready") {
       sendNowPlayingImmediately(mediaItem, action, nextPosition, nextDuration, undefined, extra);
       return;
     }
@@ -722,7 +790,7 @@ export function GlobalPlayerProvider({ children }) {
           }
         });
     }, NOW_PLAYING_PAUSE_DEBOUNCE_MS);
-  }, [cancelPendingNowPlayingPause, sendNowPlayingImmediately]);
+  }, [cancelPendingNowPlayingPause, sendNowPlayingImmediately, socketStatus]);
 
   useEffect(() => cancelPendingNowPlayingPause, [cancelPendingNowPlayingPause]);
 
@@ -1460,6 +1528,12 @@ export function GlobalPlayerProvider({ children }) {
 
     const currentDur = mediaRef.current?.duration || duration || currentMedia?.duration || 0;
     const remaining = currentDur - nextPosition;
+    if (socketStatus === "ready" && !paused && currentMedia && playbackSessionIdRef.current) {
+      playbackSocketRef.current?.publish({
+        mediaId: Number(currentMedia.id), action: "play", position: nextPosition,
+        duration: Math.max(0, Math.floor(currentDur)), loopMode, shuffleEnabled,
+      }, { progress: true });
+    }
 
     // 3 seconds before ending, prefetch next media in queue (unless at end of queue)
     if (!paused && currentDur > 3 && remaining <= 3 && remaining > 0 && hasLinearNext) {
@@ -1506,7 +1580,7 @@ export function GlobalPlayerProvider({ children }) {
         mediaRef.current?.duration || duration || currentMedia?.duration || 0
       );
     }
-  }, [currentMedia, duration, hasLinearNext, paused, queueIds, queueIndex, queueItems, queueOffset, saveResumePosition, sendNowPlaying]);
+  }, [currentMedia, duration, hasLinearNext, loopMode, paused, queueIds, queueIndex, queueItems, queueOffset, saveResumePosition, sendNowPlaying, shuffleEnabled, socketStatus]);
 
   const handleLoadedMetadata = useCallback(() => {
     const nextDuration = Math.floor(mediaRef.current?.duration || currentMedia?.duration || 0);

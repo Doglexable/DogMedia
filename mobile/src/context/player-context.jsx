@@ -1,5 +1,6 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
 import {
   apiJson,
   assertApiReachable,
@@ -8,7 +9,10 @@ import {
   getPlaybackLease,
   heartbeatPlaybackLease,
   releasePlaybackLease,
+  playbackSocketUrl,
+  requestPlaybackSocketTicket,
 } from "../api";
+import { createPlaybackSocket } from "../utils/playback-socket";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
@@ -68,6 +72,11 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const saveResumePositionForRef = useRef(() => Promise.resolve());
   const sendActiveSessionRef = useRef(() => Promise.resolve());
   const playbackSourceRef = useRef(null);
+  const videoSourceRef = useRef(null);
+  const playbackSocketRef = useRef(null);
+  const leaseHandlerRef = useRef(null);
+  const [socketStatus, setSocketStatus] = useState("connecting");
+  const [revokedSessionId, setRevokedSessionId] = useState(null);
   const playbackConflictRef = useRef(null);
 
   const [currentMedia, setCurrentMedia] = useState(null);
@@ -206,14 +215,24 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const sendActiveSession = useCallback((media, action, nextPosition = 0, nextDuration = 0) => {
     if (!media) return Promise.resolve();
     if (!offline.isConnected) return Promise.resolve();
+    const source = playbackSourceRef.current || videoSourceRef.current;
+    if (socketStatus === "ready" && source?.leaseRequired) {
+      playbackSocketRef.current?.publish({
+        mediaId: Number(media.id), action,
+        position: Math.max(0, Math.floor(nextPosition || 0)),
+        duration: Math.max(0, Math.floor(nextDuration || media.duration || 0)),
+        loopMode: loopModeRef.current, shuffleEnabled: shuffleEnabledRef.current,
+      });
+      return Promise.resolve();
+    }
     return apiJson("/api/playback/active", {
       method: "POST",
-      headers: playbackSourceRef.current?.sessionId
-        ? { "X-Playback-Session": playbackSourceRef.current.sessionId }
+      headers: source?.sessionId
+        ? { "X-Playback-Session": source.sessionId }
         : {},
       body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
     }).catch(() => {});
-  }, [offline.isConnected, playbackPayload]);
+  }, [offline.isConnected, playbackPayload, socketStatus]);
   sendActiveSessionRef.current = sendActiveSession;
 
   const saveResumePositionFor = useCallback((media, nextPosition, nextDuration) => {
@@ -276,6 +295,13 @@ export function PlayerProvider({ accessTier = 0, children }) {
     setDuration(normalizedDuration);
 
     if (pausedRef.current || getMediaKind(media.mime_type) === "image") return;
+    if (socketStatus === "ready" && (playbackSourceRef.current || videoSourceRef.current)) {
+      playbackSocketRef.current?.publish({
+        mediaId: Number(media.id), action: "play", position: normalizedPosition,
+        duration: normalizedDuration, loopMode: loopModeRef.current,
+        shuffleEnabled: shuffleEnabledRef.current,
+      }, { progress: true });
+    }
     if (normalizedPosition - lastResumeSaveRef.current >= PROGRESS_SYNC_SECONDS) {
       lastResumeSaveRef.current = normalizedPosition;
       saveResumePositionFor(media, normalizedPosition, normalizedDuration);
@@ -284,7 +310,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       lastActiveUpdateRef.current = normalizedPosition;
       sendActiveSession(media, "play", normalizedPosition, normalizedDuration);
     }
-  }, [saveResumePositionFor, sendActiveSession]);
+  }, [saveResumePositionFor, sendActiveSession, socketStatus]);
   reportProgressRef.current = reportProgress;
 
   const reportPlaying = useCallback((isPlaying) => {
@@ -346,6 +372,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     }
     playbackSourceRef.current = localUri ? null : source;
     setPlaybackSource(localUri ? null : source);
+    if (source?.leaseRequired) playbackSocketRef.current?.bind(source.sessionId);
     setPlaybackConflict(null);
     setPlaybackAccessError("");
 
@@ -418,7 +445,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   }, [offline, quality]);
 
   useEffect(() => {
-    if (!playbackSource?.leaseRequired) return;
+    if (!playbackSource?.leaseRequired || socketStatus === "ready") return;
     let stopped = false;
     const heartbeat = () => {
       heartbeatPlaybackLease(playbackSource).catch((error) => {
@@ -441,7 +468,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       stopped = true;
       clearInterval(interval);
     };
-  }, [playbackSource]);
+  }, [playbackSource, socketStatus]);
 
   const changeQuality = useCallback(async (value) => {
     const nextQuality = await storeMediaQuality(value);
@@ -460,6 +487,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
 
   const startMedia = useCallback(async (media, options = {}) => {
     if (!media) return;
+    setRevokedSessionId(null);
     const {
       autoplay = true,
       loadResume = true,
@@ -518,10 +546,96 @@ export function PlayerProvider({ accessTier = 0, children }) {
     setPlaybackConflict(conflict);
     setPlaybackAccessError(conflictDisplayText(conflict, "Playback is active on another device"));
   }, []);
+  const bindProtectedSource = useCallback((source) => {
+    videoSourceRef.current = source?.leaseRequired ? source : null;
+    playbackSocketRef.current?.bind(source?.leaseRequired ? source.sessionId : null);
+  }, []);
+
+  leaseHandlerRef.current = async (message) => {
+    if (message.state === "available") {
+      setPlaybackConflict(null);
+      setPlaybackAccessError("");
+      return;
+    }
+    if (message.state !== "busy" || !message.activeSession) return;
+    if (playbackSourceRef.current || videoSourceRef.current) {
+      pausedRef.current = true;
+      setPaused(true);
+      soundRef.current?.pause?.();
+      videoControllerRef.current?.pause?.();
+      playbackSourceRef.current = null;
+      videoSourceRef.current = null;
+      setPlaybackSource(null);
+      playbackSocketRef.current?.bind(null);
+    }
+    const holder = message.activeSession;
+    applyObservedConflict({ holder, retryAfter: message.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+    const snapshot = holder.playback;
+    const mediaId = Number(snapshot?.mediaId || holder.mediaId);
+    if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
+      try {
+        const media = await apiJson(`/api/media/${mediaId}`);
+        await unloadSound();
+        currentMediaRef.current = media;
+        setCurrentMedia(media);
+      } catch {}
+    }
+    if (snapshot) {
+      positionRef.current = snapshot.position;
+      durationRef.current = snapshot.duration;
+      pausedRef.current = snapshot.action !== "play";
+      loopModeRef.current = snapshot.loopMode;
+      shuffleEnabledRef.current = snapshot.shuffleEnabled;
+      setPosition(snapshot.position);
+      setDuration(snapshot.duration);
+      setPaused(pausedRef.current);
+      setLoopMode(snapshot.loopMode);
+      setShuffleEnabled(snapshot.shuffleEnabled);
+    }
+  };
+
+  useEffect(() => {
+    if (!offline.isConnected) return undefined;
+    const service = createPlaybackSocket({
+      getTicket: requestPlaybackSocketTicket, url: playbackSocketUrl,
+      onStatus: setSocketStatus,
+      onLease: (message) => leaseHandlerRef.current?.(message),
+      onError: (message) => {
+        if (message.code !== "PLAYBACK_LEASE_LOST") return;
+        const source = playbackSourceRef.current || videoSourceRef.current;
+        if (!source?.sessionId) return;
+        pausedRef.current = true;
+        setPaused(true);
+        soundRef.current?.pause?.();
+        videoControllerRef.current?.pause?.();
+        playbackSourceRef.current = null;
+        videoSourceRef.current = null;
+        setPlaybackSource(null);
+        setRevokedSessionId(source.sessionId);
+        service.bind(null);
+      },
+    });
+    playbackSocketRef.current = service;
+    service.start();
+    const appState = AppState.addEventListener("change", (state) => {
+      if (getMediaKind(currentMediaRef.current?.mime_type) !== "video") return;
+      if (state !== "active") {
+        videoControllerRef.current?.pause?.();
+        service.bind(null);
+      } else if (videoSourceRef.current?.leaseRequired) {
+        service.bind(videoSourceRef.current.sessionId);
+      }
+    });
+    return () => {
+      appState.remove();
+      playbackSocketRef.current = null;
+      service.stop();
+    };
+  }, [offline.isConnected]);
   const observingExclusiveSession = Boolean(playbackConflict);
 
   useEffect(() => {
-    if (!observingExclusiveSession) return undefined;
+    if (!observingExclusiveSession || socketStatus === "ready") return undefined;
     let stopped = false;
     let timer;
     const sync = async () => {
@@ -569,7 +683,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [applyObservedConflict, observingExclusiveSession, unloadSound]);
+  }, [applyObservedConflict, observingExclusiveSession, socketStatus, unloadSound]);
 
   const takeOverExclusiveSession = useCallback(async () => {
     if (accessTier < 100 || !playbackConflictRef.current || !currentMediaRef.current) return;
@@ -863,7 +977,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   }, [applyLocalQueue, offline, startMedia]);
 
   const togglePlayback = useCallback(() => {
-    if (playbackConflictRef.current) return;
+    if (playbackConflictRef.current || revokedSessionId) return;
     if (!currentMediaRef.current || getMediaKind(currentMediaRef.current.mime_type) === "image") return;
     if (getMediaKind(currentMediaRef.current.mime_type) === "audio"
       && !playbackSourceRef.current
@@ -886,7 +1000,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       if (soundRef.current) soundRef.current.pause();
       else videoControllerRef.current?.pause?.();
     }
-  }, [offline.isConnected, startMedia]);
+  }, [offline.isConnected, revokedSessionId, startMedia]);
 
   const seek = useCallback(async (seconds) => {
     if (playbackConflictRef.current) return;
@@ -1153,7 +1267,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     currentMedia,
     playbackAccessError,
     playbackConflict,
-    controlsLocked: Boolean(playbackConflict),
+    controlsLocked: Boolean(playbackConflict || revokedSessionId),
     canTakeOverPlayback: accessTier >= 100,
     takeOverExclusiveSession,
     applyObservedConflict,
@@ -1181,6 +1295,9 @@ export function PlayerProvider({ accessTier = 0, children }) {
     refreshLikes,
     refreshQueue,
     registerVideoController,
+    bindProtectedSource,
+    socketStatus,
+    revokedSessionId,
     removeFromQueue,
     reorderQueue,
     reportVideoEnded,
@@ -1204,7 +1321,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     playbackAccessError, playbackConflict, accessTier, applyObservedConflict, takeOverExclusiveSession,
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
-    registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
+    registerVideoController, bindProtectedSource, socketStatus, revokedSessionId, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
     quality, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);

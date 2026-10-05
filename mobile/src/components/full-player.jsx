@@ -523,6 +523,22 @@ export function FullPlayer({ navigation }) {
 
   useEffect(() => {
     if (!protectedSource?.leaseRequired) return;
+    player.bindProtectedSource?.(protectedSource);
+    return () => {
+      player.bindProtectedSource?.(null);
+      releasePlaybackLease(protectedSource);
+    };
+  }, [player.bindProtectedSource, protectedSource]);
+
+  useEffect(() => {
+    if (protectedSource?.sessionId && protectedSource.sessionId === player.revokedSessionId) {
+      setProtectedSource(null);
+      setProtectedSourceError("Playback session was released");
+    }
+  }, [player.revokedSessionId, protectedSource]);
+
+  useEffect(() => {
+    if (!protectedSource?.leaseRequired || player.socketStatus === "ready") return;
     let stopped = false;
     const heartbeat = () => {
       heartbeatPlaybackLease(protectedSource).catch((error) => {
@@ -539,9 +555,8 @@ export function FullPlayer({ navigation }) {
     return () => {
       stopped = true;
       clearInterval(interval);
-      releasePlaybackLease(protectedSource);
     };
-  }, [player.pause, protectedSource]);
+  }, [player.pause, player.socketStatus, protectedSource]);
 
   useEffect(() => {
     const unsubscribe = navigation?.addListener?.("beforeRemove", () => {

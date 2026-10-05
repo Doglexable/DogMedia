@@ -1251,6 +1251,7 @@ export default async function (fastify, options = {}) {
       if (lease.previousSessionId && lease.previousSessionId !== created.sessionId) {
         await revokePlaybackSession(fastify.redis, lease.previousSessionId).catch(() => {});
       }
+      await fastify.playbackSocketHub?.notify();
     }
     request.log.info({
       mediaId: Number(media.id),

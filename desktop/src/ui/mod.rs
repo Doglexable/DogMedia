@@ -4,12 +4,17 @@ mod views;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::Instant;
 
 use base64::Engine as _;
 use dioxus_native::prelude::*;
+use tokio::sync::mpsc;
 
 use crate::{
-    api::{ApiClient, ApiError, Endpoint, ServerUrlError},
+    api::{
+        ApiClient, ApiError, Endpoint, ServerUrlError,
+        playback_socket::{self, SocketCommand, SocketEvent},
+    },
     app::{AccessView, AppState},
     domain::{
         BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, Media,
@@ -139,6 +144,13 @@ pub(crate) struct NativeApp {
     queue: Option<QueueWindow>,
     coordinator: PlaybackCoordinator,
     session: Option<PlaybackSession>,
+    socket_sender: Option<mpsc::Sender<SocketCommand>>,
+    socket_ready: bool,
+    socket_session_id: Option<String>,
+    socket_sequence: u64,
+    socket_last_signature: Option<String>,
+    socket_last_report_at: Option<Instant>,
+    socket_last_revision: Option<u64>,
     lyrics: String,
     subtitles: Vec<SubtitleTrack>,
     selected_subtitle: Option<usize>,
@@ -202,6 +214,13 @@ impl NativeApp {
             queue: None,
             coordinator,
             session: None,
+            socket_sender: None,
+            socket_ready: false,
+            socket_session_id: None,
+            socket_sequence: 0,
+            socket_last_signature: None,
+            socket_last_report_at: None,
+            socket_last_revision: None,
             lyrics: String::new(),
             subtitles: Vec::new(),
             selected_subtitle: None,
@@ -402,11 +421,81 @@ fn App() -> Element {
     });
     use_future(move || async move {
         loop {
+            let client = app.read().client.clone();
+            let Some(client) = client else {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            };
+            let server = client.base_url().to_string();
+            let (command_tx, command_rx) = mpsc::channel(16);
+            let (event_tx, mut event_rx) = mpsc::channel(16);
+            app.write().socket_sender = Some(command_tx);
+            let task = tokio::spawn(playback_socket::run(client.clone(), command_rx, event_tx));
+            loop {
+                tokio::select! {
+                    event = event_rx.recv() => {
+                        let Some(event) = event else { break; };
+                        match event {
+                            SocketEvent::Ready => {
+                                let mut state = app.write();
+                                state.socket_ready = true;
+                                state.socket_session_id = None;
+                                state.socket_last_signature = None;
+                                state.socket_last_revision = None;
+                            }
+                            SocketEvent::Disconnected => {
+                                app.write().socket_ready = false;
+                            }
+                            SocketEvent::Error(code) => {
+                                if code == "PLAYBACK_LEASE_LOST" {
+                                    if let Some(engine) = engine.read().as_ref() { let _ = engine.pause(); }
+                                    app.write().socket_ready = true;
+                                }
+                            }
+                            SocketEvent::Lease { revision, state, expires_in, holder } => {
+                                if app.read().socket_last_revision.is_some_and(|last| revision < last) { continue; }
+                                app.write().socket_last_revision = Some(revision);
+                                if state == "busy" {
+                                    if app.read().session.is_some()
+                                        && let Some(engine) = engine.read().as_ref() { let _ = engine.pause(); }
+                                    let same_media = app.read().coordinator.snapshot().session_unavailable
+                                        && app.read().coordinator.snapshot().media.as_ref().map(|m| m.id)
+                                            == holder.as_ref().and_then(|h| h.media_id);
+                                    if same_media {
+                                        let media = app.read().coordinator.snapshot().media.clone();
+                                        if let (Some(media), Some(holder)) = (media, holder.clone()) {
+                                            app.write().coordinator.observe_remote(media, holder, Some(expires_in));
+                                        }
+                                    } else {
+                                        apply_remote_holder(app, &client, holder, Some(expires_in), "Playback is active elsewhere").await;
+                                    }
+                                } else if state == "available" {
+                                    app.write().coordinator.remote_available();
+                                }
+                            }
+                        }
+                    }
+                    () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                        if app.read().client.as_ref().map(|value| value.base_url().to_string()) != Some(server.clone()) { break; }
+                    }
+                }
+            }
+            task.abort();
+            let mut state = app.write();
+            state.socket_ready = false;
+            state.socket_sender = None;
+            state.socket_session_id = None;
+        }
+    });
+    use_future(move || async move {
+        loop {
             // Lease heartbeat every 5s against the 30s server lease
             // (EXCLUSIVE_PLAYBACK_LEASE_SECONDS): worst-case takeover
             // detection ~5s with ~5 missed beats of network tolerance.
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            heartbeat(app, engine);
+            if !app.read().socket_ready {
+                heartbeat(app, engine);
+            }
         }
     });
 
@@ -706,8 +795,11 @@ fn play_media_at(
                 "pause",
                 previous_position,
                 previous_duration,
-                true,
                 report_session.as_ref(),
+                ReportDelivery {
+                    record_event: true,
+                    socket_primary: false,
+                },
             )
             .await;
         });
@@ -798,8 +890,11 @@ fn play_media_at(
                     if autoplay { "play" } else { "pause" },
                     resume,
                     media.duration.unwrap_or(0.0),
-                    true,
                     Some(&session),
+                    ReportDelivery {
+                        record_event: true,
+                        socket_primary: app.read().socket_ready,
+                    },
                 )
                 .await;
             }
@@ -859,8 +954,11 @@ fn play_photo(
                 "pause",
                 position,
                 duration,
-                true,
                 previous_session.as_ref(),
+                ReportDelivery {
+                    record_event: true,
+                    socket_primary: false,
+                },
             )
             .await;
         }
@@ -984,6 +1082,81 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         let duration = effective_duration.unwrap_or(position);
         app.write().coordinator.update_timing(position, duration);
     }
+    publish_socket_state(app);
+}
+
+fn publish_socket_state(mut app: Signal<NativeApp>) {
+    let current = app.read();
+    if !current.socket_ready {
+        return;
+    }
+    let Some(sender) = current.socket_sender.clone() else {
+        return;
+    };
+    let Some(session) = current.session.clone().filter(|value| value.lease_required) else {
+        return;
+    };
+    let snapshot = current.coordinator.snapshot().clone();
+    let Some(media) = snapshot.media else {
+        return;
+    };
+    let session_id = session.session_id.as_str().to_owned();
+    let action = if snapshot.status == PlaybackStatus::Playing {
+        "play"
+    } else {
+        "pause"
+    };
+    let loop_mode = match snapshot.repeat {
+        RepeatMode::None => "none",
+        RepeatMode::One => "media",
+        RepeatMode::Queue => "queue",
+    };
+    let signature = format!(
+        "{session_id}:{}:{action}:{loop_mode}:{}",
+        media.id.get(),
+        snapshot.shuffle
+    );
+    let changed = current.socket_last_signature.as_ref() != Some(&signature);
+    let due = current
+        .socket_last_report_at
+        .is_none_or(|last| last.elapsed() >= std::time::Duration::from_secs(1));
+    let needs_bind = current.socket_session_id.as_ref() != Some(&session_id);
+    drop(current);
+    if needs_bind {
+        if sender
+            .try_send(SocketCommand::Bind {
+                version: 1,
+                session_id: session_id.clone(),
+            })
+            .is_err()
+        {
+            return;
+        }
+        let mut state = app.write();
+        state.socket_session_id = Some(session_id.clone());
+        state.socket_sequence = 0;
+    }
+    if !changed && !(action == "play" && due) && !needs_bind {
+        return;
+    }
+    let sequence = app.read().socket_sequence + 1;
+    let command = SocketCommand::State {
+        version: 1,
+        session_id,
+        media_id: media.id.get(),
+        action: action.to_owned(),
+        position: snapshot.position.max(0.0),
+        duration: snapshot.duration.max(0.0),
+        loop_mode: loop_mode.to_owned(),
+        shuffle_enabled: snapshot.shuffle,
+        sequence,
+    };
+    if sender.try_send(command).is_ok() {
+        let mut state = app.write();
+        state.socket_sequence = sequence;
+        state.socket_last_signature = Some(signature);
+        state.socket_last_report_at = Some(Instant::now());
+    }
 }
 
 fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
@@ -1053,8 +1226,11 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
             action,
             position,
             duration,
-            false,
             Some(&session),
+            ReportDelivery {
+                record_event: false,
+                socket_primary: false,
+            },
         )
         .await;
     });
@@ -1127,8 +1303,11 @@ fn set_playback_playing(
                 if requested_playing { "play" } else { "pause" },
                 position,
                 duration,
-                true,
                 session.as_ref(),
+                ReportDelivery {
+                    record_event: true,
+                    socket_primary: app.read().socket_ready,
+                },
             )
             .await;
         });
@@ -1218,8 +1397,11 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
                     "pause",
                     position,
                     duration,
-                    true,
                     session.as_ref(),
+                    ReportDelivery {
+                        record_event: true,
+                        socket_primary: false,
+                    },
                 )
                 .await;
             }
@@ -1853,14 +2035,19 @@ fn strip_webvtt_markup(value: &str) -> String {
         .to_owned()
 }
 
+struct ReportDelivery {
+    record_event: bool,
+    socket_primary: bool,
+}
+
 async fn send_report(
     client: &ApiClient,
     media: &Media,
     action: &'static str,
     position: f64,
     duration: f64,
-    record_event: bool,
     session: Option<&PlaybackSession>,
+    delivery: ReportDelivery,
 ) {
     let report = PlaybackReport {
         media_id: media.id,
@@ -1880,10 +2067,12 @@ async fn send_report(
     } else if duration > 0.0 && position >= duration - 3.0 {
         let _ = client.save_resume(media.id, 0.0, duration).await;
     }
-    let _ = client
-        .report(&Endpoint::PlaybackActive, &report, session)
-        .await;
-    if record_event {
+    if !delivery.socket_primary {
+        let _ = client
+            .report(&Endpoint::PlaybackActive, &report, session)
+            .await;
+    }
+    if delivery.record_event {
         let _ = client
             .report(&Endpoint::PlaybackEvent, &report, session)
             .await;
