@@ -89,6 +89,110 @@ impl std::fmt::Debug for PlaybackSession {
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHolder {
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
+    pub device_label: Option<String>,
+    #[serde(default)]
+    pub media_id: Option<MediaId>,
+    #[serde(default)]
+    pub expires_in: Option<u64>,
+    #[serde(default)]
+    pub playback: Option<Box<RemotePlayback>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemotePlayback {
+    pub media_id: MediaId,
+    pub action: String,
+    #[serde(default)]
+    pub position: f64,
+    #[serde(default)]
+    pub duration: f64,
+    #[serde(default)]
+    pub loop_mode: Option<String>,
+    #[serde(default)]
+    pub shuffle_enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaseStatus {
+    pub state: String,
+    #[serde(default)]
+    pub expires_in: u64,
+    #[serde(default)]
+    pub active_session: Option<SessionHolder>,
+}
+
+impl SessionHolder {
+    const PLATFORM_LABELS: [(&'static str, &'static str); 3] = [
+        ("web", "Dogmedia Web"),
+        ("desktop", "Dogmedia Desktop"),
+        ("mobile", "Dogmedia Mobile"),
+    ];
+
+    pub fn normalized(mut self) -> Self {
+        self.platform = Some(
+            match self.platform.as_deref() {
+                Some("web") => "web",
+                Some("desktop") => "desktop",
+                Some("mobile") => "mobile",
+                _ => "unknown",
+            }
+            .to_owned(),
+        );
+        self.device_label = self.device_label.take().and_then(|value| {
+            let mut normalized = String::new();
+            let mut pending_space = false;
+            for character in value.chars().filter(|character| !character.is_control()) {
+                if character.is_whitespace() {
+                    pending_space = !normalized.is_empty();
+                    continue;
+                }
+                if pending_space && normalized.chars().count() < 64 {
+                    normalized.push(' ');
+                }
+                pending_space = false;
+                if normalized.chars().count() < 64 {
+                    normalized.push(character);
+                }
+                if normalized.chars().count() >= 64 {
+                    break;
+                }
+            }
+            let normalized = normalized.trim_end().to_owned();
+            (!normalized.is_empty()).then_some(normalized)
+        });
+        self.media_id = self.media_id.filter(|media_id| media_id.get() > 0);
+        self.playback = self.playback.take().filter(|playback| {
+            playback.media_id.get() > 0 && matches!(playback.action.as_str(), "play" | "pause")
+        });
+        self
+    }
+
+    /// Safe display name: the reported label, else the platform fallback,
+    /// else a generic string. Never a viewer/session ID or IP.
+    pub fn display_label(&self) -> String {
+        if let Some(label) = self.clone().normalized().device_label {
+            return label;
+        }
+        self.platform
+            .as_deref()
+            .and_then(|platform| {
+                Self::PLATFORM_LABELS
+                    .iter()
+                    .find(|(known, _)| *known == platform)
+                    .map(|(_, label)| label.to_string())
+            })
+            .unwrap_or_else(|| "Another device".to_owned())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
 pub struct ResumePosition {
     #[serde(default)]

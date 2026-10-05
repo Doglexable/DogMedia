@@ -84,12 +84,6 @@ pub(crate) fn QueuePanel(
             tabindex: "0",
             autofocus: true,
             onkeydown: move |event: KeyboardEvent| {
-                tracing::info!(
-                    target: "dogmedia_desktop::keyboard",
-                    layer = "queue-panel",
-                    key = ?event.key(),
-                    "DOM keyboard event"
-                );
                 if event.key() == Key::Escape {
                     event.stop_propagation();
                     app.write().queue_open = false;

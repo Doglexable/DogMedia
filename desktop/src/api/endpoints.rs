@@ -5,8 +5,9 @@ use serde::Serialize;
 use super::{ApiClient, ApiError, Endpoint};
 use crate::domain::{
     AccessStatus, BrowsePage, BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary,
-    Lyrics, Media, MediaId, PlaybackReport, PlaybackSession, Quality, QueueAutoResult, QueueOrder,
-    QueueOrderResult, QueueSelection, QueueWindow, ResumePosition, StreamPath, SubtitleTrack,
+    LeaseStatus, Lyrics, Media, MediaId, PlaybackReport, PlaybackSession, Quality,
+    QueueAppendResult, QueueAutoResult, QueueOrder, QueueOrderResult, QueueSelection, QueueWindow,
+    ResumePosition, SessionHolder, StreamPath, SubtitleTrack,
 };
 
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(20);
@@ -133,12 +134,26 @@ impl ApiClient {
             .await
     }
 
+    pub async fn force_release_playback_lease(&self) -> Result<(), ApiError> {
+        self.unit_endpoint(&Endpoint::LeaseForceRelease, None::<&()>, None)
+            .await
+    }
+
+    pub async fn playback_lease(&self) -> Result<LeaseStatus, ApiError> {
+        let mut status: LeaseStatus = self
+            .json_endpoint(&Endpoint::LeaseStatus, None::<&()>, None, NORMAL_TIMEOUT)
+            .await?;
+        status.active_session = status.active_session.map(SessionHolder::normalized);
+        Ok(status)
+    }
+
     pub async fn report(
         &self,
         endpoint: &Endpoint,
         report: &PlaybackReport<'_>,
+        session: Option<&PlaybackSession>,
     ) -> Result<(), ApiError> {
-        self.unit_endpoint(endpoint, Some(report), None).await
+        self.unit_endpoint(endpoint, Some(report), session).await
     }
 
     pub async fn resume(&self, media_id: MediaId) -> Result<ResumePosition, ApiError> {
@@ -248,6 +263,41 @@ impl ApiClient {
             &Endpoint::QueueAutoCategory {
                 category: category_id,
                 start: start_media_id,
+            },
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
+        )
+        .await
+    }
+
+    /// Replace the entire queue with media from a folder ordered by track
+    /// number, starting from the first track. Returns a compact result
+    /// including the first `current_media_id` to play.
+    pub async fn queue_play_folder(
+        &self,
+        category_id: CategoryId,
+    ) -> Result<QueueAutoResult, ApiError> {
+        self.json_endpoint(
+            &Endpoint::QueuePlayFolder {
+                category: category_id,
+            },
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
+        )
+        .await
+    }
+
+    /// Append all folder audio to the end of the queue without touching the
+    /// existing items. Returns how many tracks were actually added.
+    pub async fn queue_append_folder(
+        &self,
+        category_id: CategoryId,
+    ) -> Result<QueueAppendResult, ApiError> {
+        self.json_endpoint(
+            &Endpoint::QueueAppendFolder {
+                category: category_id,
             },
             None::<&()>,
             None,

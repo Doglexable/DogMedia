@@ -2,8 +2,8 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::{
-    FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog, Sidebar,
-    VideoMiniPlayer,
+    ConnectionErrorDialog, FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel,
+    SettingsDialog, Sidebar, VideoMiniPlayer,
 };
 
 #[component]
@@ -21,89 +21,79 @@ pub(crate) fn Shell(
     let has_media = snapshot.coordinator.snapshot().media.is_some();
     let playback = snapshot.coordinator.snapshot();
 
-    let on_shell_keydown = move |event: KeyboardEvent| {
-        tracing::info!(
-            target: "dogmedia_desktop::keyboard",
-            layer = "shell",
-            key = ?event.key(),
-            "DOM keyboard event"
-        );
-        match event.key() {
-            Key::Escape => {
-                let mut app_w = app.write();
-                if app_w.quality_popover_open {
-                    app_w.quality_popover_open = false;
-                } else if app_w.settings_open
-                    && app_w.settings.configured
-                    && !app_w.settings_connecting
-                {
-                    app_w.settings_open = false;
-                    app_w.settings_error = None;
-                } else if app_w.queue_open {
-                    app_w.queue_open = false;
-                } else if app_w.player_expanded {
-                    app_w.player_expanded = false;
-                }
-            }
-            Key::Character(ref ch)
-                if (ch == " " || ch == "k" || ch == "K")
-                    && has_media
-                    && !app.read().player_expanded =>
+    let on_shell_keydown = move |event: KeyboardEvent| match event.key() {
+        Key::Escape => {
+            let mut app_w = app.write();
+            if app_w.quality_popover_open {
+                app_w.quality_popover_open = false;
+            } else if app_w.settings_open && app_w.settings.configured && !app_w.settings_connecting
             {
-                toggle_playback(app, engine);
+                app_w.settings_open = false;
+                app_w.settings_error = None;
+            } else if app_w.queue_open {
+                app_w.queue_open = false;
+            } else if app_w.player_expanded {
+                app_w.player_expanded = false;
             }
-            Key::ArrowLeft if has_media && !app.read().player_expanded => {
-                skip_seconds(app, engine, -10.0);
-            }
-            Key::ArrowRight if has_media && !app.read().player_expanded => {
-                skip_seconds(app, engine, 10.0);
-            }
-            Key::Character(ref ch)
-                if (ch == "j" || ch == "J") && has_media && !app.read().player_expanded =>
-            {
-                skip_seconds(app, engine, -10.0);
-            }
-            Key::Character(ref ch)
-                if (ch == "l" || ch == "L") && has_media && !app.read().player_expanded =>
-            {
-                skip_seconds(app, engine, 10.0);
-            }
-            Key::ArrowUp if has_media && !app.read().player_expanded => {
-                let vol = app.read().settings.volume.get();
-                set_volume(app, engine, (vol + 0.1).min(1.0));
-            }
-            Key::ArrowDown if has_media && !app.read().player_expanded => {
-                let vol = app.read().settings.volume.get();
-                set_volume(app, engine, (vol - 0.1).max(0.0));
-            }
-            Key::Character(ref ch)
-                if (ch == "m" || ch == "M") && has_media && !app.read().player_expanded =>
-            {
-                toggle_mute(app, engine);
-            }
-            Key::Character(ref ch)
-                if (ch == "n" || ch == "N") && has_media && !app.read().player_expanded =>
-            {
-                navigate_queue(app, engine, true, false);
-            }
-            Key::Character(ref ch)
-                if (ch == "p" || ch == "P") && has_media && !app.read().player_expanded =>
-            {
-                navigate_queue(app, engine, false, false);
-            }
-            Key::Character(ref ch)
-                if (ch == "q" || ch == "Q") && has_media && !app.read().player_expanded =>
-            {
-                let open = app.read().queue_open;
-                app.write().queue_open = !open;
-            }
-            Key::Character(ref ch)
-                if (ch == "f" || ch == "F") && has_media && !app.read().player_expanded =>
-            {
-                app.write().player_expanded = true;
-            }
-            _ => {}
         }
+        Key::Character(ref ch)
+            if (ch == " " || ch == "k" || ch == "K")
+                && has_media
+                && !app.read().player_expanded =>
+        {
+            toggle_playback(app, engine);
+        }
+        Key::ArrowLeft if has_media && !app.read().player_expanded => {
+            skip_seconds(app, engine, -10.0);
+        }
+        Key::ArrowRight if has_media && !app.read().player_expanded => {
+            skip_seconds(app, engine, 10.0);
+        }
+        Key::Character(ref ch)
+            if (ch == "j" || ch == "J") && has_media && !app.read().player_expanded =>
+        {
+            skip_seconds(app, engine, -10.0);
+        }
+        Key::Character(ref ch)
+            if (ch == "l" || ch == "L") && has_media && !app.read().player_expanded =>
+        {
+            skip_seconds(app, engine, 10.0);
+        }
+        Key::ArrowUp if has_media && !app.read().player_expanded => {
+            let vol = app.read().settings.volume.get();
+            set_volume(app, engine, (vol + 0.1).min(1.0));
+        }
+        Key::ArrowDown if has_media && !app.read().player_expanded => {
+            let vol = app.read().settings.volume.get();
+            set_volume(app, engine, (vol - 0.1).max(0.0));
+        }
+        Key::Character(ref ch)
+            if (ch == "m" || ch == "M") && has_media && !app.read().player_expanded =>
+        {
+            toggle_mute(app, engine);
+        }
+        Key::Character(ref ch)
+            if (ch == "n" || ch == "N") && has_media && !app.read().player_expanded =>
+        {
+            navigate_queue(app, engine, true, false);
+        }
+        Key::Character(ref ch)
+            if (ch == "p" || ch == "P") && has_media && !app.read().player_expanded =>
+        {
+            navigate_queue(app, engine, false, false);
+        }
+        Key::Character(ref ch)
+            if (ch == "q" || ch == "Q") && has_media && !app.read().player_expanded =>
+        {
+            let open = app.read().queue_open;
+            app.write().queue_open = !open;
+        }
+        Key::Character(ref ch)
+            if (ch == "f" || ch == "F") && has_media && !app.read().player_expanded =>
+        {
+            app.write().player_expanded = true;
+        }
+        _ => {}
     };
 
     rsx! {
@@ -128,7 +118,7 @@ pub(crate) fn Shell(
                     "aria-hidden": "true",
                 }
             }
-            Sidebar { app }
+            Sidebar { app, engine }
             div { class: if has_media { "vault-workspace with-player" } else { "vault-workspace" },
                 header { class: "vault-header",
                     div { class: "header-search",
@@ -197,6 +187,12 @@ pub(crate) fn Shell(
             }
             if snapshot.settings_open {
                 SettingsDialog { app }
+            } else if let AccessView::Unreachable(error) = &snapshot.library.access {
+                ConnectionErrorDialog {
+                    app,
+                    server_url: snapshot.settings.server_url.to_string(),
+                    error: error.clone(),
+                }
             }
         }
     }

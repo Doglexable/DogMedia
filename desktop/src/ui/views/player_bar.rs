@@ -10,6 +10,7 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
         return rsx! {};
     };
     let playing = playback.status == PlaybackStatus::Playing;
+    let session_unavailable = playback.session_unavailable;
     let source = if media.is_photo() {
         snapshot.photo_data_url.clone()
     } else {
@@ -42,8 +43,19 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
         None
     };
 
+    let holder_label = playback
+        .holder
+        .as_ref()
+        .map(SessionHolder::display_label)
+        .unwrap_or_else(|| "Another device".to_owned());
+    let mini_player_class = if session_unavailable {
+        "mini-player has-connect-bar"
+    } else {
+        "mini-player"
+    };
+
     rsx! {
-        section { class: "mini-player", "aria-label": "Media player",
+        section { class: "{mini_player_class}", "aria-label": "Media player",
             div { class: "mini-identity-wrap",
                 button {
                     class: "mini-identity",
@@ -81,24 +93,27 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                             label: if playback.shuffle { "Shuffle: on".to_owned() } else { "Shuffle: off".to_owned() },
                             icon: IconName::Shuffle,
                             class: if playback.shuffle { "active".to_owned() } else { String::new() },
+                            disabled: session_unavailable,
                             onclick: move |_| toggle_shuffle(app)
                         }
                     }
-                    IconButton { label: "Previous".to_owned(), icon: IconName::Previous, onclick: move |_| navigate_queue(app, engine, false, false) }
+                    IconButton { label: "Previous".to_owned(), icon: IconName::Previous, disabled: session_unavailable, onclick: move |_| navigate_queue(app, engine, false, false) }
                     if !media.is_photo() {
                         IconButton {
                             label: if playing { "Pause".to_owned() } else { "Play".to_owned() },
                             icon: if playing { IconName::Pause } else { IconName::Play },
                             class: "play".to_owned(),
+                            disabled: session_unavailable,
                             onclick: move |_| toggle_playback(app, engine)
                         }
                     }
-                    IconButton { label: "Next".to_owned(), icon: IconName::Next, onclick: move |_| navigate_queue(app, engine, true, false) }
+                    IconButton { label: "Next".to_owned(), icon: IconName::Next, disabled: session_unavailable, onclick: move |_| navigate_queue(app, engine, true, false) }
                     if !media.is_photo() {
                         IconButton {
                             label: repeat_title,
                             icon: repeat_icon,
                             class: if repeat_active { "active".to_owned() } else { String::new() },
+                            disabled: session_unavailable,
                             onclick: move |_| toggle_repeat(app)
                         }
                     }
@@ -108,15 +123,29 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                         position: playback.position,
                         duration: playback.duration,
                         variant: SliderVariant::Round,
+                        disabled: session_unavailable,
                         onseek: move |position| seek(app, engine, position),
                     }
                 }
             }
             div { class: "mini-tools",
+                if session_unavailable {
+                    IconButton {
+                        label: format!("Playing on {holder_label}"),
+                        icon: IconName::Volume,
+                        class: "spotify-device-btn active".to_owned(),
+                        onclick: move |_| {
+                            if can_take_over_playback(snapshot.access_tier) {
+                                take_over_playback(app, engine);
+                            }
+                        }
+                    }
+                }
                 if !media.is_photo() {
                     QualityPopover {
                         app,
                         quality: playback.quality,
+                        disabled: session_unavailable,
                     }
                 }
                 if !media.is_photo() {
@@ -134,6 +163,84 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                 IconButton { label: "Open full player".to_owned(), icon: IconName::Expand, onclick: move |_| app.write().player_expanded = true }
                 IconButton { label: "Stop playback".to_owned(), icon: IconName::Stop, class: "stop-btn".to_owned(), onclick: move |_| stop_playback(app, engine) }
             }
+            if session_unavailable {
+                div {
+                    class: "spotify-connect-bar",
+                    role: "status",
+                    if can_take_over_playback(snapshot.access_tier) {
+                        button {
+                            class: "spotify-connect-takeover-btn",
+                            r#type: "button",
+                            disabled: snapshot.session_takeover_pending,
+                            onclick: move |event: MouseEvent| {
+                                event.stop_propagation();
+                                take_over_playback(app, engine);
+                            },
+                            if snapshot.session_takeover_pending { "Moving playback…" } else { "Play here" }
+                        }
+                    }
+                    div {
+                        class: "spotify-connect-status",
+                        span { class: "spotify-connect-icon", Icon { name: IconName::Volume } }
+                        span { class: "spotify-connect-label", "Playing on {holder_label}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Minimum access tier allowed to force-take the exclusive playback lease
+/// (mirrors the server `DELETE /api/playback/lease/admin` tier gate).
+pub(crate) const SESSION_TAKEOVER_MIN_TIER: i32 = 100;
+
+/// Whether the "Play here" takeover action may be offered at `tier`.
+/// Standard clients see holder details and retry guidance instead.
+pub(crate) fn can_take_over_playback(tier: i32) -> bool {
+    tier >= SESSION_TAKEOVER_MIN_TIER
+}
+
+#[component]
+pub(crate) fn SessionConflictCard(
+    holder: Option<SessionHolder>,
+    retry_after: Option<u64>,
+) -> Element {
+    let label = holder
+        .as_ref()
+        .map(SessionHolder::display_label)
+        .unwrap_or_else(|| "Another device".to_owned());
+    let countdown = holder
+        .as_ref()
+        .and_then(|value| value.expires_in)
+        .or(retry_after)
+        .map(|seconds| format!("Available in about {seconds}s"));
+    rsx! {
+        div {
+            "data-name": "SessionConflictCard",
+            class: "session-conflict-card",
+            role: "alert",
+            strong { "Playback is active elsewhere" }
+            span { "{label} is playing this library" }
+            if let Some(countdown) = countdown {
+                span { class: "conflict-countdown", "{countdown}" }
+            }
+        }
+    }
+}
+
+#[component]
+pub(crate) fn SessionTakeoverButton(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+) -> Element {
+    let pending = app.read().session_takeover_pending;
+    rsx! {
+        Button {
+            label: if pending { "Moving playback…".to_owned() } else { "Play here".to_owned() },
+            icon: IconName::Refresh,
+            class: "session-takeover-btn".to_owned(),
+            disabled: pending,
+            onclick: move |_| take_over_playback(app, engine),
         }
     }
 }
@@ -190,7 +297,11 @@ fn QualityOption(
 }
 
 #[component]
-pub(crate) fn QualityPopover(mut app: Signal<NativeApp>, quality: Quality) -> Element {
+pub(crate) fn QualityPopover(
+    mut app: Signal<NativeApp>,
+    quality: Quality,
+    #[props(default = false)] disabled: bool,
+) -> Element {
     let active_badge = quality_badge(quality);
     let is_modified = quality != Quality::Ori;
     let is_open = app.read().quality_popover_open;
@@ -202,6 +313,7 @@ pub(crate) fn QualityPopover(mut app: Signal<NativeApp>, quality: Quality) -> El
             aria_label: format!("Quality: {quality}"),
             "aria-expanded": "{is_open}",
             "aria-haspopup": "dialog",
+            disabled,
             onclick: move |event: MouseEvent| {
                 event.stop_propagation();
                 let open = app.read().quality_popover_open;
@@ -242,12 +354,6 @@ pub(crate) fn QualityOverlay(
             autofocus: true,
             role: "presentation",
             onkeydown: move |event: KeyboardEvent| {
-                tracing::info!(
-                    target: "dogmedia_desktop::keyboard",
-                    layer = "quality-overlay",
-                    key = ?event.key(),
-                    "DOM keyboard event"
-                );
                 if event.key() == Key::Escape {
                     event.stop_propagation();
                     app.write().quality_popover_open = false;

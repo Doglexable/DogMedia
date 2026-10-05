@@ -77,6 +77,7 @@ impl MprisState {
             }
         };
         let controllable = engine_available
+            && !snapshot.session_unavailable
             && !matches!(
                 snapshot.status,
                 PlaybackStatus::Idle
@@ -350,6 +351,9 @@ mod tests {
             quality: Quality::High,
             repeat: RepeatMode::None,
             shuffle: false,
+            session_unavailable: false,
+            holder: None,
+            holder_retry_after: None,
             error: None,
         }
     }

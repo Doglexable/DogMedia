@@ -76,7 +76,9 @@ impl SessionLease {
             .name("video-spike-lease".to_owned())
             .spawn(move || {
                 loop {
-                    match shutdown_rx.recv_timeout(Duration::from_secs(10)) {
+                    // 5s heartbeat vs the 30s server lease: takeover is
+                    // detected within ~5s, tolerant to ~5 missed beats.
+                    match shutdown_rx.recv_timeout(Duration::from_secs(5)) {
                         Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) if session.lease_required => {
                             if let Err(error) = runtime.block_on(client.heartbeat(&session)) {

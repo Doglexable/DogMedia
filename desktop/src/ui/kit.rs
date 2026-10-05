@@ -600,6 +600,7 @@ pub fn MusicProgress(
     onseek: EventHandler<f64>,
     #[props(default)] variant: SliderVariant,
     #[props(default = String::new())] class: String,
+    #[props(default = false)] disabled: bool,
 ) -> Element {
     let max = duration.max(1.0);
     let mut value = use_signal(|| position.min(max));
@@ -622,6 +623,7 @@ pub fn MusicProgress(
                 value: current,
                 aria_label: "Playback position".to_owned(),
                 class: "music-progress-slider".to_string(),
+                disabled,
                 onchange: move |position: f64| {
                     value.set(position);
                     onseek.call(position);
@@ -893,6 +895,7 @@ pub fn DraggableItem(
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct DialogContext {
     pub open: Signal<bool>,
 }

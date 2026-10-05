@@ -1,5 +1,8 @@
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 
 use gst::prelude::*;
 use gstreamer as gst;
@@ -7,6 +10,15 @@ use gstreamer_video::{VideoFormat, VideoInfo};
 use thiserror::Error;
 
 use crate::domain::{PlaybackSession, SessionId, ViewerId, Volume};
+
+/// Frames handed from the GStreamer streaming thread to the render thread.
+/// Compared against wgpu upload FPS to detect single-slot overwrites.
+static PRODUCED_FRAMES: AtomicU64 = AtomicU64::new(0);
+
+/// Total `new-sample` frames stored since process start.
+pub fn produced_frames() -> u64 {
+    PRODUCED_FRAMES.load(Ordering::Relaxed)
+}
 
 struct ProtectedHeaders {
     session_id: SessionId,
@@ -93,7 +105,12 @@ impl PlaybackEngine {
                     .build()
             });
         video_sink.set_property("caps", &caps);
-        video_sink.set_property("max-buffers", 2_u32);
+        // Keep sync=true (default) so video stays locked to the pipeline clock
+        // for A/V sync. Setting sync=false would deliver frames as fast as the
+        // decoder produces them and break lip-sync; frame drops from a slow
+        // consumer are absorbed via max-buffers + drop instead.
+        video_sink.set_property("sync", true);
+        video_sink.set_property("max-buffers", 4_u32);
         video_sink.set_property("drop", true);
         video_sink.set_property("emit-signals", true);
         let frame = Arc::new(Mutex::new(None::<VideoFrame>));
@@ -148,6 +165,8 @@ impl PlaybackEngine {
             }
 
             let map_slice = map.as_slice();
+            let copy_started = std::time::Instant::now();
+            let mut slow_copy = false;
             match format {
                 VideoPixelFormat::Nv12 => {
                     let y_width = width as usize;
@@ -169,6 +188,7 @@ impl PlaybackEngine {
                     {
                         pixels.extend_from_slice(&map_slice[y_offset..y_offset + total_bytes]);
                     } else {
+                        slow_copy = true;
                         if y_stride > 0 && map_slice.len() >= y_offset {
                             for row in map_slice[y_offset..].chunks(y_stride).take(y_height) {
                                 pixels.extend_from_slice(&row[..y_width.min(row.len())]);
@@ -188,11 +208,23 @@ impl PlaybackEngine {
                     if stride == row_bytes && map_slice.len() >= offset + total_bytes {
                         pixels.extend_from_slice(&map_slice[offset..offset + total_bytes]);
                     } else if stride > 0 && map_slice.len() >= offset {
+                        slow_copy = true;
                         for row in map_slice[offset..].chunks(stride).take(height as usize) {
                             pixels.extend_from_slice(&row[..row_bytes.min(row.len())]);
                         }
                     }
                 }
+            }
+
+            if slow_copy {
+                let elapsed = copy_started.elapsed();
+                tracing::debug!(
+                    target: "dogmedia_desktop::video",
+                    width,
+                    height,
+                    elapsed_ms = elapsed.as_millis(),
+                    "new-sample slow-path stride copy"
+                );
             }
 
             if pixels.len() == total_bytes
@@ -210,6 +242,7 @@ impl PlaybackEngine {
                     format,
                     pixels,
                 });
+                PRODUCED_FRAMES.fetch_add(1, Ordering::Relaxed);
             }
 
             if let Ok(guard) = redraw_target.lock()

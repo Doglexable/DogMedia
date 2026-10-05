@@ -3,9 +3,11 @@ use dioxus_native::prelude::*;
 use super::super::*;
 
 #[component]
-pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
+pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) -> Element {
+    let mut folder_menu = use_signal(|| None::<CategoryId>);
     let snapshot = app.read().clone();
     let version = env!("CARGO_PKG_VERSION");
+    let open_menu = *folder_menu.read();
     let (access_label, access_class) = match &snapshot.library.access {
         AccessView::Ready => ("Connected", "online"),
         AccessView::Checking => ("Connecting", "pending"),
@@ -61,25 +63,75 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
                         span { class: "sidebar-empty", "No categories yet" }
                     }
                     for category in &snapshot.categories {
-                        button {
-                            class: if snapshot.category_id == Some(category.id) { "sidebar-link category-link active" } else { "sidebar-link category-link" },
-                            r#type: "button",
-                            style: "padding-left: {12 + category.depth.min(4) * 14}px",
-                            title: category.path.as_deref().unwrap_or(&category.name),
-                            onclick: { let id = category.id; move |_| {
-                                app.write().favorites_only = false;
-                                app.write().category_id = Some(id);
-                                begin_browse(app);
-                            } },
-                            span { class: "category-mark",
-                                if let Some(source) = category_artwork_url(&snapshot, category) {
-                                    img { src: "{source}", alt: "", draggable: "false" }
-                                } else {
-                                    Icon { name: IconName::Folder }
+                        div {
+                            class: if open_menu == Some(category.id) { "sidebar-category-row menu-open" } else { "sidebar-category-row" },
+                            button {
+                                class: if snapshot.category_id == Some(category.id) { "sidebar-link category-link category-main active" } else { "sidebar-link category-link category-main" },
+                                r#type: "button",
+                                style: "padding-left: {12 + category.depth.min(4) * 14}px",
+                                title: category.path.as_deref().unwrap_or(&category.name),
+                                onclick: { let id = category.id; move |_| {
+                                    folder_menu.set(None);
+                                    app.write().favorites_only = false;
+                                    app.write().category_id = Some(id);
+                                    begin_browse(app);
+                                } },
+                                span { class: "category-mark",
+                                    if let Some(source) = category_artwork_url(&snapshot, category) {
+                                        img { src: "{source}", alt: "", draggable: "false" }
+                                    } else {
+                                        Icon { name: IconName::Folder }
+                                    }
+                                }
+                                span { class: "category-name", "{truncate_category_name(&category.name, category.depth)}" }
+                                span { class: "category-count", "{category.media_count}" }
+                            }
+                            if category_has_media(category.media_count) {
+                                button {
+                                    class: "icon-button more-menu category-more",
+                                    r#type: "button",
+                                    title: "Folder options",
+                                    "aria-label": "Folder options for {category.name}",
+                                    "aria-haspopup": "menu",
+                                    "aria-expanded": open_menu == Some(category.id),
+                                    onclick: { let id = category.id; move |event: MouseEvent| {
+                                        event.stop_propagation();
+                                        folder_menu.set(if open_menu == Some(id) { None } else { Some(id) });
+                                    } },
+                                    Icon { name: IconName::More }
+                                }
+                                if open_menu == Some(category.id) {
+                                    div {
+                                        class: "context-menu row-context-menu below",
+                                        role: "menu",
+                                        "aria-label": "Options for {category.name}",
+                                        onclick: move |event: MouseEvent| event.stop_propagation(),
+                                        div { class: "context-menu-title", title: category.path.as_deref().unwrap_or(&category.name), "{category.name}" }
+                                        button {
+                                            class: "context-menu-item",
+                                            r#type: "button",
+                                            role: "menuitem",
+                                            onclick: { let id = category.id; move |_| {
+                                                folder_menu.set(None);
+                                                play_folder(app, engine, id);
+                                            } },
+                                            span { class: "context-menu-icon", Icon { name: IconName::Play } }
+                                            span { "Play {truncate_category_name(&category.name, category.depth)}" }
+                                        }
+                                        button {
+                                            class: "context-menu-item",
+                                            r#type: "button",
+                                            role: "menuitem",
+                                            onclick: { let id = category.id; let name = category.name.clone(); move |_| {
+                                                folder_menu.set(None);
+                                                append_folder(app, id, name.clone());
+                                            } },
+                                            span { class: "context-menu-icon", Icon { name: IconName::ListPlus } }
+                                            span { "Queue {truncate_category_name(&category.name, category.depth)}" }
+                                        }
+                                    }
                                 }
                             }
-                            span { class: "category-name", "{truncate_category_name(&category.name, category.depth)}" }
-                            span { class: "category-count", "{category.media_count}" }
                         }
                     }
                 }
@@ -106,6 +158,10 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>) -> Element {
             }
         }
     }
+}
+
+pub(crate) fn category_has_media(media_count: u32) -> bool {
+    media_count > 0
 }
 
 pub(crate) fn truncate_category_name(name: &str, depth: u32) -> String {

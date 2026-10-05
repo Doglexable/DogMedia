@@ -1,8 +1,8 @@
 use dioxus_native::prelude::*;
 
 use super::super::*;
-use super::QualityPopover;
 use super::VideoPlayer;
+use super::{QualityPopover, SessionConflictCard, SessionTakeoverButton, can_take_over_playback};
 
 #[component]
 pub(crate) fn FullPlayer(
@@ -25,6 +25,7 @@ pub(crate) fn FullPlayer(
         };
     }
     let playing = playback.status == PlaybackStatus::Playing;
+    let session_unavailable = playback.session_unavailable;
     let active_subtitle = snapshot
         .subtitle_cues
         .iter()
@@ -77,12 +78,6 @@ pub(crate) fn FullPlayer(
 
     let is_photo = media.is_photo();
     let on_key_down = move |event: KeyboardEvent| {
-        tracing::info!(
-            target: "dogmedia_desktop::keyboard",
-            layer = "full-player",
-            key = ?event.key(),
-            "DOM keyboard event"
-        );
         event.stop_propagation();
         match event.key() {
             Key::Escape => {
@@ -206,6 +201,7 @@ pub(crate) fn FullPlayer(
                             duration: playback.duration,
                             variant: SliderVariant::Round,
                             class: "full-music-progress".to_owned(),
+                            disabled: session_unavailable,
                             onseek: move |position| seek(app, engine, position),
                         }
                     }
@@ -215,24 +211,27 @@ pub(crate) fn FullPlayer(
                                 label: if playback.shuffle { "Shuffle: on".to_owned() } else { "Shuffle: off".to_owned() },
                                 icon: IconName::Shuffle,
                                 class: if playback.shuffle { "transport active".to_owned() } else { "transport".to_owned() },
+                                disabled: session_unavailable,
                                 onclick: move |_| toggle_shuffle(app)
                             }
                         }
-                        IconButton { label: "Previous".to_owned(), icon: IconName::Previous, class: "transport".to_owned(), onclick: move |_| navigate_queue(app, engine, false, false) }
+                        IconButton { label: "Previous".to_owned(), icon: IconName::Previous, class: "transport".to_owned(), disabled: session_unavailable, onclick: move |_| navigate_queue(app, engine, false, false) }
                         if !media.is_photo() {
                             IconButton {
                                 label: if playing { "Pause".to_owned() } else { "Play".to_owned() },
                                 icon: if playing { IconName::Pause } else { IconName::Play },
                                 class: "full-play".to_owned(),
+                                disabled: session_unavailable,
                                 onclick: move |_| toggle_playback(app, engine)
                             }
                         }
-                        IconButton { label: "Next".to_owned(), icon: IconName::Next, class: "transport".to_owned(), onclick: move |_| navigate_queue(app, engine, true, false) }
+                        IconButton { label: "Next".to_owned(), icon: IconName::Next, class: "transport".to_owned(), disabled: session_unavailable, onclick: move |_| navigate_queue(app, engine, true, false) }
                         if !media.is_photo() {
                             IconButton {
                                 label: repeat_title,
                                 icon: repeat_icon,
                                 class: if repeat_active { "transport active".to_owned() } else { "transport".to_owned() },
+                                disabled: session_unavailable,
                                 onclick: move |_| toggle_repeat(app)
                             }
                         }
@@ -254,6 +253,12 @@ pub(crate) fn FullPlayer(
                         }
                     }
                     div { class: "full-tools",
+                        if session_unavailable {
+                            SessionConflictCard { holder: playback.holder.clone(), retry_after: playback.holder_retry_after }
+                            if can_take_over_playback(snapshot.access_tier) {
+                                SessionTakeoverButton { app, engine }
+                            }
+                        }
                         if media.is_audio() {
                             IconButton {
                                 label: if media.liked { "Remove from favorites".to_owned() } else { "Add to favorites".to_owned() },
@@ -266,6 +271,7 @@ pub(crate) fn FullPlayer(
                             QualityPopover {
                                 app,
                                 quality: playback.quality,
+                                disabled: session_unavailable,
                             }
                         }
                         IconButton {

@@ -401,6 +401,8 @@ pub struct VideoPaintSource {
     fps_last_frame_at: Option<Instant>,
     fps_window_frames: u64,
     fps_session_frames: u64,
+    render_window_calls: u64,
+    produced_window_start: u64,
 }
 
 impl VideoPaintSource {
@@ -427,6 +429,8 @@ impl VideoPaintSource {
             fps_last_frame_at: None,
             fps_window_frames: 0,
             fps_session_frames: 0,
+            render_window_calls: 0,
+            produced_window_start: crate::playback::produced_frames(),
         }
     }
 
@@ -440,6 +444,8 @@ impl VideoPaintSource {
             self.fps_session_started_at = Some(now);
             self.fps_window_frames = 0;
             self.fps_session_frames = 0;
+            self.render_window_calls = 0;
+            self.produced_window_start = crate::playback::produced_frames();
         }
 
         self.fps_last_frame_at = Some(now);
@@ -451,6 +457,8 @@ impl VideoPaintSource {
             return;
         }
 
+        let produced_now = crate::playback::produced_frames();
+        let produced_window = produced_now.saturating_sub(self.produced_window_start);
         let fps = self.fps_window_frames as f64 / interval.as_secs_f64();
         let session_elapsed = self
             .fps_session_started_at
@@ -466,6 +474,8 @@ impl VideoPaintSource {
             fps = format_args!("{fps:.1}"),
             average_fps = format_args!("{average_fps:.1}"),
             uploaded_frames = self.fps_session_frames,
+            produced_window = produced_window,
+            render_calls_window = self.render_window_calls,
             source_width = source_size.0,
             source_height = source_size.1,
             target_width = target_size.0,
@@ -475,6 +485,8 @@ impl VideoPaintSource {
 
         self.fps_window_started_at = now;
         self.fps_window_frames = 0;
+        self.render_window_calls = 0;
+        self.produced_window_start = produced_now;
     }
 
     fn ensure_placeholder(&mut self, mut ctx: CustomPaintCtx<'_>) -> Option<TextureHandle> {
@@ -564,6 +576,8 @@ impl CustomPaintSource for VideoPaintSource {
         height: u32,
         _scale: f64,
     ) -> Option<TextureHandle> {
+        let render_started = Instant::now();
+        self.render_window_calls += 1;
         let dest_w = width.max(1);
         let dest_h = height.max(1);
 
@@ -917,6 +931,17 @@ impl CustomPaintSource for VideoPaintSource {
                     }
                     queue.submit(Some(encoder.finish()));
                 }
+            }
+        }
+
+        if frame_updated {
+            let elapsed = render_started.elapsed();
+            if elapsed.as_millis() > 16 {
+                tracing::warn!(
+                    target: "dogmedia_desktop::video",
+                    elapsed_ms = elapsed.as_millis(),
+                    "wgpu video render slower than 16ms budget"
+                );
             }
         }
 

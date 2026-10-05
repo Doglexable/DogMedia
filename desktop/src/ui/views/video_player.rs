@@ -214,12 +214,6 @@ pub(crate) fn VideoPlayer(
     let on_key_down = {
         let show_toast = show_feedback_toast;
         move |event: KeyboardEvent| {
-            tracing::info!(
-                target: "dogmedia_desktop::keyboard",
-                layer = "video-player",
-                key = ?event.key(),
-                "DOM keyboard event"
-            );
             event.stop_propagation();
             on_activity();
             match event.key() {

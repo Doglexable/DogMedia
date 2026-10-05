@@ -159,6 +159,59 @@ async fn playback_session_and_heartbeat_use_protected_headers_not_urls() {
 }
 
 #[tokio::test]
+async fn playback_takeover_releases_the_active_lease_without_session_headers() {
+    let transport = FakeTransport::scripted([FakeTransport::json(
+        200,
+        serde_json::json!({"ok": true, "released": true}),
+    )]);
+    let client = ApiClient::with_transport(
+        "https://media.test",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    )
+    .unwrap();
+
+    client.force_release_playback_lease().await.unwrap();
+
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests[0].url.path(), "/api/playback/lease/admin");
+    assert_eq!(
+        requests[0].method,
+        dogmedia_desktop::api::HttpMethod::Delete
+    );
+    assert!(!requests[0].headers.contains_key("X-Playback-Session"));
+}
+
+#[tokio::test]
+async fn invalid_playback_session_has_a_typed_error() {
+    let transport = FakeTransport::scripted([FakeTransport::json(
+        401,
+        serde_json::json!({
+            "code": "PLAYBACK_SESSION_INVALID",
+            "error": "Playback session is no longer valid"
+        }),
+    )]);
+    let client = ApiClient::with_transport(
+        "https://media.test",
+        "viewer_abcdefghijklmnopqrst",
+        transport,
+    )
+    .unwrap();
+    let session = dogmedia_desktop::domain::PlaybackSession {
+        stream_url: dogmedia_desktop::domain::StreamPath::new("/api/media/4/stream?quality=high"),
+        session_id: dogmedia_desktop::domain::SessionId::new("secret_session_abcdefghijklmnop"),
+        viewer_id: dogmedia_desktop::domain::ViewerId::new("viewer_abcdefghijklmnopqrst"),
+        lease_required: true,
+        quality: Quality::High,
+        expires_at: None,
+    };
+
+    let error = client.heartbeat(&session).await.unwrap_err();
+    assert!(matches!(error, ApiError::PlaybackSessionInvalid));
+    assert!(error.is_playback_session_unavailable());
+}
+
+#[tokio::test]
 async fn photo_stream_uses_a_session_and_releases_it_after_fetch_failure() {
     let transport = FakeTransport::scripted([
         FakeTransport::json(
@@ -209,7 +262,16 @@ async fn typed_errors_cover_denial_conflict_timeout_and_malformed_payload() {
         FakeTransport::json(403, serde_json::json!({"error": "denied"})),
         FakeTransport::json(
             409,
-            serde_json::json!({"code": "PLAYBACK_IN_USE", "retryAfter": 8}),
+            serde_json::json!({
+                "code": "PLAYBACK_IN_USE",
+                "retryAfter": 8,
+                "activeSession": {
+                    "platform": "desktop",
+                    "deviceLabel": "Studio PC",
+                    "mediaId": 9,
+                    "expiresIn": 8,
+                },
+            }),
         ),
         Err(TransportError::Timeout),
         Ok(RawResponse {
@@ -227,14 +289,22 @@ async fn typed_errors_cover_denial_conflict_timeout_and_malformed_payload() {
         client.check_access().await,
         Err(ApiError::AccessDenied)
     ));
+    let error = match client
+        .create_playback_session(MediaId::new(1), Quality::High)
+        .await
+    {
+        Err(error) => error,
+        Ok(_) => panic!("expected playback conflict"),
+    };
     assert!(matches!(
-        client
-            .create_playback_session(MediaId::new(1), Quality::High)
-            .await,
-        Err(ApiError::PlaybackInUse {
-            retry_after: Some(8)
-        })
+        error,
+        ApiError::PlaybackInUse {
+            retry_after: Some(8),
+            holder: Some(_),
+        }
     ));
+    let holder = error.holder().expect("conflict retains the safe holder");
+    assert_eq!(holder.display_label(), "Studio PC");
     assert!(matches!(client.categories().await, Err(ApiError::Timeout)));
     assert!(matches!(
         client.categories().await,

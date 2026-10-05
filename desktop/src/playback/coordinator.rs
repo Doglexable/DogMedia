@@ -1,4 +1,4 @@
-use crate::domain::{Media, MediaId, Quality};
+use crate::domain::{Media, MediaId, Quality, SessionHolder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackStatus {
@@ -28,6 +28,9 @@ pub struct PlaybackSnapshot {
     pub quality: Quality,
     pub repeat: RepeatMode,
     pub shuffle: bool,
+    pub session_unavailable: bool,
+    pub holder: Option<SessionHolder>,
+    pub holder_retry_after: Option<u64>,
     pub error: Option<String>,
 }
 
@@ -42,6 +45,9 @@ impl Default for PlaybackSnapshot {
             quality: Quality::High,
             repeat: RepeatMode::None,
             shuffle: false,
+            session_unavailable: false,
+            holder: None,
+            holder_retry_after: None,
             error: None,
         }
     }
@@ -87,6 +93,9 @@ impl PlaybackCoordinator {
         self.snapshot.position = 0.0;
         self.snapshot.duration = media.duration.unwrap_or(0.0);
         self.snapshot.error = None;
+        self.snapshot.session_unavailable = false;
+        self.snapshot.holder = None;
+        self.snapshot.holder_retry_after = None;
         let media_id = media.id;
         self.snapshot.media = Some(media);
         self.released_sequence = None;
@@ -108,6 +117,9 @@ impl PlaybackCoordinator {
         }
         self.snapshot.position = position.max(0.0);
         self.snapshot.status = PlaybackStatus::Playing;
+        self.snapshot.session_unavailable = false;
+        self.snapshot.holder = None;
+        self.snapshot.holder_retry_after = None;
         true
     }
 
@@ -117,6 +129,9 @@ impl PlaybackCoordinator {
         }
         self.snapshot.position = position.max(0.0);
         self.snapshot.status = PlaybackStatus::Paused;
+        self.snapshot.session_unavailable = false;
+        self.snapshot.holder = None;
+        self.snapshot.holder_retry_after = None;
         true
     }
 
@@ -154,7 +169,59 @@ impl PlaybackCoordinator {
 
     pub fn lease_lost(&mut self) {
         self.snapshot.status = PlaybackStatus::Paused;
+        self.snapshot.session_unavailable = true;
         self.snapshot.error = Some("Playback moved to another device".into());
+    }
+
+    pub fn session_unavailable(&mut self, message: impl Into<String>) {
+        self.snapshot.status = PlaybackStatus::Paused;
+        self.snapshot.session_unavailable = true;
+        self.snapshot.error = Some(message.into());
+    }
+
+    /// Record who holds the exclusive lease (and when it expires) for the
+    /// conflict card. Cleared together with `session_unavailable`.
+    pub fn set_holder(&mut self, holder: Option<SessionHolder>, retry_after: Option<u64>) {
+        self.snapshot.holder = holder;
+        self.snapshot.holder_retry_after = retry_after;
+    }
+
+    pub fn observe_remote(
+        &mut self,
+        media: Media,
+        holder: SessionHolder,
+        retry_after: Option<u64>,
+    ) {
+        let playback = holder.playback.as_ref();
+        self.snapshot.sequence += 1;
+        self.snapshot.media = Some(media);
+        self.snapshot.position = playback.map_or(0.0, |value| value.position.max(0.0));
+        self.snapshot.duration = playback.map_or_else(
+            || {
+                self.snapshot
+                    .media
+                    .as_ref()
+                    .and_then(|value| value.duration)
+                    .unwrap_or(0.0)
+            },
+            |value| value.duration.max(0.0),
+        );
+        self.snapshot.status = if playback.is_some_and(|value| value.action == "play") {
+            PlaybackStatus::Playing
+        } else {
+            PlaybackStatus::Paused
+        };
+        self.snapshot.repeat = match playback.and_then(|value| value.loop_mode.as_deref()) {
+            Some("media") => RepeatMode::One,
+            Some("queue") => RepeatMode::Queue,
+            _ => RepeatMode::None,
+        };
+        self.snapshot.shuffle = playback.is_some_and(|value| value.shuffle_enabled);
+        self.snapshot.session_unavailable = true;
+        self.snapshot.holder = Some(holder);
+        self.snapshot.holder_retry_after = retry_after;
+        self.snapshot.error = Some("Playback is active elsewhere".to_owned());
+        self.released_sequence = Some(self.snapshot.sequence);
     }
 
     pub fn update_position(&mut self, position: f64) {
@@ -209,6 +276,9 @@ impl PlaybackCoordinator {
         self.snapshot.position = 0.0;
         self.snapshot.duration = 0.0;
         self.snapshot.error = None;
+        self.snapshot.session_unavailable = false;
+        self.snapshot.holder = None;
+        self.snapshot.holder_retry_after = None;
         effects
     }
 

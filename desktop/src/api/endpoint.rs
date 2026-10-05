@@ -23,6 +23,8 @@ pub enum Endpoint {
     PlaybackSession(MediaId),
     LeaseHeartbeat,
     LeaseRelease,
+    LeaseForceRelease,
+    LeaseStatus,
     PlaybackActive,
     PlaybackEvent,
     Resume(MediaId),
@@ -44,6 +46,16 @@ pub enum Endpoint {
     QueueAutoCategory {
         category: CategoryId,
         start: MediaId,
+    },
+    /// Replace queue with all media in a folder, starting from the first track.
+    /// Unlike [`QueueAutoCategory`], no `start` media ID is required.
+    QueuePlayFolder {
+        category: CategoryId,
+    },
+    /// Append all folder audio to the end of the queue, skipping duplicates.
+    /// Unlike the `QueueAuto*` routes this does not replace the queue.
+    QueueAppendFolder {
+        category: CategoryId,
     },
     QueueAutoAll {
         start: Option<MediaId>,
@@ -70,6 +82,8 @@ impl Endpoint {
             | Self::QueuePrev
             | Self::QueueShuffle
             | Self::QueueAutoCategory { .. }
+            | Self::QueuePlayFolder { .. }
+            | Self::QueueAppendFolder { .. }
             | Self::QueueAutoAll { .. }
             | Self::QueueAutoLikes { .. }
             | Self::PlaybackActive
@@ -77,9 +91,11 @@ impl Endpoint {
             | Self::ResumeSave(_) => HttpMethod::Post,
             Self::QueueOrder => HttpMethod::Put,
             Self::Like(_) => HttpMethod::Put,
-            Self::LeaseRelease | Self::QueueItem(_) | Self::QueueClear | Self::Unlike(_) => {
-                HttpMethod::Delete
-            }
+            Self::LeaseRelease
+            | Self::LeaseForceRelease
+            | Self::QueueItem(_)
+            | Self::QueueClear
+            | Self::Unlike(_) => HttpMethod::Delete,
             _ => HttpMethod::Get,
         }
     }
@@ -96,6 +112,8 @@ impl Endpoint {
             Self::PlaybackSession(id) => format!("api/media/{id}/playback-session"),
             Self::LeaseHeartbeat => "api/playback/lease/heartbeat".to_owned(),
             Self::LeaseRelease => "api/playback/lease".to_owned(),
+            Self::LeaseForceRelease => "api/playback/lease/admin".to_owned(),
+            Self::LeaseStatus => "api/playback/lease".to_owned(),
             Self::PlaybackActive => "api/playback/active".to_owned(),
             Self::PlaybackEvent => "api/playback/event".to_owned(),
             Self::Resume(id) | Self::ResumeSave(id) => format!("api/playback/resume/{id}"),
@@ -114,6 +132,12 @@ impl Endpoint {
             Self::QueueShuffle => "api/queue/shuffle".to_owned(),
             Self::QueueAutoCategory { category, start } => {
                 format!("api/queue/auto/{category}?start={start}&compact=1")
+            }
+            Self::QueuePlayFolder { category } => {
+                format!("api/queue/auto/{category}?compact=1")
+            }
+            Self::QueueAppendFolder { category } => {
+                format!("api/queue/items/category/{category}")
             }
             Self::QueueAutoAll { start } => match start {
                 Some(id) => format!("api/queue/auto?start={id}&compact=1"),
@@ -164,6 +188,20 @@ mod tests {
         assert_eq!(
             Endpoint::QueueAutoAll { start: None }.path(),
             "api/queue/auto?compact=1"
+        );
+        assert_eq!(
+            Endpoint::QueueAppendFolder {
+                category: CategoryId::new(7),
+            }
+            .path(),
+            "api/queue/items/category/7"
+        );
+        assert_eq!(
+            Endpoint::QueueAppendFolder {
+                category: CategoryId::new(7),
+            }
+            .method(),
+            HttpMethod::Post
         );
         assert_eq!(
             Endpoint::QueueWindowAt {

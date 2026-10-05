@@ -117,24 +117,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     }
                                 }
                             }
-                            AccessView::Unreachable(err) => {
-                                rsx! {
-                                    div { class: "empty-state",
-                                        div { class: "empty-mark", Icon { name: IconName::Close } }
-                                        h3 { "Cannot Connect to Server" }
-                                        p { "Unable to reach server at '{snapshot.settings.server_url}': {err}. Make sure the server is running, the host/port are correct, and network access is available." }
-                                        div { class: "empty-actions",
-                                            Button { label: "Edit Server in Settings".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
-                                                let current_url = app.read().settings.server_url.to_string();
-                                                app.write().settings_url = current_url;
-                                                app.write().settings_error = None;
-                                                app.write().settings_open = true;
-                                            } }
-                                            Button { label: "Retry Connection".to_owned(), class: "primary".to_owned(), onclick: move |_| refresh(app) }
-                                        }
-                                    }
-                                }
-                            }
+                            AccessView::Unreachable(_) => rsx! {},
                             _ => {
                                 rsx! {
                                     div { class: "empty-state",
@@ -157,7 +140,20 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                     for (index, media) in snapshot.library.items.iter().enumerate() {
                         div {
                             key: "{media.id}",
-                            class: if playback.media.as_ref().is_some_and(|playing| playing.id == media.id) { "media-track active" } else { "media-track" },
+                            class: "track-row",
+                            div {
+                            class: match (
+                                playback
+                                    .media
+                                    .as_ref()
+                                    .is_some_and(|playing| playing.id == media.id),
+                                open_menu == Some(media.id),
+                            ) {
+                                (true, true) => "media-track active menu-open",
+                                (true, false) => "media-track active",
+                                (false, true) => "media-track menu-open",
+                                (false, false) => "media-track",
+                            },
                             div {
                                 class: "track-main",
                                 role: "button",
@@ -219,12 +215,13 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     },
                                     Icon { name: IconName::More }
                                 }
-                                if open_menu == Some(media.id) {
-                                    div {
-                                        class: if index < 3 { "context-menu row-context-menu below" } else { "context-menu row-context-menu above" },
-                                        role: "menu",
-                                        "aria-label": "Options for {media.title()}",
-                                        onclick: move |event: MouseEvent| event.stop_propagation(),
+                            }
+                            if open_menu == Some(media.id) {
+                                div {
+                                    class: "context-menu track-inline-menu",
+                                    role: "menu",
+                                    "aria-label": "Options for {media.title()}",
+                                    onclick: move |event: MouseEvent| event.stop_propagation(),
                                         button {
                                             class: "context-menu-item",
                                             r#type: "button",
@@ -246,20 +243,6 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                             } },
                                             span { class: "context-menu-icon", Icon { name: IconName::ListPlus } }
                                             span { "Add to queue" }
-                                        }
-                                        if media.is_audio() {
-                                            div { class: "context-menu-separator", role: "separator" }
-                                            button {
-                                                class: "context-menu-item",
-                                                r#type: "button",
-                                                role: "menuitem",
-                                                onclick: { let media = media.clone(); let liked = !media.liked; move |_| {
-                                                    context_menu.set(None);
-                                                    set_media_favorite(app, media.clone(), liked);
-                                                } },
-                                                span { class: "context-menu-icon", Icon { name: IconName::Heart } }
-                                                span { if media.liked { "Remove from favorites" } else { "Add to favorites" } }
-                                            }
                                         }
                                     }
                                 }

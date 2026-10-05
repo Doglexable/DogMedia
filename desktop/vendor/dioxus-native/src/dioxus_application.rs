@@ -108,7 +108,7 @@ impl DioxusNativeApplication {
             }
         });
 
-        let Some((priority, desired_id)) = desired else {
+        let Some((_, desired_id)) = desired else {
             return;
         };
         let already_in_scope = doc
@@ -123,12 +123,6 @@ impl DioxusNativeApplication {
 
         if !already_in_scope {
             doc.inner.set_focus_to(desired_id);
-            tracing::info!(
-                target: "dogmedia_desktop::keyboard",
-                node_id = desired_id,
-                priority,
-                "repaired native keyboard focus"
-            );
         }
     }
 
@@ -269,19 +263,7 @@ impl ApplicationHandler<BlitzShellEvent> for DioxusNativeApplication {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        if let WindowEvent::KeyboardInput {
-            event: key_event, ..
-        } = &event
-        {
-            tracing::info!(
-                target: "dogmedia_desktop::keyboard",
-                window_id = ?window_id,
-                state = ?key_event.state,
-                logical_key = ?key_event.logical_key,
-                physical_key = ?key_event.physical_key,
-                repeat = key_event.repeat,
-                "native keyboard event"
-            );
+        if matches!(&event, WindowEvent::KeyboardInput { .. }) {
             self.repair_keyboard_focus(window_id);
         }
         self.inner.window_event(event_loop, window_id, event);

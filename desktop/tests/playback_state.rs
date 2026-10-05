@@ -1,5 +1,5 @@
 use dogmedia_desktop::{
-    domain::{CategoryId, Media, MediaId, Quality},
+    domain::{CategoryId, Media, MediaId, Quality, SessionHolder},
     playback::{Effect, PlaybackCoordinator, PlaybackStatus, RepeatMode},
 };
 
@@ -91,6 +91,49 @@ fn quality_restart_keeps_position_and_lease_loss_pauses() {
     );
     coordinator.lease_lost();
     assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
+    assert!(coordinator.snapshot().session_unavailable);
+
+    coordinator.load(media(MediaId::new(2)));
+    assert!(!coordinator.snapshot().session_unavailable);
+}
+
+#[test]
+fn holder_is_stored_and_cleared_with_session_availability() {
+    let mut coordinator = PlaybackCoordinator::default();
+    coordinator.load(media(MediaId::new(1)));
+    coordinator.session_unavailable("busy");
+    coordinator.set_holder(
+        Some(SessionHolder {
+            platform: Some("desktop".to_owned()),
+            device_label: Some("Studio PC".to_owned()),
+            media_id: Some(MediaId::new(9)),
+            expires_in: Some(20),
+            playback: None,
+        }),
+        Some(20),
+    );
+    assert_eq!(
+        coordinator
+            .snapshot()
+            .holder
+            .as_ref()
+            .map(SessionHolder::display_label),
+        Some("Studio PC".to_owned())
+    );
+    assert_eq!(coordinator.snapshot().holder_retry_after, Some(20));
+    coordinator.load(media(MediaId::new(2)));
+    assert!(coordinator.snapshot().holder.is_none());
+    assert!(coordinator.snapshot().holder_retry_after.is_none());
+    // Fallback labels never leak identifiers.
+    assert_eq!(SessionHolder::default().display_label(), "Another device");
+    assert_eq!(
+        SessionHolder {
+            platform: Some("mobile".to_owned()),
+            ..Default::default()
+        }
+        .display_label(),
+        "Dogmedia Mobile"
+    );
 }
 
 #[test]

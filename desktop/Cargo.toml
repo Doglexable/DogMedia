@@ -20,7 +20,7 @@ directories = "6"
 # dioxus-native 0.7.10's Config::default references dioxus_cli_config
 # unconditionally, so its `hot-reload` feature is currently required even in
 # release builds. Remove it when upstream gates that reference correctly.
-dioxus-native = { version = "=0.7.10", default-features = false, features = ["autofocus", "hot-reload", "net", "prelude", "svg", "system-fonts", "tracing"], optional = true }
+dioxus-native = { version = "=0.7.10", default-features = false, features = ["autofocus", "hot-reload", "net", "prelude", "svg", "system-fonts"], optional = true }
 gstreamer = "0.24"
 gstreamer-video = "0.24"
 # Blitz disables every raster decoder on its image dependency. Enable the
@@ -38,6 +38,7 @@ url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 wgpu = { version = "26", optional = true }
 winit = { version = "0.30", default-features = false }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
 tempfile = "3"

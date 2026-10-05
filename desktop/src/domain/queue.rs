@@ -65,3 +65,12 @@ pub struct QueueAutoResult {
     pub active_removed: bool,
     pub revision: u64,
 }
+
+/// Response of `POST api/queue/items/category/:id`, which appends folder
+/// audio to the queue and reports how many tracks were actually added.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAppendResult {
+    #[serde(default)]
+    pub added_count: usize,
+}

@@ -4,6 +4,7 @@ use crate::domain::Quality;
 use crate::playback::PlaybackEngine;
 use crate::ui::kit::{Artwork, Icon, IconName, Slider, SliderVariant};
 use crate::ui::views::player_bar::quality_badge;
+use crate::ui::views::{SessionConflictCard, SessionTakeoverButton, can_take_over_playback};
 use crate::ui::{
     NativeApp, PlaybackStatus, artwork_url, format_duration, media_folder, seek, stop_playback,
     toggle_playback,
@@ -28,6 +29,7 @@ pub(crate) fn VideoMiniPlayer(
     };
     let max_pos = duration.max(playback.position).max(1.0);
     let playing = playback.status == PlaybackStatus::Playing;
+    let session_unavailable = playback.session_unavailable;
     let source = artwork_url(&snapshot, media);
 
     rsx! {
@@ -112,6 +114,7 @@ pub(crate) fn VideoMiniPlayer(
                     max: max_pos,
                     step: 0.1,
                     value: playback.position,
+                    disabled: session_unavailable,
                     onchange: move |val| seek(app, engine, val),
                 }
             }
@@ -137,12 +140,20 @@ pub(crate) fn VideoMiniPlayer(
                     class: "video-mini-actions",
                     onclick: move |e: MouseEvent| e.stop_propagation(),
 
+                    if session_unavailable {
+                        SessionConflictCard { holder: playback.holder.clone(), retry_after: playback.holder_retry_after }
+                        if can_take_over_playback(snapshot.access_tier) {
+                            SessionTakeoverButton { app, engine }
+                        }
+                    }
+
                     // Rewind 10s
                     button {
                         r#type: "button",
                         class: "video-mini-btn",
                         aria_label: "Rewind 10 seconds",
                         title: "Rewind 10s",
+                        disabled: session_unavailable,
                         onclick: move |e: MouseEvent| {
                             e.stop_propagation();
                             let pos = app.read().coordinator.snapshot().position;
@@ -157,6 +168,7 @@ pub(crate) fn VideoMiniPlayer(
                         class: "video-mini-play-btn",
                         aria_label: if playing { "Pause" } else { "Play" },
                         title: if playing { "Pause (Space)" } else { "Play (Space)" },
+                        disabled: session_unavailable,
                         onclick: move |e: MouseEvent| {
                             e.stop_propagation();
                             toggle_playback(app, engine);
@@ -170,6 +182,7 @@ pub(crate) fn VideoMiniPlayer(
                         class: "video-mini-btn",
                         aria_label: "Forward 10 seconds",
                         title: "Forward 10s",
+                        disabled: session_unavailable,
                         onclick: move |e: MouseEvent| {
                             e.stop_propagation();
                             let pos = app.read().coordinator.snapshot().position;

@@ -8,7 +8,7 @@ use super::transport::{
     HttpMethod, RawResponse, RequestSpec, ReqwestTransport, Transport, TransportError,
 };
 use super::url::{ServerUrl, ServerUrlError};
-use crate::domain::{PlaybackSession, StreamPath, ViewerId};
+use crate::domain::{PlaybackSession, SessionHolder, StreamPath, ViewerId};
 
 #[derive(Debug, Error, Clone)]
 pub enum ApiError {
@@ -23,9 +23,17 @@ pub enum ApiError {
     #[error("access denied")]
     AccessDenied,
     #[error("playback is active on another device")]
-    PlaybackInUse { retry_after: Option<u64> },
+    PlaybackInUse {
+        retry_after: Option<u64>,
+        holder: Option<SessionHolder>,
+    },
     #[error("the playback lease was lost")]
-    PlaybackLeaseLost { retry_after: Option<u64> },
+    PlaybackLeaseLost {
+        retry_after: Option<u64>,
+        holder: Option<SessionHolder>,
+    },
+    #[error("the playback session is no longer valid")]
+    PlaybackSessionInvalid,
     #[error("queue changed; refresh and try again")]
     QueueChanged,
     #[error("the queue has no item there")]
@@ -47,18 +55,37 @@ impl ApiError {
             Self::AccessDenied => {
                 "This computer's IP address is not allowed by the server.".to_owned()
             }
-            Self::PlaybackInUse { retry_after } => match retry_after {
-                Some(seconds) => {
-                    format!("Playback is active on another device. Retry in {seconds}s.")
+            Self::PlaybackInUse {
+                retry_after,
+                holder,
+            } => {
+                let label = holder
+                    .as_ref()
+                    .map(SessionHolder::display_label)
+                    .unwrap_or_else(|| "another device".to_owned());
+                match retry_after {
+                    Some(seconds) => {
+                        format!("Playback is active on {label}. Retry in {seconds}s.")
+                    }
+                    None => format!("Playback is active on {label}."),
                 }
-                None => "Playback is active on another device.".to_owned(),
-            },
-            Self::PlaybackLeaseLost { retry_after } => match retry_after {
-                Some(seconds) => {
-                    format!("Playback moved to another device. Retry in {seconds}s.")
+            }
+            Self::PlaybackLeaseLost {
+                retry_after,
+                holder,
+            } => {
+                let label = holder
+                    .as_ref()
+                    .map(SessionHolder::display_label)
+                    .unwrap_or_else(|| "another device".to_owned());
+                match retry_after {
+                    Some(seconds) => {
+                        format!("Playback is active on {label}. Retry in {seconds}s.")
+                    }
+                    None => format!("Playback is active on {label}."),
                 }
-                None => "Playback moved to another device.".to_owned(),
-            },
+            }
+            Self::PlaybackSessionInvalid => "Playback session is no longer valid.".to_owned(),
             Self::QueueChanged => "Queue changed; refresh and try again.".to_owned(),
             Self::Http {
                 status, message, ..
@@ -74,11 +101,28 @@ impl ApiError {
 
     pub fn retry_after(&self) -> Option<u64> {
         match self {
-            Self::PlaybackInUse { retry_after } | Self::PlaybackLeaseLost { retry_after } => {
-                *retry_after
+            Self::PlaybackInUse { retry_after, .. }
+            | Self::PlaybackLeaseLost { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
+
+    pub fn holder(&self) -> Option<SessionHolder> {
+        match self {
+            Self::PlaybackInUse { holder, .. } | Self::PlaybackLeaseLost { holder, .. } => {
+                holder.clone()
             }
             _ => None,
         }
+    }
+
+    pub fn is_playback_session_unavailable(&self) -> bool {
+        matches!(
+            self,
+            Self::PlaybackInUse { .. }
+                | Self::PlaybackLeaseLost { .. }
+                | Self::PlaybackSessionInvalid
+        )
     }
 }
 
@@ -202,6 +246,7 @@ impl ApiClient {
         let mut headers = BTreeMap::from([
             ("Accept".to_owned(), "application/json".to_owned()),
             ("X-Client-Platform".to_owned(), "desktop".to_owned()),
+            ("X-Client-Name".to_owned(), "Dogmedia Desktop".to_owned()),
             ("X-Viewer-ID".to_owned(), self.viewer_id.as_str().to_owned()),
         ]);
         if body.is_some() {
@@ -252,10 +297,22 @@ fn map_status(response: RawResponse) -> ApiError {
         .as_ref()
         .and_then(|value| value.get("retryAfter"))
         .and_then(serde_json::Value::as_u64);
+    let holder = payload
+        .as_ref()
+        .and_then(|value| value.get("activeSession"))
+        .and_then(|value| serde_json::from_value::<SessionHolder>(value.clone()).ok())
+        .map(SessionHolder::normalized);
     match (response.status, code.as_deref()) {
         (403, _) => ApiError::AccessDenied,
-        (409, Some("PLAYBACK_IN_USE")) => ApiError::PlaybackInUse { retry_after },
-        (409, Some("PLAYBACK_LEASE_LOST")) => ApiError::PlaybackLeaseLost { retry_after },
+        (409, Some("PLAYBACK_IN_USE")) => ApiError::PlaybackInUse {
+            retry_after,
+            holder,
+        },
+        (409, Some("PLAYBACK_LEASE_LOST" | "PLAYBACK_NOT_OWNER")) => ApiError::PlaybackLeaseLost {
+            retry_after,
+            holder,
+        },
+        (401, Some("PLAYBACK_SESSION_INVALID")) => ApiError::PlaybackSessionInvalid,
         (409, _) => ApiError::QueueChanged,
         (status, _) => ApiError::Http {
             status,
@@ -273,17 +330,64 @@ mod tests {
     fn playback_conflict_messages_preserve_retry_hints() {
         assert_eq!(
             ApiError::PlaybackInUse {
-                retry_after: Some(8)
+                retry_after: Some(8),
+                holder: None,
             }
             .user_message(),
             "Playback is active on another device. Retry in 8s."
         );
         assert_eq!(
             ApiError::PlaybackLeaseLost {
-                retry_after: Some(4)
+                retry_after: Some(4),
+                holder: Some(SessionHolder {
+                    platform: Some("desktop".to_owned()),
+                    device_label: Some("Studio PC".to_owned()),
+                    media_id: None,
+                    expires_in: Some(4),
+                    playback: None,
+                }),
             }
             .user_message(),
-            "Playback moved to another device. Retry in 4s."
+            "Playback is active on Studio PC. Retry in 4s."
         );
+    }
+
+    #[test]
+    fn playback_conflict_mapping_retains_safe_holder() {
+        let response = RawResponse {
+            status: 409,
+            body: br#"{"code":"PLAYBACK_IN_USE","error":"busy","retryAfter":15,"activeSession":{"platform":"desktop","deviceLabel":"Studio PC","mediaId":9,"expiresIn":15,"playback":{"mediaId":9,"action":"play","position":31,"duration":180,"loopMode":"queue","shuffleEnabled":true},"viewerId":"secret","sessionId":"secret","clientIp":"10.0.0.9"}}"#.to_vec(),
+        };
+        let error = map_status(response);
+        let holder = error.holder().expect("holder retained");
+        assert_eq!(holder.display_label(), "Studio PC");
+        assert_eq!(holder.media_id.map(|id| id.get()), Some(9));
+        assert_eq!(
+            holder.playback.as_ref().map(|state| state.position),
+            Some(31.0)
+        );
+        // Sensitive identifiers never reach the typed holder.
+        assert!(holder.device_label.as_deref() != Some("secret"));
+        assert_eq!(error.retry_after(), Some(15));
+    }
+
+    #[test]
+    fn playback_conflict_mapping_normalizes_malformed_holder_fields() {
+        let response = RawResponse {
+            status: 409,
+            body: format!(
+                "{{\"code\":\"PLAYBACK_IN_USE\",\"activeSession\":{{\"platform\":\"tv\",\"deviceLabel\":\"  Living\\u0000   Room {}  \",\"mediaId\":-9}}}}",
+                "x".repeat(80)
+            )
+            .into_bytes(),
+        };
+        let holder = map_status(response).holder().expect("holder retained");
+        assert_eq!(holder.platform.as_deref(), Some("unknown"));
+        assert_eq!(
+            holder.display_label(),
+            format!("Living Room {}", "x".repeat(52))
+        );
+        assert_eq!(holder.media_id, None);
+        assert_eq!(holder.expires_in, None);
     }
 }
