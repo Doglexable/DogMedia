@@ -574,8 +574,8 @@ textarea {
   }
 }
 
-.media-track:hover,
-.media-track:focus-within {
+.media-track:not(.media-track--menu-open):hover,
+.media-track:not(.media-track--menu-open):focus-within {
   background: var(--hover-fill);
 }
 
@@ -622,14 +622,14 @@ textarea {
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
-.media-track:hover .media-track-index,
-.media-track:focus-within .media-track-index,
+.media-track:not(.media-track--menu-open):hover .media-track-index,
+.media-track:not(.media-track--menu-open):focus-within .media-track-index,
 .media-track--active .media-track-index {
   opacity: 0;
 }
 
-.media-track:hover .media-track-play,
-.media-track:focus-within .media-track-play,
+.media-track:not(.media-track--menu-open):hover .media-track-play,
+.media-track:not(.media-track--menu-open):focus-within .media-track-play,
 .media-track--active .media-track-play {
   opacity: 1;
   transform: scale(1);
@@ -715,10 +715,10 @@ textarea {
   opacity: 1;
 }
 
-.media-track:hover .media-track-favorite,
-.media-track:hover .media-track-more,
-.media-track:focus-within .media-track-favorite,
-.media-track:focus-within .media-track-more {
+.media-track:not(.media-track--menu-open):hover .media-track-favorite,
+.media-track:not(.media-track--menu-open):hover .media-track-more,
+.media-track:not(.media-track--menu-open):focus-within .media-track-favorite,
+.media-track:not(.media-track--menu-open):focus-within .media-track-more {
   opacity: 1;
   transform: scale(1);
 }
@@ -746,6 +746,13 @@ textarea {
   border-radius: var(--radius-sm);
   background: var(--surface-solid);
   box-shadow: var(--shadow-lift);
+}
+
+.media-track-menu-backdrop {
+  position: fixed;
+  z-index: 499;
+  inset: 0;
+  cursor: default;
 }
 
 .media-track-menu button {
@@ -3231,4 +3238,3 @@ textarea {
   transform: scale(1.1);
   filter: brightness(1.1);
 }
-

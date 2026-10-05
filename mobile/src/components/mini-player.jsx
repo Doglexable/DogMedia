@@ -31,13 +31,15 @@ export function MiniPlayer({ navigation }) {
     player.toggleLike?.(media).catch(() => {});
   };
 
+  const holderLabel = player.playbackConflict?.holder?.deviceLabel || "Another device";
+
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, player.controlsLocked && styles.barWithConnect]}>
       <Pressable
         accessibilityLabel={`Open player for ${media.title}, ${Math.round(progress * 100)}% played`}
         accessibilityRole="button"
         onPress={openPlayer}
-        style={styles.surface}
+        style={[styles.surface, player.controlsLocked && styles.surfaceWithConnect]}
       >
         <Image
           source={{ uri: offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id) }}
@@ -45,10 +47,11 @@ export function MiniPlayer({ navigation }) {
         />
         <View style={styles.copy}>
           <Text numberOfLines={1} style={styles.title}>{media.title}</Text>
-          <Text numberOfLines={1} style={styles.meta}>{artistText} · {formatDuration(player.position)}</Text>
+          <Text numberOfLines={1} style={styles.meta}>
+            {`${artistText} · ${formatDuration(player.position)}`}
+          </Text>
         </View>
 
-        {/* Spotify Quick Favorite Action */}
         <Pressable
           accessibilityLabel={isLiked ? "Remove from favorites" : "Add to favorites"}
           accessibilityRole="button"
@@ -76,9 +79,34 @@ export function MiniPlayer({ navigation }) {
         />
 
         {/* Spotify Bottom Hairline Progress Indicator */}
-        <View pointerEvents="none" style={styles.progressTrack}>
+        <View pointerEvents="none" style={[styles.progressTrack, player.controlsLocked && styles.progressTrackWithConnect]}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
         </View>
+
+        {/* Spotify Connect Observer Green Bar */}
+        {player.controlsLocked && (
+          <View style={styles.spotifyConnectBar}>
+            {player.canTakeOverPlayback && (
+              <Pressable
+                accessibilityLabel="Move playback to this device"
+                accessibilityRole="button"
+                onPress={(event) => {
+                  event.stopPropagation();
+                  player.takeOverExclusiveSession?.().catch(() => {});
+                }}
+                style={styles.spotifyConnectTakeover}
+              >
+                <Text style={styles.spotifyConnectTakeoverText}>Play here</Text>
+              </Pressable>
+            )}
+            <View style={styles.spotifyConnectInfo}>
+              <Ionicons name="volume-high" size={12} color="#ffffff" />
+              <Text numberOfLines={1} style={styles.spotifyConnectText}>
+                Playing on {holderLabel}
+              </Text>
+            </View>
+          </View>
+        )}
       </Pressable>
     </View>
   );
@@ -140,6 +168,19 @@ const makeStyles = (colors, shadow, isCompact) =>
       justifyContent: "center",
       borderRadius: 16,
     },
+    takeoverButton: {
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: 999,
+      paddingHorizontal: 9,
+      paddingVertical: 6,
+      backgroundColor: alpha(colors.primary, 0.14),
+    },
+    takeoverText: {
+      color: colors.text,
+      fontSize: 10,
+      fontWeight: "800",
+    },
     controls: {
       flexDirection: "row",
       alignItems: "center",
@@ -169,8 +210,58 @@ const makeStyles = (colors, shadow, isCompact) =>
       height: 2.5,
       backgroundColor: alpha(colors.text, 0.08),
     },
+    progressTrackWithConnect: {
+      bottom: 22,
+    },
     progressFill: {
       height: "100%",
       backgroundColor: colors.primary,
+    },
+    barWithConnect: {
+      height: MINI_PLAYER_HEIGHT + 22,
+    },
+    surfaceWithConnect: {
+      height: MINI_PLAYER_HEIGHT + 22,
+      paddingBottom: 22,
+    },
+    spotifyConnectBar: {
+      position: "absolute",
+      right: 0,
+      bottom: 0,
+      left: 0,
+      height: 22,
+      backgroundColor: colors.primary,
+      borderBottomLeftRadius: radii.md - 1,
+      borderBottomRightRadius: radii.md - 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      paddingHorizontal: 10,
+      gap: 6,
+    },
+    spotifyConnectInfo: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    spotifyConnectText: {
+      color: "#ffffff",
+      fontSize: 10.5,
+      fontWeight: "800",
+      letterSpacing: -0.1,
+    },
+    spotifyConnectTakeover: {
+      marginRight: "auto",
+      borderWidth: 1,
+      borderColor: "rgba(255, 255, 255, 0.45)",
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 1,
+      backgroundColor: "rgba(255, 255, 255, 0.18)",
+    },
+    spotifyConnectTakeoverText: {
+      color: "#ffffff",
+      fontSize: 9.5,
+      fontWeight: "800",
     },
   });

@@ -141,12 +141,9 @@ function MediaCover({ circular = false, item, priority = false, size = "regular"
 function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, onPlayNext, onToggleLike }) {
   useEffect(() => {
     if (!menu) return undefined;
-    const close = () => onClose();
-    const closeOnEscape = (event) => { if (event.key === "Escape") close(); };
-    window.addEventListener("click", close);
+    const closeOnEscape = (event) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
-      window.removeEventListener("click", close);
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [menu, onClose]);
@@ -175,31 +172,42 @@ function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, 
   };
 
   return createPortal(
-    <div
-      role="menu"
-      onContextMenu={(event) => event.preventDefault()}
-      onClick={(event) => event.stopPropagation()}
-      style={{
-        position: "fixed",
-        left: menu.x,
-        top: menu.y,
-        zIndex: 500,
-        minWidth: 170,
-        padding: 6,
-        border: "1px solid var(--card-border)",
-        borderRadius: 8,
-        background: "var(--card-bg)",
-        boxShadow: "0 12px 32px rgba(0,0,0,.25)",
-      }}
-    >
-      <button type="button" role="menuitem" onClick={playNext} style={styles.contextMenuItem}>Play next</button>
-      <button type="button" role="menuitem" onClick={addToQueue} style={styles.contextMenuItem}>Add to queue</button>
-      {item.mime_type?.startsWith("audio/") && (
-        <button type="button" role="menuitem" onClick={toggleFavorite} style={styles.contextMenuItem}>
-          {isLiked ? "Remove from favorites" : "Add to favorites"}
-        </button>
-      )}
-    </div>,
+    <>
+      <div
+        className="media-track-menu-backdrop"
+        aria-hidden="true"
+        onClick={onClose}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onClose();
+        }}
+      />
+      <div
+        role="menu"
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          position: "fixed",
+          left: menu.x,
+          top: menu.y,
+          zIndex: 500,
+          minWidth: 170,
+          padding: 6,
+          border: "1px solid var(--card-border)",
+          borderRadius: 8,
+          background: "var(--surface-solid)",
+          boxShadow: "var(--shadow-lift)",
+        }}
+      >
+        <button type="button" role="menuitem" onClick={playNext} style={styles.contextMenuItem}>Play next</button>
+        <button type="button" role="menuitem" onClick={addToQueue} style={styles.contextMenuItem}>Add to queue</button>
+        {item.mime_type?.startsWith("audio/") && (
+          <button type="button" role="menuitem" onClick={toggleFavorite} style={styles.contextMenuItem}>
+            {isLiked ? "Remove from favorites" : "Add to favorites"}
+          </button>
+        )}
+      </div>
+    </>,
     document.body
   );
 }

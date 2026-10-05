@@ -1,6 +1,8 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api, createPlaybackSession, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
+import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, releasePlaybackLease } from "../api";
+import { useAccess } from "../access-context";
+import { conflictFromError } from "./global-player/exclusive-session";
 import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./global-player/lyrics-cache";
 import { MiniPlayer } from "./global-player/mini-player";
 import { lazyWithRetry } from "../utils/lazy-with-retry";
@@ -89,6 +91,7 @@ function readStoredMuted() {
 export function GlobalPlayerProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { tier = 0 } = useAccess() || {};
   const mediaRef = useRef(null);
   const loadSeqRef = useRef(0);
   const queueLoadSeqRef = useRef(0);
@@ -104,6 +107,8 @@ export function GlobalPlayerProvider({ children }) {
   const pauseStartedAtRef = useRef(null);
   const pauseDropTimerRef = useRef(null);
   const playbackSessionIdRef = useRef(null);
+  const leaseStaleRef = useRef(false);
+  const resumeSeqRef = useRef(0);
   const currentMediaRef = useRef(null);
   const playlistSuggestionRequestRef = useRef(0);
   const sleepTimerModeRef = useRef(null);
@@ -146,6 +151,8 @@ export function GlobalPlayerProvider({ children }) {
   const [quality, setQuality] = useState(readMediaQuality);
   const [streamSrc, setStreamSrc] = useState("");
   const [playbackAccessError, setPlaybackAccessError] = useState("");
+  const [playbackConflict, setPlaybackConflict] = useState(null);
+  const [observingExclusiveSession, setObservingExclusiveSession] = useState(false);
 
   // EQ — hoisted here so AudioContext persists across full/mini player switches
   const {
@@ -203,6 +210,8 @@ export function GlobalPlayerProvider({ children }) {
   useEffect(() => {
     const controller = new AbortController();
     setStreamSrc("");
+    if (observingExclusiveSession) return () => controller.abort();
+    setPlaybackConflict(null);
     setPlaybackAccessError("");
     if (!currentMedia) return () => controller.abort();
     if (quality === "ori"
@@ -216,18 +225,23 @@ export function GlobalPlayerProvider({ children }) {
     createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
       .then((session) => {
         playbackSessionIdRef.current = session.sessionId;
+        setPlaybackConflict(null);
         setStreamSrc(session.streamUrl);
       })
       .catch((error) => {
         if (error.name !== "AbortError") {
           setShouldAutoPlay(false);
           setPaused(true);
+          const conflict = conflictFromError(error);
+          setPlaybackConflict(conflict);
+          setObservingExclusiveSession(Boolean(conflict));
+          if (conflict) setPlayerExpanded(false);
           setPlaybackAccessError(error.message);
         }
       });
 
     return () => controller.abort();
-  }, [currentMedia?.id, quality]);
+  }, [currentMedia?.id, observingExclusiveSession, quality]);
 
   useEffect(() => {
     const mediaId = Number(currentMedia?.id);
@@ -268,40 +282,85 @@ export function GlobalPlayerProvider({ children }) {
     };
   }, [currentMedia?.id, isAudio]);
 
+  const handleLeaseLost = useCallback((error) => {
+    mediaRef.current?.pause?.();
+    playbackSessionIdRef.current = null;
+    setStreamSrc("");
+    setPaused(true);
+    setShouldAutoPlay(false);
+    const conflict = conflictFromError(error);
+    setPlaybackConflict(conflict);
+    setObservingExclusiveSession(Boolean(conflict));
+    if (conflict) setPlayerExpanded(false);
+    setPlaybackAccessError(error.message);
+  }, []);
+
   useEffect(() => {
     if (!playbackSessionIdRef.current || !currentMedia || isImage) return;
+    // Paused heartbeats must not keep the exclusive lease alive: while paused
+    // the lease is left to lapse (≤30s) so another device can take over
+    // without waiting. The lease is re-acquired on resume (see togglePlayback).
+    if (paused) {
+      leaseStaleRef.current = true;
+      return;
+    }
     let stopped = false;
     const heartbeat = () => {
       const sessionId = playbackSessionIdRef.current;
       if (!sessionId) return;
-      heartbeatPlaybackLease(sessionId).catch((error) => {
+      heartbeatPlaybackLease(sessionId).then(() => {
+        leaseStaleRef.current = false;
+      }).catch((error) => {
         if (stopped) return;
-        mediaRef.current?.pause?.();
-        playbackSessionIdRef.current = null;
-        setStreamSrc("");
-        setPaused(true);
-        setShouldAutoPlay(false);
-        setPlaybackAccessError(error.message);
+        handleLeaseLost(error);
       });
     };
-    const interval = window.setInterval(heartbeat, 10_000);
+    // 5s heartbeat vs the 30s server lease (EXCLUSIVE_PLAYBACK_LEASE_SECONDS):
+    // takeover detected within ~5s, tolerant to ~5 missed beats.
+    const interval = window.setInterval(heartbeat, 5_000);
     return () => {
       stopped = true;
       window.clearInterval(interval);
     };
-  }, [currentMedia?.id, isImage, streamSrc]);
+  }, [currentMedia?.id, handleLeaseLost, isImage, paused, streamSrc]);
+
+  const playWithFreshLease = useCallback(() => {
+    if (!mediaRef.current || !currentMedia || isImage) return;
+    // The lease was left to lapse while paused: re-acquire before playing so
+    // the stream cookie is valid again. The element src is unchanged, so the
+    // position is preserved. A 409 here means another device took over.
+    if (!leaseStaleRef.current) {
+      mediaRef.current.play().catch(() => {});
+      return;
+    }
+    const seq = (resumeSeqRef.current += 1);
+    leaseStaleRef.current = false;
+    createPlaybackSession(currentMedia.id, quality)
+      .then((session) => {
+        if (resumeSeqRef.current !== seq) return;
+        playbackSessionIdRef.current = session.sessionId;
+        setPlaybackConflict(null);
+        setPlaybackAccessError("");
+        mediaRef.current?.play()?.catch(() => {});
+      })
+      .catch((error) => {
+        if (resumeSeqRef.current !== seq) return;
+        handleLeaseLost(error);
+      });
+  }, [currentMedia, handleLeaseLost, isImage, quality]);
 
   useEffect(() => () => {
     releasePlaybackLease(playbackSessionIdRef.current);
   }, []);
 
   const changeQuality = useCallback((nextQuality) => {
+    if (observingExclusiveSession) return;
     const nextPosition = mediaRef.current?.currentTime || position || 0;
     pendingSeekPositionRef.current = nextPosition;
     setShouldAutoPlay(!paused);
     window.localStorage.setItem(MEDIA_QUALITY_STORAGE_KEY, nextQuality);
     setQuality(nextQuality);
-  }, [paused, position]);
+  }, [observingExclusiveSession, paused, position]);
 
   useEffect(() => {
     if (!mediaRef.current || isImage) return;
@@ -394,10 +453,12 @@ export function GlobalPlayerProvider({ children }) {
   }, [applyCompactQueueResponse, refreshQueue, refreshQueueState]);
 
   const resetForMedia = useCallback((mediaItem, options = {}) => {
-    const { autoplay = true, startPosition = 0 } = options;
+    const { autoplay = true, observing = false, startPosition = 0 } = options;
     const nextPosition = Math.floor(startPosition || 0);
 
     prefetchedNextIdRef.current = null;
+    setObservingExclusiveSession(observing);
+    if (!observing) setPlaybackConflict(null);
     setCurrentMedia(mediaItem);
     playlistSuggestionRequestRef.current += 1;
     setPlaylistSuggestion(null);
@@ -417,10 +478,10 @@ export function GlobalPlayerProvider({ children }) {
         mediaRef.current.currentTime = nextPosition;
       }
       if (autoplay) {
-        mediaRef.current.play().catch(() => {});
+        playWithFreshLease();
       }
     }
-  }, []);
+  }, [playWithFreshLease]);
 
   const loadResumePosition = useCallback((mediaId) => {
     api(`/api/playback/resume/${mediaId}`)
@@ -466,7 +527,7 @@ export function GlobalPlayerProvider({ children }) {
           mediaRef.current.currentTime = nextPosition;
         }
         if (autoplay) {
-          mediaRef.current.play().catch(() => {});
+          playWithFreshLease();
         }
       }
       const isAudioMedia = currentMedia?.mime_type?.startsWith("audio/");
@@ -490,16 +551,110 @@ export function GlobalPlayerProvider({ children }) {
         }
       })
       .catch(() => {});
-  }, [currentMedia?.id, currentMedia?.mime_type, initializeQueue, loadResumePosition, resetForMedia]);
+  }, [currentMedia?.id, currentMedia?.mime_type, initializeQueue, loadResumePosition, playWithFreshLease, resetForMedia]);
+
+  // Fresh load while another device holds the exclusive lease: enter
+  // observer mode immediately so the mini player follows the holder's media
+  // instead of staying empty until the user taps play and hits 409.
+  useEffect(() => {
+    let stopped = false;
+    getPlaybackLease()
+      .then((status) => {
+        if (stopped) return;
+        if (status.state === "busy" && status.activeSession) {
+          setPlaybackConflict({
+            holder: status.activeSession,
+            retryAfter: status.expiresIn,
+            message: `Playback is active on ${status.activeSession.deviceLabel}`,
+          });
+          setObservingExclusiveSession(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      stopped = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!observingExclusiveSession) return undefined;
+    let stopped = false;
+    let timer;
+    const sync = async () => {
+      try {
+        const status = await getPlaybackLease();
+        if (stopped) return;
+        if (status.state !== "busy" || !status.activeSession) {
+          setObservingExclusiveSession(false);
+          setPlaybackConflict(null);
+          setPlaybackAccessError("");
+          return;
+        }
+        const holder = status.activeSession;
+        setPlaybackConflict({ holder, retryAfter: status.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+        const snapshot = holder.playback;
+        const mediaId = Number(snapshot?.mediaId || holder.mediaId);
+        if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
+          const response = await api(`/api/media/${mediaId}`);
+          const mediaItem = await readMediaItem(response);
+          if (!stopped) resetForMedia(mediaItem, {
+            autoplay: false,
+            observing: true,
+            startPosition: snapshot?.position || 0,
+          });
+        } else if (snapshot) {
+          setPosition(snapshot.position);
+          setDuration(snapshot.duration || currentMediaRef.current?.duration || 0);
+          setPaused(snapshot.action !== "play");
+          setLoopMode(snapshot.loopMode);
+          setShuffleEnabled(snapshot.shuffleEnabled);
+        }
+      } catch {}
+      if (!stopped) timer = window.setTimeout(sync, 5_000);
+    };
+    sync();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [observingExclusiveSession, resetForMedia]);
+
+  const takeOverExclusiveSession = useCallback(async () => {
+    if (tier < 100 || !observingExclusiveSession) return;
+    await forceReleasePlaybackLease();
+    setPlaybackConflict(null);
+    setPlaybackAccessError("");
+    setObservingExclusiveSession(false);
+    setShouldAutoPlay(true);
+  }, [observingExclusiveSession, tier]);
+
+  useEffect(() => {
+    const playFolderMedia = (event) => {
+      const mediaId = Number(event.detail?.mediaId);
+      const nextCategoryId = Number(event.detail?.categoryId);
+      if (!Number.isFinite(mediaId) || mediaId < 1) return;
+      playMediaById(
+        mediaId,
+        Number.isFinite(nextCategoryId) && nextCategoryId > 0 ? nextCategoryId : null,
+        { autoplay: true, preserveQueue: true }
+      );
+    };
+    window.addEventListener("play-folder-media", playFolderMedia);
+    return () => window.removeEventListener("play-folder-media", playFolderMedia);
+  }, [playMediaById]);
 
   const sendPlaybackEvent = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0) => {
-    if (!mediaItem) return;
+    if (!mediaItem || observingExclusiveSession) return;
 
     api("/api/playback/event", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(playbackSessionIdRef.current ? { "X-Playback-Session": playbackSessionIdRef.current } : {}),
+      },
       body: JSON.stringify({
         mediaId: Number(mediaItem.id),
+        mediaType: mediaItem.mime_type,
         title: mediaItem.title,
         action,
         position: Math.floor(nextPosition || 0),
@@ -508,20 +663,24 @@ export function GlobalPlayerProvider({ children }) {
         shuffleEnabled,
       }),
     }).catch(() => {});
-  }, [loopMode, shuffleEnabled]);
+  }, [loopMode, observingExclusiveSession, shuffleEnabled]);
 
   const sendNowPlayingImmediately = useCallback((mediaItem, action, nextPosition = 0, nextDuration = 0, signal, extra = {}) => {
-    if (!mediaItem) return;
+    if (!mediaItem || observingExclusiveSession) return;
 
     const trigger = extra.trigger || lastTriggerRef.current || "user";
     const pausedAt = action === "pause" ? (extra.pausedAt || pauseStartedAtRef.current || new Date().toISOString()) : null;
 
     return api("/api/playback/active", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(playbackSessionIdRef.current ? { "X-Playback-Session": playbackSessionIdRef.current } : {}),
+      },
       signal,
       body: JSON.stringify({
         mediaId: Number(mediaItem.id),
+        mediaType: mediaItem.mime_type,
         title: mediaItem.title,
         action,
         position: Math.floor(nextPosition || 0),
@@ -532,7 +691,7 @@ export function GlobalPlayerProvider({ children }) {
         pausedAt,
       }),
     }).catch(() => {});
-  }, [loopMode, shuffleEnabled]);
+  }, [loopMode, observingExclusiveSession, shuffleEnabled]);
 
   const cancelPendingNowPlayingPause = useCallback(() => {
     if (nowPlayingPauseTimerRef.current !== null) {
@@ -625,6 +784,8 @@ export function GlobalPlayerProvider({ children }) {
     setQueueOpen(false);
     setPlayerExpanded(false);
     setStreamSrc("");
+    setPlaybackConflict(null);
+    setObservingExclusiveSession(false);
     setPlaybackAccessError("");
     if (isRouteFullPlayer) navigate("/");
   }, [isRouteFullPlayer, navigate]);
@@ -719,8 +880,8 @@ export function GlobalPlayerProvider({ children }) {
   const resumeAfterSleepTimer = useCallback(() => {
     setSleepTimerCompleted(false);
     setShouldAutoPlay(true);
-    mediaRef.current?.play?.().catch(() => {});
-  }, []);
+    playWithFreshLease();
+  }, [playWithFreshLease]);
 
   useEffect(() => {
     if (!sleepTimerEndsAt) return undefined;
@@ -1077,6 +1238,7 @@ export function GlobalPlayerProvider({ children }) {
   }, [isAudio, isRouteFullPlayer, position]);
 
   const togglePlayback = useCallback(() => {
+    if (observingExclusiveSession) return;
     if (isImage) {
       openFullPlayer();
       return;
@@ -1085,11 +1247,11 @@ export function GlobalPlayerProvider({ children }) {
     if (!mediaRef.current) return;
 
     if (mediaRef.current.paused) {
-      mediaRef.current.play().catch(() => {});
+      playWithFreshLease();
     } else {
       mediaRef.current.pause();
     }
-  }, [isImage, openFullPlayer]);
+  }, [isImage, observingExclusiveSession, openFullPlayer, playWithFreshLease]);
 
   const playQueueMedia = useCallback((mediaItem, options = {}) => {
     if (!mediaItem) return;
@@ -1160,13 +1322,14 @@ export function GlobalPlayerProvider({ children }) {
         } else if (mediaRef.current) {
           mediaRef.current.currentTime = 0;
           setPosition(0);
-          mediaRef.current.play().catch(() => {});
+          playWithFreshLease();
         }
       })
       .catch(() => {});
-  }, [playQueueId, queueTotal]);
+  }, [playQueueId, playWithFreshLease, queueTotal]);
 
   const advance = useCallback((dir, options = {}) => {
+    if (observingExclusiveSession) return;
     const trigger = options.trigger || "user";
     lastTriggerRef.current = trigger;
 
@@ -1216,15 +1379,16 @@ export function GlobalPlayerProvider({ children }) {
           });
       })
       .catch(() => {});
-  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isRouteFullPlayer, loadResumePosition, loopMode, navigate, playQueueBoundary, position, queueOpen, queueTotal, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
+  }, [applyCompactQueueResponse, categoryId, currentMedia, duration, hasLinearNext, hasLinearPrev, isRouteFullPlayer, loadResumePosition, loopMode, navigate, observingExclusiveSession, playQueueBoundary, position, queueOpen, queueTotal, refreshQueue, resetForMedia, sendNowPlaying, sendPlaybackEvent]);
 
   const seek = useCallback((eventOrValue) => {
+    if (observingExclusiveSession) return;
     const nextPosition = Number(eventOrValue?.target ? eventOrValue.target.value : eventOrValue);
     setPosition(nextPosition);
     if (mediaRef.current) {
       mediaRef.current.currentTime = nextPosition;
     }
-  }, []);
+  }, [observingExclusiveSession]);
 
   const changeVolume = useCallback((nextValue) => {
     const nextVolume = clampVolume(Number(nextValue));
@@ -1702,7 +1866,7 @@ export function GlobalPlayerProvider({ children }) {
     <PlayerLibraryContext.Provider value={libraryContextValue}>
     <PlayerContext.Provider value={contextValue}>
       {children}
-      {playbackAccessError && (
+      {!playbackConflict && playbackAccessError && (
         <div
           role="alert"
           style={{
@@ -1860,6 +2024,10 @@ export function GlobalPlayerProvider({ children }) {
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={handleToggleLike}
               onClose={stopPlayback}
+              conflict={playbackConflict}
+              controlsLocked={observingExclusiveSession}
+              canTakeOver={tier >= 100}
+              onTakeOver={takeOverExclusiveSession}
             />
           ) : null}
         </>

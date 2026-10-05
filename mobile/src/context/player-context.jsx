@@ -4,12 +4,15 @@ import {
   apiJson,
   assertApiReachable,
   createPlaybackSessionSource,
+  forceReleasePlaybackLease,
+  getPlaybackLease,
   heartbeatPlaybackLease,
   releasePlaybackLease,
 } from "../api";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
+import { conflictDisplayText, conflictFromError } from "../utils/exclusive-session";
 import { createApiUnreachableError } from "../utils/playback-errors";
 import { actualMediaQuality, getStoredMediaQuality, storeMediaQuality } from "../media-quality";
 import {
@@ -31,7 +34,7 @@ export function usePlayerLibrary() {
   return useContext(PlayerLibraryContext);
 }
 
-export function PlayerProvider({ children }) {
+export function PlayerProvider({ accessTier = 0, children }) {
   const offline = useOffline();
   const soundRef = useRef(null);
   const soundSubscriptionRef = useRef(null);
@@ -65,6 +68,7 @@ export function PlayerProvider({ children }) {
   const saveResumePositionForRef = useRef(() => Promise.resolve());
   const sendActiveSessionRef = useRef(() => Promise.resolve());
   const playbackSourceRef = useRef(null);
+  const playbackConflictRef = useRef(null);
 
   const [currentMedia, setCurrentMedia] = useState(null);
   const [paused, setPaused] = useState(true);
@@ -88,6 +92,8 @@ export function PlayerProvider({ children }) {
   const [quality, setQuality] = useState("high");
   const [playbackSource, setPlaybackSource] = useState(null);
   const [playbackAccessError, setPlaybackAccessError] = useState("");
+  const [playbackConflict, setPlaybackConflict] = useState(null);
+  playbackConflictRef.current = playbackConflict;
 
   useEffect(() => {
     getStoredMediaQuality().then(setQuality).catch(() => {});
@@ -181,6 +187,7 @@ export function PlayerProvider({ children }) {
 
   const playbackPayload = useCallback((media, action, nextPosition, nextDuration) => ({
     mediaId: Number(media.id),
+    mediaType: media.mime_type,
     title: media.title,
     action,
     position: Math.floor(nextPosition || 0),
@@ -201,6 +208,9 @@ export function PlayerProvider({ children }) {
     if (!offline.isConnected) return Promise.resolve();
     return apiJson("/api/playback/active", {
       method: "POST",
+      headers: playbackSourceRef.current?.sessionId
+        ? { "X-Playback-Session": playbackSourceRef.current.sessionId }
+        : {},
       body: JSON.stringify(playbackPayload(media, action, nextPosition, nextDuration)),
     }).catch(() => {});
   }, [offline.isConnected, playbackPayload]);
@@ -325,7 +335,9 @@ export function PlayerProvider({ children }) {
         : await createPlaybackSessionSource(media.id, protectedQuality);
     } catch (error) {
       if (loadSequence !== audioLoadSequenceRef.current) return;
-      setPlaybackAccessError(error.message || "Playback is active on another device");
+      const conflict = conflictFromError(error);
+      setPlaybackConflict(conflict);
+      setPlaybackAccessError(conflictDisplayText(conflict, error.message || "Playback is active on another device"));
       throw error;
     }
     if (loadSequence !== audioLoadSequenceRef.current) {
@@ -334,6 +346,7 @@ export function PlayerProvider({ children }) {
     }
     playbackSourceRef.current = localUri ? null : source;
     setPlaybackSource(localUri ? null : source);
+    setPlaybackConflict(null);
     setPlaybackAccessError("");
 
     if (loadSequence !== audioLoadSequenceRef.current) {
@@ -410,7 +423,9 @@ export function PlayerProvider({ children }) {
     const heartbeat = () => {
       heartbeatPlaybackLease(playbackSource).catch((error) => {
         if (stopped) return;
-        setPlaybackAccessError(error.message || "Playback is active on another device");
+        const conflict = conflictFromError(error);
+        setPlaybackConflict(conflict);
+        setPlaybackAccessError(conflictDisplayText(conflict, error.message || "Playback is active on another device"));
         pausedRef.current = true;
         setPaused(true);
         soundRef.current?.pause?.();
@@ -419,7 +434,9 @@ export function PlayerProvider({ children }) {
         setPlaybackSource(null);
       });
     };
-    const interval = setInterval(heartbeat, 10_000);
+    // 5s heartbeat vs the 30s server lease (EXCLUSIVE_PLAYBACK_LEASE_SECONDS):
+    // takeover detected within ~5s, tolerant to ~5 missed beats.
+    const interval = setInterval(heartbeat, 5_000);
     return () => {
       stopped = true;
       clearInterval(interval);
@@ -496,11 +513,80 @@ export function PlayerProvider({ children }) {
     if (loadResume) loadResumePosition(media);
   }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
 
+  const applyObservedConflict = useCallback((conflict) => {
+    if (!conflict) return;
+    setPlaybackConflict(conflict);
+    setPlaybackAccessError(conflictDisplayText(conflict, "Playback is active on another device"));
+  }, []);
+  const observingExclusiveSession = Boolean(playbackConflict);
+
+  useEffect(() => {
+    if (!observingExclusiveSession) return undefined;
+    let stopped = false;
+    let timer;
+    const sync = async () => {
+      try {
+        const status = await getPlaybackLease();
+        if (stopped) return;
+        if (status.state !== "busy" || !status.activeSession) {
+          setPlaybackConflict(null);
+          setPlaybackAccessError("");
+          return;
+        }
+        const holder = status.activeSession;
+        const conflict = { holder, retryAfter: status.expiresIn, message: `Playback is active on ${holder.deviceLabel}` };
+        applyObservedConflict(conflict);
+        const snapshot = holder.playback;
+        const mediaId = Number(snapshot?.mediaId || holder.mediaId);
+        if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
+          const media = await apiJson(`/api/media/${mediaId}`);
+          if (stopped) return;
+          await unloadSound();
+          videoControllerRef.current?.pause?.();
+          videoControllerRef.current = null;
+          playbackSourceRef.current = null;
+          setPlaybackSource(null);
+          currentMediaRef.current = media;
+          setCurrentMedia(media);
+        }
+        if (snapshot) {
+          positionRef.current = snapshot.position;
+          durationRef.current = snapshot.duration || currentMediaRef.current?.duration || 0;
+          pausedRef.current = snapshot.action !== "play";
+          loopModeRef.current = snapshot.loopMode;
+          shuffleEnabledRef.current = snapshot.shuffleEnabled;
+          setPosition(positionRef.current);
+          setDuration(durationRef.current);
+          setPaused(pausedRef.current);
+          setLoopMode(loopModeRef.current);
+          setShuffleEnabled(shuffleEnabledRef.current);
+        }
+      } catch {}
+      if (!stopped) timer = setTimeout(sync, 5_000);
+    };
+    sync();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [applyObservedConflict, observingExclusiveSession, unloadSound]);
+
+  const takeOverExclusiveSession = useCallback(async () => {
+    if (accessTier < 100 || !playbackConflictRef.current || !currentMediaRef.current) return;
+    const media = currentMediaRef.current;
+    const startPosition = positionRef.current;
+    await forceReleasePlaybackLease();
+    setPlaybackConflict(null);
+    setPlaybackAccessError("");
+    await startMedia(media, { autoplay: true, loadResume: false, replacementAction: null, startPosition });
+  }, [accessTier, startMedia]);
+
   const stopPlayback = useCallback(async () => {
     audioLoadSequenceRef.current += 1;
     const activePlaybackSource = playbackSourceRef.current;
     playbackSourceRef.current = null;
     setPlaybackSource(null);
+    setPlaybackConflict(null);
     setPlaybackAccessError("");
     releasePlaybackLease(activePlaybackSource);
     const media = currentMediaRef.current;
@@ -665,6 +751,7 @@ export function PlayerProvider({ children }) {
   }, [offline.isConnected, selectQueueItem]);
 
   const advance = useCallback(async (direction, options = {}) => {
+    if (playbackConflictRef.current) return null;
     const { skipCurrent = true } = options;
     const index = queueIndexRef.current;
     const total = queueTotalRef.current;
@@ -776,7 +863,19 @@ export function PlayerProvider({ children }) {
   }, [applyLocalQueue, offline, startMedia]);
 
   const togglePlayback = useCallback(() => {
+    if (playbackConflictRef.current) return;
     if (!currentMediaRef.current || getMediaKind(currentMediaRef.current.mime_type) === "image") return;
+    if (getMediaKind(currentMediaRef.current.mime_type) === "audio"
+      && !playbackSourceRef.current
+      && offline.isConnected) {
+      startMedia(currentMediaRef.current, {
+        autoplay: true,
+        loadResume: false,
+        replacementAction: null,
+        startPosition: positionRef.current,
+      }).catch(() => {});
+      return;
+    }
     if (pausedRef.current) {
       reportPlayingRef.current(true);
       if (soundRef.current) soundRef.current.play();
@@ -787,9 +886,10 @@ export function PlayerProvider({ children }) {
       if (soundRef.current) soundRef.current.pause();
       else videoControllerRef.current?.pause?.();
     }
-  }, []);
+  }, [offline.isConnected, startMedia]);
 
   const seek = useCallback(async (seconds) => {
+    if (playbackConflictRef.current) return;
     const nextDuration = durationRef.current || currentMediaRef.current?.duration || 0;
     const nextPosition = Math.min(Math.max(0, Number(seconds) || 0), nextDuration || Infinity);
     positionRef.current = nextPosition;
@@ -1052,6 +1152,11 @@ export function PlayerProvider({ children }) {
     currentKind,
     currentMedia,
     playbackAccessError,
+    playbackConflict,
+    controlsLocked: Boolean(playbackConflict),
+    canTakeOverPlayback: accessTier >= 100,
+    takeOverExclusiveSession,
+    applyObservedConflict,
     quality,
     actualQuality: offline.resolveMediaUri(currentMedia?.id)
       ? currentMedia?.quality || "ori"
@@ -1096,7 +1201,7 @@ export function PlayerProvider({ children }) {
     volume,
   }), [
     addToQueue, advance, applyResumePosition, changeQuality, changeVolume, clearQueue, currentKind, currentMedia,
-    playbackAccessError,
+    playbackAccessError, playbackConflict, accessTier, applyObservedConflict, takeOverExclusiveSession,
     duration, likedIds, loopMode, muted, navigation.hasNext, navigation.hasPrev, paused, playMedia, playOfflineMedia,
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,

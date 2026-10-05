@@ -69,4 +69,30 @@ describe("CategorySidebarItem", () => {
     expect(markup).toContain("global-sidebar-link-icon");
     expect(markup).toContain("global-sidebar-link--active");
   });
+
+  it("only renders folder actions when the category directly contains media", () => {
+    const withMedia = renderToStaticMarkup(
+      <MemoryRouter>
+        <CategorySidebarItem
+          category={{ id: 8, name: "Showbiz", depth: 1, media_count: 3 }}
+          active={false}
+          close={() => {}}
+          onOpenMenu={() => {}}
+        />
+      </MemoryRouter>
+    );
+    const empty = renderToStaticMarkup(
+      <MemoryRouter>
+        <CategorySidebarItem
+          category={{ id: 9, name: "Empty", depth: 1, media_count: 0 }}
+          active={false}
+          close={() => {}}
+          onOpenMenu={() => {}}
+        />
+      </MemoryRouter>
+    );
+
+    expect(withMedia).toContain("Open actions for Showbiz");
+    expect(empty).not.toContain("Open actions for Empty");
+  });
 });

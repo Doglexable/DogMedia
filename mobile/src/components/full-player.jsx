@@ -16,6 +16,7 @@ import {
 } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getQueueItemSubtitle, resolveMediaArtist } from "../utils/media";
+import { conflictDisplayText, conflictFromError } from "../utils/exclusive-session";
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
@@ -490,21 +491,35 @@ export function FullPlayer({ navigation }) {
   const [shareBusy, setShareBusy] = useState(false);
   const [protectedSource, setProtectedSource] = useState(null);
   const [protectedSourceError, setProtectedSourceError] = useState("");
+  const [protectedSourceConflict, setProtectedSourceConflict] = useState(null);
   const media = player.currentMedia;
 
   useEffect(() => {
     let cancelled = false;
     setProtectedSource(null);
+    setProtectedSourceConflict(null);
     setProtectedSourceError("");
+    if (player.controlsLocked) return () => { cancelled = true; };
     if (!media || media.mime_type?.startsWith("audio/")) return () => { cancelled = true; };
     const protectedQuality = player.quality === "ori" && !media.available_qualities?.includes("ori")
       ? "high"
       : player.quality;
     createPlaybackSessionSource(media.id, protectedQuality)
-      .then((source) => { if (!cancelled) setProtectedSource(source); })
-      .catch((error) => { if (!cancelled) setProtectedSourceError(error.message); });
+      .then((source) => {
+        if (!cancelled) {
+          setProtectedSourceConflict(null);
+          setProtectedSource(source);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const conflict = conflictFromError(error);
+        setProtectedSourceConflict(conflict);
+        player.applyObservedConflict?.(conflict);
+        setProtectedSourceError(conflictDisplayText(conflict, error.message));
+      });
     return () => { cancelled = true; };
-  }, [media?.id, media?.mime_type, player.quality]);
+  }, [media?.id, media?.mime_type, player.controlsLocked, player.quality]);
 
   useEffect(() => {
     if (!protectedSource?.leaseRequired) return;
@@ -512,12 +527,15 @@ export function FullPlayer({ navigation }) {
     const heartbeat = () => {
       heartbeatPlaybackLease(protectedSource).catch((error) => {
         if (stopped) return;
-        setProtectedSourceError(error.message || "Playback is active on another device");
+        const conflict = conflictFromError(error);
+        setProtectedSourceConflict(conflict);
+        player.applyObservedConflict?.(conflict);
+        setProtectedSourceError(conflictDisplayText(conflict, error.message || "Playback is active on another device"));
         setProtectedSource(null);
         player.pause?.();
       });
     };
-    const interval = setInterval(heartbeat, 10_000);
+    const interval = setInterval(heartbeat, 5_000);
     return () => {
       stopped = true;
       clearInterval(interval);
@@ -628,10 +646,23 @@ export function FullPlayer({ navigation }) {
         />
         <QualityControl player={player} style={[styles.visualQuality, { top: insets.top + spacing.md }]} styles={styles} />
         <View style={styles.visualStage}>
-          {(protectedSourceError || player.playbackAccessError) && (
-            <Text style={{ color: colors.white, textAlign: "center", paddingHorizontal: spacing.lg }}>
-              {protectedSourceError || player.playbackAccessError}
-            </Text>
+          {(protectedSourceConflict || protectedSourceError || player.playbackAccessError) && (
+            <View style={styles.exclusiveSessionNotice}>
+              <Text style={{ color: colors.white, textAlign: "center" }}>
+                {protectedSourceConflict
+                  ? conflictDisplayText(protectedSourceConflict, protectedSourceError)
+                  : (protectedSourceError || player.playbackAccessError)}
+              </Text>
+              {player.canTakeOverPlayback && player.playbackConflict && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={player.takeOverExclusiveSession}
+                  style={styles.takeoverButton}
+                >
+                  <Text style={styles.takeoverButtonText}>Play here</Text>
+                </Pressable>
+              )}
+            </View>
           )}
           {isVideo && protectedSource && (
             <VideoSurface
@@ -807,6 +838,26 @@ export function FullPlayer({ navigation }) {
             onPress={player.toggleMute}
           />
         </View>
+
+        {player.controlsLocked && (
+          <View style={styles.spotifyConnectFullPill}>
+            <View style={styles.spotifyConnectFullInfo}>
+              <Ionicons name="volume-high" size={16} color={colors.primary} />
+              <Text numberOfLines={1} style={styles.spotifyConnectFullText}>
+                Playing on {player.playbackConflict?.holder?.deviceLabel || "another device"}
+              </Text>
+            </View>
+            {player.canTakeOverPlayback && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={player.takeOverExclusiveSession}
+                style={styles.spotifyConnectFullTakeover}
+              >
+                <Text style={styles.spotifyConnectFullTakeoverText}>Play here</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {!isShort && (
           <Pressable
@@ -1047,6 +1098,44 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
     flexWrap: "wrap",
     justifyContent: "center",
     gap: spacing.sm,
+  },
+  spotifyConnectFullPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: alpha(colors.primary, 0.12),
+    borderWidth: 1,
+    borderColor: alpha(colors.primary, 0.35),
+    borderRadius: radii.full,
+    marginTop: spacing.sm,
+    width: "100%",
+  },
+  spotifyConnectFullInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  spotifyConnectFullText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "750",
+  },
+  spotifyConnectFullTakeover: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    backgroundColor: alpha(colors.primary, 0.2),
+  },
+  spotifyConnectFullTakeoverText: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "800",
   },
   qualityPill: {
     minWidth: 54,
@@ -1413,6 +1502,24 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
   visualStage: {
     flex: 1,
     justifyContent: "center",
+  },
+  exclusiveSessionNotice: {
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  takeoverButton: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: alpha(colors.primary, 0.18),
+  },
+  takeoverButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "800",
   },
   visualResumePrompt: {
     position: "absolute",

@@ -262,18 +262,23 @@ function AppShell() {
       <BottomSheetModalProvider>
         <OfflineProvider>
           <AccessGuard>
-            <PlayerProvider>
+            <AuthorizedPlayerProvider>
               <NonAudioPlayerAutoNavigator />
               <Stack.Navigator screenOptions={{ headerShown: false }}>
                 <Stack.Screen name="Tabs" component={Tabs} />
                 <Stack.Screen name="Player" component={PlayerScreen} />
               </Stack.Navigator>
-            </PlayerProvider>
+            </AuthorizedPlayerProvider>
           </AccessGuard>
         </OfflineProvider>
       </BottomSheetModalProvider>
     </NavigationContainer>
   );
+}
+
+function AuthorizedPlayerProvider({ children }) {
+  const access = useAccess();
+  return <PlayerProvider accessTier={Number(access?.tier) || 0}>{children}</PlayerProvider>;
 }
 
 export default function App() {

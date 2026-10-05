@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { AlbumArt } from "./album-art";
+import HolderPlatformIcon from "./holder-platform-icon";
 import { PlaybackProgress } from "./playback-progress";
 import { LoopButton, QualityControl, QueueButton, ShuffleButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
 import { TrackInfo } from "./track-info";
@@ -14,15 +15,23 @@ export function PlayerBar({
   onToggleLoop, onToggleMute, onToggleShuffle, paused, position, queueOpen,
   shuffleEnabled, sleepTimerRemaining, sleepTimerMode, hasPlaylist, streamSrc, thumbSrc, volume, onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
+  conflict, controlsLocked = false,
+  canTakeOver = false, onTakeOver,
   isMini = false,
 }) {
+  const hasConflict = Boolean(conflict);
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
-    document.documentElement.style.setProperty("--active-player-height", "var(--player-height)");
+    // Connect bar adds a 24px strip below the player, so floating UI stacked
+    // above the player must account for it while a conflict is active.
+    document.documentElement.style.setProperty(
+      "--active-player-height",
+      hasConflict ? "calc(var(--player-height) + 24px)" : "var(--player-height)",
+    );
     return () => {
       document.documentElement.style.removeProperty("--active-player-height");
     };
-  }, []);
+  }, [hasConflict]);
 
   const isAudio = Boolean(typeof currentMedia?.mime_type === "string" && currentMedia.mime_type.startsWith("audio/"));
   const artSrc = isImage ? streamSrc : thumbSrc;
@@ -31,7 +40,7 @@ export function PlayerBar({
     <section
       aria-label="Media player"
       onContextMenu={(event) => event.preventDefault()}
-      className={`themed-player-bar web-mini-player${isMini ? " web-mini-player--compact" : ""}`}
+      className={`themed-player-bar web-mini-player${isMini ? " web-mini-player--compact" : ""}${conflict ? " has-connect-bar" : ""}`}
     >
       <div className="web-mini-identity-wrap">
         <AlbumArt
@@ -68,6 +77,7 @@ export function PlayerBar({
         <div className="web-mini-transport-buttons">
           {!isImage && <ShuffleButton active={shuffleEnabled} onClick={onToggleShuffle} />}
           <TransportControls
+            disabled={controlsLocked}
             hasNext={hasNext}
             hasPrev={hasPrev}
             isImage={isImage}
@@ -82,7 +92,7 @@ export function PlayerBar({
           duration={duration}
           isImage={isImage}
           position={position}
-          onSeek={onSeek}
+          onSeek={controlsLocked ? undefined : onSeek}
         />
       </div>
 
@@ -109,6 +119,32 @@ export function PlayerBar({
         />
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
       </div>
+
+      {conflict && (
+        <div
+          className="spotify-connect-bar"
+          role="status"
+        >
+          {canTakeOver && onTakeOver && (
+            <div className="spotify-connect-bar-actions">
+              <button
+                type="button"
+                className="spotify-connect-bar-takeover"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTakeOver();
+                }}
+              >
+                Play here
+              </button>
+            </div>
+          )}
+          <div className="spotify-connect-bar-content">
+            <HolderPlatformIcon platform={conflict.holder?.platform} className="spotify-connect-bar-icon" />
+            <span>Playing on {conflict.holder?.deviceLabel || "another device"}</span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

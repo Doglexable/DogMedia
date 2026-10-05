@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   categoryThumbnailUrl,
   createPlaybackSession,
+  forceReleasePlaybackLease,
+  getPlaybackLease,
   heartbeatPlaybackLease,
   mediaThumbnailUrl,
   readJsonArray,
@@ -61,6 +63,56 @@ describe("protected playback", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/playback/lease/heartbeat", expect.objectContaining({
       method: "POST",
       headers: { "X-Playback-Session": "opaque-session" },
+    }));
+  });
+
+  it("sends client identity headers and retains the safe holder on conflicts", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: "PLAYBACK_IN_USE",
+      error: "Playback is active on Studio PC",
+      retryAfter: 15,
+      activeSession: { platform: "desktop", deviceLabel: "Studio PC", mediaId: 9, expiresIn: 15 },
+    }), { headers: { "Content-Type": "application/json" }, status: 409 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const failure = createPlaybackSession(4, "high").catch((error) => error);
+    await expect(failure).resolves.toMatchObject({
+      code: "PLAYBACK_IN_USE",
+      activeSession: { platform: "desktop", deviceLabel: "Studio PC", mediaId: 9 },
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/media/4/playback-session", expect.objectContaining({
+      headers: expect.objectContaining({
+        "X-Client-Platform": "web",
+        "X-Client-Name": "Dogmedia Web",
+      }),
+    }));
+  });
+
+  it("reads the observable owner snapshot and performs explicit takeover", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        state: "busy",
+        expiresIn: 18,
+        activeSession: {
+          platform: "desktop",
+          deviceLabel: "Studio PC",
+          mediaId: 9,
+          playback: { mediaId: 9, action: "play", position: 31, duration: 180 },
+        },
+      }), { headers: { "Content-Type": "application/json" }, status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, released: true }), {
+        headers: { "Content-Type": "application/json" }, status: 200,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPlaybackLease()).resolves.toMatchObject({
+      state: "busy",
+      activeSession: { playback: { mediaId: 9, action: "play", position: 31 } },
+    });
+    await expect(forceReleasePlaybackLease()).resolves.toEqual({ ok: true, released: true });
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/playback/lease/admin", expect.objectContaining({
+      method: "DELETE",
+      credentials: "include",
     }));
   });
 });

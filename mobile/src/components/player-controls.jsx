@@ -55,7 +55,7 @@ export function PlayerTransportControls({
     <View style={[styles.transportControls, style]}>
       <PlayerIconButton
         accessibilityLabel="Previous"
-        disabled={!player.hasPrev}
+        disabled={player.controlsLocked || !player.hasPrev}
         icon="play-skip-back"
         iconColor={transportIconColor}
         onPress={() => player.advance("prev")}
@@ -65,6 +65,7 @@ export function PlayerTransportControls({
       />
       <PlayerIconButton
         accessibilityLabel={player.paused ? "Play" : "Pause"}
+        disabled={player.controlsLocked}
         icon={player.paused ? "play" : "pause"}
         iconColor={playIconColor}
         onPress={player.togglePlayback}
@@ -74,7 +75,7 @@ export function PlayerTransportControls({
       />
       <PlayerIconButton
         accessibilityLabel="Next"
-        disabled={!player.hasNext}
+        disabled={player.controlsLocked || !player.hasNext}
         icon="play-skip-forward"
         iconColor={transportIconColor}
         onPress={() => player.advance("next")}

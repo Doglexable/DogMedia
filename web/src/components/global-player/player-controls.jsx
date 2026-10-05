@@ -437,10 +437,10 @@ export function VolumeControl({ isImage, muted, volume = 1, onChangeVolume, onTo
   );
 }
 
-export function TransportControls({ hasNext, hasPrev, isImage, paused, onAdvance, onToggle }) {
+export function TransportControls({ disabled = false, hasNext, hasPrev, isImage, paused, onAdvance, onToggle }) {
   return (
     <>
-      <button type="button" className="player-transport-button" aria-label="Previous" disabled={!hasPrev} onClick={() => onAdvance("prev")} title="Previous">
+      <button type="button" className="player-transport-button" aria-label="Previous" disabled={disabled || !hasPrev} onClick={() => onAdvance("prev")} title="Previous">
         <FontAwesomeIcon icon={faBackwardStep} />
       </button>
       <button
@@ -448,12 +448,13 @@ export function TransportControls({ hasNext, hasPrev, isImage, paused, onAdvance
         className="player-play-button"
         aria-label={isImage ? "Open media" : paused ? "Play" : "Pause"}
         aria-keyshortcuts={isImage ? undefined : "Space"}
+        disabled={disabled}
         onClick={onToggle}
         title={isImage ? "Open media" : paused ? "Play (Space)" : "Pause (Space)"}
       >
         <FontAwesomeIcon icon={isImage ? faUpRightFromSquare : paused ? faPlay : faPause} />
       </button>
-      <button type="button" className="player-transport-button" aria-label="Next" disabled={!hasNext} onClick={() => onAdvance("next")} title="Next">
+      <button type="button" className="player-transport-button" aria-label="Next" disabled={disabled || !hasNext} onClick={() => onAdvance("next")} title="Next">
         <FontAwesomeIcon icon={faForwardStep} />
       </button>
     </>

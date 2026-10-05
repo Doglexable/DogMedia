@@ -395,6 +395,9 @@ body.player-expanded .global-app-content {
   white-space: nowrap;
 }
 .global-sidebar-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 9px 10px;
   border: 0;
@@ -2408,6 +2411,69 @@ body {
   width: 34px;
   height: 34px;
 }
+/* Observer View Connect Bar — uses existing palette signal colour, not Spotify green */
+.web-mini-player.has-connect-bar {
+  padding-bottom: 0;
+  grid-template-rows: auto 24px;
+}
+.spotify-connect-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-left: -28px;
+  margin-right: -28px;
+  width: calc(100% + 56px);
+  height: 24px;
+  background-color: var(--playback-signal, var(--primary, #e11d48));
+  color: var(--vault-white, #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  user-select: none;
+  cursor: default;
+  box-sizing: border-box;
+}
+.spotify-connect-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.spotify-connect-bar-content span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spotify-connect-bar-icon {
+  width: 1em;
+  height: 1em;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.spotify-connect-bar-actions {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+}
+.spotify-connect-bar-takeover {
+  border: 1px solid color-mix(in srgb, var(--vault-white, #ffffff) 45%, transparent);
+  border-radius: 999px;
+  padding: 1px 9px;
+  background: color-mix(in srgb, var(--vault-white, #ffffff) 18%, transparent);
+  color: var(--vault-white, #ffffff);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.spotify-connect-bar-takeover:hover {
+  background: color-mix(in srgb, var(--vault-white, #ffffff) 32%, transparent);
+  border-color: var(--vault-white, #ffffff);
+}
 .web-mini-player .player-progress-range {
   height: 4px;
 }
@@ -2419,6 +2485,16 @@ body {
     grid-template-columns: minmax(220px, 1fr) auto;
     grid-template-rows: auto auto;
     padding: 14px 22px;
+  }
+  /* Connect bar is its own bottom strip below the two content rows. */
+  .web-mini-player.has-connect-bar {
+    grid-template-rows: auto auto 24px;
+  }
+  .spotify-connect-bar {
+    grid-row: 3;
+    margin-left: -22px;
+    margin-right: -22px;
+    width: calc(100% + 44px);
   }
   .web-mini-transport {
     grid-column: 1 / -1;
@@ -2454,6 +2530,17 @@ body {
     grid-column: 1 / -1;
     grid-row: 3;
     justify-content: center;
+  }
+  /* Connect bar is its own bottom strip below the three content rows. */
+  .web-mini-player.has-connect-bar {
+    grid-template-rows: auto auto auto 24px;
+  }
+  .spotify-connect-bar {
+    grid-row: 4;
+    margin-left: -12px;
+    margin-right: -12px;
+    width: calc(100% + 24px);
+    padding: 0 16px;
   }
   .web-mini-tools .player-quality-control,
   .web-mini-tools .player-sleep-control {
@@ -5121,6 +5208,11 @@ body {
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+/* The generic dialog-header span rule colors labels with the accent. Tabs
+   must inherit their button state so active labels stay visible on red. */
+.lyrics-share-dialog-header .audio-share-tab > span {
   color: inherit;
 }
 .audio-share-tabpanel {

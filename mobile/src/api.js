@@ -1,4 +1,5 @@
 import { createApiUnreachableError } from "./utils/playback-errors";
+import { normalizeHolderSession } from "./utils/exclusive-session";
 import * as SecureStore from "expo-secure-store";
 
 const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
@@ -42,7 +43,11 @@ export async function createPlaybackSessionSource(mediaId, quality = "high") {
   const storedViewerId = await getViewerId();
   const data = await apiJson(`/api/media/${Number(mediaId)}/playback-session`, {
     method: "POST",
-    headers: storedViewerId ? { "X-Viewer-ID": storedViewerId } : {},
+    headers: {
+      ...(storedViewerId ? { "X-Viewer-ID": storedViewerId } : {}),
+      "X-Client-Platform": "mobile",
+      "X-Client-Name": "Dogmedia Mobile",
+    },
     body: JSON.stringify({ quality }),
   });
   if (!data?.streamUrl || !data?.sessionId) {
@@ -83,6 +88,19 @@ export async function releasePlaybackLease(source) {
       "X-Viewer-ID": source.viewerId,
     },
   }).catch(() => {});
+}
+
+export async function getPlaybackLease() {
+  const data = await apiJson("/api/playback/lease");
+  return {
+    state: data?.state === "owned" ? "owned" : data?.state === "busy" ? "busy" : "available",
+    expiresIn: Number.isInteger(data?.expiresIn) ? data.expiresIn : 0,
+    activeSession: normalizeHolderSession(data?.activeSession),
+  };
+}
+
+export function forceReleasePlaybackLease() {
+  return apiJson("/api/playback/lease/admin", { method: "DELETE" });
 }
 
 export async function api(path, options = {}) {

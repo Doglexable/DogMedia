@@ -43,12 +43,9 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
 
   useEffect(() => {
     if (!menu) return undefined;
-    const close = () => setMenu(null);
-    const closeOnEscape = (event) => { if (event.key === "Escape") close(); };
-    window.addEventListener("click", close);
+    const closeOnEscape = (event) => { if (event.key === "Escape") setMenu(null); };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
-      window.removeEventListener("click", close);
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [menu]);
@@ -78,7 +75,7 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
 
   return (
     <article
-      className={`media-track${isActive ? " media-track--active" : ""}`}
+      className={`media-track${isActive ? " media-track--active" : ""}${menu ? " media-track--menu-open" : ""}`}
       onContextMenu={(event) => {
         event.preventDefault();
         openMenuAt(event.clientX, event.clientY);
@@ -133,21 +130,27 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
       </span>
 
       {menu && createPortal(
-        <div
-          className="media-track-menu"
-          role="menu"
-          onContextMenu={(event) => event.preventDefault()}
-          onClick={(event) => event.stopPropagation()}
-          style={{ left: menu.x, top: menu.y }}
-        >
-          <button type="button" role="menuitem" onClick={playNext}>Play next</button>
-          <button type="button" role="menuitem" onClick={addToQueue}>Add to queue</button>
-          {isAudio && (
-            <button type="button" role="menuitem" onClick={toggleFavorite}>
-              {isLiked ? "Remove from favorites" : "Add to favorites"}
-            </button>
-          )}
-        </div>,
+        <>
+          <div
+            className="media-track-menu-backdrop"
+            aria-hidden="true"
+            onClick={() => setMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setMenu(null);
+            }}
+          />
+          <div
+            className="media-track-menu"
+            role="menu"
+            onContextMenu={(event) => event.preventDefault()}
+            onClick={(event) => event.stopPropagation()}
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <button type="button" role="menuitem" onClick={playNext}>Play next</button>
+            <button type="button" role="menuitem" onClick={addToQueue}>Add to queue</button>
+          </div>
+        </>,
         document.body,
       )}
     </article>

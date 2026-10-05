@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_REACHABILITY_TIMEOUT_MS, assertApiReachable, createPlaybackSessionSource } from "./api.js";
+import {
+  API_REACHABILITY_TIMEOUT_MS,
+  assertApiReachable,
+  createPlaybackSessionSource,
+  forceReleasePlaybackLease,
+  getPlaybackLease,
+} from "./api.js";
 
 vi.mock("expo-secure-store", () => ({
   getItemAsync: vi.fn().mockResolvedValue(null),
@@ -62,5 +68,54 @@ describe("protected playback", () => {
       viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
       leaseRequired: true,
     });
+  });
+
+  it("identifies the mobile client when creating a session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      streamUrl: "/api/media/9/stream?quality=med",
+      sessionId: "opaque-session",
+      viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
+      leaseRequired: true,
+    }), { headers: { "Content-Type": "application/json" }, status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPlaybackSessionSource(9, "med");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/media/9/playback-session"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Client-Platform": "mobile",
+          "X-Client-Name": "Dogmedia Mobile",
+        }),
+      }),
+    );
+  });
+
+  it("reads the observable owner snapshot and performs explicit takeover", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        state: "busy",
+        expiresIn: 18,
+        activeSession: {
+          platform: "web",
+          deviceLabel: "Dogmedia Web",
+          mediaId: 9,
+          playback: { mediaId: 9, action: "pause", position: 44, duration: 180 },
+        },
+      }), { headers: { "Content-Type": "application/json" }, status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, released: true }), {
+        headers: { "Content-Type": "application/json" }, status: 200,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPlaybackLease()).resolves.toMatchObject({
+      state: "busy",
+      activeSession: { playback: { mediaId: 9, action: "pause", position: 44 } },
+    });
+    await expect(forceReleasePlaybackLease()).resolves.toEqual({ ok: true, released: true });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("/api/playback/lease/admin"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 });

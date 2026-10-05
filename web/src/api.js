@@ -29,6 +29,8 @@ export function categoryThumbnailUrl(categoryOrId) {
   return apiUrl(`/api/categories/${categoryId}/thumbnail${query}`);
 }
 
+import { normalizeHolderSession } from "./components/global-player/exclusive-session";
+
 export function api(path, options = {}) {
   return fetch(apiUrl(path), { ...options, credentials: "include" });
 }
@@ -36,7 +38,11 @@ export function api(path, options = {}) {
 export async function createPlaybackSession(mediaId, quality = "high", { signal } = {}) {
   const response = await api(`/api/media/${Number(mediaId)}/playback-session`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Platform": "web",
+      "X-Client-Name": "Dogmedia Web",
+    },
     body: JSON.stringify({ quality }),
     signal,
   });
@@ -45,6 +51,7 @@ export async function createPlaybackSession(mediaId, quality = "high", { signal 
     const error = new Error(data?.error || "Could not create a protected playback session");
     error.code = data?.code;
     error.retryAfter = data?.retryAfter;
+    error.activeSession = normalizeHolderSession(data?.activeSession);
     throw error;
   }
   return data;
@@ -60,6 +67,7 @@ export async function heartbeatPlaybackLease(sessionId) {
     const error = new Error(data?.error || "Playback lease could not be renewed");
     error.code = data?.code;
     error.retryAfter = data?.retryAfter;
+    error.activeSession = normalizeHolderSession(data?.activeSession);
     throw error;
   }
   return data;
@@ -72,6 +80,24 @@ export async function releasePlaybackLease(sessionId) {
     headers: { "X-Playback-Session": sessionId },
     keepalive: true,
   }).catch(() => {});
+}
+
+export async function getPlaybackLease() {
+  const response = await api("/api/playback/lease");
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || "Could not read playback session");
+  return {
+    state: data?.state === "owned" ? "owned" : data?.state === "busy" ? "busy" : "available",
+    expiresIn: Number.isInteger(data?.expiresIn) ? data.expiresIn : 0,
+    activeSession: normalizeHolderSession(data?.activeSession),
+  };
+}
+
+export async function forceReleasePlaybackLease() {
+  const response = await api("/api/playback/lease/admin", { method: "DELETE" });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.error || "Could not move playback to this device");
+  return data;
 }
 
 export async function readJsonArray(response, fallbackMessage = "Request failed") {

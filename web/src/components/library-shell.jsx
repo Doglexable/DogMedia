@@ -10,7 +10,9 @@ import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
 import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { faHouse } from "@fortawesome/free-solid-svg-icons/faHouse";
+import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faNetworkWired } from "@fortawesome/free-solid-svg-icons/faNetworkWired";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
@@ -40,7 +42,7 @@ function SidebarLink({ active, children, icon, leading, onClick, onContextMenu, 
   );
 }
 
-function CategoryContextMenu({ category, menu, onAddToQueue, onClose }) {
+function CategoryContextMenu({ category, menu, onAddToQueue, onClose, onPlay }) {
   useEffect(() => {
     if (!menu) return undefined;
     const closeOnEscape = (event) => { if (event.key === "Escape") onClose(); };
@@ -66,8 +68,13 @@ function CategoryContextMenu({ category, menu, onAddToQueue, onClose }) {
       <div className="global-sidebar-context-title" title={category.path || category.name}>
         {category.name}
       </div>
+      <button type="button" role="menuitem" onClick={() => onPlay(category)}>
+        <FontAwesomeIcon icon={faPlay} />
+        Play {category.name}
+      </button>
       <button type="button" role="menuitem" onClick={() => onAddToQueue(category)}>
-        Add folder to queue
+        <FontAwesomeIcon icon={faList} />
+        Queue {category.name}
       </button>
     </div>,
     document.body
@@ -105,10 +112,14 @@ export function CategoryIcon({ category }) {
 
 export function CategorySidebarItem({ active, category, close, onOpenMenu }) {
   const paddingLeft = 12 + Math.min(Number(category.depth) || 0, 4) * 14;
+  const canQueue = Number(category.media_count) > 0;
   return (
     <div
       className="global-sidebar-category-row"
-      onContextMenu={(event) => onOpenMenu(event, category)}
+      onContextMenu={(event) => {
+        if (canQueue) onOpenMenu(event, category);
+        else event.preventDefault();
+      }}
     >
       <SidebarLink
         to={`/?category=${category.id}`}
@@ -119,15 +130,17 @@ export function CategorySidebarItem({ active, category, close, onOpenMenu }) {
       >
         {category.name}
       </SidebarLink>
-      <button
-        type="button"
-        className="global-sidebar-category-actions"
-        aria-label={`Open actions for ${category.name}`}
-        aria-haspopup="menu"
-        onClick={(event) => onOpenMenu(event, category, true)}
-      >
-        <FontAwesomeIcon icon={faEllipsis} />
-      </button>
+      {canQueue && (
+        <button
+          type="button"
+          className="global-sidebar-category-actions"
+          aria-label={`Open actions for ${category.name}`}
+          aria-haspopup="menu"
+          onClick={(event) => onOpenMenu(event, category, true)}
+        >
+          <FontAwesomeIcon icon={faEllipsis} />
+        </button>
+      )}
     </div>
   );
 }
@@ -241,7 +254,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
     setCategoryMenu({
       category,
       x: Math.max(8, Math.min(rawX, window.innerWidth - 210)),
-      y: Math.max(8, Math.min(rawY, window.innerHeight - 112)),
+      y: Math.max(8, Math.min(rawY, window.innerHeight - 156)),
     });
   };
 
@@ -259,6 +272,26 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         return data;
       })
       .catch((error) => setQueueNotice(error.message || "Could not add folder to queue."));
+  };
+
+  const playCategory = (category) => {
+    closeCategoryMenu();
+    api(`/api/queue/auto/${Number(category.id)}?compact=1`, { method: "POST" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not play folder");
+        const mediaId = Number(data?.currentMediaId);
+        if (!Number.isFinite(mediaId) || mediaId < 1) {
+          throw new Error("No playable media in this folder");
+        }
+        window.dispatchEvent(new CustomEvent("queue-changed", { detail: data }));
+        window.dispatchEvent(new CustomEvent("play-folder-media", {
+          detail: { mediaId, categoryId: Number(category.id) },
+        }));
+        setQueueNotice(`Playing “${category.name}”.`);
+        return data;
+      })
+      .catch((error) => setQueueNotice(error.message || "Could not play folder."));
   };
 
   const loadWrappedAccess = useCallback(() => {
@@ -439,6 +472,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         menu={categoryMenu}
         onAddToQueue={addCategoryToQueue}
         onClose={closeCategoryMenu}
+        onPlay={playCategory}
       />
       {queueNotice && <div className="global-sidebar-queue-notice" role="status">{queueNotice}</div>}
     </>
