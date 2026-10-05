@@ -26,7 +26,9 @@ use crate::{
 
 #[allow(unused_imports)]
 pub(crate) use kit::{
-    Artwork, Button, Chip, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName,
+    Artwork, Button, Chip, Dialog, DialogAction, DialogBackdrop, DialogBody, DialogClose,
+    DialogContent, DialogContext, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    DialogTrigger, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName,
     Input, MediaListSkeleton, MusicProgress, Notice, Popover, PopoverAlign, PopoverContent,
     PopoverContext, PopoverDescription, PopoverSide, PopoverTitle, PopoverTrigger, Select,
     Skeleton, Slider, SliderVariant, StatusBadge, ThemeToggle, VolumeSlider,
@@ -2080,6 +2082,40 @@ mod tests {
                         span { "Item 2" }
                     }
                 }
+            }
+        };
+    }
+
+    #[test]
+    fn dialog_components_render_correctly() {
+        use super::kit::{
+            Dialog, DialogAction, DialogBackdrop, DialogBody, DialogClose, DialogContent,
+            DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+        };
+
+        let _ = rsx! {
+            Dialog {
+                DialogTrigger { label: "Open Dialog".to_string() }
+                DialogContent {
+                    DialogHeader {
+                        DialogTitle { "Dialog Title" }
+                        DialogDescription { "Dialog Description" }
+                    }
+                    DialogBody {
+                        p { "Dialog Body Content" }
+                    }
+                    DialogFooter {
+                        DialogClose { label: "Cancel".to_string() }
+                        DialogAction { label: "Confirm".to_string() }
+                    }
+                }
+            }
+        };
+
+        let _ = rsx! {
+            DialogBackdrop {
+                close_on_backdrop_click: true,
+                div { "Backdrop Content" }
             }
         };
     }

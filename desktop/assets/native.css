@@ -2013,7 +2013,20 @@ select:focus-visible {
 .queue-empty,
 .queue-empty-upcoming { padding: 18px 12px; color: var(--text-tertiary); font-size: 12px; text-align: center; }
 
+/* Dialog (rust-ui pattern) */
+.dialog-root { display: contents; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .72); }
+.dialog-content { position: relative; width: min(540px, 100%); max-width: calc(100% - 2rem); max-height: 85vh; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-elevated); box-shadow: 0 28px 90px rgba(0, 0, 0, .55); padding: 24px; display: flex; flex-direction: column; gap: 16px; outline: none; }
+.dialog-content.settings-dialog { padding: 0; gap: 0; }
+.dialog-close-btn { position: absolute; top: 16px; right: 16px; z-index: 10; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--text-tertiary); cursor: pointer; transition: all .15s ease; }
+.dialog-close-btn:hover { background: var(--hover); color: var(--text); }
+.dialog-close-btn .ui-icon { width: 16px; height: 16px; }
+.dialog-header { display: flex; flex-direction: column; gap: 6px; }
+.dialog-title { margin: 0; font-size: 18px; font-weight: 650; color: var(--text); line-height: 1.3; }
+.dialog-description { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.45; }
+.dialog-body { display: flex; flex-direction: column; gap: 16px; }
+.dialog-footer { display: flex; flex-direction: row; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.dialog-trigger { cursor: pointer; }
 .settings-dialog { width: min(540px, 100%); overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-elevated); box-shadow: 0 28px 90px rgba(0, 0, 0, .55); }
 .settings-content { display: grid; gap: 18px; padding: 20px; }
 .field { display: grid; gap: 7px; color: var(--text-secondary); font-size: 12px; }

@@ -887,3 +887,365 @@ pub fn DraggableItem(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Dialog (rust-ui pattern)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+pub struct DialogContext {
+    pub open: Signal<bool>,
+}
+
+#[component]
+pub fn Dialog(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let internal_open = use_signal(|| false);
+    let open_sig = open.unwrap_or(internal_open);
+    provide_context(DialogContext { open: open_sig });
+
+    let is_open = *open_sig.read();
+    let base_class = "dialog-root";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        div {
+            "data-name": "Dialog",
+            "data-state": if is_open { "open" } else { "closed" },
+            class: "{merged}",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DialogTrigger(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] label: Option<String>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = false)] disabled: bool,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(default)] children: Element,
+) -> Element {
+    let ctx = try_consume_context::<DialogContext>();
+    let effective_open = open.or_else(|| ctx.map(|c| c.open));
+    let is_open = effective_open.map(|s| *s.read()).unwrap_or(false);
+
+    let base_class = "dialog-trigger inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 cursor-pointer";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        button {
+            "data-name": "DialogTrigger",
+            r#type: "button",
+            class: "{merged}",
+            disabled,
+            tabindex: if disabled { "-1" } else { "0" },
+            "aria-expanded": "{is_open}",
+            "aria-haspopup": "dialog",
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                if let Some(mut s) = effective_open {
+                    s.set(true);
+                }
+                if let Some(h) = &onclick {
+                    h.call(event);
+                }
+            },
+            if let Some(ref lbl) = label {
+                span { class: "button-label", "{lbl}" }
+            }
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DialogBackdrop(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = true)] close_on_backdrop_click: bool,
+    #[props(optional)] onclose: Option<EventHandler<()>>,
+    #[props(default)] children: Element,
+) -> Element {
+    let ctx = try_consume_context::<DialogContext>();
+    let effective_open = open.or_else(|| ctx.map(|c| c.open));
+
+    let base_class = "dialog-backdrop";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        div {
+            "data-name": "DialogBackdrop",
+            class: "{merged}",
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                if close_on_backdrop_click {
+                    if let Some(mut s) = effective_open {
+                        s.set(false);
+                    }
+                    if let Some(h) = &onclose {
+                        h.call(());
+                    }
+                }
+            },
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DialogContent(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = true)] show_close_button: bool,
+    #[props(default = true)] close_on_backdrop_click: bool,
+    #[props(default = true)] close_on_escape: bool,
+    #[props(optional)] onclose: Option<EventHandler<()>>,
+    children: Element,
+) -> Element {
+    let ctx = try_consume_context::<DialogContext>();
+    let effective_open = open.or_else(|| ctx.map(|c| c.open));
+    let is_open = effective_open.map(|s| *s.read()).unwrap_or(true);
+
+    if !is_open {
+        return rsx! {};
+    }
+
+    let base_class = "dialog-content relative bg-background border rounded-2xl shadow-lg p-6 w-full max-w-[calc(100%-2rem)] max-h-[85vh]";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        DialogBackdrop {
+            open: effective_open,
+            close_on_backdrop_click,
+            onclose,
+            div {
+                "data-name": "DialogContent",
+                class: "{merged}",
+                role: "dialog",
+                "aria-modal": "true",
+                tabindex: "0",
+                autofocus: true,
+                onclick: move |event: MouseEvent| event.stop_propagation(),
+                onkeydown: {
+                    let open_sig = effective_open;
+                    move |event: KeyboardEvent| {
+                        if event.key() == Key::Escape {
+                            event.stop_propagation();
+                            if close_on_escape {
+                                if let Some(mut s) = open_sig {
+                                    s.set(false);
+                                }
+                                if let Some(h) = &onclose {
+                                    h.call(());
+                                }
+                            }
+                        }
+                    }
+                },
+                if show_close_button {
+                    button {
+                        r#type: "button",
+                        class: "dialog-close-btn",
+                        "aria-label": "Close dialog",
+                        tabindex: "0",
+                        onclick: {
+                            let open_sig = effective_open;
+                            move |event: MouseEvent| {
+                                event.stop_propagation();
+                                if let Some(mut s) = open_sig {
+                                    s.set(false);
+                                }
+                                if let Some(h) = &onclose {
+                                    h.call(());
+                                }
+                            }
+                        },
+                        Icon { name: IconName::Close }
+                    }
+                }
+                {children}
+            }
+        }
+    }
+}
+
+#[component]
+pub fn DialogHeader(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] children: Element,
+) -> Element {
+    let base_class = "dialog-header flex flex-col gap-2 text-center sm:text-left";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        header { "data-name": "DialogHeader", class: "{merged}", {children} }
+    }
+}
+
+#[component]
+pub fn DialogTitle(
+    #[props(into, optional)] id: Option<String>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] children: Element,
+) -> Element {
+    let base_class = "dialog-title text-lg leading-none font-semibold";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        h3 {
+            "data-name": "DialogTitle",
+            id: id.as_deref(),
+            class: "{merged}",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DialogDescription(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] children: Element,
+) -> Element {
+    let base_class = "dialog-description text-muted-foreground text-sm";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        p { "data-name": "DialogDescription", class: "{merged}", {children} }
+    }
+}
+
+#[component]
+pub fn DialogBody(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] children: Element,
+) -> Element {
+    let base_class = "dialog-body flex flex-col gap-4";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        div { "data-name": "DialogBody", class: "{merged}", {children} }
+    }
+}
+
+#[component]
+pub fn DialogFooter(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] children: Element,
+) -> Element {
+    let base_class = "dialog-footer flex flex-col-reverse gap-2 sm:flex-row sm:justify-end";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+    rsx! {
+        footer { "data-name": "DialogFooter", class: "{merged}", {children} }
+    }
+}
+
+#[component]
+pub fn DialogClose(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] label: Option<String>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = false)] disabled: bool,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(default)] children: Element,
+) -> Element {
+    let ctx = try_consume_context::<DialogContext>();
+    let effective_open = open.or_else(|| ctx.map(|c| c.open));
+
+    let base_class = "dialog-close button secondary inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 cursor-pointer";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        button {
+            "data-name": "DialogClose",
+            r#type: "button",
+            class: "{merged}",
+            disabled,
+            aria_label: label.as_deref().unwrap_or("Close dialog"),
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                if let Some(mut s) = effective_open {
+                    s.set(false);
+                }
+                if let Some(h) = &onclick {
+                    h.call(event);
+                }
+            },
+            if let Some(ref lbl) = label {
+                span { class: "button-label", "{lbl}" }
+            }
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn DialogAction(
+    #[props(into, optional)] open: Option<Signal<bool>>,
+    #[props(into, optional)] label: Option<String>,
+    #[props(into, optional)] class: Option<String>,
+    #[props(default = false)] disabled: bool,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(default)] children: Element,
+) -> Element {
+    let ctx = try_consume_context::<DialogContext>();
+    let effective_open = open.or_else(|| ctx.map(|c| c.open));
+
+    let base_class = "dialog-action button primary inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 h-9 px-4 py-2 cursor-pointer";
+    let merged = match &class {
+        Some(c) if !c.is_empty() => format!("{base_class} {c}"),
+        _ => base_class.to_string(),
+    };
+
+    rsx! {
+        button {
+            "data-name": "DialogAction",
+            r#type: "button",
+            class: "{merged}",
+            disabled,
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                if let Some(mut s) = effective_open {
+                    s.set(false);
+                }
+                if let Some(h) = &onclick {
+                    h.call(event);
+                }
+            },
+            if let Some(ref lbl) = label {
+                span { class: "button-label", "{lbl}" }
+            }
+            {children}
+        }
+    }
+}
