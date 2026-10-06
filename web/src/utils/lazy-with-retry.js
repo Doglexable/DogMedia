@@ -2,6 +2,12 @@ import { lazy } from "react";
 
 export const CHUNK_RELOAD_KEY = "pfs:chunk-reloaded";
 
+function currentBundleId() {
+  return typeof document !== "undefined"
+    ? document.querySelector('script[type="module"][src]')?.src || "unknown-bundle"
+    : "unknown-bundle";
+}
+
 export function isChunkLoadError(error) {
   const message = typeof error?.message === "string" ? error.message : String(error || "");
   const name = typeof error?.name === "string" ? error.name : "";
@@ -14,21 +20,28 @@ export function isChunkLoadError(error) {
   );
 }
 
-/**
- * Executes a dynamic import with automatic page reload when encountering stale chunk 404s.
- */
-export async function retryDynamicImport(importer) {
-  const hasReloaded = typeof window !== "undefined" && Boolean(window.sessionStorage?.getItem(CHUNK_RELOAD_KEY));
+export function reloadForChunkError(error) {
+  if (!isChunkLoadError(error) || typeof window === "undefined") return false;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   try {
-    const module = await importer();
-    if (typeof window !== "undefined") {
-      window.sessionStorage?.removeItem(CHUNK_RELOAD_KEY);
-    }
-    return module;
+    const bundleId = currentBundleId();
+    const storage = window.sessionStorage;
+    if (!storage || storage.getItem(CHUNK_RELOAD_KEY) === bundleId) return false;
+    storage.setItem(CHUNK_RELOAD_KEY, bundleId);
+    window.location.reload();
+    return true;
+  } catch {
+    // Without a durable marker, reloading could loop forever.
+    return false;
+  }
+}
+
+/** Reload at most once for a stale bundle; never reload for an offline chunk. */
+export async function retryDynamicImport(importer) {
+  try {
+    return await importer();
   } catch (error) {
-    if (isChunkLoadError(error) && !hasReloaded && typeof window !== "undefined") {
-      window.sessionStorage?.setItem(CHUNK_RELOAD_KEY, "true");
-      window.location.reload();
+    if (reloadForChunkError(error)) {
       // Return a promise that never settles so React stays suspended while reloading
       return new Promise(() => {});
     }

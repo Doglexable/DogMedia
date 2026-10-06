@@ -441,6 +441,34 @@ Stop and report instead of improvising if:
 
 ## Maintenance notes
 
+### Review of the isolated execution attempt (2026-10-05)
+
+An uncommitted implementation is preserved at `/tmp/pfs-041-U6KqO7/repo`.
+It passed the full JavaScript test suite, JavaScript lint, Web build, Cargo
+format, full Cargo tests, and Cargo clippy after restoring local dependencies.
+It is **not approved**. Before merging or marking this plan DONE, a separate
+executor must address these review findings and rerun the gates:
+
+- Mobile `PlayerProvider` registers `onLease` but not `onError` in its socket
+  service (`mobile/src/context/player-context.jsx`). On admin force release,
+  the server emits `PLAYBACK_LEASE_LOST` followed by `lease.state: available`.
+  Mobile currently clears conflict text without stopping its active player.
+  Handle revocation by pausing audio/video, clearing the protected source,
+  and preventing further owner reports. Add a regression test for this exact
+  event sequence.
+- Prove background audio behavior on Android and iOS, or retain an explicitly
+  exclusive HTTP renewal fallback when the background socket/JS runtime is
+  suspended. A foreground-only AppState handler does not prove lease renewal
+  during background audio.
+- Add tests for observer renewal exclusion, disconnect/TTL availability,
+  reconnect fallback exclusivity, and desktop reconnect/task shutdown. The
+  current tests cover protocol and some takeover cases but not all done
+  criteria above.
+- A clean desktop checkout cannot compile because
+  `desktop/vendor/dioxus-native/src/contexts.rs` exists locally but is ignored
+  by `.gitignore` pattern `*context*.*`. This is pre-existing and outside this
+  plan's scope; resolve it separately before claiming a reproducible build.
+
 - HTTP heartbeat/status routes are intentionally retained for compatibility.
   Remove them only after deployed-client version telemetry shows no legacy use.
 - The in-memory hub is correct only for the current single Fastify process. A

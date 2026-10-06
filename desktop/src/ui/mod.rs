@@ -453,24 +453,37 @@ fn App() -> Element {
                                 }
                             }
                             SocketEvent::Lease { revision, state, expires_in, holder } => {
-                                if app.read().socket_last_revision.is_some_and(|last| revision < last) { continue; }
+                                let stale = {
+                                    let snapshot = app.read();
+                                    snapshot.socket_last_revision.is_some_and(|last| revision < last)
+                                };
+                                if stale { continue; }
                                 app.write().socket_last_revision = Some(revision);
                                 if state == "busy" {
-                                    if app.read().session.is_some()
+                                    let (has_session, was_unavailable, current_media) = {
+                                        let snapshot = app.read();
+                                        let playback = snapshot.coordinator.snapshot();
+                                        (snapshot.session.is_some(), playback.session_unavailable, playback.media.clone())
+                                    };
+                                    if has_session
                                         && let Some(engine) = engine.read().as_ref() { let _ = engine.pause(); }
-                                    let same_media = app.read().coordinator.snapshot().session_unavailable
-                                        && app.read().coordinator.snapshot().media.as_ref().map(|m| m.id)
-                                            == holder.as_ref().and_then(|h| h.media_id);
+                                    let same_media = was_unavailable
+                                        && current_media.as_ref().map(|media| media.id)
+                                            == holder.as_ref().and_then(|value| value.media_id);
                                     if same_media {
-                                        let media = app.read().coordinator.snapshot().media.clone();
-                                        if let (Some(media), Some(holder)) = (media, holder.clone()) {
+                                        if let (Some(media), Some(holder)) = (current_media, holder.clone()) {
                                             app.write().coordinator.observe_remote(media, holder, Some(expires_in));
                                         }
                                     } else {
                                         apply_remote_holder(app, &client, holder, Some(expires_in), "Playback is active elsewhere").await;
                                     }
                                 } else if state == "available" {
-                                    app.write().coordinator.remote_available();
+                                    // Keep the observer player mounted until an in-flight
+                                    // takeover has acquired a new session or failed.
+                                    let takeover_pending = app.read().session_takeover_pending;
+                                    if !takeover_pending {
+                                        app.write().coordinator.remote_available();
+                                    }
                                 }
                             }
                         }
@@ -493,7 +506,8 @@ fn App() -> Element {
             // (EXCLUSIVE_PLAYBACK_LEASE_SECONDS): worst-case takeover
             // detection ~5s with ~5 missed beats of network tolerance.
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            if !app.read().socket_ready {
+            let socket_ready = app.read().socket_ready;
+            if !socket_ready {
                 heartbeat(app, engine);
             }
         }
@@ -565,7 +579,8 @@ fn begin_browse(mut app: Signal<NativeApp>) {
                 }
             }
             Err(error) => {
-                if app.write().library.fail(generation) {
+                let failed = app.write().library.fail(generation);
+                if failed {
                     app.write().status = Some(error.user_message());
                 }
             }
@@ -586,15 +601,16 @@ fn load_dashboard(mut app: Signal<NativeApp>) {
     app.write().dashboard = DashboardSummary::default();
     let generation = app.read().dashboard_generation;
     spawn(async move {
-        if let Ok(summary) = client.dashboard(&query).await
-            && app.read().dashboard_generation == generation
-        {
-            let featured = summary
-                .featured_id
-                .and_then(|id| summary.media.iter().find(|media| media.id == id).cloned());
-            app.write().dashboard = summary;
-            if let Some(media) = featured {
-                ensure_artwork(app, media);
+        if let Ok(summary) = client.dashboard(&query).await {
+            let is_current = app.read().dashboard_generation == generation;
+            if is_current {
+                let featured = summary
+                    .featured_id
+                    .and_then(|id| summary.media.iter().find(|media| media.id == id).cloned());
+                app.write().dashboard = summary;
+                if let Some(media) = featured {
+                    ensure_artwork(app, media);
+                }
             }
         }
     });
@@ -719,7 +735,8 @@ fn load_more(mut app: Signal<NativeApp>) {
                 app.write().library.apply_page(generation, page, true);
             }
             Err(error) => {
-                if app.write().library.fail(generation) {
+                let failed = app.write().library.fail(generation);
+                if failed {
                     app.write().status = Some(error.user_message());
                 }
             }
@@ -733,7 +750,7 @@ fn play_media(
     media: Media,
     auto_queue: bool,
 ) {
-    play_media_at(app, engine, media, auto_queue, None, true);
+    play_media_at(app, engine, media, auto_queue, None, true, false);
 }
 
 fn play_media_at(
@@ -743,13 +760,21 @@ fn play_media_at(
     auto_queue: bool,
     resume_at: Option<f64>,
     autoplay: bool,
+    takeover: bool,
 ) {
     ensure_artwork(app, media.clone());
     if media.is_photo() {
+        if takeover {
+            app.write().session_takeover_pending = false;
+        }
         play_photo(app, engine, media, auto_queue);
         return;
     }
-    let Some(client) = app.read().client.clone() else {
+    let client = app.read().client.clone();
+    let Some(client) = client else {
+        if takeover {
+            app.write().session_takeover_pending = false;
+        }
         return;
     };
     let previous_session = app.write().session.take();
@@ -854,11 +879,18 @@ fn play_media_at(
                     app.write().coordinator.failed(sequence, &message);
                 }
                 app.write().status = Some(message);
+                if takeover {
+                    app.write().session_takeover_pending = false;
+                }
                 return;
             }
         };
-        if app.read().coordinator.snapshot().sequence != sequence {
+        let superseded = app.read().coordinator.snapshot().sequence != sequence;
+        if superseded {
             let _ = client.release(&session).await;
+            if takeover {
+                app.write().session_takeover_pending = false;
+            }
             return;
         }
         let started = engine.read().as_ref().map(|engine| {
@@ -884,6 +916,10 @@ fn play_media_at(
                 } else {
                     app.write().coordinator.loaded_paused(sequence, resume);
                 }
+                if takeover {
+                    app.write().session_takeover_pending = false;
+                }
+                let socket_primary = app.read().socket_ready;
                 send_report(
                     &client,
                     &media,
@@ -893,7 +929,7 @@ fn play_media_at(
                     Some(&session),
                     ReportDelivery {
                         record_event: true,
-                        socket_primary: app.read().socket_ready,
+                        socket_primary,
                     },
                 )
                 .await;
@@ -902,6 +938,9 @@ fn play_media_at(
                 let message = error.to_string();
                 app.write().coordinator.failed(sequence, &message);
                 app.write().status = Some(message);
+                if takeover {
+                    app.write().session_takeover_pending = false;
+                }
                 let _ = client.release(&session).await;
             }
             None => {
@@ -909,6 +948,9 @@ fn play_media_at(
                     .coordinator
                     .failed(sequence, "GStreamer playback is unavailable");
                 app.write().status = Some("GStreamer playback is unavailable.".to_owned());
+                if takeover {
+                    app.write().session_takeover_pending = false;
+                }
                 let _ = client.release(&session).await;
             }
         }
@@ -966,13 +1008,15 @@ fn play_photo(
             let _ = client.release(&session).await;
         }
         match client.photo(media.id).await {
-            Ok(bytes) if app.read().coordinator.snapshot().sequence == sequence => {
-                let mime = media.mime_type.as_deref().unwrap_or("image/jpeg");
-                let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-                app.write().photo_data_url = Some(format!("data:{mime};base64,{encoded}"));
-                app.write().coordinator.loaded(sequence, 0.0);
+            Ok(bytes) => {
+                let current = app.read().coordinator.snapshot().sequence == sequence;
+                if current {
+                    let mime = media.mime_type.as_deref().unwrap_or("image/jpeg");
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+                    app.write().photo_data_url = Some(format!("data:{mime};base64,{encoded}"));
+                    app.write().coordinator.loaded(sequence, 0.0);
+                }
             }
-            Ok(_) => {}
             Err(error) => {
                 app.write()
                     .coordinator
@@ -1016,7 +1060,15 @@ fn change_quality(
         }
     }
     if let Some(media) = media {
-        play_media_at(app, engine, media, false, Some(position), was_playing);
+        play_media_at(
+            app,
+            engine,
+            media,
+            false,
+            Some(position),
+            was_playing,
+            false,
+        );
     }
 }
 
@@ -1164,7 +1216,8 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
         return;
     };
     let session = app.read().session.clone();
-    if session.is_none() && app.read().coordinator.snapshot().session_unavailable {
+    let observing_remote = app.read().coordinator.snapshot().session_unavailable;
+    if session.is_none() && observing_remote {
         spawn(async move {
             if let Ok(status) = client.playback_lease().await
                 && status.state == "busy"
@@ -1296,6 +1349,7 @@ fn set_playback_playing(
         }
         let position = app.read().coordinator.snapshot().position;
         let duration = app.read().coordinator.snapshot().duration;
+        let socket_primary = app.read().socket_ready;
         spawn(async move {
             send_report(
                 &client,
@@ -1306,7 +1360,7 @@ fn set_playback_playing(
                 session.as_ref(),
                 ReportDelivery {
                     record_event: true,
-                    socket_primary: app.read().socket_ready,
+                    socket_primary,
                 },
             )
             .await;
@@ -1328,11 +1382,12 @@ fn take_over_playback(mut app: Signal<NativeApp>, engine: Signal<Option<Playback
     app.write().session_takeover_pending = true;
     app.write().status = None;
 
-    spawn(async move {
+    // Releasing the lease pushes "available" before this request completes. That
+    // can unmount PlayerBar, so the takeover task must outlive its button.
+    dioxus_core::spawn_forever(async move {
         match client.force_release_playback_lease().await {
             Ok(()) => {
-                app.write().session_takeover_pending = false;
-                play_media_at(app, engine, media, false, Some(position), true);
+                play_media_at(app, engine, media, false, Some(position), true, true);
             }
             Err(error) => {
                 app.write().session_takeover_pending = false;
@@ -1621,7 +1676,7 @@ fn navigate_queue(
         && repeat == RepeatMode::One
         && let Some(media) = current_media
     {
-        play_media_at(app, engine, media, false, Some(0.0), true);
+        play_media_at(app, engine, media, false, Some(0.0), true, false);
         return;
     }
 
@@ -1837,14 +1892,14 @@ fn set_media_favorite(mut app: Signal<NativeApp>, media: Media, liked: bool) {
     let Some(client) = app.read().client.clone() else {
         return;
     };
-    if app
+    let is_current_media = app
         .read()
         .coordinator
         .snapshot()
         .media
         .as_ref()
-        .is_some_and(|current| current.id == media.id)
-    {
+        .is_some_and(|current| current.id == media.id);
+    if is_current_media {
         app.write().coordinator.set_liked(liked);
     }
     if let Some(item) = app
@@ -1863,7 +1918,7 @@ fn set_media_favorite(mut app: Signal<NativeApp>, media: Media, liked: bool) {
     });
 }
 
-fn load_extras(mut app: Signal<NativeApp>, media_id: MediaId) {
+fn load_extras(app: Signal<NativeApp>, media_id: MediaId) {
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1883,18 +1938,28 @@ fn load_extras(mut app: Signal<NativeApp>, media_id: MediaId) {
             })
             .unwrap_or_default();
         let subtitles = client.subtitles(media_id).await.unwrap_or_default();
-        if app
-            .read()
-            .coordinator
-            .snapshot()
-            .media
-            .as_ref()
-            .is_some_and(|media| media.id == media_id)
-        {
-            app.write().lyrics = lyrics;
-            app.write().subtitles = subtitles;
-        }
+        apply_extras_if_current(app, media_id, lyrics, subtitles);
     });
+}
+
+fn apply_extras_if_current(
+    mut app: Signal<NativeApp>,
+    media_id: MediaId,
+    lyrics: String,
+    subtitles: Vec<SubtitleTrack>,
+) {
+    let still_current = app
+        .read()
+        .coordinator
+        .snapshot()
+        .media
+        .as_ref()
+        .is_some_and(|media| media.id == media_id);
+    if still_current {
+        let mut state = app.write();
+        state.lyrics = lyrics;
+        state.subtitles = subtitles;
+    }
 }
 
 fn change_subtitle(
@@ -1944,10 +2009,12 @@ fn change_subtitle(
                     app.write().subtitle_cues = cues;
                 }
             }
-            Err(error) if app.read().selected_subtitle == Some(index) => {
-                app.write().status = Some(error.user_message());
+            Err(error) => {
+                let still_selected = app.read().selected_subtitle == Some(index);
+                if still_selected {
+                    app.write().status = Some(error.user_message());
+                }
             }
-            Err(_) => {}
         }
     });
 }
@@ -2102,7 +2169,9 @@ fn save_settings(mut app: Signal<NativeApp>) {
         }
         Ok(_) => {
             let url_changed = candidate.server_url != previous_url;
-            if !url_changed && is_connected && app.read().client.is_some() {
+            let current_client_is_connected =
+                !url_changed && is_connected && app.read().client.is_some();
+            if current_client_is_connected {
                 let _ = app.read().store.save(&candidate);
                 app.write().settings = candidate;
                 app.write().settings_error = None;
@@ -2317,6 +2386,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn extras_update_releases_signal_read_before_writing() {
+        fn harness() -> Element {
+            let app = use_signal(|| {
+                let mut state = NativeApp::boot();
+                let media: Media = serde_json::from_value(serde_json::json!({ "id": 7 })).unwrap();
+                state.coordinator.load(media);
+                state
+            });
+            use_hook(move || {
+                apply_extras_if_current(app, MediaId::new(7), "line".to_owned(), vec![]);
+                assert_eq!(app.read().lyrics, "line");
+                apply_extras_if_current(app, MediaId::new(8), "stale".to_owned(), vec![]);
+                assert_eq!(app.read().lyrics, "line");
+            });
+            rsx! {}
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+    }
+
+    #[test]
     fn native_duration_is_clamped_and_zero_padded() {
         assert_eq!(format_duration(Some(65.9)), "1:05");
         assert_eq!(format_duration(Some(-2.0)), "0:00");
@@ -2459,10 +2551,12 @@ mod tests {
 
         assert_eq!(SliderVariant::Round.as_str(), "Round");
         assert_eq!(SliderVariant::Flat.as_str(), "Flat");
-        assert_eq!(slider_value_at(0, 0.0, 240.0, 0.1), 0.0);
-        assert_eq!(slider_value_at(50, 0.0, 240.0, 0.1), 120.0);
-        assert_eq!(slider_value_at(100, 0.0, 240.0, 0.1), 240.0);
-        assert_eq!(slider_value_at(75, 0.0, 100.0, 1.0), 75.0);
+        assert_eq!(slider_value_at(0, 100, 0.0, 240.0, 0.1), 0.0);
+        assert_eq!(slider_value_at(50, 100, 0.0, 240.0, 0.1), 120.0);
+        assert_eq!(slider_value_at(100, 100, 0.0, 240.0, 0.1), 240.0);
+        assert_eq!(slider_value_at(75, 100, 0.0, 100.0, 1.0), 75.0);
+        assert_eq!(slider_value_at(20, 40, 0.0, 100.0, 1.0), 50.0);
+        assert_eq!(slider_value_at(40, 40, 0.0, 100.0, 1.0), 100.0);
 
         let _ = rsx! {
             Progress { value: 50.0, max: 100.0 }

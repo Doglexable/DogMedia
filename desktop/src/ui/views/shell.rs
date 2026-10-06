@@ -21,79 +21,68 @@ pub(crate) fn Shell(
     let has_media = snapshot.coordinator.snapshot().media.is_some();
     let playback = snapshot.coordinator.snapshot();
 
-    let on_shell_keydown = move |event: KeyboardEvent| match event.key() {
-        Key::Escape => {
-            let mut app_w = app.write();
-            if app_w.quality_popover_open {
-                app_w.quality_popover_open = false;
-            } else if app_w.settings_open && app_w.settings.configured && !app_w.settings_connecting
-            {
-                app_w.settings_open = false;
-                app_w.settings_error = None;
-            } else if app_w.queue_open {
-                app_w.queue_open = false;
-            } else if app_w.player_expanded {
-                app_w.player_expanded = false;
+    let on_shell_keydown = move |event: KeyboardEvent| {
+        let player_expanded = app.read().player_expanded;
+        match event.key() {
+            Key::Escape => {
+                let mut app_w = app.write();
+                if app_w.quality_popover_open {
+                    app_w.quality_popover_open = false;
+                } else if app_w.settings_open
+                    && app_w.settings.configured
+                    && !app_w.settings_connecting
+                {
+                    app_w.settings_open = false;
+                    app_w.settings_error = None;
+                } else if app_w.queue_open {
+                    app_w.queue_open = false;
+                } else if app_w.player_expanded {
+                    app_w.player_expanded = false;
+                }
             }
+            Key::Character(ref ch)
+                if (ch == " " || ch == "k" || ch == "K") && has_media && !player_expanded =>
+            {
+                toggle_playback(app, engine);
+            }
+            Key::ArrowLeft if has_media && !player_expanded => {
+                skip_seconds(app, engine, -10.0);
+            }
+            Key::ArrowRight if has_media && !player_expanded => {
+                skip_seconds(app, engine, 10.0);
+            }
+            Key::Character(ref ch) if (ch == "j" || ch == "J") && has_media && !player_expanded => {
+                skip_seconds(app, engine, -10.0);
+            }
+            Key::Character(ref ch) if (ch == "l" || ch == "L") && has_media && !player_expanded => {
+                skip_seconds(app, engine, 10.0);
+            }
+            Key::ArrowUp if has_media && !player_expanded => {
+                let vol = app.read().settings.volume.get();
+                set_volume(app, engine, (vol + 0.1).min(1.0));
+            }
+            Key::ArrowDown if has_media && !player_expanded => {
+                let vol = app.read().settings.volume.get();
+                set_volume(app, engine, (vol - 0.1).max(0.0));
+            }
+            Key::Character(ref ch) if (ch == "m" || ch == "M") && has_media && !player_expanded => {
+                toggle_mute(app, engine);
+            }
+            Key::Character(ref ch) if (ch == "n" || ch == "N") && has_media && !player_expanded => {
+                navigate_queue(app, engine, true, false);
+            }
+            Key::Character(ref ch) if (ch == "p" || ch == "P") && has_media && !player_expanded => {
+                navigate_queue(app, engine, false, false);
+            }
+            Key::Character(ref ch) if (ch == "q" || ch == "Q") && has_media && !player_expanded => {
+                let open = app.read().queue_open;
+                app.write().queue_open = !open;
+            }
+            Key::Character(ref ch) if (ch == "f" || ch == "F") && has_media && !player_expanded => {
+                app.write().player_expanded = true;
+            }
+            _ => {}
         }
-        Key::Character(ref ch)
-            if (ch == " " || ch == "k" || ch == "K")
-                && has_media
-                && !app.read().player_expanded =>
-        {
-            toggle_playback(app, engine);
-        }
-        Key::ArrowLeft if has_media && !app.read().player_expanded => {
-            skip_seconds(app, engine, -10.0);
-        }
-        Key::ArrowRight if has_media && !app.read().player_expanded => {
-            skip_seconds(app, engine, 10.0);
-        }
-        Key::Character(ref ch)
-            if (ch == "j" || ch == "J") && has_media && !app.read().player_expanded =>
-        {
-            skip_seconds(app, engine, -10.0);
-        }
-        Key::Character(ref ch)
-            if (ch == "l" || ch == "L") && has_media && !app.read().player_expanded =>
-        {
-            skip_seconds(app, engine, 10.0);
-        }
-        Key::ArrowUp if has_media && !app.read().player_expanded => {
-            let vol = app.read().settings.volume.get();
-            set_volume(app, engine, (vol + 0.1).min(1.0));
-        }
-        Key::ArrowDown if has_media && !app.read().player_expanded => {
-            let vol = app.read().settings.volume.get();
-            set_volume(app, engine, (vol - 0.1).max(0.0));
-        }
-        Key::Character(ref ch)
-            if (ch == "m" || ch == "M") && has_media && !app.read().player_expanded =>
-        {
-            toggle_mute(app, engine);
-        }
-        Key::Character(ref ch)
-            if (ch == "n" || ch == "N") && has_media && !app.read().player_expanded =>
-        {
-            navigate_queue(app, engine, true, false);
-        }
-        Key::Character(ref ch)
-            if (ch == "p" || ch == "P") && has_media && !app.read().player_expanded =>
-        {
-            navigate_queue(app, engine, false, false);
-        }
-        Key::Character(ref ch)
-            if (ch == "q" || ch == "Q") && has_media && !app.read().player_expanded =>
-        {
-            let open = app.read().queue_open;
-            app.write().queue_open = !open;
-        }
-        Key::Character(ref ch)
-            if (ch == "f" || ch == "F") && has_media && !app.read().player_expanded =>
-        {
-            app.write().player_expanded = true;
-        }
-        _ => {}
     };
 
     rsx! {
@@ -131,9 +120,12 @@ pub(crate) fn Shell(
                             onkeydown: move |event: KeyboardEvent| {
                                 if event.key() == Key::Enter {
                                     begin_browse(app);
-                                } else if event.key() == Key::Escape && !app.read().search.is_empty() {
-                                    app.write().search.clear();
-                                    begin_browse(app);
+                                } else if event.key() == Key::Escape {
+                                    let has_search = !app.read().search.is_empty();
+                                    if has_search {
+                                        app.write().search.clear();
+                                        begin_browse(app);
+                                    }
                                 }
                             }
                         }

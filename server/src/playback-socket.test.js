@@ -132,10 +132,14 @@ describe("protected playback socket route", () => {
       await vi.waitFor(() => expect(observer.events.at(-1)?.activeSession?.playback?.position).toBe(12));
       owner.socket.send(JSON.stringify(state(0)));
       await vi.waitFor(() => expect(owner.events.some((event) => event.code === "PLAYBACK_NOT_OWNER")).toBe(true));
+      const previousRevision = owner.events.filter((event) => event.type === "lease.state").at(-1).revision;
       store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId: "n".repeat(32), clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
       await app.playbackSocketHub.notify();
-      await vi.waitFor(() => expect(owner.events.at(-1)?.state).toBe("busy"));
+      await vi.waitFor(() => expect(owner.events.at(-1)).toMatchObject({ state: "owned", revision: previousRevision + 1 }));
       expect(owner.events.some((event) => event.code === "PLAYBACK_LEASE_LOST")).toBe(true);
+      // A revoked old session must not make the same viewer's new lease look remote.
+      owner.socket.send(JSON.stringify(state(2)));
+      await vi.waitFor(() => expect(owner.events.filter((event) => event.code === "PLAYBACK_NOT_OWNER").length).toBe(2));
       const release = await app.inject({ method: "DELETE", url: "/api/playback/lease/admin" });
       expect(release.statusCode).toBe(200);
       expect(release.json().released).toBe(true);

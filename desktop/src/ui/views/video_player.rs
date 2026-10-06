@@ -150,11 +150,15 @@ pub(crate) fn VideoPlayer(
                 && !quality_open
                 && elapsed >= std::time::Duration::from_millis(2500)
             {
-                if *show_hud.read() {
+                let hud_visible = *show_hud.read();
+                if hud_visible {
                     *show_hud.write() = false;
                 }
-            } else if !*show_hud.read() {
-                *show_hud.write() = true;
+            } else {
+                let hud_visible = *show_hud.read();
+                if !hud_visible {
+                    *show_hud.write() = true;
+                }
             }
         }
     });
@@ -167,7 +171,8 @@ pub(crate) fn VideoPlayer(
         *toast_gen.write() = next_gen;
         spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
-            if *toast_gen.read() == next_gen {
+            let is_current = *toast_gen.read() == next_gen;
+            if is_current {
                 *toast.write() = None;
             }
         });
@@ -206,7 +211,8 @@ pub(crate) fn VideoPlayer(
         let mut last_activity = last_activity;
         let mut show_hud = show_hud;
         *last_activity.write() = std::time::Instant::now();
-        if !*show_hud.read() {
+        let hud_visible = *show_hud.read();
+        if !hud_visible {
             *show_hud.write() = true;
         }
     };

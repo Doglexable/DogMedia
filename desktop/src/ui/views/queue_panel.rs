@@ -173,14 +173,16 @@ pub(crate) fn QueuePanel(
                                                         }
                                                     },
                                                     ondragleave: move |_| {
-                                                        if *drag_over_id.read() == Some(item_id) {
+                                                        let is_drag_over = *drag_over_id.read() == Some(item_id);
+                                                        if is_drag_over {
                                                             drag_over_id.set(None);
                                                         }
                                                     },
                                                     ondrop: {
                                                         let reorder = reorder.clone();
                                                         move |_| {
-                                                            if let Some(from) = *dragging_id.read() {
+                                                            let from = *dragging_id.read();
+                                                            if let Some(from) = from {
                                                                 reorder(from, item_id);
                                                             }
                                                             dragging_id.set(None);

@@ -4,24 +4,17 @@ import "@fontsource-variable/inter";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { isChunkLoadError, CHUNK_RELOAD_KEY } from "./utils/lazy-with-retry";
+import { AppErrorBoundary } from "./components/app-error-boundary";
+import { isChunkLoadError, reloadForChunkError } from "./utils/lazy-with-retry";
 
 // Catch stale chunk errors emitted by Vite when a new deployment replaces hashed chunks
 window.addEventListener("vite:preloadError", (event) => {
-  event?.preventDefault?.();
-  if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-    sessionStorage.setItem(CHUNK_RELOAD_KEY, "true");
-    window.location.reload();
-  }
+  if (reloadForChunkError(event.payload)) event?.preventDefault?.();
 });
 
 window.addEventListener("unhandledrejection", (event) => {
   if (isChunkLoadError(event.reason)) {
-    event?.preventDefault?.();
-    if (!sessionStorage.getItem(CHUNK_RELOAD_KEY)) {
-      sessionStorage.setItem(CHUNK_RELOAD_KEY, "true");
-      window.location.reload();
-    }
+    if (reloadForChunkError(event.reason)) event?.preventDefault?.();
   }
 });
 
@@ -33,6 +26,8 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
-    <App />
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
   </StrictMode>
 );

@@ -58,7 +58,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
     const sameDevice = lease && lease.viewerId === entry.identity.viewerId && lease.clientIp === entry.identity.clientIp;
     const currentOwner = sameDevice
       && (!entry.boundSessionId || entry.boundSessionId === lease.sessionId)
-      && (!entry.revokedSessionId || entry.revokedSessionId === lease.sessionId);
+      && entry.revokedSessionId !== lease.sessionId;
     return {
       type: "lease.state", version: VERSION, revision,
       state: !lease ? "available" : currentOwner ? "owned" : "busy",

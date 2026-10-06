@@ -110,6 +110,8 @@ export function GlobalPlayerProvider({ children }) {
   const playbackSessionIdRef = useRef(null);
   const playbackSocketRef = useRef(null);
   const leaseHandlerRef = useRef(null);
+  const leaseEventIdRef = useRef(0);
+  const takeoverPendingRef = useRef(false);
   const [socketStatus, setSocketStatus] = useState("connecting");
   const leaseStaleRef = useRef(false);
   const resumeSeqRef = useRef(0);
@@ -228,6 +230,7 @@ export function GlobalPlayerProvider({ children }) {
 
     createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
       .then((session) => {
+        takeoverPendingRef.current = false;
         playbackSessionIdRef.current = session.sessionId;
         playbackSocketRef.current?.bind(session.sessionId);
         setPlaybackConflict(null);
@@ -235,6 +238,7 @@ export function GlobalPlayerProvider({ children }) {
       })
       .catch((error) => {
         if (error.name !== "AbortError") {
+          takeoverPendingRef.current = false;
           setShouldAutoPlay(false);
           setPaused(true);
           const conflict = conflictFromError(error);
@@ -490,10 +494,22 @@ export function GlobalPlayerProvider({ children }) {
   }, [playWithFreshLease]);
 
   leaseHandlerRef.current = async (message) => {
+    const eventId = ++leaseEventIdRef.current;
+    if (takeoverPendingRef.current) return;
     if (message.state === "available") {
       if (playbackSessionIdRef.current) leaseStaleRef.current = true;
+      // An observer must not reacquire the lease just because its owner left.
+      if (observingExclusiveSession) setCurrentMedia(null);
       setObservingExclusiveSession(false);
       setPlaybackConflict(null);
+      return;
+    }
+    if (message.state === "owned") {
+      if (observingExclusiveSession && !playbackSessionIdRef.current) {
+        setCurrentMedia(null);
+        setObservingExclusiveSession(false);
+        setPlaybackConflict(null);
+      }
       return;
     }
     if (message.state !== "busy" || !message.activeSession) return;
@@ -510,7 +526,9 @@ export function GlobalPlayerProvider({ children }) {
       try {
         const response = await api(`/api/media/${mediaId}`);
         const mediaItem = await readMediaItem(response);
-        resetForMedia(mediaItem, { autoplay: false, observing: true, startPosition: snapshot?.position || 0 });
+        if (eventId === leaseEventIdRef.current) {
+          resetForMedia(mediaItem, { autoplay: false, observing: true, startPosition: snapshot?.position || 0 });
+        }
       } catch {}
     } else if (snapshot) {
       setPosition(snapshot.position);
@@ -619,7 +637,7 @@ export function GlobalPlayerProvider({ children }) {
     let stopped = false;
     getPlaybackLease()
       .then((status) => {
-        if (stopped) return;
+        if (stopped || takeoverPendingRef.current) return;
         if (status.state === "busy" && status.activeSession) {
           setPlaybackConflict({
             holder: status.activeSession,
@@ -643,7 +661,12 @@ export function GlobalPlayerProvider({ children }) {
       try {
         const status = await getPlaybackLease();
         if (stopped) return;
+        if (takeoverPendingRef.current) {
+          timer = window.setTimeout(sync, 5_000);
+          return;
+        }
         if (status.state !== "busy" || !status.activeSession) {
+          setCurrentMedia(null);
           setObservingExclusiveSession(false);
           setPlaybackConflict(null);
           setPlaybackAccessError("");
@@ -679,12 +702,18 @@ export function GlobalPlayerProvider({ children }) {
   }, [observingExclusiveSession, resetForMedia, socketStatus]);
 
   const takeOverExclusiveSession = useCallback(async () => {
-    if (tier < 100 || !observingExclusiveSession) return;
-    await forceReleasePlaybackLease();
-    setPlaybackConflict(null);
-    setPlaybackAccessError("");
-    setObservingExclusiveSession(false);
-    setShouldAutoPlay(true);
+    if (tier < 100 || !observingExclusiveSession || takeoverPendingRef.current) return;
+    takeoverPendingRef.current = true;
+    try {
+      await forceReleasePlaybackLease();
+      setPlaybackConflict(null);
+      setPlaybackAccessError("");
+      setObservingExclusiveSession(false);
+      setShouldAutoPlay(true);
+    } catch (error) {
+      setPlaybackAccessError(error.message);
+      takeoverPendingRef.current = false;
+    }
   }, [observingExclusiveSession, tier]);
 
   useEffect(() => {

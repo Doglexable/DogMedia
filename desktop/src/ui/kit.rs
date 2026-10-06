@@ -484,9 +484,16 @@ impl SliderVariant {
     }
 }
 
-pub(super) fn slider_value_at(index: usize, min: f64, max: f64, step: f64) -> f64 {
+pub(super) fn slider_value_at(
+    index: usize,
+    divisions: usize,
+    min: f64,
+    max: f64,
+    step: f64,
+) -> f64 {
     let range = (max - min).max(f64::EPSILON);
-    let raw = min + range * (index.min(100) as f64 / 100.0);
+    let divisions = divisions.max(1);
+    let raw = min + range * (index.min(divisions) as f64 / divisions as f64);
     let value = if step > 0.0 {
         min + ((raw - min) / step).round() * step
     } else {
@@ -503,6 +510,7 @@ pub fn Slider(
     #[props(default = 100.0)] max: f64,
     #[props(default = 1.0)] step: f64,
     #[props(default = 50.0)] value: f64,
+    #[props(default = 100)] hit_divisions: usize,
     #[props(optional)] disabled: bool,
     #[props(into, optional)] aria_label: Option<String>,
     #[props(optional)] onchange: Option<EventHandler<f64>>,
@@ -526,7 +534,7 @@ pub fn Slider(
             return;
         }
         if let Some(handler) = &onchange {
-            handler.call(slider_value_at(index, min, max, step));
+            handler.call(slider_value_at(index, hit_divisions, min, max, step));
         }
     };
 
@@ -560,7 +568,7 @@ pub fn Slider(
             div {
                 class: "slider-hit-area",
                 onmouseleave: move |_| dragging.set(false),
-                for index in 0..=100usize {
+                for index in 0..=hit_divisions {
                     span {
                         class: "slider-hit-zone",
                         onmousedown: move |event: MouseEvent| {
@@ -653,6 +661,7 @@ pub fn VolumeSlider(
             min: 0.0,
             max: 100.0,
             step: 1.0,
+            hit_divisions: 40,
             value: slider_value(),
             aria_label: "Volume",
             onchange: move |next: f64| {

@@ -2,6 +2,7 @@ import { useEffect, useState, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { api } from "./api";
 import { AccessContext } from "./access-context";
+import { ConnectionError } from "./components/app-error-boundary";
 import { lazyWithRetry } from "./utils/lazy-with-retry";
 import { APP_VERSION_LABEL } from "./version";
 
@@ -22,7 +23,7 @@ function AccessGuard({ children }) {
       .then((data) =>
         setStatus({ ok: true, tier: data.tier, description: data.description, firstRun: data.firstRun, clientIp: data.ip })
       )
-      .catch(() => setStatus({ ok: false }));
+      .catch((error) => setStatus({ ok: false, offline: error instanceof TypeError || navigator.onLine === false }));
   }, []);
 
   if (status === "loading") return (
@@ -36,6 +37,7 @@ function AccessGuard({ children }) {
       </div>
     </div>
   );
+  if (status.offline) return <ConnectionError offline />;
   if (!status.ok) return (
     <Suspense fallback={null}>
       <AccessDenied />

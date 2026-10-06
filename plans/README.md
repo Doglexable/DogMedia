@@ -48,7 +48,7 @@ done.
 | [037](037-bind-compose-ports-to-localhost.md) | Bind Compose database and cache ports to localhost with Redis authentication | P1 | S | — | DONE |
 | [039](039-exclusive-playback-holder-contract.md) | Make exclusive playback conflicts identify the active client safely | P1 | M | — | DONE |
 | [040](040-exclusive-session-ui-all-clients.md) | Show the exclusive session holder consistently on web, desktop, and mobile | P1 | L | 039 | DONE |
-| [041](041-realtime-playback-websocket.md) | Push exclusive playback ownership and position over WebSocket | P1 | L | 039, 040 | BLOCKED — WebSocket dependencies unavailable locally; npm/Cargo registries unreachable |
+| [041](041-realtime-playback-websocket.md) | Push exclusive playback ownership and position over WebSocket | P1 | L | 039, 040 | BLOCKED — isolated implementation needs revision: mobile force-release does not stop playback; executor limit reached |
 | [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | TODO |
 | [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | TODO |
 | [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS and package as .dmg from Linux | P3 | M | 043 | TODO |
