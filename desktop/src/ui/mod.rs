@@ -3,6 +3,7 @@ mod video_surface;
 mod views;
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,9 +18,10 @@ use crate::{
     },
     app::{AccessView, AppState},
     domain::{
-        BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, Media,
-        MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality, QueueItem, QueueOrder,
-        QueueWindow, SessionHolder, SubtitleTrack, Volume,
+        BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, LocalKind,
+        LocalTrack, Media, MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality,
+        QueueItem, QueueOrder, QueueWindow, SessionHolder, SubtitleTrack, Volume,
+        scan_local_folder,
     },
     integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
@@ -142,6 +144,11 @@ pub(crate) struct NativeApp {
     category_id: Option<CategoryId>,
     favorites_only: bool,
     queue: Option<QueueWindow>,
+    local_tracks: Vec<LocalTrack>,
+    local_index: Option<usize>,
+    local_mode: bool,
+    local_scan_generation: u64,
+    engine_signal: Option<Signal<Option<PlaybackEngine>>>,
     coordinator: PlaybackCoordinator,
     session: Option<PlaybackSession>,
     socket_sender: Option<mpsc::Sender<SocketCommand>>,
@@ -212,6 +219,11 @@ impl NativeApp {
             category_id: None,
             favorites_only: false,
             queue: None,
+            local_tracks: Vec::new(),
+            local_index: None,
+            local_mode: false,
+            local_scan_generation: 0,
+            engine_signal: None,
             coordinator,
             session: None,
             socket_sender: None,
@@ -372,12 +384,16 @@ fn App() -> Element {
     });
     let video_source_id = dioxus_native::use_wgpu(move || VideoPaintSource::new(frames.clone()));
     use_hook(move || {
+        app.write().engine_signal = Some(engine);
         if engine.read().is_none() {
             app.write().status = Some(
                 "GStreamer playback is unavailable. Photos and browsing still work.".to_owned(),
             );
         }
         connect(app);
+        if matches!(app.read().library.access, AccessView::Unreachable(_)) {
+            auto_open_local_folder(app);
+        }
     });
     use_drop(move || {
         if let Some(engine) = engine.read().as_ref() {
@@ -421,7 +437,11 @@ fn App() -> Element {
     });
     use_future(move || async move {
         loop {
-            let client = app.read().client.clone();
+            let client = if app.read().local_mode {
+                None
+            } else {
+                app.read().client.clone()
+            };
             let Some(client) = client else {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 continue;
@@ -435,6 +455,7 @@ fn App() -> Element {
                 tokio::select! {
                     event = event_rx.recv() => {
                         let Some(event) = event else { break; };
+                        if app.read().local_mode { break; }
                         match event {
                             SocketEvent::Ready => {
                                 let mut state = app.write();
@@ -446,10 +467,15 @@ fn App() -> Element {
                             SocketEvent::Disconnected => {
                                 app.write().socket_ready = false;
                             }
-                            SocketEvent::Error(code) => {
+                            SocketEvent::Error { code, session_id } => {
                                 if code == "PLAYBACK_LEASE_LOST" {
-                                    if let Some(engine) = engine.read().as_ref() { let _ = engine.pause(); }
-                                    app.write().socket_ready = true;
+                                    let stale = session_id.as_deref().is_some_and(|revoked| {
+                                        app.read().session.as_ref().map(|current| current.session_id.as_str()) != Some(revoked)
+                                    });
+                                    if !stale {
+                                        if let Some(engine) = engine.read().as_ref() { let _ = engine.stop(); }
+                                        app.write().socket_ready = true;
+                                    }
                                 }
                             }
                             SocketEvent::Lease { revision, state, expires_in, holder } => {
@@ -466,16 +492,17 @@ fn App() -> Element {
                                         (snapshot.session.is_some(), playback.session_unavailable, playback.media.clone())
                                     };
                                     if has_session
-                                        && let Some(engine) = engine.read().as_ref() { let _ = engine.pause(); }
+                                        && let Some(engine) = engine.read().as_ref() { let _ = engine.stop(); }
                                     let same_media = was_unavailable
                                         && current_media.as_ref().map(|media| media.id)
                                             == holder.as_ref().and_then(|value| value.media_id);
                                     if same_media {
                                         if let (Some(media), Some(holder)) = (current_media, holder.clone()) {
+                                            ensure_artwork(app, media.clone());
                                             app.write().coordinator.observe_remote(media, holder, Some(expires_in));
                                         }
                                     } else {
-                                        apply_remote_holder(app, &client, holder, Some(expires_in), "Playback is active elsewhere").await;
+                                        apply_remote_holder(app, engine, &client, holder, Some(expires_in), "Playback is active elsewhere").await;
                                     }
                                 } else if state == "available" {
                                     // Keep the observer player mounted until an in-flight
@@ -489,7 +516,7 @@ fn App() -> Element {
                         }
                     }
                     () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                        if app.read().client.as_ref().map(|value| value.base_url().to_string()) != Some(server.clone()) { break; }
+                        if app.read().local_mode || app.read().client.as_ref().map(|value| value.base_url().to_string()) != Some(server.clone()) { break; }
                     }
                 }
             }
@@ -525,6 +552,7 @@ fn connect(mut app: Signal<NativeApp>) {
     spawn(async move {
         match client.check_access().await {
             Ok(status) => {
+                exit_local_mode(app);
                 app.write().access_tier = status.tier;
                 app.write().library.access = AccessView::Ready;
                 app.write().settings_connecting = false;
@@ -552,9 +580,45 @@ fn connect(mut app: Signal<NativeApp>) {
                 app.write().library.access = AccessView::Unreachable(user_msg);
                 app.write().settings_connecting = false;
                 app.write().status = None;
+                auto_open_local_folder(app);
             }
         }
     });
+}
+
+fn auto_open_local_folder(app: Signal<NativeApp>) {
+    let snapshot = app.read();
+    if snapshot.local_mode {
+        return;
+    }
+    let path = snapshot.settings.local_folder.clone();
+    let engine = snapshot.engine_signal;
+    drop(snapshot);
+    if let (Some(path), Some(engine)) = (path, engine) {
+        open_local_folder(app, engine, path);
+    }
+}
+
+fn exit_local_mode(mut app: Signal<NativeApp>) {
+    let engine = app.read().engine_signal;
+    {
+        let mut state = app.write();
+        state.local_scan_generation += 1;
+        if !state.local_mode {
+            return;
+        }
+        state.local_mode = false;
+        state.local_tracks.clear();
+        state.local_index = None;
+        state.queue = None;
+        state.queue_open = false;
+        state.coordinator.stop();
+    }
+    if let Some(engine) = engine
+        && let Some(player) = engine.read().as_ref()
+    {
+        let _ = player.stop();
+    }
 }
 
 fn refresh(mut app: Signal<NativeApp>) {
@@ -562,7 +626,198 @@ fn refresh(mut app: Signal<NativeApp>) {
     connect(app);
 }
 
+pub(crate) fn pick_local_folder(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    spawn(async move {
+        let path = tokio::task::spawn_blocking(|| rfd::FileDialog::new().pick_folder())
+            .await
+            .ok()
+            .flatten();
+        if let Some(path) = path {
+            open_local_folder(app, engine, path);
+        }
+    });
+}
+
+fn open_local_folder(
+    mut app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    path: PathBuf,
+) {
+    let generation = {
+        let mut state = app.write();
+        state.local_scan_generation += 1;
+        state.local_scan_generation
+    };
+    spawn(async move {
+        let scan_path = path.clone();
+        let result = tokio::task::spawn_blocking(move || scan_local_folder(&scan_path)).await;
+        if app.read().local_scan_generation != generation
+            || !matches!(app.read().library.access, AccessView::Unreachable(_))
+        {
+            return;
+        }
+        let tracks = match result {
+            Ok(Ok(tracks)) if !tracks.is_empty() => tracks,
+            Ok(Ok(_)) => {
+                app.write().status =
+                    Some("This folder contains no supported audio or video files.".to_owned());
+                return;
+            }
+            Ok(Err(error)) => {
+                app.write().status = Some(format!("Cannot open local folder: {error}"));
+                return;
+            }
+            Err(error) => {
+                app.write().status = Some(format!("Folder scan failed: {error}"));
+                return;
+            }
+        };
+        if let Some(player) = engine.read().as_ref() {
+            let _ = player.stop();
+        }
+        {
+            let mut state = app.write();
+            state.local_tracks = tracks;
+            state.local_index = None;
+            state.local_mode = true;
+            state.settings_open = false;
+            state.session = None;
+            state.queue = None;
+            state.artwork = ArtworkCache::default();
+            state.settings.local_folder = Some(path);
+            state.status = None;
+            state.lyrics.clear();
+            state.subtitles.clear();
+            state.photo_data_url = None;
+            if let Err(error) = state.store.save(&state.settings) {
+                state.status = Some(error.to_string());
+            }
+        }
+        play_local_at(app, engine, 0);
+    });
+}
+
+fn local_media(track: &LocalTrack, index: usize) -> Media {
+    Media {
+        id: MediaId::new(index as i64 + 1),
+        title: Some(track.title.clone()),
+        artists: None,
+        description: None,
+        duration: track.duration,
+        mime_type: Some(
+            match track.kind {
+                LocalKind::Audio => "audio/mpeg",
+                LocalKind::Video => "video/mp4",
+            }
+            .to_owned(),
+        ),
+        category_id: None,
+        category_name: track
+            .path
+            .parent()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned()),
+        category_path: None,
+        artwork_version: None,
+        liked: false,
+        source_version: None,
+        created_at: None,
+    }
+}
+
+fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, index: usize) {
+    let track = {
+        let state = app.read();
+        if !state.local_mode {
+            return;
+        }
+        let Some(track) = state.local_tracks.get(index).cloned() else {
+            return;
+        };
+        track
+    };
+    let Some(url) = url::Url::from_file_path(&track.path).ok() else {
+        app.write().status = Some("Cannot create a file URL for this track.".to_owned());
+        return;
+    };
+    let media = local_media(&track, index);
+    {
+        let mut state = app.write();
+        state.local_index = Some(index);
+        state.coordinator.load(media);
+        state.queue = Some(QueueWindow {
+            items: Vec::new(),
+            offset: 0,
+            total: state.local_tracks.len(),
+            current_index: index,
+            current_media_id: Some(MediaId::new(index as i64 + 1)),
+            has_previous: index > 0,
+            has_next: index + 1 < state.local_tracks.len(),
+            revision: 0,
+        });
+        state.player_expanded = track.kind == LocalKind::Video;
+    }
+    let sequence = app.read().coordinator.snapshot().sequence;
+    let volume = app.read().settings.volume;
+    let result = engine
+        .read()
+        .as_ref()
+        .ok_or_else(|| "GStreamer playback is unavailable".to_owned())
+        .and_then(|player| {
+            player
+                .open_local(&url)
+                .and_then(|_| player.play())
+                .map_err(|error| error.to_string())?;
+            player.set_volume(volume);
+            Ok(())
+        });
+    match result {
+        Ok(()) => {
+            app.write().coordinator.loaded(sequence, 0.0);
+        }
+        Err(error) => {
+            app.write().coordinator.failed(sequence, &error);
+            app.write().status = Some(format!("Local playback failed: {error}"));
+        }
+    }
+}
+
+fn navigate_local(
+    app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    forward: bool,
+    from_eos: bool,
+) {
+    let state = app.read();
+    let Some(index) = state.local_index else {
+        return;
+    };
+    let len = state.local_tracks.len();
+    let repeat = state.coordinator.snapshot().repeat;
+    let position = state.coordinator.snapshot().position;
+    drop(state);
+    if !forward && !from_eos && position > 3.0 {
+        seek(app, engine, 0.0);
+        return;
+    }
+    let next = if from_eos && repeat == RepeatMode::One {
+        index
+    } else if forward && index + 1 < len {
+        index + 1
+    } else if !forward && index > 0 {
+        index - 1
+    } else if repeat == RepeatMode::Queue && len > 0 {
+        if forward { 0 } else { len - 1 }
+    } else {
+        return;
+    };
+    play_local_at(app, engine, next);
+}
+
 fn begin_browse(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -589,6 +844,9 @@ fn begin_browse(mut app: Signal<NativeApp>) {
 }
 
 fn load_dashboard(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -631,6 +889,9 @@ fn featured_media(app: &NativeApp) -> Option<Media> {
 }
 
 fn artwork_url(app: &NativeApp, media: &Media) -> Option<String> {
+    if app.local_mode {
+        return None;
+    }
     match app.artwork.get(media) {
         Some(ArtworkState::Ready(value)) => Some(value.clone()),
         _ => None,
@@ -645,6 +906,9 @@ fn category_artwork_url(app: &NativeApp, category: &Category) -> Option<String> 
 }
 
 fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
+    if app.read().local_mode {
+        return;
+    }
     if category.cover_path.is_none() {
         return;
     }
@@ -672,6 +936,9 @@ fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
 }
 
 fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -723,6 +990,9 @@ fn artwork_mime(bytes: &[u8]) -> &'static str {
 }
 
 fn load_more(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some((generation, query)) = app.write().library.next_page() else {
         return;
     };
@@ -762,6 +1032,9 @@ fn play_media_at(
     autoplay: bool,
     takeover: bool,
 ) {
+    if app.read().local_mode {
+        return;
+    }
     ensure_artwork(app, media.clone());
     if media.is_photo() {
         if takeover {
@@ -868,6 +1141,7 @@ fn play_media_at(
                 if error.is_playback_session_unavailable() {
                     apply_remote_holder(
                         app,
+                        engine,
                         &client,
                         error.holder(),
                         error.retry_after(),
@@ -963,6 +1237,9 @@ fn play_photo(
     media: Media,
     auto_queue: bool,
 ) {
+    if app.read().local_mode {
+        return;
+    }
     ensure_artwork(app, media.clone());
     let Some(client) = app.read().client.clone() else {
         return;
@@ -1032,6 +1309,9 @@ fn change_quality(
     engine: Signal<Option<PlaybackEngine>>,
     quality: Quality,
 ) {
+    if app.read().local_mode {
+        return;
+    }
     if app.read().coordinator.snapshot().session_unavailable {
         return;
     }
@@ -1076,7 +1356,10 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     let app_read = app.read();
     let snapshot = app_read.coordinator.snapshot().clone();
     drop(app_read);
-    if snapshot.media.is_none() || snapshot.status == PlaybackStatus::Ended {
+    if snapshot.session_unavailable
+        || snapshot.media.is_none()
+        || snapshot.status == PlaybackStatus::Ended
+    {
         return;
     }
     if snapshot.status == PlaybackStatus::Loading {
@@ -1134,10 +1417,24 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         let duration = effective_duration.unwrap_or(position);
         app.write().coordinator.update_timing(position, duration);
     }
+    if app.read().local_mode {
+        let index = app.read().local_index;
+        if let (Some(index), Some(duration)) = (index, duration.filter(|value| *value > 0.0))
+            && let Some(track) = app.write().local_tracks.get_mut(index)
+            && track
+                .duration
+                .is_none_or(|previous| (previous - duration).abs() > 0.5)
+        {
+            track.duration = Some(duration);
+        }
+    }
     publish_socket_state(app);
 }
 
 fn publish_socket_state(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let current = app.read();
     if !current.socket_ready {
         return;
@@ -1212,6 +1509,9 @@ fn publish_socket_state(mut app: Signal<NativeApp>) {
 }
 
 fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1224,6 +1524,7 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
             {
                 apply_remote_holder(
                     app,
+                    engine,
                     &client,
                     status.active_session,
                     Some(status.expires_in),
@@ -1253,19 +1554,32 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
         if session.lease_required
             && let Err(error) = client.heartbeat(&session).await
         {
+            if app.read().local_mode {
+                return;
+            }
             if let Some(engine) = engine.read().as_ref() {
-                let _ = engine.pause();
+                let _ = engine.stop();
             }
             let message = error.user_message();
             if error.is_playback_session_unavailable() {
-                apply_remote_holder(app, &client, error.holder(), error.retry_after(), &message)
-                    .await;
+                apply_remote_holder(
+                    app,
+                    engine,
+                    &client,
+                    error.holder(),
+                    error.retry_after(),
+                    &message,
+                )
+                .await;
                 app.write().player_expanded = false;
                 app.write().quality_popover_open = false;
             } else {
                 app.write().coordinator.lease_lost();
             }
             app.write().status = Some(message);
+            return;
+        }
+        if app.read().local_mode {
             return;
         }
         let action = if status == PlaybackStatus::Playing {
@@ -1291,16 +1605,26 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
 
 async fn apply_remote_holder(
     mut app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
     client: &ApiClient,
     holder: Option<SessionHolder>,
     retry_after: Option<u64>,
     message: &str,
 ) {
+    if app.read().local_mode {
+        return;
+    }
+    if !app.read().coordinator.snapshot().session_unavailable
+        && let Some(engine) = engine.read().as_ref()
+    {
+        let _ = engine.stop();
+    }
     app.write().session = None;
     if let Some(holder) = holder.clone()
         && let Some(media_id) = holder.media_id
         && let Ok(media) = client.media(media_id).await
     {
+        ensure_artwork(app, media.clone());
         app.write()
             .coordinator
             .observe_remote(media, holder, retry_after);
@@ -1326,6 +1650,26 @@ fn set_playback_playing(
     let Some(media) = app.read().coordinator.snapshot().media.clone() else {
         return;
     };
+    if app.read().local_mode {
+        let playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing;
+        if playing != requested_playing {
+            let result = engine.read().as_ref().map(|player| {
+                if requested_playing {
+                    player.play()
+                } else {
+                    player.pause()
+                }
+            });
+            if matches!(result, Some(Ok(()))) {
+                if requested_playing {
+                    app.write().coordinator.play();
+                } else {
+                    app.write().coordinator.pause();
+                }
+            }
+        }
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1369,6 +1713,9 @@ fn set_playback_playing(
 }
 
 fn take_over_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    if app.read().local_mode {
+        return;
+    }
     if app.read().session_takeover_pending {
         return;
     }
@@ -1427,6 +1774,7 @@ fn publish_mpris_state(
 }
 
 fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    let local_mode = app.read().local_mode;
     let client = app.read().client.clone();
     let session = app.write().session.take();
     let media = app.read().coordinator.snapshot().media.clone();
@@ -1443,7 +1791,7 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     app.write().subtitle_cues.clear();
     app.write().player_expanded = false;
     app.write().queue_open = false;
-    if let Some(client) = client {
+    if let Some(client) = client.filter(|_| !local_mode) {
         spawn(async move {
             if let Some(media) = media {
                 send_report(
@@ -1522,6 +1870,9 @@ fn toggle_repeat(mut app: Signal<NativeApp>) {
 }
 
 fn toggle_shuffle(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     if app.read().coordinator.snapshot().session_unavailable {
         return;
     }
@@ -1534,11 +1885,18 @@ fn toggle_shuffle(mut app: Signal<NativeApp>) {
 }
 
 fn load_queue(mut app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
     spawn(async move {
-        match client.queue_window().await {
+        let result = client.queue_window().await;
+        if app.read().local_mode {
+            return;
+        }
+        match result {
             Ok(queue) => app.write().queue = Some(queue),
             Err(error) => app.write().status = Some(error.user_message()),
         }
@@ -1546,6 +1904,9 @@ fn load_queue(mut app: Signal<NativeApp>) {
 }
 
 fn auto_fill_queue(app: Signal<NativeApp>, media_id: MediaId) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1573,6 +1934,9 @@ pub(crate) fn play_folder(
     engine: Signal<Option<PlaybackEngine>>,
     category_id: CategoryId,
 ) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1601,6 +1965,9 @@ pub(crate) fn play_folder(
 /// Append all folder audio in `category_id` (including subfolders) to the end
 /// of the existing queue, skipping tracks that are already queued.
 fn append_folder(mut app: Signal<NativeApp>, category_id: CategoryId, category_name: String) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1632,6 +1999,9 @@ fn append_folder(mut app: Signal<NativeApp>, category_id: CategoryId, category_n
 }
 
 fn select_queue(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, id: MediaId) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1660,6 +2030,10 @@ fn navigate_queue(
     forward: bool,
     from_eos: bool,
 ) {
+    if app.read().local_mode {
+        navigate_local(app, engine, forward, from_eos);
+        return;
+    }
     if app.read().coordinator.snapshot().session_unavailable {
         return;
     }
@@ -1734,6 +2108,10 @@ fn navigate_queue(
         }
         .await;
 
+        if app.read().local_mode {
+            return;
+        }
+
         match result {
             Ok(media) => {
                 play_media(app, engine, media, false);
@@ -1752,6 +2130,9 @@ fn navigate_queue(
 }
 
 fn queue_shuffle(app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1765,6 +2146,9 @@ fn queue_shuffle(app: Signal<NativeApp>) {
 }
 
 fn queue_clear(app: Signal<NativeApp>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1778,6 +2162,9 @@ fn queue_clear(app: Signal<NativeApp>) {
 }
 
 fn queue_remove(app: Signal<NativeApp>, id: MediaId) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1791,6 +2178,9 @@ fn queue_remove(app: Signal<NativeApp>, id: MediaId) {
 }
 
 fn queue_reorder(mut app: Signal<NativeApp>, reordered_ids: Vec<MediaId>) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1845,6 +2235,9 @@ fn queue_reorder(mut app: Signal<NativeApp>, reordered_ids: Vec<MediaId>) {
 }
 
 fn add_media_to_queue(app: Signal<NativeApp>, id: MediaId, next: bool) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1858,6 +2251,9 @@ fn add_media_to_queue(app: Signal<NativeApp>, id: MediaId, next: bool) {
 }
 
 fn set_favorite(mut app: Signal<NativeApp>, liked: bool) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(media) = app.read().coordinator.snapshot().media.clone() else {
         return;
     };
@@ -1886,6 +2282,9 @@ fn set_favorite(mut app: Signal<NativeApp>, liked: bool) {
 }
 
 fn set_media_favorite(mut app: Signal<NativeApp>, media: Media, liked: bool) {
+    if app.read().local_mode {
+        return;
+    }
     if !media.is_audio() {
         return;
     }
@@ -1919,6 +2318,9 @@ fn set_media_favorite(mut app: Signal<NativeApp>, media: Media, liked: bool) {
 }
 
 fn load_extras(app: Signal<NativeApp>, media_id: MediaId) {
+    if app.read().local_mode {
+        return;
+    }
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1948,6 +2350,9 @@ fn apply_extras_if_current(
     lyrics: String,
     subtitles: Vec<SubtitleTrack>,
 ) {
+    if app.read().local_mode {
+        return;
+    }
     let still_current = app
         .read()
         .coordinator
@@ -2203,6 +2608,7 @@ fn save_settings(mut app: Signal<NativeApp>) {
                     spawn(async move {
                         match client.check_access().await {
                             Ok(status) => {
+                                exit_local_mode(app);
                                 app.write().access_tier = status.tier;
                                 app.write().library.access = AccessView::Ready;
                                 app.write().settings_open = false;
@@ -2241,6 +2647,7 @@ fn save_settings(mut app: Signal<NativeApp>) {
                                 app.write().settings_error = Some(msg.clone());
                                 app.write().status = None;
                                 app.write().settings_open = true;
+                                auto_open_local_folder(app);
                             }
                         }
                     });

@@ -88,10 +88,11 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
     const lease = await getExclusiveLease(fastify.redis);
     await Promise.all([...sockets].map(async (entry) => {
       if (entry.boundSessionId && lease?.sessionId !== entry.boundSessionId) {
+        const revokedSessionId = entry.boundSessionId;
         entry.revokedSessionId = entry.boundSessionId;
         entry.boundSessionId = null;
         entry.playing = false;
-        send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_LEASE_LOST", message: "Playback lease lost" });
+        send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_LEASE_LOST", sessionId: revokedSessionId, message: "Playback lease lost" });
       }
       send(entry, await stateFor(entry, lease));
     }));

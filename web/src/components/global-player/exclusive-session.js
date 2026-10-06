@@ -64,6 +64,12 @@ export function isHolderConflict(error) {
     || error?.code === "PLAYBACK_NOT_OWNER";
 }
 
+export function shouldHandleLeaseLoss(message, activeSessionId, replacingSessionId) {
+  if (message?.code !== "PLAYBACK_LEASE_LOST" || !activeSessionId) return false;
+  if (message.sessionId && message.sessionId !== activeSessionId) return false;
+  return replacingSessionId !== activeSessionId;
+}
+
 export function conflictFromError(error) {
   if (!isHolderConflict(error)) return null;
   return {

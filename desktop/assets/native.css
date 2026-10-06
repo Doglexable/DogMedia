@@ -446,14 +446,6 @@ select:focus-visible {
   border-color: #ffffff;
 }
 
-.mini-tools .icon-button.spotify-device-btn.active {
-  color: var(--signal);
-}
-
-.mini-tools .icon-button.spotify-device-btn.active .ui-icon {
-  stroke: var(--signal);
-}
-
 .mini-identity-wrap {
   display: flex;
   align-items: center;

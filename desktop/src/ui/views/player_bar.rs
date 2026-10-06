@@ -129,18 +129,6 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                 }
             }
             div { class: "mini-tools",
-                if session_unavailable {
-                    IconButton {
-                        label: format!("Playing on {holder_label}"),
-                        icon: IconName::Volume,
-                        class: "spotify-device-btn active".to_owned(),
-                        onclick: move |_| {
-                            if can_take_over_playback(snapshot.access_tier) {
-                                take_over_playback(app, engine);
-                            }
-                        }
-                    }
-                }
                 if !media.is_photo() {
                     QualityPopover {
                         app,

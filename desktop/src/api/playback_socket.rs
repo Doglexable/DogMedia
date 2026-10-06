@@ -43,7 +43,12 @@ enum WireEvent {
         active_session: Option<SessionHolder>,
     },
     #[serde(rename = "protocol.error")]
-    Error { version: u8, code: String },
+    Error {
+        version: u8,
+        code: String,
+        #[serde(rename = "sessionId")]
+        session_id: Option<String>,
+    },
 }
 
 pub enum SocketEvent {
@@ -54,7 +59,10 @@ pub enum SocketEvent {
         expires_in: u64,
         holder: Option<SessionHolder>,
     },
-    Error(String),
+    Error {
+        code: String,
+        session_id: Option<String>,
+    },
     Disconnected,
 }
 
@@ -79,7 +87,11 @@ fn parse_event(raw: &str) -> Option<SocketEvent> {
                 holder: active_session.map(SessionHolder::normalized),
             })
         }
-        WireEvent::Error { version: 1, code } => Some(SocketEvent::Error(code)),
+        WireEvent::Error {
+            version: 1,
+            code,
+            session_id,
+        } => Some(SocketEvent::Error { code, session_id }),
         _ => None,
     }
 }
@@ -184,5 +196,15 @@ mod playback_socket_tests {
         assert_eq!(raw["mediaId"], 5);
         assert_eq!(raw["shuffleEnabled"], true);
         assert!(raw.get("session_id").is_none());
+    }
+
+    #[test]
+    fn lease_loss_identifies_the_revoked_session() {
+        let raw = r#"{"type":"protocol.error","version":1,"code":"PLAYBACK_LEASE_LOST","sessionId":"old-session"}"#;
+        let Some(SocketEvent::Error { code, session_id }) = parse_event(raw) else {
+            panic!("missing lease loss")
+        };
+        assert_eq!(code, "PLAYBACK_LEASE_LOST");
+        assert_eq!(session_id.as_deref(), Some("old-session"));
     }
 }

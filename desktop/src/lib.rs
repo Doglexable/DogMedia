@@ -1,7 +1,7 @@
 pub mod api;
 pub mod app;
 pub mod domain;
-#[cfg(all(feature = "native-ui", target_os = "linux"))]
+#[cfg(feature = "native-ui")]
 pub(crate) mod integration;
 pub mod playback;
 pub mod store;

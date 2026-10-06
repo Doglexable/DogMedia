@@ -24,6 +24,22 @@ import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
 
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 
+export function requestProtectedSource(mediaId, quality, onSource, onError) {
+  let cancelled = false;
+  createPlaybackSessionSource(mediaId, quality)
+    .then((source) => {
+      if (cancelled) {
+        releasePlaybackLease(source);
+        return;
+      }
+      onSource(source);
+    })
+    .catch((error) => {
+      if (!cancelled) onError(error);
+    });
+  return () => { cancelled = true; };
+}
+
 function QualityControl({ player, style, styles }) {
   const qualities = player.currentMedia?.available_qualities?.includes("ori")
     ? ["low", "med", "high", "ori"]
@@ -495,30 +511,25 @@ export function FullPlayer({ navigation }) {
   const media = player.currentMedia;
 
   useEffect(() => {
-    let cancelled = false;
     setProtectedSource(null);
     setProtectedSourceConflict(null);
     setProtectedSourceError("");
-    if (player.controlsLocked) return () => { cancelled = true; };
-    if (!media || media.mime_type?.startsWith("audio/")) return () => { cancelled = true; };
+    if (player.controlsLocked) return;
+    if (!media || media.mime_type?.startsWith("audio/")) return;
     const protectedQuality = player.quality === "ori" && !media.available_qualities?.includes("ori")
       ? "high"
       : player.quality;
-    createPlaybackSessionSource(media.id, protectedQuality)
-      .then((source) => {
-        if (!cancelled) {
-          setProtectedSourceConflict(null);
-          setProtectedSource(source);
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return;
+    return requestProtectedSource(media.id, protectedQuality,
+      (source) => {
+        setProtectedSourceConflict(null);
+        setProtectedSource(source);
+      },
+      (error) => {
         const conflict = conflictFromError(error);
         setProtectedSourceConflict(conflict);
         player.applyObservedConflict?.(conflict);
         setProtectedSourceError(conflictDisplayText(conflict, error.message));
       });
-    return () => { cancelled = true; };
   }, [media?.id, media?.mime_type, player.controlsLocked, player.quality]);
 
   useEffect(() => {

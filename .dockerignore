@@ -32,6 +32,7 @@ yarn-error.log*
 data
 **/data
 **/tmp
+pfs-sdk/
 
 # Mobile is not used by the server or web container images. In particular,
 # this excludes the large Expo, Gradle, CocoaPods, APK, and native build trees.

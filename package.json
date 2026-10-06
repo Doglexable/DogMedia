@@ -23,6 +23,7 @@
     "package:desktop:deb": "desktop/packaging/deb/build-deb.sh",
     "package:desktop:rpm": "desktop/packaging/rpm/build-rpm.sh",
     "package:desktop:containers": "desktop/packaging/containers/build-packages.sh",
+    "package:desktop:cross": "desktop/packaging/containers/build-cross.sh",
     "build:web:budget": "npm run build --workspace=web && node scripts/check-web-bundle.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "compress:thumbnails": "node scripts/compress-thumbnails.js",

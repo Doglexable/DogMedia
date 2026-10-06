@@ -8,6 +8,48 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
     let mut context_menu = use_signal(|| None::<MediaId>);
     let snapshot = app.read().clone();
     let playback = snapshot.coordinator.snapshot();
+    if snapshot.local_mode {
+        let folder = snapshot
+            .settings
+            .local_folder
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default();
+        return rsx! {
+            main { class: "library-main",
+                section { class: "browse-section", "aria-labelledby": "library-heading",
+                    div { class: "library-heading",
+                        div {
+                            p { class: "eyebrow", "Offline library" }
+                            h2 { id: "library-heading", "Local files" }
+                            small { "{folder}" }
+                        }
+                        span { "{snapshot.local_tracks.len()} items" }
+                    }
+                    div { class: "empty-actions",
+                        Button { label: "Open local folder".to_owned(), class: "secondary".to_owned(), onclick: move |_| pick_local_folder(app, engine) }
+                        Button { label: "Retry connection".to_owned(), class: "secondary".to_owned(), onclick: move |_| refresh(app) }
+                    }
+                    div { class: "track-list",
+                        for (index, track) in snapshot.local_tracks.iter().enumerate() {
+                            div { key: "{track.path.display()}", class: if snapshot.local_index == Some(index) { "track-row active" } else { "track-row" },
+                                div { class: "track-main", role: "button", tabindex: "0",
+                                    onclick: move |_| play_local_at(app, engine, index),
+                                    onkeydown: move |event: KeyboardEvent| {
+                                        if event.key() == Key::Enter { play_local_at(app, engine, index); }
+                                    },
+                                    span { class: "track-leading", "{index + 1}" }
+                                    span { class: "track-title", strong { "{track.title}" } }
+                                    span { class: "track-folder", "{track.path.parent().map(|path| path.display().to_string()).unwrap_or_default()}" }
+                                    span { class: "duration", if track.kind == LocalKind::Video { "Video" } else { "Audio" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
     let item_count = snapshot.library.items.len();
     let can_load_more = snapshot.library.next_cursor.is_some() && !snapshot.library.loading;
 
@@ -117,7 +159,17 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     }
                                 }
                             }
-                            AccessView::Unreachable(_) => rsx! {},
+                            AccessView::Unreachable(_) => rsx! {
+                                div { class: "empty-state",
+                                    div { class: "empty-mark", Icon { name: IconName::Library } }
+                                    h3 { "Server unreachable" }
+                                    p { "Open a folder on this computer to play audio and video offline." }
+                                    div { class: "empty-actions",
+                                        Button { label: "Open local folder".to_owned(), class: "primary".to_owned(), onclick: move |_| pick_local_folder(app, engine) }
+                                        Button { label: "Retry connection".to_owned(), class: "secondary".to_owned(), onclick: move |_| refresh(app) }
+                                    }
+                                }
+                            },
                             _ => {
                                 rsx! {
                                     div { class: "empty-state",

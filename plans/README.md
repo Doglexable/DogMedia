@@ -49,9 +49,23 @@ done.
 | [039](039-exclusive-playback-holder-contract.md) | Make exclusive playback conflicts identify the active client safely | P1 | M | — | DONE |
 | [040](040-exclusive-session-ui-all-clients.md) | Show the exclusive session holder consistently on web, desktop, and mobile | P1 | L | 039 | DONE |
 | [041](041-realtime-playback-websocket.md) | Push exclusive playback ownership and position over WebSocket | P1 | L | 039, 040 | BLOCKED — isolated implementation needs revision: mobile force-release does not stop playback; executor limit reached |
-| [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | TODO |
-| [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | TODO |
-| [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS and package as .dmg from Linux | P3 | M | 043 | TODO |
+| [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | DONE |
+| [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | BLOCKED — release app and remembered offline folder confirmed; playback controls and reconnect walkthrough remain |
+| [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS (.dmg) and Windows (.exe) from Linux | P3 | L | 043 | BLOCKED at Windows link/install — macOS images and 350-DLL Windows runtime stage built; MSVC CRT/SDK cache and NSIS unavailable |
+| [045](045-scope-media-mutations-to-accessible-categories.md) | Scope media mutations to the caller's accessible categories (IDOR) | P1 | S | — | TODO |
+| [046](046-restore-queue-ttl-on-write-paths.md) | Restore Redis TTL on queue items/next/prev/select write paths | P1 | S | — | TODO |
+| [047](047-reject-truncated-direct-uploads.md) | Reject silently-truncated direct uploads over the size cap with 413 | P1 | S | — | TODO |
+| [048](048-upgrade-multipart-past-busboy-advisory.md) | Upgrade @fastify/multipart past busboy CRLF-injection advisory | P1 | S | — | TODO |
+| [049](049-validate-whitelist-and-resource-ids.md) | Validate whitelist writes and numeric resource ids (400 not 500) | P2 | S | 045 | TODO |
+| [050](050-grouped-category-counts.md) | Replace correlated per-category counts with grouped aggregates | P2 | S | — | TODO |
+| [051](051-batch-wrapped-child-inserts.md) | Batch wrapped-report child writes into single INSERTs | P2 | S | — | TODO |
+| [052](052-browse-search-index-and-list-pagination.md) | Make browse search index-friendly and paginate media list | P2 | M | — | TODO |
+| [053](053-refresh-docs-and-env-example.md) | Refresh stale docs (desktop, TTLs, env example, context files) | P3 | S | — | TODO |
+| [054](054-revise-blocked-playback-websocket.md) | Revise the blocked realtime playback WebSocket (041 delta) | P1 | M | 039, 040 | TODO |
+| [055](055-december-annual-wrapped.md) | Ship the December annual Wrapped experience | P2 | M | 051 | TODO |
+| [056](056-on-demand-encoding-cutover.md) | Migrate renditions to on-demand encoding (full cutover, 202+poll) | P2 | L | — | TODO |
+| [057](057-diagnose-desktop-playback-memory.md) | Diagnose and fix desktop memory growth during audio and video playback | P1 | L | — | TODO |
+| [058](058-portable-desktop-integration-module.md) | Compile the desktop integration module on macOS | P2 | S | — | DONE |
 
 ## Dependency notes
 
@@ -81,9 +95,26 @@ done.
   local mode, no server or mobile changes), but it shares
   `desktop/src/ui/mod.rs` with Plan 040 — serialize those two and re-run the
   drift check.
-- **Plan 044** (macOS cross-compile + DMG) is ordered after Plan 043 so the
-  first mac release ships the offline local-folder fallback; no technical
+- **Plan 044** (macOS DMG + Windows installer) is ordered after Plan 043 so the
+  first out-of-Linux releases ship the offline local-folder fallback; no technical
   dependency.
+- **Plans 045–049** are the 2026-10-06 security/correctness batch. All are
+  independent except **049, which depends on 045** (both edit
+  `server/src/routes/media.js` — serialize and re-run the drift check).
+  047 and 048 both touch the upload path but are independent (either order).
+- **Plans 050–052** are the perf batch (category counts, wrapped inserts,
+  browse search) — mutually independent, any order or parallel.
+- **Plan 051** (batched wrapped writes) should land before **055** (annual
+  Wrapped), whose ~12x-longer timelines are the reason batching matters.
+- **Plan 054** is the revision delta for BLOCKED plan 041 (depends on DONE
+  plans 039/040); it does not replace the 041 spec — read both.
+- **Plan 057** measures the reported ~500 MB desktop memory use, further growth
+  after audio seeks, retained memory after Stop, and 150→180 MB after three
+  short video play cycles. It compares local and connected playback before
+  touching GStreamer, WGPU, or WebSocket code. Coordinate any socket edit with
+  054; no protocol change is planned.
+- **Plan 053** (docs-only) is independent of everything and safe to execute
+  anytime.
 
 ## Findings considered and rejected
 
@@ -96,3 +127,7 @@ done.
 - *Correlated variant subqueries (PERF-06)*: Not worth doing — subqueries bounded by encoding tiers (3–4 per media), not by media count.
 - *React version mismatch (DEP-01)*: Cosmetic — Expo 57 pins 19.2.3 for mobile; web 19.2.7 is compatible.
 - *Peer dependency warnings (DEP-02)*: Low signal — not causing runtime issues.
+- *Queue lost-update races on read-modify-write mutations (2026-10-06 audit)*: Real pattern, but same-viewer-only frequency after the `exclusiveQueueConflict` guard; deferred behind the TTL fix (046). Revisit as an M-effort Lua-CAS plan if multi-tab loss is observed.
+- *Socket `mediaType: "audio/"` hardcode as standalone fix (2026-10-06 audit)*: Benign today (ownership by id match); folded into plan 054 instead.
+- *GlobalPlayer/Dashboard god-module split (2026-10-06 audit)*: HIGH risk, rejected per the standing "no GlobalPlayer rewrite" decision; incremental hook extraction only.
+- *Expo/Vite-chain `npm audit` HIGHs (`compression`, `postcss`, metro chain) and `nanoid@3.3.12` (2026-10-06 audit)*: Dev/build-toolchain confined or default-usage-unaffected; upgrade with the next Expo/Vite bump, not now.

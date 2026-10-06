@@ -2,8 +2,8 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::{
-    ConnectionErrorDialog, FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel,
-    SettingsDialog, Sidebar, VideoMiniPlayer,
+    FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog, Sidebar,
+    VideoMiniPlayer,
 };
 
 #[component]
@@ -13,6 +13,8 @@ pub(crate) fn Shell(
     video_source_id: u64,
 ) -> Element {
     let snapshot = app.read().clone();
+    // The previous modal remains exported by views/mod.rs for existing callers.
+    let _connection_dialog = super::ConnectionErrorDialog;
     let shell_class = match snapshot.settings.color_scheme {
         ColorScheme::Light => "vault-shell light",
         ColorScheme::Dark => "vault-shell dark",
@@ -139,13 +141,24 @@ pub(crate) fn Shell(
                         }
                     }
                     div { class: "header-actions",
-                        span { class: "header-context", if snapshot.favorites_only { "Favorites" } else { "Private library" } }
+                        span { class: "header-context", if snapshot.local_mode { "Offline files" } else if snapshot.favorites_only { "Favorites" } else { "Private library" } }
                         IconButton { label: "Refresh library".to_owned(), icon: IconName::Refresh, onclick: move |_| refresh(app) }
                     }
                 }
                 if let Some(status) = snapshot.status.as_ref() {
                     div { class: "main-notice",
                         Notice { message: status.clone(), onclose: move |_| app.write().status = None }
+                    }
+                }
+                if !snapshot.local_mode {
+                    if let AccessView::Unreachable(error) = &snapshot.library.access {
+                        div { class: "main-notice",
+                            p { "Server unreachable: {error}" }
+                            div { class: "empty-actions",
+                                Button { label: "Open local folder".to_owned(), class: "primary".to_owned(), onclick: move |_| pick_local_folder(app, engine) }
+                                Button { label: "Retry connection".to_owned(), class: "secondary".to_owned(), onclick: move |_| refresh(app) }
+                            }
+                        }
                     }
                 }
                 Library { app, engine }
@@ -175,16 +188,29 @@ pub(crate) fn Shell(
                 }
             }
             if snapshot.queue_open {
-                QueuePanel { app, engine }
+                if snapshot.local_mode {
+                    aside { class: "queue-panel", "aria-label": "Local playback queue",
+                        header { class: "panel-header",
+                            div { p { class: "eyebrow", "Offline" } h2 { "Local queue" } span { "{snapshot.local_tracks.len()} items" } }
+                            IconButton { label: "Close queue".to_owned(), icon: IconName::Close, onclick: move |_| app.write().queue_open = false }
+                        }
+                        div { class: "track-list",
+                            for (index, track) in snapshot.local_tracks.iter().enumerate() {
+                                div { key: "{track.path.display()}", class: if snapshot.local_index == Some(index) { "track-row active" } else { "track-row" },
+                                    button { class: "track-main", onclick: move |_| play_local_at(app, engine, index),
+                                        span { class: "track-leading", "{index + 1}" }
+                                        span { class: "track-title", "{track.title}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    QueuePanel { app, engine }
+                }
             }
             if snapshot.settings_open {
                 SettingsDialog { app }
-            } else if let AccessView::Unreachable(error) = &snapshot.library.access {
-                ConnectionErrorDialog {
-                    app,
-                    server_url: snapshot.settings.server_url.to_string(),
-                    error: error.clone(),
-                }
             }
         }
     }

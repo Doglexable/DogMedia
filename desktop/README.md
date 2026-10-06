@@ -1,6 +1,6 @@
 # Dogmedia Desktop
 
-Dogmedia Desktop is a native Linux client written in Rust with Dioxus Native,
+Dogmedia Desktop is a native client written in Rust with Dioxus Native,
 Blitz/WGPU, and GStreamer. It is not an Electron/Tauri wrapper and does not
 load the web application in an embedded browser. Dioxus Native and Blitz are
 still beta software, so GPU/backend-specific rendering issues should be
@@ -67,6 +67,98 @@ browsing and filters, protected audio playback, resume/seek/volume controls,
 queue navigation and mutation, favorites, lyrics, subtitle selection, and
 ten-second playback lease heartbeats. Video frames use a persistent WGPU
 texture, while protected photos render directly from their fetched bytes.
+
+## Experimental macOS cross-build from Linux
+
+The macOS build needs the Apple Rust targets, `cargo-zigbuild` 0.23.4, Zig
+0.16.0, `pkg-config`, `genisoimage`, `7z`, `bsdtar`, `cpio`, Python 3, and a
+macOS 15.5 SDK. It also needs
+the official GStreamer 1.28.6 universal runtime and development packages,
+extracted to one `GStreamer.framework` directory. See
+`packaging/macos/README.md` for package hashes and extraction notes.
+The build scripts use the ignored repository directory `pfs-sdk/` for the
+SDK, Zig, packages, and extracted framework. To build on Linux with the
+shared macOS/Windows builder image:
+
+```bash
+npm run package:desktop:cross -- mac
+```
+
+The container prepares `pfs-sdk/GStreamer.framework` from the pinned `.pkg`
+files, then compiles and packages both macOS architectures. For a direct host
+build with the same inputs:
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+bash desktop/packaging/macos/prepare-framework.sh
+bash desktop/packaging/macos/build-mac.sh
+```
+
+The script writes separate arm64 and x86_64 unsigned images to
+`dist/packages/`. This uses `genisoimage`'s Apple hybrid ISO mode and has only
+been listed with `7z` on Linux; mounting and playback on real Macs remain to
+be checked. The launcher sets GStreamer plugin paths to the bundled framework.
+Unsigned builds can trigger Gatekeeper warnings. A signed and notarized
+release requires an Apple-hosted signing job and operator credentials.
+
+The SDK comes from Apple's Xcode distribution and is subject to Apple's
+license. The tested SDK 15.5 archive was obtained through the community
+`joseluisq/macosx-sdks` mirror; the pristine archive SHA256 is
+`c15cf0f3f17d714d1aa5a642da8e118db53d79429eb015771ba816aa7c6c1cbd`.
+The local extracted copy has 437 `.tbd` files with
+`reexported-libraries` entries removed to avoid a Zig linker crash. The
+pristine archive is retained for restoring the originals. This normalization
+requires ColorSync and CarbonCore to be linked explicitly.
+
+## Windows cross-build status
+
+The planned target remains `x86_64-pc-windows-msvc` through `cargo-xwin`.
+The official GStreamer 1.28.6 installer is an Inno Setup 6.7 `.exe`, not an
+MSI. The local installer SHA256 is
+`059251444d1267b486eba390b18d25fed87e10315e72f757ec6c7e912fa746b5`;
+the host's `7z` and `bsdtar` cannot extract its payload.
+
+A Windows runtime and development tree is available at
+`pfs-sdk/conda-win/tree/` from conda-forge packages. Its
+`SHA256SUMS-win.txt` pins 72 package archives and passes `sha256sum -c`.
+The tree contains MSVC/UCRT import libraries and headers, 358 DLLs, and
+GStreamer 1.28.6 plugins. The PE import scan finds one unresolved dependency,
+`tiff.dll`, used only by `pixbufloader-tiff.dll`; exclude that loader from the
+installer. `usp10.dll` is supplied by Windows. H.264 decode candidates are
+`d3d11h264dec` in `gstd3d11.dll`, `avdec_h264` in `gstlibav.dll` with FFmpeg
+9, and OpenH264 via `openh264-7.dll`.
+
+The conda tree also contains older FFmpeg 8 GPL libraries. `gstlibav.dll`
+imports the FFmpeg 9 DLL family. The packaged runtime stage excludes the
+unused FFmpeg 8 GPL DLLs and TIFF loader, leaving 350 DLLs with zero missing
+non-system imports. Freetype 2.13.3 and
+dav1d 1.2.0 were retained to close DLL imports; decode and rendering still
+need a smoke test in a Windows VM.
+
+To reproduce the runtime stage, run:
+
+```bash
+PFS_WIN_RUNTIME_ONLY=1 bash desktop/packaging/windows/build-win.sh
+```
+
+The shared builder image can also create the full Windows release when the
+MSVC CRT/Windows SDK downloads are reachable:
+
+```bash
+npm run package:desktop:cross -- windows
+```
+
+Run `npm run package:desktop:cross -- all` for both targets. See
+`packaging/containers/README.md` for cache and container engine details.
+
+See `packaging/windows/README.md` for the full build command, pinned DLL
+manifest, and NSIS layout. The Windows executable and installer are not built
+yet. `cargo-xwin` cannot
+initialize its MSVC CRT/Windows SDK cache because this Linux host cannot
+resolve `aka.ms`; Zig does not provide libc for the MSVC target. `makensis`
+is also absent. The remaining gates are the full MSVC build, NSIS output,
+and a Windows VM test. An unsigned
+installer may trigger SmartScreen until an Authenticode signing job runs.
 
 ## Interface
 

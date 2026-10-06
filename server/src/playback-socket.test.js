@@ -136,7 +136,10 @@ describe("protected playback socket route", () => {
       store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId: "n".repeat(32), clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
       await app.playbackSocketHub.notify();
       await vi.waitFor(() => expect(owner.events.at(-1)).toMatchObject({ state: "owned", revision: previousRevision + 1 }));
-      expect(owner.events.some((event) => event.code === "PLAYBACK_LEASE_LOST")).toBe(true);
+      expect(owner.events).toContainEqual(expect.objectContaining({
+        code: "PLAYBACK_LEASE_LOST",
+        sessionId,
+      }));
       // A revoked old session must not make the same viewer's new lease look remote.
       owner.socket.send(JSON.stringify(state(2)));
       await vi.waitFor(() => expect(owner.events.filter((event) => event.code === "PLAYBACK_NOT_OWNER").length).toBe(2));

@@ -1,5 +1,5 @@
 use dogmedia_desktop::{
-    domain::{CategoryId, Media, MediaId, Quality, SessionHolder},
+    domain::{CategoryId, Media, MediaId, Quality, RemotePlayback, SessionHolder},
     playback::{Effect, PlaybackCoordinator, PlaybackStatus, RepeatMode},
 };
 
@@ -95,6 +95,40 @@ fn quality_restart_keeps_position_and_lease_loss_pauses() {
 
     coordinator.load(media(MediaId::new(2)));
     assert!(!coordinator.snapshot().session_unavailable);
+}
+
+#[test]
+fn remote_position_is_not_overwritten_by_the_previous_local_pipeline() {
+    let mut coordinator = PlaybackCoordinator::default();
+    coordinator.load(media(MediaId::new(5)));
+    coordinator.update_timing(50.0, 60.0);
+    coordinator.observe_remote(
+        media(MediaId::new(6)),
+        SessionHolder {
+            platform: Some("web".to_owned()),
+            media_id: Some(MediaId::new(6)),
+            playback: Some(Box::new(RemotePlayback {
+                media_id: MediaId::new(6),
+                action: "play".to_owned(),
+                position: 0.0,
+                duration: 60.0,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+        None,
+    );
+
+    coordinator.update_timing(50.0, 60.0);
+    assert_eq!(
+        coordinator.snapshot().media.as_ref().map(|item| item.id),
+        Some(MediaId::new(6))
+    );
+    assert_eq!(coordinator.snapshot().position, 0.0);
+
+    coordinator.load(media(MediaId::new(6)));
+    coordinator.update_timing(2.0, 60.0);
+    assert_eq!(coordinator.snapshot().position, 2.0);
 }
 
 #[test]

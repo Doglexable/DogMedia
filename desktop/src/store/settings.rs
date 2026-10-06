@@ -36,6 +36,7 @@ pub struct Settings {
     pub notifications: bool,
     pub window_width: i32,
     pub window_height: i32,
+    pub local_folder: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -51,6 +52,7 @@ impl Default for Settings {
             notifications: true,
             window_width: 1100,
             window_height: 720,
+            local_folder: None,
         }
     }
 }
@@ -158,6 +160,14 @@ mod tests {
         assert!(loaded.configured);
         assert_eq!(loaded.viewer_id, viewer);
         assert_eq!(loaded.server_url.to_string(), "https://example.test/media/");
+    }
+
+    #[test]
+    fn old_settings_load_without_a_local_folder() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("local_folder");
+        let loaded: Settings = serde_json::from_value(value).unwrap();
+        assert!(loaded.local_folder.is_none());
     }
 
     #[test]

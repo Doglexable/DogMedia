@@ -6,10 +6,22 @@ import {
   holderDetailText,
   isHolderConflict,
   normalizeHolderSession,
+  shouldHandleLeaseLoss,
 } from "./exclusive-session";
 import { holderPlatformIconName } from "./holder-platform-icon";
 
 describe("normalizeHolderSession", () => {
+  it("ignores lease loss from an old session while moving to the next track", () => {
+    const oldSession = "old-session";
+    const newSession = "new-session";
+    const oldLeaseLost = { code: "PLAYBACK_LEASE_LOST", sessionId: oldSession };
+
+    expect(shouldHandleLeaseLoss(oldLeaseLost, oldSession, oldSession)).toBe(false);
+    expect(shouldHandleLeaseLoss(oldLeaseLost, newSession, null)).toBe(false);
+    expect(shouldHandleLeaseLoss(oldLeaseLost, oldSession, null)).toBe(true);
+    expect(shouldHandleLeaseLoss({ code: "PLAYBACK_LEASE_LOST", sessionId: newSession }, newSession, null)).toBe(true);
+  });
+
   it("normalizes complete, partial, and malformed payloads", () => {
     expect(normalizeHolderSession({
       platform: "desktop",
@@ -113,4 +125,3 @@ describe("PlayerBar Spotify Connect Observer Bar", () => {
     expect(renderBar("unknown")).toContain('data-lucide="globe"');
   });
 });
-

@@ -317,6 +317,27 @@ impl PlaybackEngine {
         Ok(())
     }
 
+    pub fn open_local(&self, file_url: &url::Url) -> Result<(), EngineError> {
+        if file_url.scheme() != "file" {
+            return Err(EngineError::InvalidStreamUrl);
+        }
+        if let Ok(mut headers) = self.headers.lock() {
+            *headers = None;
+        }
+        if let Ok(mut pending) = self.pending_seek.lock() {
+            *pending = None;
+        }
+        if let Ok(mut pts) = self.last_video_pts.lock() {
+            *pts = None;
+        }
+        let _ = self.playbin.set_state(gst::State::Null);
+        self.playbin.set_property("uri", file_url.as_str());
+        if let Ok(mut frame) = self.frame.lock() {
+            *frame = None;
+        }
+        Ok(())
+    }
+
     pub fn play(&self) -> Result<(), EngineError> {
         self.playbin.set_state(gst::State::Playing)?;
         Ok(())
@@ -489,6 +510,20 @@ impl Drop for PlaybackEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_open_accepts_only_file_urls() {
+        let engine = PlaybackEngine::new().unwrap();
+        assert!(matches!(
+            engine.open_local(&url::Url::parse("https://example.com/media.mp3").unwrap()),
+            Err(EngineError::InvalidStreamUrl)
+        ));
+        assert!(
+            engine
+                .open_local(&url::Url::parse("file:///missing.mp3").unwrap())
+                .is_ok()
+        );
+    }
 
     #[test]
     fn synthetic_audio_pipeline_reaches_eos_without_display() {

@@ -17,11 +17,29 @@ import {
   parseArtistFromCategory,
   parseArtistFromTitle,
   resolveMediaArtist,
+  seekAndMaybePlay,
   shouldCompleteSleepTimer,
   shouldHandleMediaHotkeys,
   shouldHandleSpaceKey,
   shouldSuggestSiblingMedia,
 } from "./player-utils";
+
+describe("seekAndMaybePlay", () => {
+  it("seeks to the observed handoff position before starting playback", () => {
+    const events = [];
+    const media = {
+      paused: true,
+      get currentTime() { return this.time || 0; },
+      set currentTime(value) { this.time = value; events.push(["seek", value]); },
+      play() { events.push(["play", this.currentTime]); return Promise.resolve(); },
+    };
+
+    seekAndMaybePlay(media, 50, true);
+    expect(events).toEqual([["seek", 50], ["play", 50]]);
+    seekAndMaybePlay(media, 50, false);
+    expect(events).toHaveLength(2);
+  });
+});
 
 describe("formatDuration", () => {
   it("uses minutes and seconds for media shorter than one hour", () => {

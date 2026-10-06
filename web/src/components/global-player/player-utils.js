@@ -5,6 +5,15 @@ import { faVideo } from "@fortawesome/free-solid-svg-icons/faVideo";
 
 export const LOOP_MODES = ["none", "queue", "media"];
 
+export function seekAndMaybePlay(mediaElement, position, autoplay) {
+  if (!mediaElement) return;
+  if (Number.isFinite(position) && position >= 0
+    && Math.abs((mediaElement.currentTime || 0) - position) > 0.5) {
+    mediaElement.currentTime = position;
+  }
+  if (autoplay && mediaElement.paused) mediaElement.play().catch(() => {});
+}
+
 export function formatDuration(seconds) {
   const totalSeconds = Math.floor(Number(seconds));
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return "0:00";

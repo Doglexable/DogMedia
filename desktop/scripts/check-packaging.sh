@@ -9,6 +9,11 @@ bash -n \
   "$desktop_dir/packaging/deb/build-deb.sh" \
   "$desktop_dir/packaging/rpm/build-rpm.sh" \
   "$desktop_dir/packaging/containers/build-packages.sh" \
+  "$desktop_dir/packaging/containers/build-cross.sh" \
+  "$desktop_dir/packaging/containers/run-cross.sh" \
+  "$desktop_dir/packaging/macos/prepare-framework.sh" \
+  "$desktop_dir/packaging/macos/build-mac.sh" \
+  "$desktop_dir/packaging/windows/build-win.sh" \
   "$desktop_dir/scripts/check-native-deps.sh" \
   "$desktop_dir/scripts/generate-icons.sh"
 
@@ -16,6 +21,10 @@ if grep -Fxq 'desktop/' "$repo_dir/.dockerignore"; then
   echo "error: .dockerignore excludes sources required by the desktop package containers" >&2
   exit 1
 fi
+grep -Fxq 'pfs-sdk/' "$repo_dir/.dockerignore" || {
+  echo "error: .dockerignore must exclude the local cross-build SDK" >&2
+  exit 1
+}
 
 for containerfile in \
   "$desktop_dir/packaging/containers/Containerfile.deb" \
@@ -26,6 +35,9 @@ do
     exit 1
   }
 done
+
+grep -Eq '^FROM docker.io/library/rust:1\.98\.1-trixie$' \
+  "$desktop_dir/packaging/containers/Containerfile.cross"
 
 for manifest in \
   "$desktop_dir/flatpak/com.dogmedia.Desktop.yml" \

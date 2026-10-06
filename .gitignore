@@ -42,8 +42,11 @@ core.*
 
 # Tool caches
 .cache/
+__pycache__/
+*.pyc
 .eslintcache
 .npm/
+pfs-sdk/
 
 # Editors and operating systems
 .idea/

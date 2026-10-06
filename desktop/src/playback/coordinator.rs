@@ -241,6 +241,9 @@ impl PlaybackCoordinator {
     }
 
     pub fn update_timing(&mut self, position: f64, duration: f64) {
+        if self.snapshot.session_unavailable {
+            return;
+        }
         self.snapshot.position = position.max(0.0);
         self.snapshot.duration = duration.max(0.0);
     }
