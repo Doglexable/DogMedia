@@ -3,7 +3,7 @@ import { mkdir, rename, rm, stat } from "fs/promises";
 import { dirname, extname, join } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
-import { ENCODING_GROUP, ENCODING_STREAM } from "./encoding-queue.js";
+import { ENCODING_GROUP, ENCODING_STREAM, URGENT_ENCODING_GROUP, URGENT_ENCODING_STREAM } from "./encoding-queue.js";
 import { ENCODED_QUALITIES, ENCODING_PRESETS, mediaKind, shouldCreateVariant } from "./media-quality.js";
 
 const execFileAsync = promisify(execFile);
@@ -176,7 +176,7 @@ async function updateVariantProgress(pg, { mediaId, progressPercent, quality, so
   );
 }
 
-export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVersion, probeSourceImpl = probeSource, runFfmpegImpl = runFfmpegWithProgress }) {
+export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVersion, quality: requestedQuality = null, probeSourceImpl = probeSource, runFfmpegImpl = runFfmpegWithProgress }) {
   const { rows } = await pg.query(
     "SELECT id, category_id, file_path, mime_type, source_version FROM media_assets WHERE id = $1",
     [mediaId]
@@ -185,7 +185,7 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
   if (!media || Number(media.source_version) !== Number(sourceVersion)) return { stale: true };
   const kind = mediaKind(media.mime_type);
   if (!kind) {
-    for (const quality of ENCODED_QUALITIES) {
+    for (const quality of (requestedQuality ? [requestedQuality] : ENCODED_QUALITIES)) {
       await markVariant(pg, { mediaId, sourceVersion, quality, status: "skipped", values: { progressPercent: 100 } });
     }
     return { skipped: ENCODED_QUALITIES.length };
@@ -203,7 +203,7 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
   let created = 0;
   let skipped = 0;
 
-  for (const quality of ENCODED_QUALITIES) {
+  for (const quality of (requestedQuality ? [requestedQuality] : ENCODED_QUALITIES)) {
     if (["ready", "skipped"].includes(variantStatus.get(quality))) continue;
     const preset = ENCODING_PRESETS[kind][quality];
     if (!shouldCreateVariant(kind, source, preset)) {
@@ -274,9 +274,9 @@ export async function processEncodingJob({ dataDir, log, mediaId, pg, sourceVers
   return { created, skipped };
 }
 
-async function ensureGroup(redis) {
+async function ensureGroup(redis, stream = ENCODING_STREAM, group = ENCODING_GROUP) {
   try {
-    await redis.xgroup("CREATE", ENCODING_STREAM, ENCODING_GROUP, "0", "MKSTREAM");
+    await redis.xgroup("CREATE", stream, group, "0", "MKSTREAM");
   } catch (error) {
     if (!String(error.message).includes("BUSYGROUP")) throw error;
   }
@@ -326,7 +326,35 @@ export async function runEncodingWorker({
   signal,
 }) {
   await ensureGroup(redis);
+  await ensureGroup(redis, URGENT_ENCODING_STREAM, URGENT_ENCODING_GROUP);
   while (!signal?.aborted) {
+    let urgentMessages = [];
+    try {
+      const urgentLength = typeof redis.xlen === "function" ? Number(await redis.xlen(URGENT_ENCODING_STREAM)) : 0;
+      if (urgentLength > 0) {
+        const response = await redis.xreadgroup("GROUP", URGENT_ENCODING_GROUP, consumer, "COUNT", 1, "BLOCK", 1, "STREAMS", URGENT_ENCODING_STREAM, ">");
+        urgentMessages = response?.[0]?.[1] || [];
+      }
+    } catch (error) {
+      log?.warn?.({ err: error }, "urgent encoding poll failed");
+    }
+    if (urgentMessages.length) {
+      for (const [messageId, rawFields] of urgentMessages) {
+        const fields = parseStreamFields(rawFields);
+        const mediaId = Number(fields.mediaId);
+        const sourceVersion = Number(fields.sourceVersion);
+        const quality = fields.quality;
+        try {
+          await processJob({ dataDir, log, mediaId, pg, sourceVersion, quality });
+          await redis.xack(URGENT_ENCODING_STREAM, URGENT_ENCODING_GROUP, messageId);
+        } catch (error) {
+          await pg.query(`UPDATE media_encoding_variants SET status = 'failed', last_error = $1, updated_at = NOW() WHERE media_id = $2 AND source_version = $3 AND quality = $4 AND status != 'ready'`, [error.message || "Encoding failed", mediaId, sourceVersion, quality]);
+          await redis.xack(URGENT_ENCODING_STREAM, URGENT_ENCODING_GROUP, messageId);
+          log?.error?.({ err: error, mediaId, sourceVersion, quality }, "urgent encoding job failed");
+        }
+      }
+      continue;
+    }
     if (scheduleHour !== null && !isEncodingWindowOpen(new Date(), scheduleHour, scheduleEndHour)) {
       const delayMs = millisecondsUntilEncodingWindow(new Date(), scheduleHour, scheduleEndHour);
       log?.info?.({ consumer, nextRunInMs: delayMs, scheduleEndHour, scheduleHour }, "resolution encoder waiting for nightly window");

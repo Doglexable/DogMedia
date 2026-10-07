@@ -23,13 +23,16 @@
   client UI this builds on)
 - **Category**: direction
 - **Planned at**: commit `2bf8caa`, 2026-10-06
+- **Execution status**: DONE — mobile lease-loss baseline preserved and media
+  type propagation fixed with regression coverage.
 
 ## Why this matters
 
 Plan 041 (WebSocket push for exclusive-playback ownership/position) is BLOCKED:
-its isolated implementation passed gates but was rejected in review — mobile
-force-release does not stop playback, and the exact
-`PLAYBACK_LEASE_LOST` + `available` sequence has no test. Meanwhile all three
+its isolated implementation passed gates but was rejected in review — the
+mobile force-release defect was already repaired in the current tree, while
+the exact
+`PLAYBACK_LEASE_LOST` + `available` sequence now has coverage. Meanwhile all three
 clients still poll heartbeat/lease status on ~5s timers and the documented
 socket protocol (`README.md:303-323`) remains stated-but-undelivered. This plan
 fixes the known review delta plus two adjacent socket defects, with a test for
@@ -46,10 +49,8 @@ run `git status` and `git diff HEAD --stat` first and record what is dirty):
   behavior). The uncommitted hunk in `server/src/playback-socket.js` adds the
   revoked `sessionId` to the `PLAYBACK_LEASE_LOST` protocol error (additive,
   keep it).
-- Known defect 1: mobile force-release (takeover/observe path) does not stop
-  local playback — the `PLAYBACK_LEASE_LOST` handler in
-  `mobile/src/context/player-context.jsx` misses the revoked-lease + then
-  `available` sequence.
+- Baseline: mobile force-release already stops local playback; preserve this
+  behavior and its sequence test.
 - Known defect 2 (verified 2026-10-06): `server/src/playback-socket.js:192`
   builds socket identity with hardcoded `mediaType: "audio/"` even for video
   sessions; downstream `authorizeExclusiveReport`
@@ -83,6 +84,8 @@ tests via vitest inject + socket harnesses (`playback-socket.test.js` exists).
 **In scope**:
 
 - `server/src/playback-socket.js` (mediaType fix; keep the `sessionId` field)
+- `server/src/playback-session.js` and `server/src/routes/media.js` (persist the
+  protected media MIME type in the session used by the socket)
 - `mobile/src/context/player-context.jsx` (`onError`/revocation handling for
   the lease-lost sequence)
 - `mobile/src/components/full-player.jsx` (only if the stop-playback fix
@@ -190,3 +193,17 @@ Do NOT attempt to prove background-socket keepalive on device here. Instead:
   with timing-sensitive tests.
 - The hardcoded-type class of bug recurs wherever socket/server translate
   media kinds — reviewers should check mime propagation on future socket work.
+
+## Execution notes (2026-10-06)
+
+- Baseline verification passed: mobile socket/source tests 7/7 and server
+  playback/socket tests 22/22. The mobile fix was already present before this
+  execution.
+- Scope was then expanded at operator request to persist and propagate the
+  real protected media MIME type through playback sessions and socket reports.
+- Added `mediaType` to protected playback sessions and use the bound session's
+  value in socket authorization/report identity; the old hardcoded `audio/`
+  literal is gone.
+- Full server suite: 304 tests; full web suite: 310 tests; full mobile suite:
+  138 tests. Focused socket/session suite: 33 tests. Server lint and
+  `git diff --check` passed.

@@ -428,55 +428,60 @@ async function getWrappedReport(client, id) {
 async function replaceTopMedia(client, reportId, topMedia = []) {
   await client.query("DELETE FROM wrapped_top_media WHERE wrapped_report_id = $1", [reportId]);
 
-  for (const [index, item] of topMedia.entries()) {
+  const rows = topMedia.map((item, index) => {
     const mediaId = normalizeNullableInt(item.mediaId ?? item.media_id);
     const rank = normalizeNonNegativeInt(item.rank, index + 1);
     const fallbackTitle = mediaId ? `Media #${mediaId}` : `Media ${rank}`;
     const title = typeof item.title === "string" ? item.title.trim() : "";
+    return {
+      media_id: mediaId,
+      title,
+      fallback_title: fallbackTitle,
+      play_count: normalizeNonNegativeInt(item.playCount ?? item.play_count),
+      total_time: normalizeNonNegativeInt(item.totalTime ?? item.total_time),
+      rank,
+    };
+  });
+  if (rows.length === 0) return;
 
-    await client.query(
-      `INSERT INTO wrapped_top_media
-       (wrapped_report_id, media_id, title, play_count, total_time, rank)
-       VALUES (
-         $1,
-         $2,
-         COALESCE(NULLIF($3, ''), (SELECT title FROM media_assets WHERE id = $2), $4),
-         $5,
-         $6,
-         $7
-       )`,
-      [
-        reportId,
-        mediaId,
-        title,
-        fallbackTitle,
-        normalizeNonNegativeInt(item.playCount ?? item.play_count),
-        normalizeNonNegativeInt(item.totalTime ?? item.total_time),
-        rank,
-      ]
-    );
-  }
+  await client.query(
+    `INSERT INTO wrapped_top_media
+     (wrapped_report_id, media_id, title, play_count, total_time, rank)
+     SELECT
+       $1, item.media_id,
+       COALESCE(NULLIF(item.title, ''), (SELECT title FROM media_assets WHERE id = item.media_id), item.fallback_title),
+       item.play_count, item.total_time, item.rank
+     FROM jsonb_to_recordset($2::jsonb) AS item(
+       media_id integer, title text, fallback_title text,
+       play_count integer, total_time integer, rank integer
+     )`,
+    [reportId, JSON.stringify(rows)]
+  );
 }
 
 async function replaceTimeline(client, reportId, timeline = []) {
   await client.query("DELETE FROM wrapped_timeline_days WHERE wrapped_report_id = $1", [reportId]);
 
-  for (const item of timeline) {
+  const rows = timeline.flatMap((item) => {
     const activityDate = normalizeDate(item.date ?? item.activity_date);
-    if (!activityDate) continue;
+    if (!activityDate) return [];
+    return [{
+      activity_date: activityDate,
+      play_time: normalizeNonNegativeInt(item.playTime ?? item.play_time),
+      plays: normalizeNonNegativeInt(item.plays),
+    }];
+  });
+  if (rows.length === 0) return;
 
-    await client.query(
-      `INSERT INTO wrapped_timeline_days
-       (wrapped_report_id, activity_date, play_time, plays)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        reportId,
-        activityDate,
-        normalizeNonNegativeInt(item.playTime ?? item.play_time),
-        normalizeNonNegativeInt(item.plays),
-      ]
-    );
-  }
+  await client.query(
+    `INSERT INTO wrapped_timeline_days
+     (wrapped_report_id, activity_date, play_time, plays)
+     SELECT $1, item.activity_date, item.play_time, item.plays
+     FROM jsonb_to_recordset($2::jsonb) AS item(
+       activity_date date, play_time integer, plays integer
+     )`,
+    [reportId, JSON.stringify(rows)]
+  );
 }
 
 async function withTransaction(fastify, fn) {

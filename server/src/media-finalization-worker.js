@@ -1,7 +1,6 @@
 import { join } from "path";
 import { rm, unlink } from "fs/promises";
 import { normalizeCategoryCover, normalizeMediaCover } from "./category-cover.js";
-import { enqueueEncoding } from "./encoding-queue.js";
 import { parseStreamFields } from "./encoding-worker.js";
 import { MEDIA_FINALIZATION_GROUP, MEDIA_FINALIZATION_STREAM } from "./media-finalization-queue.js";
 import { probeDuration, probeMediaTags, resolveTrackOrder } from "./routes/media.js";
@@ -41,7 +40,6 @@ export async function processMediaFinalizationJob({
   log,
   mediaId,
   pg,
-  redis,
   sourceVersion,
   normalizeVideoSource = normalizeMatroskaSource,
 }) {
@@ -147,18 +145,7 @@ export async function processMediaFinalizationJob({
   );
   if (!updated.rows.length) return { stale: true };
 
-  if (normalizedSource) {
-    await pg.query(
-      `UPDATE media_encoding_variants
-       SET status = 'queued', attempts = 0, last_error = NULL, progress_percent = 0, updated_at = NOW()
-       WHERE media_id = $1 AND source_version = $2
-         AND status IN ('ready', 'skipped', 'failed')`,
-      [mediaId, sourceVersion]
-    );
-  }
-
-  await enqueueEncoding({ pg, redis, mediaId, sourceVersion });
-  return { finalized: true };
+  return { finalized: true, normalizedSource };
 }
 
 async function ensureGroup(redis) {

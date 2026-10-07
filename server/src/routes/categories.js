@@ -113,20 +113,24 @@ export default async function (fastify, options = {}) {
     const { rows } = await fastify.pg.query(
       `${CATEGORY_TREE_SQL}
        SELECT
-         id,
-         name,
-         description,
-         min_access_tier,
-         parent_id,
-         sort_order,
-         cover_path,
-         created_at,
-         depth,
-         (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
-         (SELECT COUNT(*)::int FROM media_assets media WHERE media.category_id = category_tree.id) AS media_count,
-         array_to_string(path_parts, ' / ') AS path
+         category_tree.id,
+         category_tree.name,
+         category_tree.description,
+         category_tree.min_access_tier,
+         category_tree.parent_id,
+         category_tree.sort_order,
+         category_tree.cover_path,
+         category_tree.created_at,
+         category_tree.depth,
+         COALESCE(cc.child_count, 0) AS child_count,
+         COALESCE(mc.media_count, 0) AS media_count,
+         array_to_string(category_tree.path_parts, ' / ') AS path
        FROM category_tree
-       ORDER BY order_parts`,
+       LEFT JOIN (SELECT parent_id, COUNT(*)::int AS child_count FROM categories GROUP BY parent_id) cc
+         ON cc.parent_id = category_tree.id
+       LEFT JOIN (SELECT category_id, COUNT(*)::int AS media_count FROM media_assets GROUP BY category_id) mc
+         ON mc.category_id = category_tree.id
+       ORDER BY category_tree.order_parts`,
       [request.accessTier]
     );
     return rows;
@@ -137,20 +141,24 @@ export default async function (fastify, options = {}) {
     const { rows } = await fastify.pg.query(
       `${CATEGORY_TREE_SQL}
        SELECT
-         id,
-         name,
-         description,
-         min_access_tier,
-         parent_id,
-         sort_order,
-         cover_path,
-         created_at,
-         depth,
-         (SELECT COUNT(*)::int FROM categories child WHERE child.parent_id = category_tree.id) AS child_count,
-         (SELECT COUNT(*)::int FROM media_assets media WHERE media.category_id = category_tree.id) AS media_count,
-         array_to_string(path_parts, ' / ') AS path
+         category_tree.id,
+         category_tree.name,
+         category_tree.description,
+         category_tree.min_access_tier,
+         category_tree.parent_id,
+         category_tree.sort_order,
+         category_tree.cover_path,
+         category_tree.created_at,
+         category_tree.depth,
+         COALESCE(cc.child_count, 0) AS child_count,
+         COALESCE(mc.media_count, 0) AS media_count,
+         array_to_string(category_tree.path_parts, ' / ') AS path
        FROM category_tree
-       WHERE id = $2`,
+       LEFT JOIN (SELECT parent_id, COUNT(*)::int AS child_count FROM categories GROUP BY parent_id) cc
+         ON cc.parent_id = category_tree.id
+       LEFT JOIN (SELECT category_id, COUNT(*)::int AS media_count FROM media_assets GROUP BY category_id) mc
+         ON mc.category_id = category_tree.id
+       WHERE category_tree.id = $2`,
       [request.accessTier, id]
     );
 

@@ -17,8 +17,11 @@ private-file-stream/
 ├── web/                 # React frontend (entry: web/src/main.jsx)
 │   ├── index.html       # Vite entry point
 │   ├── nginx.conf       # Nginx config with /api/ proxy to server
-│   └── Containerfile    # 3-stage: deps → builder → nginx:alpine
+│   └── Containerfile    # 3-stage: deps → builder → nginx:stable-alpine
 ├── mobile/              # React Native / Expo client (entry: mobile/index.js)
+├── desktop/             # Rust Dioxus Native / Blitz desktop client
+├── plans/               # Scoped implementation plans and status index
+├── scripts/             # Repository maintenance and verification scripts
 ├── compose.yml          # Podman Compose: db, redis, server, worker, web
 ├── compose.dev.yml      # Local dev compose overrides
 ├── server/Containerfile # Server multi-stage build (node:22-alpine)
@@ -31,7 +34,7 @@ private-file-stream/
 
 ```bash
 # development
-npm run dev          # starts both server + web (concurrently or via workspace)
+npm run dev          # starts server + web; run npm run dev:desktop separately
 
 # server only
 npm run dev:server   # fastify with node --watch or nodemon
@@ -64,7 +67,8 @@ npm run test:mobile  # mobile tests only
 - **Media storage**: Local files under `data/` (gitignored). In production, mount a Podman volume.
 - **Streaming endpoints**: Return `fastify.reply.type()` + `pipe()` for media; use `Range` header support for video seeking.
 - **Auth**: IP-based access control via PostgreSQL `ip_whitelist` table and CIDR matching (`server/src/plugins/auth.js`). Access tiers: 0 (guest), 100 (whitelisted media/admin access), 999 (localhost administrator). No user accounts or passwords.
-- **Component style**: Functional components + hooks. CSS Modules or Tailwind (pick one, state in `web/README.md`).
+- **Component style**: Functional components + hooks. Tailwind CSS v4 utilities
+  plus feature-level CSS (decision recorded in `web/README.md`).
 
 ## Containerization
 
@@ -96,7 +100,8 @@ podman exec -it pfs-server sh
 - **Playback events** — sorted set (`playback:events`) for wrapped timeline/stats.
 - **Active sessions** — per-IP string with 5min TTL (`playback:active:<ip>`), polled for now-playing dashboard.
 - **Resume positions** — per-IP+media string with 15m TTL (`playback:resume:<ip>:<mediaId>`, see `RESUME_TTL_SECONDS`).
-- Development requires Redis on localhost:6379 (or `REDIS_URL` env).
+- Compose Redis is exposed at `127.0.0.1:16379`; standalone development uses
+  `localhost:6379` by default, or the `REDIS_URL` environment variable.
 
 ## Gotchas
 

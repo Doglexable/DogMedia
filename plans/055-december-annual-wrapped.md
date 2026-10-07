@@ -24,6 +24,8 @@
   051's Done criteria after)
 - **Category**: direction
 - **Planned at**: commit `2bf8caa`, 2026-10-06
+- **Execution status**: DONE — annual December flow and client copy are
+  present and verified.
 
 ## Why this matters
 
@@ -174,3 +176,13 @@ December lock Dec-15 wording; monthly copy outside December.
   timezone drift (spec fixes server UTC; keep it).
 - If a second annual cadence is ever added, the kind discriminator
   (`annual-year` vs `rolling-30-day`) is the extension point.
+
+## Execution notes (2026-10-06)
+
+- The current tree already contains the complete implementation: server UTC
+  December gating, annual period/kind metadata, web and mobile annual copy,
+  annual timeline sizing, December lock copy, and the existing export controls.
+- Focused tests passed: server 27, web 12, mobile 7. Full suites passed:
+  server 304, web 310, mobile 138. Workspace lint passed.
+- No migration was added and the monthly `wrapped_access_locks` path remains
+  unchanged outside December.

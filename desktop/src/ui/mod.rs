@@ -420,7 +420,18 @@ fn App() -> Element {
         async move {
             publish_mpris_state(app, engine, &playback_mpris);
             loop {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                // Full rate only while progress is possible; paused/stopped/
+                // idle ticks only refresh MPRIS/lease state (Plan 059).
+                let active = matches!(
+                    app.read().coordinator.snapshot().status,
+                    PlaybackStatus::Playing | PlaybackStatus::Loading
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(if active {
+                    100
+                } else {
+                    1000
+                }))
+                .await;
                 tick_playback(app, engine);
                 publish_mpris_state(app, engine, &playback_mpris);
             }
@@ -1167,15 +1178,21 @@ fn play_media_at(
             }
             return;
         }
-        let started = engine.read().as_ref().map(|engine| {
-            engine.open(&session, &stream).and_then(|_| {
-                if autoplay {
-                    engine.play()
-                } else {
-                    engine.pause()
-                }
-            })
-        });
+        let started = match client.wait_for_stream_ready(&session).await {
+            Ok(()) => engine.read().as_ref().map(|engine| {
+                engine
+                    .open(&session, &stream)
+                    .and_then(|_| {
+                        if autoplay {
+                            engine.play()
+                        } else {
+                            engine.pause()
+                        }
+                    })
+                    .map_err(|error| error.to_string())
+            }),
+            Err(error) => Some(Err(error.to_string())),
+        };
         match started {
             Some(Ok(())) => {
                 if let Some(engine) = engine.read().as_ref() {
@@ -1233,7 +1250,7 @@ fn play_media_at(
 
 fn play_photo(
     mut app: Signal<NativeApp>,
-    engine: Signal<Option<PlaybackEngine>>,
+    mut engine: Signal<Option<PlaybackEngine>>,
     media: Media,
     auto_queue: bool,
 ) {
@@ -1248,9 +1265,13 @@ fn play_photo(
     let previous = app.read().coordinator.snapshot().media.clone();
     let position = app.read().coordinator.snapshot().position;
     let duration = app.read().coordinator.snapshot().duration;
-    if let Some(engine) = engine.read().as_ref() {
-        let _ = engine.stop();
+    // Drop the entire playbin after Stop. GStreamer can keep decoder/source
+    // graphs reachable on a persistent playbin even after it reaches Null;
+    // constructing a fresh engine on the next playback releases that graph.
+    if let Some(current_engine) = engine.write().take() {
+        let _ = current_engine.stop();
     }
+    *engine.write() = PlaybackEngine::new().ok();
     app.write().coordinator.load(media.clone());
     let sequence = app.read().coordinator.snapshot().sequence;
     app.write().photo_data_url = None;
@@ -1415,17 +1436,25 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
 
     if let Some(position) = position {
         let duration = effective_duration.unwrap_or(position);
-        app.write().coordinator.update_timing(position, duration);
+        // Read-only pre-check: taking a write guard below marks the whole
+        // app signal dirty (full re-render), so only write on real movement.
+        // While paused this skips ~600 no-op writes/minute (Plan 059).
+        let changed = app.read().coordinator.timing_changed(position, duration);
+        if changed {
+            app.write().coordinator.update_timing(position, duration);
+        }
     }
     if app.read().local_mode {
         let index = app.read().local_index;
-        if let (Some(index), Some(duration)) = (index, duration.filter(|value| *value > 0.0))
-            && let Some(track) = app.write().local_tracks.get_mut(index)
-            && track
-                .duration
-                .is_none_or(|previous| (previous - duration).abs() > 0.5)
-        {
-            track.duration = Some(duration);
+        if let (Some(index), Some(duration)) = (index, duration.filter(|value| *value > 0.0)) {
+            let stale = app.read().local_tracks.get(index).is_some_and(|track| {
+                track
+                    .duration
+                    .is_none_or(|previous| (previous - duration).abs() > 0.5)
+            });
+            if stale && let Some(track) = app.write().local_tracks.get_mut(index) {
+                track.duration = Some(duration);
+            }
         }
     }
     publish_socket_state(app);
@@ -1780,10 +1809,16 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     let media = app.read().coordinator.snapshot().media.clone();
     let position = app.read().coordinator.snapshot().position;
     let duration = app.read().coordinator.snapshot().duration;
-    if let Some(engine) = engine.read().as_ref() {
-        let _ = engine.stop();
+    let mut engine = engine;
+    if let Some(current_engine) = engine.write().take() {
+        let _ = current_engine.stop();
     }
+    *engine.write() = PlaybackEngine::new().ok();
     app.write().coordinator.stop();
+    // Thumbnail responses are held as base64 data URLs in the native signal.
+    // Release them with the playback session so repeated connected playback
+    // cannot retain every album/track artwork until the process exits.
+    app.write().artwork = ArtworkCache::default();
     app.write().photo_data_url = None;
     app.write().lyrics.clear();
     app.write().subtitles.clear();

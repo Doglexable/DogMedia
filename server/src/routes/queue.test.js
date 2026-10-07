@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import queueRoutes from "./queue.js";
 
 function redisMock() {
@@ -56,6 +56,23 @@ describe("automatic queue ordering", () => {
     expect(sql).toContain("FROM liked_music l");
     expect(sql).toContain("ORDER BY l.liked_at DESC");
     expect(sql).toContain("l.client_ip = $2::inet");
+  });
+});
+
+describe("automatic queue category validation", () => {
+  it("rejects malformed category ids before querying the database", async () => {
+    const query = vi.fn();
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+    for (const categoryId of ["abc", "7abc", "0", "2147483648"]) {
+      const response = await app.inject({ method: "POST", url: `/api/queue/auto/${categoryId}` });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid category id" });
+    }
+    expect(query).not.toHaveBeenCalled();
+    await app.close();
   });
 });
 
@@ -348,6 +365,8 @@ describe("queue next/prev trigger tracking", () => {
     let storedTrigger = null;
     const queue = [10, 20, 30];
     let idx = 0;
+    const indexWrites = [];
+    const expires = [];
     const redis = {
       async llen() { return queue.length; },
       async get(key) {
@@ -355,11 +374,13 @@ describe("queue next/prev trigger tracking", () => {
         if (key.startsWith("queue:trigger:")) return storedTrigger;
         return "0";
       },
-      async set(key, val) {
+      async set(key, val, ...args) {
         if (key.startsWith("queue:index:")) idx = Number(val);
         if (key.startsWith("queue:trigger:")) storedTrigger = String(val);
+        if (key.startsWith("queue:index:")) indexWrites.push({ key, val, args });
         return "OK";
       },
+      async expire(key, ttl) { expires.push({ key, ttl }); return 1; },
       async lindex(_key, i) { return String(queue[i]); },
       async incr() { return 1; },
     };
@@ -398,12 +419,97 @@ describe("queue next/prev trigger tracking", () => {
     expect(resPrev.statusCode).toBe(200);
     expect(resPrev.json()).toMatchObject({ mediaId: 20, trigger: "system" });
     expect(storedTrigger).toBe("system");
+    expect(indexWrites).toEqual([
+      { key: "queue:index:127.0.0.1", val: 1, args: ["EX", 604800] },
+      { key: "queue:index:127.0.0.1", val: 2, args: ["EX", 604800] },
+      { key: "queue:index:127.0.0.1", val: 1, args: ["EX", 604800] },
+    ]);
+    expect(expires.filter(({ key }) => key === "queue:127.0.0.1")).toEqual([
+      { key: "queue:127.0.0.1", ttl: 604800 },
+      { key: "queue:127.0.0.1", ttl: 604800 },
+      { key: "queue:127.0.0.1", ttl: 604800 },
+    ]);
 
     await app.close();
   });
 });
 
 describe("queue TTL enforcement", () => {
+  it("sets TTL for a fresh item and refreshes both keys when it is added again", async () => {
+    const evalCalls = [];
+    let queue = [];
+    const app = Fastify();
+    app.decorate("pg", { query: async () => ({ rows: [{ id: 7 }] }) });
+    app.decorate("redis", {
+      async get(key) { return key.startsWith("queue:index:") ? "0" : null; },
+      async eval(script, count, key, idxKey, mediaId, ttl) {
+        evalCalls.push({ script, count, key, idxKey, mediaId, ttl, existing: queue.includes(mediaId) });
+        if (!queue.includes(mediaId)) queue.push(mediaId);
+        return queue;
+      },
+      async incr() { return 1; },
+      async expire() { return 1; },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.50";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/queue/items?compact=1",
+        payload: { mediaId: 7 },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ total: 1, currentMediaId: 7 });
+    }
+
+    expect(evalCalls.map(({ count, key, idxKey, mediaId, ttl, existing }) => ({
+      count, key, idxKey, mediaId, ttl, existing,
+    }))).toEqual([
+      { count: 2, key: "queue:192.168.1.50", idxKey: "queue:index:192.168.1.50", mediaId: "7", ttl: 604800, existing: false },
+      { count: 2, key: "queue:192.168.1.50", idxKey: "queue:index:192.168.1.50", mediaId: "7", ttl: 604800, existing: true },
+    ]);
+    const script = evalCalls[0].script;
+    expect(script).toMatch(/if item == ARGV\[1\] then\s+redis\.call\('EXPIRE', KEYS\[1\], ARGV\[2\]\)\s+redis\.call\('EXPIRE', KEYS\[2\], ARGV\[2\]\)\s+return items/);
+    expect(script).toContain("redis.call('EXPIRE', KEYS[1], ARGV[2])");
+    expect(script).toContain("redis.call('SET', KEYS[2], 0, 'EX', ARGV[2])");
+    expect(script).toMatch(/else\s+redis\.call\('EXPIRE', KEYS\[2\], ARGV\[2\]\)/);
+    await app.close();
+  });
+
+  it("refreshes queue and index TTL when selecting an item", async () => {
+    const sets = [];
+    const expires = [];
+    const app = Fastify();
+    app.decorate("redis", {
+      async get() { return null; },
+      async lrange() { return ["7", "8"]; },
+      async set(key, value, ...args) { sets.push({ key, value, args }); return "OK"; },
+      async incr() { return 1; },
+      async expire(key, ttl) { expires.push({ key, ttl }); return 1; },
+    });
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.50";
+    });
+    await app.register(queueRoutes, { prefix: "/api/queue" });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/queue/select?compact=1",
+      payload: { mediaId: 8 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(sets).toContainEqual({ key: "queue:index:192.168.1.50", value: 1, args: ["EX", 604800] });
+    expect(expires).toContainEqual({ key: "queue:192.168.1.50", ttl: 604800 });
+    expect(expires).toContainEqual({ key: "queue:revision:192.168.1.50", ttl: 604800 });
+    await app.close();
+  });
+
   it("enforces 7-day TTL on queue, index, and revision keys", async () => {
     const expires = [];
     const sets = [];

@@ -57,11 +57,13 @@ pfs-sdk/
 .DS_Store
 Thumbs.db
 
-# Local planning and agent context
+# Local planning and agent context (loose dumps stay local; numbered
+# plans/* docs, server tests, and migrations must stay committable)
 AGENTS.md
 .codex/
 .expo/
 .agents/
+*.bundle
 !plans/README.md
 *PLAN*.*
 *plan*.*

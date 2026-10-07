@@ -52,20 +52,21 @@ done.
 | [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | DONE |
 | [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | BLOCKED — release app and remembered offline folder confirmed; playback controls and reconnect walkthrough remain |
 | [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS (.dmg) and Windows (.exe) from Linux | P3 | L | 043 | BLOCKED at Windows link/install — macOS images and 350-DLL Windows runtime stage built; MSVC CRT/SDK cache and NSIS unavailable |
-| [045](045-scope-media-mutations-to-accessible-categories.md) | Scope media mutations to the caller's accessible categories (IDOR) | P1 | S | — | TODO |
-| [046](046-restore-queue-ttl-on-write-paths.md) | Restore Redis TTL on queue items/next/prev/select write paths | P1 | S | — | TODO |
-| [047](047-reject-truncated-direct-uploads.md) | Reject silently-truncated direct uploads over the size cap with 413 | P1 | S | — | TODO |
-| [048](048-upgrade-multipart-past-busboy-advisory.md) | Upgrade @fastify/multipart past busboy CRLF-injection advisory | P1 | S | — | TODO |
-| [049](049-validate-whitelist-and-resource-ids.md) | Validate whitelist writes and numeric resource ids (400 not 500) | P2 | S | 045 | TODO |
-| [050](050-grouped-category-counts.md) | Replace correlated per-category counts with grouped aggregates | P2 | S | — | TODO |
-| [051](051-batch-wrapped-child-inserts.md) | Batch wrapped-report child writes into single INSERTs | P2 | S | — | TODO |
-| [052](052-browse-search-index-and-list-pagination.md) | Make browse search index-friendly and paginate media list | P2 | M | — | TODO |
-| [053](053-refresh-docs-and-env-example.md) | Refresh stale docs (desktop, TTLs, env example, context files) | P3 | S | — | TODO |
-| [054](054-revise-blocked-playback-websocket.md) | Revise the blocked realtime playback WebSocket (041 delta) | P1 | M | 039, 040 | TODO |
-| [055](055-december-annual-wrapped.md) | Ship the December annual Wrapped experience | P2 | M | 051 | TODO |
-| [056](056-on-demand-encoding-cutover.md) | Migrate renditions to on-demand encoding (full cutover, 202+poll) | P2 | L | — | TODO |
-| [057](057-diagnose-desktop-playback-memory.md) | Diagnose and fix desktop memory growth during audio and video playback | P1 | L | — | TODO |
+| [045](045-scope-media-mutations-to-accessible-categories.md) | Scope media mutations to the caller's accessible categories (IDOR) | P1 | S | — | DONE — mutation routes scoped; 403/404 and accessible-path tests pass |
+| [046](046-restore-queue-ttl-on-write-paths.md) | Restore Redis TTL on queue items/next/prev/select write paths | P1 | S | — | DONE — item and navigation writes refresh queue/index TTL; 290 server tests pass |
+| [047](047-reject-truncated-direct-uploads.md) | Reject silently-truncated direct uploads over the size cap with 413 | P1 | S | — | DONE — oversized direct-upload parts return 413 and temp files are cleaned; 294 server tests pass |
+| [048](048-upgrade-multipart-past-busboy-advisory.md) | Upgrade @fastify/multipart past busboy CRLF-injection advisory | P1 | S | — | DONE — multipart 10.1.2 and patched busboy 3.2.2; 294 server tests pass; npm audit unavailable (registry DNS) |
+| [049](049-validate-whitelist-and-resource-ids.md) | Validate whitelist writes and numeric resource ids (400 not 500) | P2 | S | 045 | DONE — invalid CIDR, tiers, and route ids return 400; 298 server tests pass |
+| [050](050-grouped-category-counts.md) | Replace correlated per-category counts with grouped aggregates | P2 | S | — | DONE — list/detail use grouped counts; 299 server tests pass |
+| [051](051-batch-wrapped-child-inserts.md) | Batch wrapped-report child writes into single INSERTs | P2 | S | — | DONE — top media and timeline use one INSERT each; 300 server tests pass |
+| [052](052-browse-search-index-and-list-pagination.md) | Index browse search and paginate media list with Admin compatibility | P2 | M | — | BLOCKED-needs-DB-verify — implementation and tests pass; migration/EXPLAIN require PostgreSQL |
+| [053](053-refresh-docs-and-env-example.md) | Refresh stale docs (desktop, TTLs, env example, context files) | P3 | S | — | DONE — desktop stack, 15-minute resume TTL, env controls, project context, and agent bootstrap docs refreshed |
+| [054](054-revise-blocked-playback-websocket.md) | Revise the blocked realtime playback WebSocket (041 delta) | P1 | M | 039, 040 | DONE — mobile lease-loss baseline preserved; socket media type now follows protected session |
+| [055](055-december-annual-wrapped.md) | Ship the December annual Wrapped experience | P2 | M | 051 | DONE — December UTC annual gating, one-year reports, and web/mobile copy verified |
+| [056](056-on-demand-encoding-cutover.md) | Migrate renditions to on-demand encoding (full cutover, 202+poll) | P2 | L | — | DONE — urgent queue, status-aware clients, and offline cutover verified |
+| [057](057-diagnose-desktop-playback-memory.md) | Diagnose and fix desktop memory growth during audio and video playback | P1 | L | — | DONE — bus drain, engine teardown, artwork cleanup; operator validated stable ~680 MiB post-Stop plateau |
 | [058](058-portable-desktop-integration-module.md) | Compile the desktop integration module on macOS | P2 | S | — | DONE |
+| [059](059-gate-desktop-playback-tick-rerenders.md) | Gate desktop playback-tick writes that re-render 10×/s while paused | P1 | S | 057 | DONE 2026-10-07 — closing FLAC run pid=202786 (release 10:41, tick gate in): pause +14 MiB/~2 min (≈0.1 MiB/s, was 2.4 MiB/s), post-Stop +2 MiB then flat (was +8–97 MiB). Prior BLOCKED note superseded by this run. Remaining in-play transition steps (+561 MiB play, +68 MiB Stop) stay with Plan 057 |
 
 ## Dependency notes
 
@@ -112,7 +113,11 @@ done.
   after audio seeks, retained memory after Stop, and 150→180 MB after three
   short video play cycles. It compares local and connected playback before
   touching GStreamer, WGPU, or WebSocket code. Coordinate any socket edit with
-  054; no protocol change is planned.
+  054; no protocol change is planned. 2026-10-06 evidence folded in: release
+  FLAC playback leaks +4.5 MiB/s playing / +2.4 MiB/s paused (MPRIS-verified,
+  anon heap); `poll_event` never pops non-Eos/Error/AsyncDone/StateChanged bus
+  messages (prime suspect, Step 2 tests bus-drain first); scan/artwork/channels/
+  frame-recycle ruled out by inspection.
 - **Plan 053** (docs-only) is independent of everything and safe to execute
   anytime.
 

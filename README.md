@@ -10,7 +10,7 @@ page.
 |-------|-----------|
 | Backend | Fastify 5 (JavaScript, ESM) |
 | Frontend | React 19 + Vite 8 + Tailwind CSS v4 |
-| Desktop client | Rust + GTK4/libadwaita + GStreamer |
+| Desktop client | Rust + Dioxus Native / Blitz / WGPU + GStreamer |
 | Database | PostgreSQL 17 |
 | Cache / Queue | Redis 7 |
 | Container | Podman + Compose |
@@ -191,22 +191,22 @@ npm run dev
 npm run worker
 ```
 
-### Native Linux desktop client
+### Native desktop client
 
-`desktop/` is a compiled Rust application using GTK4/libadwaita and GStreamer.
-It does not embed Chromium, WebKit, or the React site. Start the server first,
-then install Rust 1.85 or newer and the native development packages for GTK
-4.16+, libadwaita 1.6+, and GStreamer 1.24+.
-
-On Arch Linux or Manjaro:
+`desktop/` is a compiled Rust application using Dioxus Native, Blitz/WGPU,
+and GStreamer. It does not embed Chromium, WebKit, or the React site. Install
+Rust 1.88+, a Vulkan loader with Mesa or a vendor GPU driver, GStreamer 1.24+
+with the required codecs, `pkg-config`, and a C toolchain. Build and run it
+with:
 
 ```bash
-sudo pacman -S --needed base-devel rust gtk4 libadwaita gstreamer \
-  gst-plugin-gtk4 gst-plugins-base gst-plugins-good gst-plugins-bad \
-  gst-plugins-ugly gst-libav
-cargo build --release --locked --manifest-path desktop/Cargo.toml
+npm run build:desktop
 ./desktop/target/release/dogmedia-desktop
 ```
+
+Debian, Fedora, Arch, Flatpak, and cross-build prerequisites are documented in
+[desktop/README.md](desktop/README.md). Debian and Fedora packages are written
+to `dist/packages/` by the packaging commands below.
 
 The first launch asks for the Dogmedia server URL. The server continues to
 authorize the computer by IP; the desktop app creates and retains a viewer ID
@@ -476,7 +476,7 @@ prints conflicts and categories for which no usable cover could be found.
 | `queue:index:<ip>` | String | — | Current position in queue |
 | `playback:events` | Sorted set | — | Timestamped event log for Wrapped |
 | `playback:active:<ip>` | String | 5 min | Active session for now-playing dashboard, including loop/shuffle state |
-| `playback:resume:<ip>:<mediaId>` | String | 7 days | Last known position for continue-watching |
+| `playback:resume:<ip>:<mediaId>` | String | 15 min (900s, via `PLAYBACK_RESUME_TTL_SECONDS`) | Last known position for continue-watching |
 | `music:reel-render` | Stream | — | Background FFmpeg jobs for favorite music reels |
 | `media:upload-completion` | Stream | — | Chunk assembly and source persistence jobs |
 | `media:finalization` | Stream | — | Post-upload metadata and artwork jobs |
@@ -635,7 +635,7 @@ experience:
 npm run dev              # server + web (concurrent)
 npm run dev:server       # server only
 npm run dev:web          # web / vite only
-npm run dev:desktop      # native GTK desktop client
+npm run dev:desktop      # native Dioxus/Blitz desktop client
 npm run migrate          # run DB migrations
 npm run build            # Vite production build
 npm run build:desktop    # release desktop binary

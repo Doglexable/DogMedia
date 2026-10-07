@@ -20,6 +20,10 @@
 - **Depends on**: none; coordinate with Plan 054 before editing socket code
 - **Category**: perf
 - **Planned at**: commit `2bf8caa`, 2026-10-06; current dirty-tree excerpts below
+- **Execution status**: DONE — GStreamer bus draining, full engine teardown,
+  and artwork cleanup landed; together with the Plan 059 tick gate, operator
+  release measurements show playback growth plateauing and Stop remaining
+  stable.
 
 ## Why this matters
 
@@ -67,6 +71,53 @@ ceiling before establishing a release-build baseline.
   and caps its outgoing buffered amount; this plan must not alter the wire
   protocol or the server. HTTP heartbeat remains the reconnect fallback in
   `desktop/src/ui/mod.rs:530-540`.
+- 2026-10-06 advisor measurements on the release binary
+  (`desktop/target/release/dogmedia-desktop`, local offline FLAC playback):
+  +4.5 MiB/s RSS while Playing, +2.4 MiB/s while Paused (both MPRIS-verified,
+  bus name `org.mpris.MediaPlayer2.com.dogmedia.Desktop`), all in anonymous
+  heap (`RssAnon`), with 35 threads and 54 FDs steady. Ruled out by code
+  inspection: scan stores paths only (`domain/local.rs:15-20,40-51`); playback
+  is `playbin3` + `file://` (`playback/engine.rs:313,334`) with no app-side
+  buffering; local mode builds no artwork (`ui/mod.rs:891-894,938-941`);
+  appsink is bounded (`max-buffers=4, drop=true`, `engine.rs:113-114`); UI
+  channels are `mpsc::channel(16)` (`ui/mod.rs:450-451`); artwork cache is
+  FIFO-capped at 96 (`ui/mod.rs:58,110-114`); frames are recycled
+  (`ui/video_surface.rs:738`) and texture handles unregistered on replace
+  (`ui/video_surface.rs:743-744`); `coordinator.update_timing` only assigns
+  two f64 fields (`playback/coordinator.rs:243-249`).
+- Prime suspect with code-level proof: `PlaybackEngine::poll_event`
+  (`desktop/src/playback/engine.rs:464-501`) calls
+  `bus.timed_pop_filtered(ZERO, &[Eos, Error, AsyncDone, StateChanged])` from
+  a 10 Hz tick (`ui/mod.rs:423-424,1383`). Every other bus message type (Tag
+  — including embedded cover art —, QoS, Element, Toc, Buffering,
+  DurationChanged, Latency, …) is NEVER popped from the unbounded default bus
+  queue and accumulates for the whole session. This is an unbounded-growth
+  vector by inspection.
+- Unexplained remainder: ~2.4 MiB/s growth continues while Paused, so a second
+  owner on the UI-tick path (~240 KiB per 100 ms tick retained) is still
+  unidentified. Step 1 must confirm both slopes before any fix, and Step 4
+  must re-measure both; do not declare victory from the playing slope alone.
+- Manual 2026-10-07 check by operator: several FLAC files playing in the
+  desktop process showed roughly 90–95 MiB RSS. This is a lower baseline than
+  the earlier 500 MB report, but is only a point sample; time/seek/Stop slope
+  is still required before classifying retained memory.
+- Complete `--memory-watch` sequence from the operator (PID 679206):
+  `Private_Dirty` rose 627 → 790 → 820 → 850 → 871 MiB during the active
+  window, held at 871 MiB immediately after Stop, then fell to 564 MiB on a
+  later sample while threads/FDs had already dropped 36/55 → 29/50. This
+  indicates substantial playback memory is released after Stop; the dominant
+  unbounded growth remains the Playing path (the earlier run reached ~5 GiB),
+  not the paused tick owner isolated by Plan 059.
+- Follow-up operator sequence (PID 103843) shows the active path can retain
+  memory after Stop: `Private_Dirty` rose 492 MiB → 1.336 GiB during playback,
+  then remained about 1.366 GiB across two post-Stop samples while threads/FDs
+  dropped 36/55 → 29/50. This confirms the next investigation must isolate
+  GStreamer pipeline/decoder/seek buffers and distinguish reusable cache from
+  still-reachable allocations.
+- Final operator validation (PID 263915) after engine teardown and artwork
+  cleanup: `Private_Dirty` moved 629 → 661 MiB during playback, then settled
+  around 679–680 MiB after Stop across repeated samples. The prior hundreds of
+  MiB/minute growth and multi-GiB escalation did not recur.
 
 Conventions: Rust tests live beside the implementation (`#[cfg(test)]` in
 `playback_socket.rs`); desktop checks use `desktop/Cargo.toml`. Existing Plan
@@ -82,6 +133,9 @@ Conventions: Rust tests live beside the implementation (`#[cfg(test)]` in
 | Clippy | `cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings` | exit 0 |
 | Format | `cargo fmt --manifest-path desktop/Cargo.toml -- --check` | exit 0 |
 | Linux memory sample | `cat /proc/<PID>/smaps_rollup` and `cat /proc/<PID>/status` | record `Rss`, `Pss`, `Private_Dirty`, `RssAnon`, `Threads` |
+| Play/pause control (MPRIS) | `dbus-send --session --type=method_call --dest=org.mpris.MediaPlayer2.com.dogmedia.Desktop /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Pause` (and `.Play`) | exit 0; verify with the next row |
+| Playback state check | `dbus-send --session --print-reply --dest=org.mpris.MediaPlayer2.com.dogmedia.Desktop /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:PlaybackStatus` | `variant string "Playing"` or `"Paused"` |
+| Growth slope | `awk '/VmRSS\|RssAnon/{print $2}' /proc/<PID>/status`, twice ≥60 s apart | slope in KiB/s for the current state |
 
 ## Scope
 
@@ -147,7 +201,22 @@ If the growth cannot be reproduced or attributed, STOP with those measurements.
 
 ### Step 2: Fix the GStreamer path if local playback retains memory
 
-If local audio reproduces the slope, inspect `PlaybackEngine::seek`,
+First, test the bus-drain hypothesis from "Current state" before anything
+else: change `poll_event` (`desktop/src/playback/engine.rs:464-501`) so the
+bus is fully drained each tick — replace the filtered pop with an unfiltered
+`timed_pop` loop (or equivalent), mapping Eos/Error to the same
+`EngineEvent`s as today and IGNORING (but still popping) every other message.
+Do not change what any message means and do not alter seek/stop behavior.
+Rationale: unpopped bus messages are a proven unbounded-growth vector, and
+this change is behavior-preserving by construction.
+
+**Verify**: Step-1 style 10-minute playing measurement shows the playing slope
+materially reduced; `cargo test --locked --manifest-path desktop/Cargo.toml`
+exits 0. If the playing slope does not move, REVERT this change before
+continuing (keeps attribution clean) and proceed below — do not stack a
+speculative fix under further changes.
+
+Then, if local audio reproduces the slope, inspect `PlaybackEngine::seek`,
 `flush_pending_seek`, `stop`, and the `ui::seek`/`stop_playback` call sites.
 Use GStreamer tracing or allocation profiling on the release build to identify
 retained buffers, decoder elements, or application allocations. Confirm that
@@ -242,4 +311,7 @@ commands above exit 0.
 Re-run the memory matrix after GStreamer, Dioxus/Blitz, or Plan 054 socket
 changes. Review Stop semantics and `Signal` lifetimes together. Treat RSS and
 private memory separately because allocator reuse and WGPU/GStreamer mappings
-can leave RSS high without an accumulating Rust heap leak.
+can leave RSS high without an accumulating Rust heap leak. If the bus-drain
+fix from Step 2 lands, the `timed_pop_filtered` allow-list in `poll_event`
+must be revisited whenever a new bus message type starts being handled —
+popped-ness, not handling, is what bounds the queue.

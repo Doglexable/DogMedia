@@ -195,6 +195,68 @@ impl ApiClient {
         Ok(self.base_url.join_stream(path)?)
     }
 
+    pub async fn wait_for_stream_ready(&self, session: &PlaybackSession) -> Result<(), ApiError> {
+        #[derive(serde::Deserialize)]
+        struct Pending {
+            status_url: Option<String>,
+            retry_after: Option<u64>,
+            code: Option<String>,
+            error: Option<String>,
+        }
+        let url = self.absolute_url(&session.stream_url)?;
+        for _ in 0..60 {
+            let response = self
+                .transport
+                .execute(RequestSpec {
+                    method: HttpMethod::Get,
+                    url: url.clone(),
+                    headers: BTreeMap::from([
+                        ("Accept".to_owned(), "application/json".to_owned()),
+                        ("Range".to_owned(), "bytes=0-0".to_owned()),
+                        ("X-Client-Platform".to_owned(), "desktop".to_owned()),
+                        (
+                            "X-Playback-Session".to_owned(),
+                            session.session_id.as_str().to_owned(),
+                        ),
+                        (
+                            "X-Viewer-ID".to_owned(),
+                            session.viewer_id.as_str().to_owned(),
+                        ),
+                    ]),
+                    json: None,
+                    timeout: Duration::from_secs(20),
+                })
+                .await?;
+            if (200..300).contains(&response.status) {
+                return Ok(());
+            }
+            let pending: Pending = serde_json::from_slice(&response.body).unwrap_or(Pending {
+                status_url: None,
+                retry_after: None,
+                code: None,
+                error: None,
+            });
+            if !matches!(response.status, 202 | 409) || pending.status_url.is_none() {
+                return Err(ApiError::Http {
+                    status: response.status,
+                    code: pending.code,
+                    message: pending
+                        .error
+                        .unwrap_or_else(|| "Playback rendition is unavailable".to_owned()),
+                });
+            }
+            tokio::time::sleep(Duration::from_secs(
+                pending.retry_after.unwrap_or(5).min(30),
+            ))
+            .await;
+        }
+        Err(ApiError::Http {
+            status: 408,
+            code: Some("ENCODING_TIMEOUT".to_owned()),
+            message: "Timed out waiting for playback rendition".to_owned(),
+        })
+    }
+
     pub fn is_insecure_remote(&self) -> bool {
         self.base_url.is_insecure_remote()
     }

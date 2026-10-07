@@ -172,11 +172,12 @@ Access tiers:
 
 ## Testing Notes
 
-Current tests:
+Current measured suites (2026-10-06):
 
-- Server: lyrics normalization, auth IP resolution, Wrapped access lock helpers.
-- Web: lyrics active-line helper.
-- Mobile: offline sync, player hooks and components.
+- Server: 30 test files, 303 tests (`npm run test:server`).
+- Web: 40 test files, 310 tests (`npm run test:web`).
+- Mobile: 14 test files, 138 tests (`npm run test:mobile`).
+- Lint: `npm run lint` exits cleanly with no warnings.
 
 Useful verification after changes:
 
@@ -186,8 +187,6 @@ npm run test:web
 npm run test:mobile
 npm run lint
 ```
-
-`npm run lint` currently exits cleanly but prints existing ESLint empty-config warnings for server and web.
 
 ## Recent Implementation State
 

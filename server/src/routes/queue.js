@@ -439,16 +439,26 @@ export default async function (fastify) {
     const queue = await fastify.redis.eval(
       `local items = redis.call('LRANGE', KEYS[1], 0, -1)
        for _, item in ipairs(items) do
-         if item == ARGV[1] then return items end
+         if item == ARGV[1] then
+           redis.call('EXPIRE', KEYS[1], ARGV[2])
+           redis.call('EXPIRE', KEYS[2], ARGV[2])
+           return items
+         end
        end
        redis.call('RPUSH', KEYS[1], ARGV[1])
-       if #items == 0 then redis.call('SET', KEYS[2], 0) end
+       redis.call('EXPIRE', KEYS[1], ARGV[2])
+       if #items == 0 then
+         redis.call('SET', KEYS[2], 0, 'EX', ARGV[2])
+       else
+         redis.call('EXPIRE', KEYS[2], ARGV[2])
+       end
        table.insert(items, ARGV[1])
        return items`,
       2,
       key,
       idxKey,
-      String(mediaId)
+      String(mediaId),
+      QUEUE_TTL_SECONDS
     );
     const storedIndex = Number.parseInt((await fastify.redis.get(idxKey)) || "0", 10);
     await bumpQueueRevision(fastify.redis, revisionKey);
@@ -635,6 +645,10 @@ export default async function (fastify) {
 
   fastify.post("/auto/:categoryId", async (request, reply) => {
     const { categoryId } = request.params;
+    const parsedCategoryId = Number.parseInt(categoryId, 10);
+    if (!/^\d+$/.test(categoryId) || !Number.isInteger(parsedCategoryId) || parsedCategoryId < 1 || parsedCategoryId > 2147483647) {
+      return reply.code(400).send({ error: "Invalid category id" });
+    }
     const startId = normalizeStartId(request.query.start);
 
     const { rows } = await fastify.pg.query(
@@ -712,7 +726,8 @@ export default async function (fastify) {
     if (!Number.isInteger(idx) || idx < 0) idx = 0;
     const previousIndex = idx;
     idx = Math.min(idx + 1, len - 1);
-    await fastify.redis.set(idxKey, idx);
+    await fastify.redis.set(idxKey, idx, "EX", QUEUE_TTL_SECONDS);
+    await fastify.redis.expire(key, QUEUE_TTL_SECONDS).catch(() => {});
     if (idx !== previousIndex) await bumpQueueRevision(fastify.redis, revisionKey);
 
     const mediaId = await fastify.redis.lindex(key, idx);
@@ -744,7 +759,8 @@ export default async function (fastify) {
     if (idx <= 0) return { mediaId: null, trigger };
 
     idx -= 1;
-    await fastify.redis.set(idxKey, idx);
+    await fastify.redis.set(idxKey, idx, "EX", QUEUE_TTL_SECONDS);
+    await fastify.redis.expire(key, QUEUE_TTL_SECONDS).catch(() => {});
     await bumpQueueRevision(fastify.redis, revisionKey);
 
     const mediaId = await fastify.redis.lindex(key, idx);
@@ -779,7 +795,8 @@ export default async function (fastify) {
       return reply.code(404).send({ error: "Media is not in the current queue" });
     }
 
-    await fastify.redis.set(idxKey, idx);
+    await fastify.redis.set(idxKey, idx, "EX", QUEUE_TTL_SECONDS);
+    await fastify.redis.expire(key, QUEUE_TTL_SECONDS).catch(() => {});
     await bumpQueueRevision(fastify.redis, revisionKey);
     return {
       mediaId: selectedId,

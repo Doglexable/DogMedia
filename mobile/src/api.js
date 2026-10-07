@@ -70,7 +70,7 @@ export async function createPlaybackSessionSource(mediaId, quality = "high") {
   if (data.viewerId && data.viewerId !== storedViewerId) {
     await storeViewerId(data.viewerId);
   }
-  return {
+  const source = {
     uri: absoluteApiUrl(data.streamUrl),
     headers: {
       "X-Playback-Session": data.sessionId,
@@ -80,6 +80,26 @@ export async function createPlaybackSessionSource(mediaId, quality = "high") {
     viewerId: data.viewerId,
     leaseRequired: Boolean(data.leaseRequired),
   };
+  return preparePlaybackSource(source);
+}
+
+export async function preparePlaybackSource(source, { maxAttempts = 60 } = {}) {
+  if (!source?.uri) throw new Error("Playback source has no stream URL");
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await fetch(source.uri, {
+      method: "GET",
+      headers: { ...source.headers, Range: "bytes=0-0" },
+    });
+    if (response.ok) return source;
+    const data = await response.json().catch(() => null);
+    if (![202, 409].includes(response.status) || !data?.statusUrl) {
+      const error = new Error(data?.error || "Playback rendition is unavailable");
+      error.code = data?.code;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.max(250, Number(data.retryAfter || 5) * 1000)));
+  }
+  throw new Error("Timed out waiting for playback rendition");
 }
 
 export async function heartbeatPlaybackLease(source) {

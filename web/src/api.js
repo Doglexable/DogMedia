@@ -73,6 +73,33 @@ export async function createPlaybackSession(mediaId, quality = "high", { signal 
   return data;
 }
 
+export async function preparePlaybackStream(session, { signal, maxAttempts = 60 } = {}) {
+  if (!session?.streamUrl) throw new Error("Playback session has no stream URL");
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const response = await api(session.streamUrl, {
+      headers: { Range: "bytes=0-0", "X-Playback-Session": session.sessionId },
+      signal,
+    });
+    if (response.ok) {
+      await response.body?.cancel?.();
+      return session.streamUrl;
+    }
+    const data = await response.json().catch(() => null);
+    if (![202, 409].includes(response.status) || !data?.statusUrl) {
+      const error = new Error(data?.error || "Playback rendition is unavailable");
+      error.code = data?.code;
+      error.retryAfter = data?.retryAfter;
+      throw error;
+    }
+    const delay = Math.max(250, Number(data.retryAfter || 5) * 1000);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, delay);
+      signal?.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+    });
+  }
+  throw new Error("Timed out waiting for playback rendition");
+}
+
 export async function heartbeatPlaybackLease(sessionId) {
   const response = await api("/api/playback/lease/heartbeat", {
     method: "POST",

@@ -5,6 +5,10 @@ export const SOCKET_MAX_BYTES = 8192;
 export const SOCKET_CLOSE = { malformed: 4400, unauthorized: 4401, rateLimited: 4408, slow: 4429 };
 const VERSION = 1;
 
+export function socketMediaType(session) {
+  return typeof session?.mediaType === "string" ? session.mediaType : "";
+}
+
 export function parsePlaybackMessage(raw) {
   if (Buffer.byteLength(raw) > SOCKET_MAX_BYTES) throw new Error("Message too large");
   let value;
@@ -91,6 +95,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
         const revokedSessionId = entry.boundSessionId;
         entry.revokedSessionId = entry.boundSessionId;
         entry.boundSessionId = null;
+        entry.boundMediaType = "";
         entry.playing = false;
         send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_LEASE_LOST", sessionId: revokedSessionId, message: "Playback lease lost" });
       }
@@ -130,6 +135,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           const session = await readPlaybackSession(fastify.redis, entry.boundSessionId);
           if (!session || session.viewerId !== entry.identity.viewerId || session.clientIp !== entry.identity.clientIp) {
             entry.boundSessionId = null;
+            entry.boundMediaType = "";
             entry.playing = false;
             await notify();
             return;
@@ -137,6 +143,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           const result = await refreshExclusiveLease(fastify.redis, entry.identity.viewerId, entry.boundSessionId, entry.identity.clientIp);
           if (!result.refreshed) {
             entry.boundSessionId = null;
+            entry.boundMediaType = "";
             entry.playing = false;
             await notify();
           } else await scheduleExpiry();
@@ -182,6 +189,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
             return;
           }
           entry.boundSessionId = message.sessionId;
+          entry.boundMediaType = socketMediaType(session);
           entry.revokedSessionId = null;
           entry.sequence = -1;
           entry.playing = false;
@@ -189,7 +197,12 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           return;
         }
         if (message.type === "playback.state") {
-          const identity = { ...entry.identity, sessionId: message.sessionId, mediaId: message.mediaId, mediaType: "audio/" };
+          const identity = {
+            ...entry.identity,
+            sessionId: message.sessionId,
+            mediaId: message.mediaId,
+            mediaType: entry.boundMediaType,
+          };
           const authorized = message.sessionId === entry.boundSessionId
             && await authorizeExclusiveReport(fastify.redis, identity);
           if (!authorized?.authorized || message.sequence < entry.sequence) {

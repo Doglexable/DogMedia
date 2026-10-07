@@ -12,6 +12,12 @@ function createMockPg({ rows = [], rowCount = 1 } = {}) {
       if (sql.includes("SELECT * FROM ip_whitelist")) {
         return { rows };
       }
+      if (sql === "SELECT $1::cidr") {
+        if (params[0] === "not-a-cidr") {
+          throw Object.assign(new Error("invalid input syntax for type cidr"), { code: "22P02" });
+        }
+        return { rows: [{ cidr_range: params[0] }] };
+      }
       if (sql.includes("INSERT INTO ip_whitelist")) {
         const [cidrRange, accessTier, description] = params;
         return {
@@ -220,6 +226,45 @@ describe("whitelist routes authorization gates", () => {
     expect(badRes.statusCode).toBe(400);
     expect(badRes.json()).toEqual({ error: "cidr_range is required" });
 
+    await app.close();
+  });
+
+  it("rejects malformed CIDR and tier before inserting a whitelist row", async () => {
+    const pg = createMockPg();
+    const query = vi.spyOn(pg, "query");
+    const clearAuthCacheSpy = vi.fn();
+    const app = await buildApp({ pg, onClearAuthCache: clearAuthCacheSpy });
+
+    const invalidCidr = await app.inject({
+      method: "POST", url: "/api/whitelist", remoteAddress: "127.0.0.1",
+      payload: { cidr_range: "not-a-cidr", access_tier: 100 },
+    });
+    expect(invalidCidr.statusCode).toBe(400);
+    expect(invalidCidr.json()).toEqual({ error: "Invalid cidr_range" });
+
+    for (const access_tier of ["admin", -1, 2147483648]) {
+      const response = await app.inject({
+        method: "POST", url: "/api/whitelist", remoteAddress: "127.0.0.1",
+        payload: { cidr_range: "10.0.0.0/8", access_tier },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "access_tier must be a non-negative integer" });
+    }
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO ip_whitelist"))).toBe(false);
+    expect(clearAuthCacheSpy).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("rejects malformed whitelist ids before deleting", async () => {
+    const pg = createMockPg();
+    const query = vi.spyOn(pg, "query");
+    const app = await buildApp({ pg });
+    for (const id of ["abc", "12abc", "0", "2147483648"]) {
+      const response = await app.inject({ method: "DELETE", url: `/api/whitelist/${id}`, remoteAddress: "127.0.0.1" });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid whitelist id" });
+    }
+    expect(query.mock.calls.some(([sql]) => sql.includes("DELETE FROM ip_whitelist"))).toBe(false);
     await app.close();
   });
 

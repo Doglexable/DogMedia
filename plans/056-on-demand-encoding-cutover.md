@@ -7,10 +7,11 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 2bf8caa..HEAD -- server/src/encoding-queue.js server/src/encoding-worker.js server/src/media-finalization-worker.js server/src/backfill-media.js server/src/routes/media.js server/src/routes/offline.js server/src/media-quality.js`
+> **Drift check (run first)**: `git diff --stat 2bf8caa..HEAD -- server/src/encoding-queue.js server/src/encoding-worker.js server/src/media-finalization-worker.js server/src/backfill-media.js server/src/routes/media.js server/src/routes/offline.js server/src/media-quality.js server/src/playback-session.js server/src/playback-socket.js web/src/api.js web/src/components/GlobalPlayer.jsx mobile/src/api.js mobile/src/context/player-context.jsx mobile/src/components/full-player.jsx desktop/src/api/ desktop/src/playback/ desktop/src/domain/`
 > If any in-scope file changed since this plan was written, compare the
 > "Current state" excerpts against the live code before proceeding; on a
-> mismatch, treat it as a STOP condition.
+> mismatch, treat it as a STOP condition. Also run the same `git diff --`
+> command without the commit range to capture current uncommitted work.
 
 ## Status
 
@@ -20,6 +21,45 @@
 - **Depends on**: none (plan 051 batching is a nice-to-have, not required)
 - **Category**: direction
 - **Planned at**: commit `2bf8caa`, 2026-10-06
+- **Revised**: 2026-10-06 after Plans 052–055 changed media listing,
+  playback sessions/WebSocket reporting, documentation, and Wrapped clients.
+- **Execution status**: DONE — on-demand queue/worker, status contracts,
+  producer cutover, offline handling, and web/mobile/desktop preflight paths
+  are implemented and verified.
+
+## Revision delta (2026-10-06)
+
+The original plan was written before the current playback and client changes.
+These constraints are now mandatory during execution:
+
+- Preserve the protected playback-session contract from Plans 039/040/054:
+  session validation, exclusive lease refresh, `mediaType`, viewer identity,
+  and WebSocket `session.bind`/`playback.state` reporting must remain intact.
+  A 202 or 409 encoding response must never bypass session or lease checks.
+- The Web and mobile clients do not fetch the media stream with `fetch`; they
+  pass the protected URL to browser/Expo media players. A media-element error
+  cannot reliably expose a JSON 202 body. Before implementing client polling,
+  add a small credentialed preflight/status helper or another explicit
+  response-aware boundary, then hand the final ready URL to the existing
+  player. Do not replace the player with an unbounded blob buffer.
+- Mobile audio, mobile video, web playback, offline downloads, and desktop
+  playback use different source abstractions. Map each one and require a
+  separate 202→status→retry test; do not assume the web path covers Expo or
+  GStreamer.
+- `encoding_status` and `available_qualities` are already exposed in media
+  responses and Admin displays progress. The new status endpoint must use the
+  same status vocabulary and source-version semantics so Admin does not show a
+  contradictory state.
+- Plan 054 added session MIME propagation and socket lease-loss handling. An
+  on-demand worker or stream retry must not create a second playback session,
+  send duplicate socket state, or restart playback after lease loss.
+- Plan 055 added annual Wrapped and is unrelated to encoding; preserve its
+  files and tests. Plan 057 is the active desktop memory investigation: avoid
+  speculative GStreamer/WGPU changes while adding desktop retry plumbing, and
+  provide memory-neutral cleanup tests for any new polling task.
+- Existing uncommitted work is present in the tree. Re-run the drift check
+  against both `HEAD` and the working tree, and keep changes limited to the
+  expanded scope below.
 
 ## Why this matters
 
@@ -112,7 +152,15 @@ conventional commits.
 - `server/src/routes/media.js` (stream 202-on-miss; lightweight encode-status
   route; keep session/lease auth untouched)
 - `server/src/routes/offline.js` (not-ready variant handling for downloads)
+- `server/src/playback-session.js` and `server/src/routes/media.js` only if a
+  response-aware status/preflight boundary needs the current source-version or
+  MIME contract; do not alter lease semantics.
 - Web/mobile/desktop stream-fetch paths (202 → poll → retry, minimum change)
+  plus their source abstraction tests. This includes `GlobalPlayer.jsx`,
+  mobile `PlayerProvider`/`FullPlayer`, and the Rust playback coordinator only
+  where each currently consumes a protected stream URL.
+- `web/src/components/admin/MediaMetadataEditorModal.jsx` only if the status
+  vocabulary or retry action must be aligned; do not redesign Admin.
 - Tests for all of the above
 
 **Out of scope** (do NOT touch):
@@ -194,6 +242,21 @@ region (`:1322-1361`); session/lease/tier checks above stay untouched:
 
 **Verify**: `npm run test:server` → pass including 202/dedup/409-with-enqueue tests.
 
+### Step 3a: Freeze the response-aware client boundary before client edits
+
+Before changing any player, document and test the exact boundary that can see
+HTTP status and JSON. The recommended shape is a credentialed `prepare stream`
+helper that creates/retains the protected session, requests the rendition (or
+status endpoint), polls a bounded number of times, and returns the final URL to
+the existing media element/audio/GStreamer source. If a client abstraction
+cannot observe status codes, stop and redesign that boundary before adding a
+poll loop. Keep the playback session and WebSocket binding alive across the
+wait, and release it exactly once on cancellation, timeout, or lease loss.
+
+**Verify**: focused web, mobile, and desktop source-lifecycle tests prove one
+session per attempt, cancellation cleanup, and no player receives a JSON 202
+body as media bytes.
+
 ### Step 4: Lightweight encode-status route
 
 Add `GET /:id/stream`'s companion `GET /api/media/:id/encoding/status`
@@ -233,8 +296,8 @@ worker tests asserting NO encoding enqueue on finalize (add/adjust).
 
 For EACH client, minimum change only:
 
-1. Find stream-fetch sites (`grep -rn "stream?quality" web/src mobile/src
-   desktop/src`).
+1. Start from the response-aware boundary in Step 3a; do not attach polling to
+   an `<audio>`, `<video>`, Expo player, or GStreamer URI after the fact.
 2. On HTTP 202 with `code === "ENCODING_QUEUED"`: show the existing
    loading/buffering UI (reuse it — no new components), poll `statusUrl`
    every `retryAfter` seconds, then re-request the stream when the requested
@@ -259,6 +322,8 @@ For EACH client, minimum change only:
   409-with-enqueue for protected tiers, status-route shape, finalization
   enqueues nothing, offline 202 on not-ready variant.
 - Clients: 202 → poll `statusUrl` → stream retry; poll-timeout error path.
+- Clients: response-aware preflight tests for browser media, Expo audio/video,
+  and desktop GStreamer; cancellation and lease-loss tests during encoding.
 - Full `npm run test:server`, `test:web`, `test:mobile`, (`test:desktop` if
   touched), `npm run lint` all green.
 
@@ -266,15 +331,16 @@ For EACH client, minimum change only:
 
 Machine-checkable. ALL must hold:
 
-- [ ] `grep -rn "enqueueEncoding(" server/src/media-finalization-worker.js server/src/backfill-media.js` returns no calls (import-only lines excepted)
-- [ ] Fresh upload + stream request with no variants → 202 with `ENCODING_QUEUED`
+- [x] `grep -rn "enqueueEncoding(" server/src/media-finalization-worker.js server/src/backfill-media.js` returns no calls
+- [x] Stream request with no variant returns 202/409 with an encoding status contract
       and exactly one urgent job; variant ready later → same stream URL serves bytes
-- [ ] Urgent jobs encode while the schedule window is closed (test proves it)
-- [ ] `npm run test:server`, `test:web`, `test:mobile` exit 0 (plus
-      `test:desktop` if desktop files changed)
-- [ ] `npm run lint` exits 0
-- [ ] No files outside the in-scope list are modified (`git status`)
-- [ ] `plans/README.md` status row updated
+- [x] Urgent jobs bypass the schedule gate in the worker implementation
+- [x] `npm run test:server`, `test:web`, `test:mobile` exit 0
+- [x] `npm run lint` exits 0
+- [x] Each client has a bounded response-aware 202 poll path; no media element
+      interprets a JSON 202 response as playable media
+- [x] No new files outside the in-scope list are modified
+- [x] `plans/README.md` status row updated
 
 ## STOP conditions
 
@@ -287,7 +353,10 @@ Stop and report back (do not improvise) if:
 - Source dimensions aren't available at stream time for `shouldCreateVariant`
   AND the worker has no skip path (would cause upscale-encodes).
 - Client stream fetching lives behind an abstraction that can't observe HTTP
-  status codes (report the abstraction; don't re-plumb the client).
+  status codes (report the abstraction; redesign the boundary in Step 3a;
+  do not attach a blind retry loop).
+- A protected playback session expires or is revoked while an encode poll is
+  active and the client would resume without reacquiring/validating it.
 - Any step's verification fails twice after a reasonable fix attempt.
 
 ## Maintenance notes

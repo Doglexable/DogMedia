@@ -1,6 +1,6 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, playbackSocketUrl, releasePlaybackLease, requestPlaybackSocketTicket } from "../api";
+import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, playbackSocketUrl, preparePlaybackStream, releasePlaybackLease, requestPlaybackSocketTicket } from "../api";
 import { useAccess } from "../access-context";
 import { conflictFromError, shouldHandleLeaseLoss } from "./global-player/exclusive-session";
 import { createPlaybackSocket } from "./global-player/playback-socket";
@@ -235,7 +235,8 @@ export function GlobalPlayerProvider({ children }) {
     const request = { replacingSessionId };
     replacingSessionIdRef.current = request;
     createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
-      .then((session) => {
+      .then(async (session) => {
+        await preparePlaybackStream(session, { signal: controller.signal });
         if (controller.signal.aborted) {
           releasePlaybackLease(session.sessionId);
           return;

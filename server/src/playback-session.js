@@ -165,6 +165,7 @@ export async function createPlaybackSession(redis, details) {
     viewerId: details.viewerId,
     leaseRequired: Boolean(details.leaseRequired),
     quality: details.quality,
+    mediaType: typeof details.mediaType === "string" ? details.mediaType : "",
     sourceVersion: Number(details.sourceVersion || 1),
     createdAt: now,
     expiresAt: now + ttlSeconds * 1000,

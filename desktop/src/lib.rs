@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod diagnostics;
 pub mod domain;
 #[cfg(feature = "native-ui")]
 pub(crate) mod integration;

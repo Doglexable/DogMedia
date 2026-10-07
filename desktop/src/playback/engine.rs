@@ -366,6 +366,17 @@ impl PlaybackEngine {
             *pts = None;
         }
         self.playbin.set_state(gst::State::Null)?;
+        // Null stops the pipeline but playbin may retain its source/decoder
+        // graph and URI until the next open. Detach both here so Stop releases
+        // demuxer/decoder buffers immediately; the next open installs a fresh
+        // URI on the same configured playbin.
+        self.playbin.set_property("uri", "");
+        if let Ok(mut frame) = self.frame.lock() {
+            *frame = None;
+        }
+        if let Ok(mut recycle) = self.recycle.lock() {
+            recycle.clear();
+        }
         if let Ok(mut headers) = self.headers.lock() {
             *headers = None;
         }
@@ -464,15 +475,10 @@ impl PlaybackEngine {
     pub fn poll_event(&self) -> Option<EngineEvent> {
         let bus = self.playbin.bus()?;
         let mut event = None;
-        while let Some(message) = bus.timed_pop_filtered(
-            gst::ClockTime::ZERO,
-            &[
-                gst::MessageType::Eos,
-                gst::MessageType::Error,
-                gst::MessageType::AsyncDone,
-                gst::MessageType::StateChanged,
-            ],
-        ) {
+        // Drain every message, including metadata/QoS/buffering messages that
+        // are irrelevant to playback state. Filtering at the bus API leaves
+        // those messages queued indefinitely and makes RSS grow on long runs.
+        while let Some(message) = bus.timed_pop(gst::ClockTime::ZERO) {
             match message.view() {
                 gst::MessageView::Eos(_) => {
                     if event.is_none() {
@@ -551,6 +557,30 @@ mod tests {
         // Stopping clears pending seek
         assert!(engine.stop().is_ok());
         assert_eq!(*engine.pending_seek.lock().unwrap(), None);
+    }
+
+    #[test]
+    fn stop_detaches_uri_and_recycled_video_buffers() {
+        gst::init().unwrap();
+        let engine = PlaybackEngine::new().unwrap();
+        engine
+            .open_local(&url::Url::parse("file:///tmp/example.flac").unwrap())
+            .unwrap();
+        assert_eq!(
+            engine.playbin.property::<Option<String>>("uri").as_deref(),
+            Some("file:///tmp/example.flac")
+        );
+        engine.recycle.lock().unwrap().push(vec![1, 2, 3]);
+        engine.frame.lock().unwrap().replace(VideoFrame {
+            width: 1,
+            height: 1,
+            format: VideoPixelFormat::Rgba,
+            pixels: vec![0; 4],
+        });
+        engine.stop().unwrap();
+        assert!(engine.playbin.property::<String>("uri").is_empty());
+        assert!(engine.recycle.lock().unwrap().is_empty());
+        assert!(engine.frame.lock().unwrap().is_none());
     }
 
     #[test]

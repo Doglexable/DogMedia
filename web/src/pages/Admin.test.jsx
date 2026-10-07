@@ -33,6 +33,12 @@ const hookHarness = vi.hoisted(() => {
       cursor += 1;
       return factory();
     },
+    useRef(initialValue) {
+      const index = cursor;
+      cursor += 1;
+      if (!(index in slots)) slots[index] = { current: initialValue };
+      return slots[index];
+    },
     useState(initialValue) {
       const index = cursor;
       cursor += 1;
@@ -57,6 +63,7 @@ vi.mock("react", async (importOriginal) => ({
   useCallback: hookHarness.useCallback,
   useEffect: hookHarness.useEffect,
   useMemo: hookHarness.useMemo,
+  useRef: hookHarness.useRef,
   useState: hookHarness.useState,
 }));
 
@@ -86,6 +93,7 @@ vi.mock("../components/admin/category-tree-dnd", () => ({
 }));
 
 import Admin from "./Admin";
+import { fetchAllCategoryMedia } from "../components/admin/CategoryManager";
 
 function renderAdmin() {
   hookHarness.beginRender();
@@ -160,6 +168,39 @@ beforeEach(() => {
 });
 
 describe("Admin workspace", () => {
+  it("loads all 205 category items across three pages", async () => {
+    const items = Array.from({ length: 205 }, (_, index) => ({ id: index + 1, title: `Episode ${index + 1}`, mime_type: "video/mp4" }));
+    mocks.api.mockImplementation(async (path) => {
+      const url = new URL(path, "http://localhost");
+      expect(url.pathname).toBe("/api/media");
+      expect(url.searchParams.get("category_id")).toBe("7");
+      const offset = Number(url.searchParams.get("offset"));
+      return response(items.slice(offset, offset + 100));
+    });
+    const loaded = await fetchAllCategoryMedia(7);
+    expect(loaded).toEqual(items);
+    expect(loaded.filter((item) => item.mime_type.startsWith("video/"))).toHaveLength(205);
+    expect(mocks.api.mock.calls.map(([path]) => new URL(path, "http://localhost").searchParams.get("offset"))).toEqual(["0", "100", "200"]);
+  });
+
+  it("requests an empty terminal page for exactly 100 items", async () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
+    mocks.api.mockImplementation(async (path) => {
+      const offset = Number(new URL(path, "http://localhost").searchParams.get("offset"));
+      return response(items.slice(offset, offset + 100));
+    });
+    expect(await fetchAllCategoryMedia(7)).toEqual(items);
+    expect(mocks.api).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a failed later page without returning a partial collection", async () => {
+    mocks.api.mockImplementation(async (path) => {
+      const offset = Number(new URL(path, "http://localhost").searchParams.get("offset"));
+      return offset === 0 ? response(Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }))) : response({ error: "Failed" }, { ok: false, status: 500 });
+    });
+    await expect(fetchAllCategoryMedia(7)).rejects.toThrow("Failed");
+  });
+
   it("renders the tier-100 release and category controls and switches media tabs", () => {
     let tree = renderAdmin();
 
@@ -207,7 +248,7 @@ describe("Admin workspace", () => {
       if (path === "/api/media/uploads/upload-1/complete") {
         return response({ id: 42, title: "Episode 2", mime_type: "video/mp4", track_order: 2 }, { status: 201 });
       }
-      if (path === "/api/media?category_id=7") {
+      if (path.startsWith("/api/media?category_id=7&limit=100&offset=")) {
         return response([{ id: 42, title: "Episode 2", mime_type: "video/mp4", track_order: 2 }]);
       }
       throw new Error(`Unexpected API call: ${options.method || "GET"} ${path}`);
@@ -257,7 +298,7 @@ describe("Admin workspace", () => {
       if (path === "/api/media/uploads/queue") {
         return response({ jobs: [], summary: { queued: 1, processing: 0, completed: 0, failed: 0 } });
       }
-      if (path === "/api/media?category_id=7") {
+      if (path.startsWith("/api/media?category_id=7&limit=100&offset=")) {
         return response([]);
       }
       if (path === "/api/categories") {

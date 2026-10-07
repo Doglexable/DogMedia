@@ -120,8 +120,8 @@ describe("offline routes", () => {
       url: "/api/offline/media/1/download?quality=high",
     });
 
-    expect(response.statusCode).toBe(403);
-    expect(response.json()).toEqual({ error: "Original quality requires admin access" });
+    expect(response.statusCode).toBe(202);
+    expect(response.json()).toMatchObject({ code: "ENCODING_QUEUED", quality: "high" });
     await app.close();
   });
 

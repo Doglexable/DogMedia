@@ -1,13 +1,13 @@
 import { createReadStream, createWriteStream } from "fs";
 import { mkdir, open, readFile, rename, rm, stat, unlink, utimes, writeFile } from "fs/promises";
 import { join, resolve } from "path";
-import { pipeline } from "stream/promises";
+import { finished, pipeline } from "stream/promises";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
-import { retryFailedEncoding } from "../encoding-queue.js";
+import { enqueueEncodingQuality, retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
 import { cleanupOrphanMediaFiles } from "../media-cleanup.js";
@@ -45,6 +45,7 @@ const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
 const CHUNK_SIZE = 4 * 1024 * 1024;
+const MAX_RESOURCE_ID = 2147483647;
 const CHUNK_UPLOAD_DIR = join(UPLOAD_TMP_DIR, "chunked");
 const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
 const ACCESSIBLE_CATEGORY_TREE_SQL = `
@@ -344,12 +345,19 @@ async function persistMediaUpload({ fastify, request, reply, fields, lyrics = nu
   }
 
   const { rows: categoryRows } = await fastify.pg.query(
-    "SELECT id, parent_id, cover_path FROM categories WHERE id = $1",
-    [fields.category_id]
+    `${ACCESSIBLE_CATEGORY_TREE_SQL}
+     SELECT c.id, c.parent_id, c.cover_path
+     FROM categories c
+     JOIN accessible_categories ac ON ac.id = c.id
+     WHERE c.id = $2`,
+    [request.accessTier, fields.category_id]
   );
   if (categoryRows.length === 0) {
+    const { rowCount } = await fastify.pg.query("SELECT 1 FROM categories WHERE id = $1", [fields.category_id]);
     await cleanupUploads(mainFileUpload, thumbUpload);
-    return reply.code(400).send({ error: "Category not found" });
+    return rowCount
+      ? reply.code(403).send({ error: "Access denied" })
+      : reply.code(400).send({ error: "Category not found" });
   }
 
   const categoryDir = join(DATA_DIR, String(fields.category_id));
@@ -564,7 +572,20 @@ export async function processChunkedMediaUpload({ fastify, log, uploadId }) {
         })
       : null;
     const reply = captureReply();
-    const request = { log };
+    const request = { log, accessTier: manifest.accessTier };
+    if (manifest.replaceMediaId) {
+      if (!Number.isInteger(manifest.accessTier) || manifest.accessTier < 100) {
+        throw new Error("Access denied");
+      }
+      const { rows } = await fastify.pg.query(
+        `${ACCESSIBLE_CATEGORY_TREE_SQL}
+         SELECT m.id FROM media_assets m
+         JOIN accessible_categories ac ON ac.id = m.category_id
+         WHERE m.id = $2`,
+        [manifest.accessTier, manifest.replaceMediaId]
+      );
+      if (!rows.length) throw new Error("Access denied");
+    }
     const result = manifest.replaceMediaId
       ? await replaceMediaFiles({
           fastify,
@@ -593,7 +614,18 @@ export async function processChunkedMediaUpload({ fastify, log, uploadId }) {
 export default async function (fastify, options = {}) {
   const scanMediaTags = options.probeMediaTags || probeMediaTags;
   const dataDir = options.dataDir || DATA_DIR;
-  fastify.get("/", async (request) => {
+  fastify.get("/", async (request, reply) => {
+    // Keep the array response; Admin walks ordered pages with limit and offset.
+    const rawLimit = request.query?.limit ?? "100";
+    const rawOffset = request.query?.offset ?? "0";
+    if (!/^\d+$/.test(String(rawLimit)) || !/^\d+$/.test(String(rawOffset))) {
+      return reply.code(400).send({ error: "Invalid media pagination" });
+    }
+    const limit = Number(rawLimit);
+    const offset = Number(rawOffset);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset)) {
+      return reply.code(400).send({ error: "Invalid media pagination" });
+    }
     const { category_id } = request.query;
     let query = `
       ${ACCESSIBLE_CATEGORY_TREE_SQL}
@@ -628,6 +660,8 @@ export default async function (fastify, options = {}) {
                         (m.track_order IS NULL)::int,
                         COALESCE(m.track_order, 0),
                         m.id`;
+    params.push(limit, offset);
+    query += ` LIMIT $${params.length - 1} OFFSET $${params.length}`;
 
     const { rows } = await fastify.pg.query(query, params);
     return rows;
@@ -678,7 +712,10 @@ export default async function (fastify, options = {}) {
       const searchParamIndex = params.length;
       clauses.push(`(
         lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' ' || coalesce(m.description, '')) LIKE lower($${searchParamIndex}) ESCAPE '\\'
-        OR lower(ac.name) LIKE lower($${searchParamIndex}) ESCAPE '\\'
+        OR m.category_id IN (
+          SELECT id FROM categories
+          WHERE lower(name) LIKE lower($${searchParamIndex}) ESCAPE '\\'
+        )
       )`);
     }
     if (cursor) {
@@ -723,6 +760,10 @@ export default async function (fastify, options = {}) {
 
   fastify.get("/:id", async (request, reply) => {
     const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT
@@ -752,7 +793,7 @@ export default async function (fastify, options = {}) {
     let thumbUpload = null;
     let lyricsUpload = null;
 
-    for await (const part of request.parts()) {
+    for await (const part of request.parts({ throwFileSizeLimit: false })) {
       if (part.type === "file") {
         if (part.fieldname === "file") {
           if (mainFileUpload) await unlink(mainFileUpload.tempPath).catch(() => {});
@@ -766,6 +807,11 @@ export default async function (fastify, options = {}) {
         } else {
           // Unrecognized file, just consume to avoid hanging
           part.file.resume();
+          await finished(part.file);
+        }
+        if (part.file.truncated) {
+          await cleanupUploads(mainFileUpload, thumbUpload, lyricsUpload);
+          return reply.code(413).send({ error: "File exceeds the 20MB direct-upload limit; use /api/media/uploads for chunked upload" });
         }
       } else {
         fields[part.fieldname] = part.value;
@@ -823,8 +869,40 @@ export default async function (fastify, options = {}) {
       return reply.code(400).send({ error: "Track order must be a positive integer" });
     }
 
+    if (!isReplacement) {
+      const { rows } = await fastify.pg.query(
+        `${ACCESSIBLE_CATEGORY_TREE_SQL}
+         SELECT c.id FROM categories c
+         JOIN accessible_categories ac ON ac.id = c.id
+         WHERE c.id = $2`,
+        [request.accessTier, category_id]
+      );
+      if (!rows.length) {
+        const { rowCount } = await fastify.pg.query("SELECT 1 FROM categories WHERE id = $1", [category_id]);
+        return rowCount
+          ? reply.code(403).send({ error: "Access denied" })
+          : reply.code(400).send({ error: "Category not found" });
+      }
+    }
+
     if (isReplacement && !fileName && !thumbnailName && rawLyrics === null) {
       return reply.code(400).send({ error: "Choose a replacement file, thumbnail, or lyrics file" });
+    }
+
+    if (isReplacement) {
+      const { rows } = await fastify.pg.query(
+        `${ACCESSIBLE_CATEGORY_TREE_SQL}
+         SELECT m.id FROM media_assets m
+         JOIN accessible_categories ac ON ac.id = m.category_id
+         WHERE m.id = $2`,
+        [request.accessTier, replacementId]
+      );
+      if (!rows.length) {
+        const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [replacementId]);
+        return rowCount
+          ? reply.code(403).send({ error: "Access denied" })
+          : reply.code(404).send({ error: "Not found" });
+      }
     }
 
     let lyrics = undefined;
@@ -843,6 +921,7 @@ export default async function (fastify, options = {}) {
     const uploadDir = join(CHUNK_UPLOAD_DIR, uploadId);
     await mkdir(uploadDir, { recursive: true });
     await saveJson(join(uploadDir, "manifest.json"), {
+      accessTier: request.accessTier,
       fields: {
         category_id,
         title,
@@ -1064,7 +1143,11 @@ export default async function (fastify, options = {}) {
     }
 
     const { rows } = await fastify.pg.query(
-      "SELECT id, file_path, track_order FROM media_assets WHERE mime_type LIKE 'audio/%' ORDER BY id"
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id, m.file_path, m.track_order FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.mime_type LIKE 'audio/%' ORDER BY m.id`,
+      [request.accessTier]
     );
     const result = { scanned: rows.length, updated: 0, missing: 0, failed: 0 };
     let nextIndex = 0;
@@ -1084,11 +1167,14 @@ export default async function (fastify, options = {}) {
         }
         if (Number(row.track_order) === tags.trackOrder) continue;
 
-        await fastify.pg.query(
-          "UPDATE media_assets SET track_order = $1 WHERE id = $2",
-          [tags.trackOrder, row.id]
+        const { rowCount } = await fastify.pg.query(
+          `${ACCESSIBLE_CATEGORY_TREE_SQL}
+           UPDATE media_assets m SET track_order = $2
+           FROM accessible_categories ac
+           WHERE m.id = $3 AND m.category_id = ac.id`,
+          [request.accessTier, tags.trackOrder, row.id]
         );
-        result.updated += 1;
+        if (rowCount) result.updated += 1;
       }
     };
 
@@ -1098,26 +1184,37 @@ export default async function (fastify, options = {}) {
 
   fastify.post("/:id/encoding/retry", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
+    const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id, m.file_path, m.mime_type, m.content_kind, m.source_version
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.id = $2`,
+      [request.accessTier, request.params.id]
+    );
+    if (!rows.length) {
+      const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
+      return rowCount
+        ? reply.code(403).send({ error: "Access denied" })
+        : reply.code(404).send({ error: "Not found" });
+    }
     const force = request.body?.force === true;
-    if (force) {
-      const { rows } = await fastify.pg.query(
-        "SELECT id, file_path, mime_type, content_kind, source_version FROM media_assets WHERE id = $1",
-        [request.params.id]
-      );
-      if (!rows.length) return reply.code(404).send({ error: "Not found" });
-      if (shouldNormalizeMatroskaSource(rows[0])) {
-        await enqueueMediaFinalization({
-          redis: fastify.redis,
-          mediaId: rows[0].id,
-          sourceVersion: rows[0].source_version,
-        });
-        return reply.code(202).send({ status: "queued", stage: "source-normalization" });
-      }
+    if (force && shouldNormalizeMatroskaSource(rows[0])) {
+      await enqueueMediaFinalization({
+        redis: fastify.redis,
+        mediaId: rows[0].id,
+        sourceVersion: rows[0].source_version,
+      });
+      return reply.code(202).send({ status: "queued", stage: "source-normalization" });
     }
     const retried = await retryFailedEncoding({ pg: fastify.pg, redis: fastify.redis, mediaId: request.params.id, force });
     if (retried) return reply.code(202).send({ status: "queued" });
-    const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
-    return rowCount ? reply.code(409).send({ error: "No encoding variants to retry" }) : reply.code(404).send({ error: "Not found" });
+    return reply.code(409).send({ error: "No encoding variants to retry" });
   });
 
   fastify.put("/:id", async (request, reply) => {
@@ -1125,6 +1222,10 @@ export default async function (fastify, options = {}) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
     const { title, description, duration, artists, track_order: trackOrder, offline_allowed: offlineAllowed } = request.body;
     const hasArtists = Object.hasOwn(request.body || {}, "artists");
     const hasDuration = Object.hasOwn(request.body || {}, "duration");
@@ -1141,10 +1242,24 @@ export default async function (fastify, options = {}) {
     const normalizedDuration = Number.isFinite(parsedDuration) && parsedDuration >= 0 ? parsedDuration : null;
     const normalizedTrackOrder = parseTrackOrder(trackOrder);
     const { rows } = await fastify.pg.query(
-      "UPDATE media_assets SET title = COALESCE($1, title), description = COALESCE($2, description), duration = CASE WHEN $3 THEN $4 ELSE duration END, artists = CASE WHEN $5 THEN $6 ELSE artists END, track_order = CASE WHEN $7 THEN $8 ELSE track_order END, offline_allowed = CASE WHEN $9 THEN $10 ELSE offline_allowed END WHERE id = $11 RETURNING *",
-      [title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, hasTrackOrder, normalizedTrackOrder, hasOfflineAllowed, offlineAllowed, id]
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       UPDATE media_assets m
+       SET title = COALESCE($2, m.title), description = COALESCE($3, m.description),
+           duration = CASE WHEN $4 THEN $5 ELSE m.duration END,
+           artists = CASE WHEN $6 THEN $7 ELSE m.artists END,
+           track_order = CASE WHEN $8 THEN $9 ELSE m.track_order END,
+           offline_allowed = CASE WHEN $10 THEN $11 ELSE m.offline_allowed END
+       FROM accessible_categories ac
+       WHERE m.id = $12 AND m.category_id = ac.id
+       RETURNING m.*`,
+      [request.accessTier, title, description, hasDuration, normalizedDuration, hasArtists, normalizedArtists, hasTrackOrder, normalizedTrackOrder, hasOfflineAllowed, offlineAllowed, id]
     );
-    if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
+    if (rows.length === 0) {
+      const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [id]);
+      return rowCount
+        ? reply.code(403).send({ error: "Access denied" })
+        : reply.code(404).send({ error: "Not found" });
+    }
     return rows[0];
   });
 
@@ -1169,11 +1284,37 @@ export default async function (fastify, options = {}) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
     const { rows } = await fastify.pg.query(
-      "SELECT file_path, category_id, thumbnail_path FROM media_assets WHERE id = $1",
-      [id]
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.file_path, m.category_id, m.thumbnail_path
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.id = $2`,
+      [request.accessTier, id]
     );
-    if (rows.length === 0) return reply.code(404).send({ error: "Not found" });
+    if (rows.length === 0) {
+      const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [id]);
+      return rowCount
+        ? reply.code(403).send({ error: "Access denied" })
+        : reply.code(404).send({ error: "Not found" });
+    }
+
+    const { rowCount } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       DELETE FROM media_assets m USING accessible_categories ac
+       WHERE m.id = $2 AND m.category_id = ac.id`,
+      [request.accessTier, id]
+    );
+    if (!rowCount) {
+      const { rowCount: exists } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [id]);
+      return exists
+        ? reply.code(403).send({ error: "Access denied" })
+        : reply.code(404).send({ error: "Not found" });
+    }
 
     const filePath = join(dataDir, rows[0].file_path);
     await unlink(filePath).catch(() => {});
@@ -1183,8 +1324,6 @@ export default async function (fastify, options = {}) {
 
     await rm(join(dataDir, String(rows[0].category_id), String(id)), { recursive: true, force: true }).catch(() => {});
     await rm(join(dataDir, "subtitles", String(id)), { recursive: true, force: true }).catch(() => {});
-
-    await fastify.pg.query("DELETE FROM media_assets WHERE id = $1", [id]);
     return reply.code(204).send();
   });
 
@@ -1218,6 +1357,7 @@ export default async function (fastify, options = {}) {
       viewerId,
       leaseRequired,
       quality: requestedQuality,
+      mediaType: media.mime_type,
       sourceVersion: media.source_version,
       duration: media.duration,
     });
@@ -1272,8 +1412,42 @@ export default async function (fastify, options = {}) {
     };
   });
 
+  fastify.get("/:id/encoding/status", async (request, reply) => {
+    const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id, m.source_version, m.mime_type,
+         COALESCE(jsonb_object_agg(v.quality, jsonb_build_object(
+           'status', v.status, 'progress', v.progress_percent, 'attempts', v.attempts, 'error', v.last_error
+         )) FILTER (WHERE v.quality IS NOT NULL), '{}'::jsonb) AS variants
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       LEFT JOIN media_encoding_variants v ON v.media_id = m.id AND v.source_version = m.source_version
+       WHERE m.id = $2
+       GROUP BY m.id, m.source_version, m.mime_type`,
+      [request.accessTier, parsedId]
+    );
+    if (!rows.length) return reply.code(404).send({ error: "Not found" });
+    const row = rows[0];
+    return {
+      mediaId: Number(row.id),
+      sourceVersion: Number(row.source_version),
+      mimeType: row.mime_type,
+      variants: row.variants || {},
+      statusUrl: `/api/media/${row.id}/encoding/status`,
+    };
+  });
+
   fastify.get("/:id/stream", async (request, reply) => {
     const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
     const requestedQuality = normalizeRequestedQuality(request.query?.quality, { defaultQuality: "high" });
     if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const { rows } = await fastify.pg.query(
@@ -1338,7 +1512,27 @@ export default async function (fastify, options = {}) {
     }
     const protectedMedia = media.mime_type?.startsWith("audio/") || media.mime_type?.startsWith("video/");
     if (protectedMedia && actualQuality === "ori" && request.accessTier < ORIGINAL_QUALITY_MIN_TIER) {
-      return reply.code(409).send({ error: "A protected encoded rendition is not ready" });
+      if (requestedQuality !== "ori") {
+        await enqueueEncodingQuality({ pg: fastify.pg, redis: fastify.redis, mediaId: id, sourceVersion: media.source_version, quality: requestedQuality });
+      }
+      return reply.code(409).send({
+        code: "ENCODING_NOT_READY",
+        error: "A protected encoded rendition is not ready",
+        quality: requestedQuality,
+        statusUrl: `/api/media/${id}/encoding/status`,
+        retryAfter: 5,
+      });
+    }
+    if (requestedQuality !== "ori" && actualQuality === "ori" && request.accessTier >= ORIGINAL_QUALITY_MIN_TIER) {
+      await enqueueEncodingQuality({ pg: fastify.pg, redis: fastify.redis, mediaId: id, sourceVersion: media.source_version, quality: requestedQuality });
+      reply.header("Retry-After", "5");
+      return reply.code(202).send({
+        code: "ENCODING_QUEUED",
+        error: "Requested rendition is being encoded",
+        quality: requestedQuality,
+        statusUrl: `/api/media/${id}/encoding/status`,
+        retryAfter: 5,
+      });
     }
     const filePath = join(dataDir, selectedPath);
 
@@ -1348,7 +1542,8 @@ export default async function (fastify, options = {}) {
     } catch {
       if (actualQuality === "ori") return reply.code(404).send({ error: "File not found on disk" });
       if (protectedMedia && request.accessTier < ORIGINAL_QUALITY_MIN_TIER) {
-        return reply.code(409).send({ error: "A protected encoded rendition is not ready" });
+        await enqueueEncodingQuality({ pg: fastify.pg, redis: fastify.redis, mediaId: id, sourceVersion: media.source_version, quality: requestedQuality });
+        return reply.code(409).send({ code: "ENCODING_NOT_READY", error: "A protected encoded rendition is not ready", quality: requestedQuality, statusUrl: `/api/media/${id}/encoding/status`, retryAfter: 5 });
       }
       actualQuality = "ori";
       selectedPath = media.file_path;
@@ -1401,6 +1596,10 @@ export default async function (fastify, options = {}) {
 
   fastify.get("/:id/thumbnail", async (request, reply) => {
     const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.* FROM media_assets m

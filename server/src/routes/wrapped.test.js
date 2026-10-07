@@ -1,5 +1,6 @@
+import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import {
+import wrappedRoutes, {
   acquireWrappedAccessLock,
   aggregateWrappedEvents,
   deriveWrappedPersona,
@@ -10,6 +11,113 @@ import {
 
 const DAY_MS = 86400000;
 const LOCK_MS = 30 * DAY_MS;
+
+describe("wrapped child writes", () => {
+  it("batches populated rows and reads back normalized titles, ranks, and days", async () => {
+    const calls = [];
+    const reports = new Map();
+    const topMedia = new Map();
+    const timeline = new Map();
+    const mediaTitles = new Map([[7, "Known Track"]]);
+    let nextReportId = 1;
+    let nextChildId = 1;
+    const query = async (sql, params = []) => {
+      calls.push({ sql, params });
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) return { rows: [] };
+      if (sql.startsWith("INSERT INTO wrapped_reports")) {
+        const row = {
+          id: nextReportId++, period_start: params[0], period_end: params[1],
+          total_play_time: params[2], total_plays: params[3], notes: params[4],
+          created_at: "2026-10-06T00:00:00.000Z", updated_at: "2026-10-06T00:00:00.000Z",
+        };
+        reports.set(row.id, row);
+        return { rows: [row] };
+      }
+      if (sql.startsWith("SELECT * FROM wrapped_reports WHERE id")) {
+        const row = reports.get(Number(params[0]));
+        return { rows: row ? [row] : [] };
+      }
+      if (sql.startsWith("DELETE FROM wrapped_top_media")) { topMedia.set(Number(params[0]), []); return { rows: [] }; }
+      if (sql.startsWith("DELETE FROM wrapped_timeline_days")) { timeline.set(Number(params[0]), []); return { rows: [] }; }
+      if (sql.startsWith("INSERT INTO wrapped_top_media")) {
+        expect(sql).toContain("FROM jsonb_to_recordset($2::jsonb)");
+        expect(sql).toContain("(SELECT title FROM media_assets WHERE id = item.media_id)");
+        const rows = JSON.parse(params[1]).map((item) => ({
+          id: nextChildId++, media_id: item.media_id,
+          title: item.title || mediaTitles.get(item.media_id) || item.fallback_title,
+          play_count: item.play_count, total_time: item.total_time, rank: item.rank,
+        }));
+        topMedia.set(Number(params[0]), rows);
+        return { rows: [] };
+      }
+      if (sql.startsWith("INSERT INTO wrapped_timeline_days")) {
+        expect(sql).toContain("FROM jsonb_to_recordset($2::jsonb)");
+        const rows = JSON.parse(params[1]).map((item) => ({
+          id: nextChildId++, activity_date: item.activity_date,
+          play_time: item.play_time, plays: item.plays,
+        }));
+        timeline.set(Number(params[0]), rows);
+        return { rows: [] };
+      }
+      if (sql.startsWith("SELECT * FROM wrapped_top_media")) {
+        return { rows: [...(topMedia.get(Number(params[0])) || [])].sort((a, b) => a.rank - b.rank) };
+      }
+      if (sql.startsWith("SELECT * FROM wrapped_timeline_days")) {
+        return { rows: [...(timeline.get(Number(params[0])) || [])].sort((a, b) => a.activity_date.localeCompare(b.activity_date)) };
+      }
+      if (sql.startsWith("UPDATE wrapped_reports")) return { rows: [] };
+      throw new Error(`Unexpected query: ${sql}`);
+    };
+    const app = Fastify();
+    app.decorate("pg", { query, connect: async () => ({ query, release() {} }) });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(wrappedRoutes, { prefix: "/api/wrapped" });
+
+    const created = await app.inject({
+      method: "POST", url: "/api/wrapped",
+      payload: {
+        periodStart: "2026-09-01", periodEnd: "2026-09-30",
+        topMedia: [
+          { mediaId: 7, title: " ", playCount: "3", totalTime: "42", rank: 2 },
+          { mediaId: 99, title: "", playCount: 1, totalTime: 10, rank: 1 },
+          { title: "", rank: 3 },
+        ],
+        timeline: [
+          { date: "2026-09-03", playTime: 25, plays: 2 },
+          { date: "not-a-date", playTime: 99, plays: 9 },
+          { date: "2026-09-01", playTime: "12", plays: "1" },
+        ],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().topMedia.map(({ mediaId, title, playCount, totalTime, rank }) => ({ mediaId, title, playCount, totalTime, rank }))).toEqual([
+      { mediaId: 99, title: "Media #99", playCount: 1, totalTime: 10, rank: 1 },
+      { mediaId: 7, title: "Known Track", playCount: 3, totalTime: 42, rank: 2 },
+      { mediaId: null, title: "Media 3", playCount: 0, totalTime: 0, rank: 3 },
+    ]);
+    expect(created.json().timeline.map(({ date, playTime, plays }) => ({ date, playTime, plays }))).toEqual([
+      { date: "2026-09-01", playTime: 12, plays: 1 },
+      { date: "2026-09-03", playTime: 25, plays: 2 },
+    ]);
+    expect(calls.filter(({ sql }) => sql.startsWith("INSERT INTO wrapped_top_media"))).toHaveLength(1);
+    expect(calls.filter(({ sql }) => sql.startsWith("INSERT INTO wrapped_timeline_days"))).toHaveLength(1);
+
+    const readBack = await app.inject({ method: "GET", url: `/api/wrapped/${created.json().id}` });
+    expect(readBack.statusCode).toBe(200);
+    expect(readBack.json()).toEqual(created.json());
+
+    calls.length = 0;
+    const cleared = await app.inject({
+      method: "PUT", url: `/api/wrapped/${created.json().id}`,
+      payload: { topMedia: [], timeline: [] },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({ topMedia: [], timeline: [] });
+    expect(calls.filter(({ sql }) => sql.startsWith("DELETE FROM wrapped_"))).toHaveLength(2);
+    expect(calls.filter(({ sql }) => sql.startsWith("INSERT INTO wrapped_top_media") || sql.startsWith("INSERT INTO wrapped_timeline_days"))).toHaveLength(0);
+    await app.close();
+  });
+});
 
 function createLockClient(now, locks = new Map()) {
   return {

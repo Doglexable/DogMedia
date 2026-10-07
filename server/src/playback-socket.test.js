@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { consumeSocketTicket, issueSocketTicket, playbackSessionKey, socketTicketKey } from "./playback-session.js";
-import { parsePlaybackMessage, SOCKET_MAX_BYTES } from "./playback-socket.js";
+import { parsePlaybackMessage, SOCKET_MAX_BYTES, socketMediaType } from "./playback-socket.js";
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import playbackRoutes from "./routes/playback.js";
 import { createPlaybackSocketHub } from "./playback-socket.js";
 
 describe("playback socket protocol", () => {
+  it("uses the protected session MIME family for socket reports", () => {
+    expect(socketMediaType({ mediaType: "video/mp4" })).toBe("video/mp4");
+    expect(socketMediaType({ mediaType: "audio/mpeg" })).toBe("audio/mpeg");
+    expect(socketMediaType({})).toBe("");
+  });
   it("accepts only versioned bounded messages", () => {
     expect(parsePlaybackMessage(JSON.stringify({ type: "session.bind", version: 1, sessionId: "x".repeat(32) })).type).toBe("session.bind");
     expect(() => parsePlaybackMessage(JSON.stringify({ type: "session.bind", version: 2, sessionId: "x".repeat(32) }))).toThrow();
@@ -113,7 +118,7 @@ describe("protected playback socket route", () => {
     const owner = await connect(ownerId);
     const observer = await connect(otherId);
     try {
-      store.set(playbackSessionKey(sessionId), JSON.stringify({ mediaId: 5, viewerId: ownerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true }));
+      store.set(playbackSessionKey(sessionId), JSON.stringify({ mediaId: 5, viewerId: ownerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true, mediaType: "video/mp4" }));
       store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId, clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
       await app.playbackSocketHub.notify();
       await vi.waitFor(() => expect(owner.events.at(-1)?.state).toBe("owned"));

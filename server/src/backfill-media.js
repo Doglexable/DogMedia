@@ -1,16 +1,13 @@
 import { access, mkdir, readdir, rename, stat } from "fs/promises";
 import { join } from "path";
 import pg from "pg";
-import Redis from "ioredis";
 import { normalizeCategoryCover } from "./category-cover.js";
-import { enqueueEncoding } from "./encoding-queue.js";
 
 const dryRun = process.argv.includes("--dry-run");
 const dataDir = process.env.DATA_DIR || "data";
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backupDir = join(dataDir, `thumbnail-backup-${timestamp}`);
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL || "postgres://pfs:pfs_secret@localhost:5432/pfs" });
-const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379", { lazyConnect: true });
 const report = { dryRun, categories: 0, coversCreated: 0, existingCovers: 0, conflicts: [], missingCovers: [], thumbnailsBackedUp: 0, mediaQueued: 0 };
 
 async function exists(path) {
@@ -80,12 +77,7 @@ try {
      ) ORDER BY m.id`
   );
   report.mediaQueued = mediaRows.length;
-  if (!dryRun && mediaRows.length) {
-    await redis.connect();
-    for (const media of mediaRows) await enqueueEncoding({ pg: client, redis, mediaId: media.id, sourceVersion: media.source_version });
-  }
   console.log(JSON.stringify(report, null, 2));
 } finally {
-  await redis.quit().catch(() => {});
   await client.end().catch(() => {});
 }

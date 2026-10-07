@@ -10,6 +10,7 @@ import {
 } from "../offline.js";
 import { RESUME_TTL_SECONDS } from "./playback.js";
 import { normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
+import { enqueueEncodingQuality } from "../encoding-queue.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const MAX_BATCH_ITEMS = 500;
@@ -166,6 +167,22 @@ async function sendMissingOrDenied(fastify, reply, mediaId) {
     : reply.code(403).send({ error: "Access denied" });
 }
 
+async function queueOfflineVariant(fastify, reply, row, quality) {
+  if (quality === "ori") return false;
+  const status = row.encoding_status?.[quality]?.status;
+  const ready = row.available_qualities?.includes(quality) || status === "ready";
+  if (ready) return false;
+  await enqueueEncodingQuality({
+    pg: fastify.pg,
+    redis: fastify.redis,
+    mediaId: row.id,
+    sourceVersion: row.source_version,
+    quality,
+  });
+  reply.header("Retry-After", "5");
+  return true;
+}
+
 export default async function offlineRoutes(fastify, options = {}) {
   const dataDir = options.dataDir || DATA_DIR;
   fastify.get("/manifest", async (request, reply) => {
@@ -176,7 +193,15 @@ export default async function offlineRoutes(fastify, options = {}) {
     if (!categoryId && !mediaId) return reply.code(400).send({ error: "category_id or media_id is required" });
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, mediaId ? { mediaIds: [mediaId] } : { categoryId });
     if (mediaId && rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
-    return { items: await manifestItems(rows, dataDir, fastify.pg, requestedQuality) };
+    const manifestVariants = requestedQuality === "ori" ? new Map() : await fetchVariantsBatch(fastify.pg, rows.map((row) => Number(row.id)));
+    const pending = requestedQuality !== "ori"
+      ? rows.filter((row) => !(manifestVariants.get(`${row.id}:${row.source_version}`) || []).some((variant) => variant.quality === requestedQuality))
+      : [];
+    if (pending.length) {
+      for (const row of pending) await queueOfflineVariant(fastify, reply, row, requestedQuality);
+      return reply.code(202).send({ code: "ENCODING_QUEUED", quality: requestedQuality, statusUrl: `/api/media/${pending[0].id}/encoding/status`, retryAfter: 5 });
+    }
+    return { items: await manifestItems(rows, dataDir, fastify.pg, requestedQuality, manifestVariants) };
   });
 
   fastify.get("/media/:id/download", async (request, reply) => {
@@ -192,6 +217,10 @@ export default async function offlineRoutes(fastify, options = {}) {
       ? "high"
       : requestedQuality;
     let selected = await resolveQualityFile(fastify.pg, media, effectiveQuality);
+    if (effectiveQuality !== "ori" && selected.quality === "ori") {
+      await queueOfflineVariant(fastify, reply, media, effectiveQuality);
+      return reply.code(202).send({ code: "ENCODING_QUEUED", quality: effectiveQuality, statusUrl: `/api/media/${media.id}/encoding/status`, retryAfter: 5 });
+    }
     if (selected.quality === "ori" && !canAccessOriginal) {
       return reply.code(403).send({ error: "Original quality requires admin access" });
     }

@@ -61,9 +61,11 @@ describe("protected playback sessions", () => {
       clientIp: "192.168.1.4",
       accessTier: 2,
       quality: "high",
+      mediaType: "video/mp4",
       sourceVersion: 3,
       duration: 120,
     });
+    expect(created.session.mediaType).toBe("video/mp4");
 
     expect(created.sessionId).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     await expect(validatePlaybackSession(redis, created.sessionId, {

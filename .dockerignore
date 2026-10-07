@@ -32,21 +32,43 @@ yarn-error.log*
 data
 **/data
 **/tmp
+
+# Local-only artifacts from recent packaging work: host service units,
+# cloud credentials (must never enter a build context), git bundles,
+# macOS cross-compile SDK (multi-GB, see pfs-sdk/), local test reports,
+# dx/bundle outputs and built packages (images rebuild these from source),
+# and local Flatpak build outputs (manifests under desktop/flatpak stay included)
+systemd/
+.aws/
+*.bundle
 pfs-sdk/
+test-results/
+**/test-results
+playwright-report/
+**/playwright-report
+.dioxus/
+**/.dioxus
+bundle/
+**/bundle
+**/*.deb
+**/*.rpm
+.flatpak-build/
+.flatpak-builder/
 
 # Mobile is not used by the server or web container images. In particular,
 # this excludes the large Expo, Gradle, CocoaPods, APK, and native build trees.
-mobile
+mobile/
 
-# Development-only files are not needed by either production image
+# Development-only files are not needed by either production image.
+# Test files stay out of the image (Containerfiles never RUN tests;
+# tests execute from a git checkout in CI, not from image layers).
 **/*.test.js
 **/*.test.jsx
 **/*.spec.js
 **/*.spec.jsx
 *.md
-plans/*
+plans/
 example*/
-mobile/
 # Desktop sources are required by the deb/rpm packaging Containerfiles.
 # Keep only Cargo's generated output out of every container context.
 desktop/target/

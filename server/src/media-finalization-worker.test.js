@@ -7,7 +7,7 @@ import {
 } from "./media-finalization-worker.js";
 
 describe("media finalization worker", () => {
-  it("finishes metadata and queues encoding outside the upload request", async () => {
+  it("finishes metadata without eagerly encoding every rendition", async () => {
     const queries = [];
     const pg = {
       async query(sql, params) {
@@ -38,12 +38,9 @@ describe("media finalization worker", () => {
       pg,
       redis,
       sourceVersion: 2,
-    })).resolves.toEqual({ finalized: true });
-
-    expect(queries.some(({ sql }) => sql.includes("INSERT INTO media_encoding_variants"))).toBe(true);
-    expect(redis.xadd).toHaveBeenCalledWith(
-      "media:encoding", "*", "mediaId", "9", "sourceVersion", "2"
-    );
+    })).resolves.toEqual({ finalized: true, normalizedSource: false });
+    expect(queries.some(({ sql }) => sql.includes("INSERT INTO media_encoding_variants"))).toBe(false);
+    expect(redis.xadd).not.toHaveBeenCalled();
   });
 
   it("does not process a stale source version", async () => {
@@ -101,7 +98,7 @@ describe("media finalization worker", () => {
       pg,
       redis,
       sourceVersion: 2,
-    })).resolves.toEqual({ finalized: true });
+    })).resolves.toEqual({ finalized: true, normalizedSource: true });
 
     expect(normalizeVideoSource).toHaveBeenCalledWith(expect.objectContaining({
       dataDir: "/media",
@@ -109,8 +106,8 @@ describe("media finalization worker", () => {
     }));
     expect(queries.some(({ sql, params }) => sql.includes("SET file_path = $1, mime_type = $2")
       && params[0] === "4/9.mp4" && params[1] === "video/mp4")).toBe(true);
-    expect(queries.some(({ sql }) => sql.includes("status IN ('ready', 'skipped', 'failed')"))).toBe(true);
-    expect(redis.xadd).toHaveBeenCalledWith("media:encoding", "*", "mediaId", "9", "sourceVersion", "2");
+    expect(queries.some(({ sql }) => sql.includes("status IN ('ready', 'skipped', 'failed')"))).toBe(false);
+    expect(redis.xadd).not.toHaveBeenCalled();
   });
 
   it("does not acknowledge a failed message before reaching max attempts, but acknowledges after exceeding max attempts", async () => {

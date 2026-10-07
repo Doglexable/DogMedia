@@ -1,5 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { retryFailedEncoding } from "./encoding-queue.js";
+import { enqueueEncodingQuality, retryFailedEncoding } from "./encoding-queue.js";
+
+describe("enqueueEncodingQuality", () => {
+  it("deduplicates an already queued quality", async () => {
+    const pg = { query: vi.fn()
+      .mockResolvedValueOnce({ rows: [{ quality: "high" }] })
+      .mockResolvedValueOnce({ rows: [] }) };
+    const redis = { xadd: vi.fn().mockResolvedValue("1-0") };
+    await expect(enqueueEncodingQuality({ pg, redis, mediaId: 9, sourceVersion: 2, quality: "high" })).resolves.toBe(true);
+    await expect(enqueueEncodingQuality({ pg, redis, mediaId: 9, sourceVersion: 2, quality: "high" })).resolves.toBe(false);
+    expect(redis.xadd).toHaveBeenCalledTimes(1);
+    expect(redis.xadd).toHaveBeenCalledWith("media:encoding:urgent", "*", "mediaId", "9", "sourceVersion", "2", "quality", "high");
+  });
+
+  it("rejects unknown qualities before touching the database", async () => {
+    const pg = { query: vi.fn() };
+    await expect(enqueueEncodingQuality({ pg, redis: {}, mediaId: 9, sourceVersion: 2, quality: "ultra" })).rejects.toThrow("Unsupported encoding quality");
+    expect(pg.query).not.toHaveBeenCalled();
+  });
+});
 
 describe("retryFailedEncoding", () => {
   it("keeps normal retries limited to failed variants", async () => {

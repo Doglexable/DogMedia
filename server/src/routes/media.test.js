@@ -1,9 +1,10 @@
 import Fastify from "fastify";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "fs/promises";
+import multipart from "@fastify/multipart";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { describe, expect, it } from "vitest";
-import mediaRoutes, { decodeBrowseCursor, extFromFilename, mediaMetadataFromTags, normalizeClientPlatform, parseByteRange, parseTrackOrder, resolveTrackOrder } from "./media.js";
+import { describe, expect, it, vi } from "vitest";
+import mediaRoutes, { decodeBrowseCursor, extFromFilename, mediaMetadataFromTags, normalizeClientPlatform, parseByteRange, parseTrackOrder, processChunkedMediaUpload, resolveTrackOrder } from "./media.js";
 
 describe("desktop playback identity", () => {
   it("normalizes explicit platforms and preserves fallbacks", () => {
@@ -16,7 +17,90 @@ describe("desktop playback identity", () => {
   });
 });
 
+describe("media resource id validation", () => {
+  it("rejects malformed ids before querying media for reads and mutations", async () => {
+    const query = vi.fn();
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    const routes = [
+      { method: "GET", url: "/api/media/abc" },
+      { method: "GET", url: "/api/media/abc/stream" },
+      { method: "GET", url: "/api/media/abc/thumbnail" },
+      { method: "PUT", url: "/api/media/abc", payload: {} },
+      { method: "DELETE", url: "/api/media/abc" },
+      { method: "POST", url: "/api/media/abc/encoding/retry", payload: {} },
+      { method: "GET", url: "/api/media/12abc" },
+      { method: "GET", url: "/api/media/0" },
+      { method: "GET", url: "/api/media/2147483648" },
+    ];
+    for (const route of routes) {
+      const response = await app.inject(route);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid media id" });
+    }
+    expect(query).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
 describe("media browsing and ranges", () => {
+  it("keeps category-name search scoped to accessible media while using the indexed name expression", async () => {
+    let sql = "";
+    const app = Fastify();
+    app.decorate("pg", { async query(query) { sql = query; return { rows: [] }; } });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; request.clientIp = "127.0.0.1"; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+    const result = await app.inject({ method: "GET", url: "/api/media/browse?q=Anime" });
+    expect(result.statusCode).toBe(200);
+    expect(sql).toContain("JOIN accessible_categories ac ON ac.id = m.category_id");
+    expect(sql).toMatch(/OR m\.category_id IN\s*\(\s*SELECT id FROM categories\s*WHERE lower\(name\) LIKE lower\(\$3\)/);
+    expect(sql).not.toContain("lower(ac.name) LIKE");
+    await app.close();
+  });
+
+  it("returns consecutive bounded media-list pages in stable order", async () => {
+    const source = Array.from({ length: 205 }, (_, i) => ({ id: i + 1 }));
+    const queries = [];
+    const app = Fastify();
+    app.decorate("pg", { async query(sql, params) {
+      queries.push({ sql, params });
+      return { rows: source.slice(Number(params.at(-1)), Number(params.at(-1)) + Number(params.at(-2))) };
+    } });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+    const pages = [];
+    for (const offset of [0, 100, 200]) {
+      const response = await app.inject({ method: "GET", url: `/api/media?category_id=7&limit=100&offset=${offset}` });
+      expect(response.statusCode).toBe(200);
+      pages.push(response.json());
+    }
+    expect(pages.map((page) => page.length)).toEqual([100, 100, 5]);
+    expect(pages.flat().map((item) => item.id)).toEqual(source.map((item) => item.id));
+    expect(queries[0].params).toEqual([100, "7", 100, 0]);
+    expect(queries[0].sql).toMatch(/ORDER BY ac\.order_parts,[\s\S]*m\.id LIMIT \$3 OFFSET \$4/);
+    const defaultResponse = await app.inject({ method: "GET", url: "/api/media" });
+    expect(defaultResponse.json()).toHaveLength(100);
+    expect(queries.at(-1).params).toEqual([100, 100, 0]);
+    await app.close();
+  });
+
+  it("rejects invalid media-list pagination before querying", async () => {
+    const query = vi.fn();
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+    for (const param of ["limit=0", "limit=101", "limit=1.5", "limit=abc", "offset=-1", "offset=1.5", "offset=abc", "offset=9007199254740992"]) {
+      const result = await app.inject({ method: "GET", url: `/api/media?${param}` });
+      expect(result.statusCode).toBe(400);
+    }
+    expect(query).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it("validates and clamps byte ranges", () => {
     expect(parseByteRange("bytes=10-999", 100)).toEqual({ start: 10, end: 99 });
     expect(parseByteRange("bytes=-10", 100)).toEqual({ start: 90, end: 99 });
@@ -106,7 +190,8 @@ describe("media browsing and ranges", () => {
     expect(captured.sql).toContain(
       "lower(coalesce(m.title, '') || ' ' || coalesce(m.artists, '') || ' ' || coalesce(m.description, '')) LIKE lower($4) ESCAPE '\\'"
     );
-    expect(captured.sql).toContain("lower(ac.name) LIKE lower($4) ESCAPE '\\'");
+    expect(captured.sql).toContain("SELECT id FROM categories");
+    expect(captured.sql).toContain("lower(name) LIKE lower($4) ESCAPE '\\'");
     expect(captured.params).toEqual([3, "192.168.1.5", 7, "%rock\\%\\_%", 11]);
     await app.close();
   });
@@ -192,7 +277,8 @@ describe("track order metadata", () => {
     const app = Fastify();
     app.decorate("pg", {
       async query(sql, params) {
-        if (sql.startsWith("SELECT id, file_path")) {
+        if (sql.includes("SELECT m.id, m.file_path, m.track_order")) {
+          expect(sql).toContain("JOIN accessible_categories ac");
           return {
             rows: [
               { id: 1, file_path: "7/1.flac", track_order: null },
@@ -202,7 +288,8 @@ describe("track order metadata", () => {
             ],
           };
         }
-        if (sql.startsWith("UPDATE media_assets SET track_order")) {
+        if (sql.includes("UPDATE media_assets m SET track_order")) {
+          expect(sql).toContain("FROM accessible_categories ac");
           updates.push(params);
           return { rows: [], rowCount: 1 };
         }
@@ -225,7 +312,7 @@ describe("track order metadata", () => {
     const response = await app.inject({ method: "POST", url: "/api/media/track-orders/scan" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ scanned: 4, updated: 1, missing: 1, failed: 1 });
-    expect(updates).toEqual([[1, 1]]);
+    expect(updates).toEqual([[100, 1, 1]]);
     await app.close();
   });
 
@@ -525,14 +612,15 @@ describe("media artwork", () => {
     const app = Fastify();
     app.decorate("pg", {
       async query(sql, params) {
-        if (sql.includes("SELECT file_path, category_id, thumbnail_path FROM media_assets")) {
+        if (sql.includes("SELECT m.file_path, m.category_id, m.thumbnail_path")
+          && sql.includes("JOIN accessible_categories ac")) {
           return {
             rows: [{ file_path: "7/1.mp3", category_id: 7, thumbnail_path: "7/1/cover.webp" }],
             rowCount: 1,
           };
         }
         if (sql.includes("DELETE FROM media_assets")) {
-          deletedMediaId = params[0];
+          deletedMediaId = params[1];
           return { rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
@@ -583,6 +671,332 @@ describe("media artwork", () => {
 
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
+  });
+});
+
+describe("media mutations in accessible categories", () => {
+  it("scopes PUT to an accessible category and distinguishes restricted from missing media", async () => {
+    const media = new Map([
+      ["1", { id: 1, category_id: 7, title: "Before" }],
+      ["2", { id: 2, category_id: 9, title: "Restricted" }],
+    ]);
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("UPDATE media_assets m")) {
+          expect(sql).toContain("FROM accessible_categories ac");
+          expect(params[0]).toBe(100);
+          const id = params.at(-1);
+          const row = media.get(id);
+          if (!row || row.category_id !== 7) return { rows: [] };
+          const updated = { ...row, title: params[1] };
+          media.set(id, updated);
+          return { rows: [updated] };
+        }
+        if (sql === "SELECT 1 FROM media_assets WHERE id = $1") {
+          return { rowCount: Number(media.has(params[0])) };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    const denied = await app.inject({ method: "PUT", url: "/api/media/2", payload: { title: "Changed" } });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual({ error: "Access denied" });
+    expect(media.get("2").title).toBe("Restricted");
+    expect((await app.inject({ method: "PUT", url: "/api/media/3", payload: { title: "Missing" } })).statusCode).toBe(404);
+    const allowed = await app.inject({ method: "PUT", url: "/api/media/1", payload: { title: "Changed" } });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.json().title).toBe("Changed");
+    await app.close();
+  });
+
+  it("keeps restricted files and rows intact on DELETE and deletes accessible media", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-scoped-delete-"));
+    const restrictedPath = join(dataDir, "9", "2.mp3");
+    const allowedPath = join(dataDir, "7", "1.mp3");
+    const movedPath = join(dataDir, "7", "4.mp3");
+    await mkdir(join(dataDir, "9"));
+    await mkdir(join(dataDir, "7"));
+    await writeFile(restrictedPath, "restricted");
+    await writeFile(allowedPath, "allowed");
+    await writeFile(movedPath, "moved");
+    const media = new Map([
+      ["1", { id: 1, category_id: 7, file_path: "7/1.mp3", thumbnail_path: null }],
+      ["2", { id: 2, category_id: 9, file_path: "9/2.mp3", thumbnail_path: null }],
+      ["4", { id: 4, category_id: 7, file_path: "7/4.mp3", thumbnail_path: null }],
+    ]);
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("SELECT m.file_path, m.category_id, m.thumbnail_path")) {
+          expect(sql).toContain("JOIN accessible_categories ac");
+          const row = media.get(params[1]);
+          return { rows: row?.category_id === 7 ? [row] : [] };
+        }
+        if (sql === "SELECT 1 FROM media_assets WHERE id = $1") return { rowCount: Number(media.has(params[0])) };
+        if (sql.includes("DELETE FROM media_assets m USING accessible_categories ac")) {
+          if (params[1] === "4") {
+            media.set("4", { ...media.get("4"), category_id: 9 });
+            return { rowCount: 0 };
+          }
+          media.delete(params[1]);
+          return { rowCount: 1 };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+    try {
+      expect((await app.inject({ method: "DELETE", url: "/api/media/2" })).statusCode).toBe(403);
+      expect(media.has("2")).toBe(true);
+      expect(await readFile(restrictedPath, "utf8")).toBe("restricted");
+      expect((await app.inject({ method: "DELETE", url: "/api/media/3" })).statusCode).toBe(404);
+      expect((await app.inject({ method: "DELETE", url: "/api/media/4" })).statusCode).toBe(403);
+      expect(await readFile(movedPath, "utf8")).toBe("moved");
+      expect((await app.inject({ method: "DELETE", url: "/api/media/1" })).statusCode).toBe(204);
+      expect(media.has("1")).toBe(false);
+      await expect(stat(allowedPath)).rejects.toThrow();
+    } finally {
+      await app.close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("checks an accessible category before retrying or force-normalizing encoding", async () => {
+    const xadd = vi.fn().mockResolvedValue("1-0");
+    const query = vi.fn(async (sql, params) => {
+      if (sql.includes("SELECT m.id, m.file_path, m.mime_type, m.content_kind, m.source_version")) {
+        expect(sql).toContain("JOIN accessible_categories ac");
+        return { rows: params[1] === "1" ? [{
+          id: 1, category_id: 7, file_path: "7/1.mp4", mime_type: "video/mp4", source_version: 1,
+        }] : [] };
+      }
+      if (sql === "SELECT 1 FROM media_assets WHERE id = $1") return { rowCount: Number(params[0] === "2") };
+      if (sql.includes("UPDATE media_encoding_variants v")) return { rows: [{ source_version: 1 }] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.decorate("redis", { xadd });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    for (const force of [false, true]) {
+      const denied = await app.inject({ method: "POST", url: "/api/media/2/encoding/retry", payload: { force } });
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json()).toEqual({ error: "Access denied" });
+    }
+    expect((await app.inject({ method: "POST", url: "/api/media/3/encoding/retry" })).statusCode).toBe(404);
+    expect(query.mock.calls.some(([sql]) => sql.includes("UPDATE media_encoding_variants v"))).toBe(false);
+    expect(xadd).not.toHaveBeenCalled();
+
+    const allowed = await app.inject({ method: "POST", url: "/api/media/1/encoding/retry" });
+    expect(allowed.statusCode).toBe(202);
+    expect(xadd).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
+  it("rejects restricted upload categories and keeps accessible uploads working", async () => {
+    const categoryId = String(Date.now());
+    const restrictedId = String(Number(categoryId) + 1);
+    const mediaId = 123456789;
+    const categoryDir = join("data", categoryId);
+    const restrictedDir = join("data", restrictedId);
+    const xadd = vi.fn().mockResolvedValue("1-0");
+    const query = vi.fn(async (sql, params) => {
+      if (sql.includes("SELECT c.id, c.parent_id, c.cover_path")) {
+        expect(sql).toContain("JOIN accessible_categories ac");
+        return { rows: params[1] === categoryId ? [{ id: categoryId, parent_id: null, cover_path: null }] : [] };
+      }
+      if (sql === "SELECT 1 FROM categories WHERE id = $1") return { rowCount: Number(params[0] === restrictedId) };
+      if (sql.startsWith("INSERT INTO media_assets")) return { rows: [{ id: mediaId }] };
+      if (sql.startsWith("UPDATE media_assets SET file_path")) {
+        return { rows: [{ id: mediaId, category_id: categoryId, file_path: params[0], source_version: 1 }] };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.decorate("redis", { xadd });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(multipart);
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+
+    const upload = (targetCategory) => {
+      const boundary = "pfs-accessible-category-boundary";
+      const payload = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="category_id"\r\n\r\n${targetCategory}\r\n`
+        + `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nSong\r\n`
+        + `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="song.mp3"\r\nContent-Type: audio/mpeg\r\n\r\naudio\r\n`
+        + `--${boundary}--\r\n`
+      );
+      return { method: "POST", url: "/api/media", payload, headers: { "content-type": `multipart/form-data; boundary=${boundary}` } };
+    };
+    try {
+      const denied = await app.inject(upload(restrictedId));
+      expect(denied.statusCode).toBe(403);
+      expect(denied.json()).toEqual({ error: "Access denied" });
+      expect(query.mock.calls.some(([sql]) => sql.startsWith("INSERT INTO media_assets"))).toBe(false);
+      await expect(stat(restrictedDir)).rejects.toThrow();
+      const missing = await app.inject(upload(String(Number(restrictedId) + 1)));
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json()).toEqual({ error: "Category not found" });
+
+      const allowed = await app.inject(upload(categoryId));
+      expect(allowed.statusCode).toBe(201);
+      expect(await readFile(join(categoryDir, `${mediaId}.mp3`), "utf8")).toBe("audio");
+      expect(xadd).toHaveBeenCalledTimes(1);
+    } finally {
+      await app.close();
+      await rm(categoryDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["file", "thumbnail", "lyrics", "ignored"])(
+    "rejects an oversized %s part without persisting media or leaving temp files",
+    async (oversizedField) => {
+      const query = vi.fn();
+      const app = Fastify();
+      app.decorate("pg", { query });
+      app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+      await app.register(multipart, { limits: { fileSize: 8 } });
+      await app.register(mediaRoutes, { prefix: "/api/media" });
+
+      const boundary = "pfs-direct-upload-limit-boundary";
+      const filePart = (name, contents) =>
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${name}.txt"\r\nContent-Type: text/plain\r\n\r\n${contents}\r\n`;
+      const parts = [
+        `--${boundary}\r\nContent-Disposition: form-data; name="category_id"\r\n\r\n7\r\n`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\nSong\r\n`,
+        filePart("file", oversizedField === "file" ? "123456789" : "short"),
+      ];
+      if (oversizedField !== "file") parts.push(filePart(oversizedField, "123456789"));
+      parts.push(`--${boundary}--\r\n`);
+      const tempDir = join("data", "tmp", "multipart");
+      const before = await readdir(tempDir).catch(() => []);
+      try {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/media",
+          payload: Buffer.from(parts.join("")),
+          headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+        });
+        expect(response.statusCode).toBe(413);
+        expect(response.json()).toEqual({
+          error: "File exceeds the 20MB direct-upload limit; use /api/media/uploads for chunked upload",
+        });
+        expect(query).not.toHaveBeenCalled();
+        expect(await readdir(tempDir)).toEqual(before);
+      } finally {
+        await app.close();
+      }
+    }
+  );
+
+  it("rejects restricted chunked upload targets before writing a manifest", async () => {
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("SELECT c.id FROM categories c")) {
+          expect(sql).toContain("JOIN accessible_categories ac");
+          return { rows: params[1] === 7 ? [{ id: 7 }] : [] };
+        }
+        if (sql === "SELECT 1 FROM categories WHERE id = $1") return { rowCount: Number(params[0] === 9) };
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+    const request = (category_id) => ({
+      method: "POST", url: "/api/media/uploads",
+      payload: { category_id, title: "Song", fileName: "song.mp3", fileSize: 5 },
+    });
+
+    const denied = await app.inject(request(9));
+    expect(denied.statusCode).toBe(403);
+    const allowed = await app.inject(request(7));
+    expect(allowed.statusCode).toBe(201);
+    const uploadDir = join("data", "tmp", "chunked", allowed.json().uploadId);
+    try {
+      const manifest = JSON.parse(await readFile(join(uploadDir, "manifest.json"), "utf8"));
+      expect(manifest.accessTier).toBe(100);
+    } finally {
+      await app.close();
+      await rm(uploadDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes chunked replacement to an accessible category at initiation and completion", async () => {
+    const app = Fastify();
+    const query = vi.fn(async (sql, params) => {
+      if (sql.includes("SELECT m.id FROM media_assets m")) {
+        expect(sql).toContain("JOIN accessible_categories ac");
+        return { rows: Number(params[1]) === 1 ? [{ id: 1 }] : [] };
+      }
+      if (sql === "SELECT 1 FROM media_assets WHERE id = $1") return { rowCount: Number(Number(params[0]) === 2) };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    app.decorate("pg", { query });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media" });
+    const request = (replaceMediaId) => ({
+      method: "POST", url: "/api/media/uploads",
+      payload: { replaceMediaId, fileName: "new.mp3", fileSize: 5 },
+    });
+
+    expect((await app.inject(request(2))).statusCode).toBe(403);
+    expect((await app.inject(request(3))).statusCode).toBe(404);
+    const allowed = await app.inject(request(1));
+    expect(allowed.statusCode).toBe(201);
+    const allowedDir = join("data", "tmp", "chunked", allowed.json().uploadId);
+    const deniedId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const deniedDir = join("data", "tmp", "chunked", deniedId);
+    try {
+      expect(JSON.parse(await readFile(join(allowedDir, "manifest.json"), "utf8")).accessTier).toBe(100);
+      await mkdir(deniedDir, { recursive: true });
+      await writeFile(join(deniedDir, "manifest.json"), JSON.stringify({
+        replaceMediaId: 2, accessTier: 100, fields: {}, file: null, thumbnail: null,
+      }));
+      await expect(processChunkedMediaUpload({ fastify: app, log: {}, uploadId: deniedId })).rejects.toThrow("Access denied");
+      expect(query.mock.calls.some(([sql]) => sql.startsWith("UPDATE media_assets"))).toBe(false);
+    } finally {
+      await app.close();
+      await rm(allowedDir, { recursive: true, force: true });
+      await rm(deniedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans track order only in accessible categories", async () => {
+    const updates = [];
+    const app = Fastify();
+    app.decorate("pg", {
+      async query(sql, params) {
+        if (sql.includes("SELECT m.id, m.file_path, m.track_order")) {
+          expect(sql).toContain("JOIN accessible_categories ac");
+          expect(params).toEqual([100]);
+          return { rows: [{ id: 1, file_path: "7/1.mp3", track_order: null }] };
+        }
+        if (sql.includes("UPDATE media_assets m SET track_order")) {
+          updates.push(params);
+          return { rowCount: 1 };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, {
+      prefix: "/api/media",
+      probeMediaTags: async () => ({ trackOrder: 4 }),
+    });
+    const response = await app.inject({ method: "POST", url: "/api/media/track-orders/scan" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ scanned: 1, updated: 1, missing: 0, failed: 0 });
+    expect(updates).toEqual([[100, 4, 1]]);
+    await app.close();
   });
 });
 

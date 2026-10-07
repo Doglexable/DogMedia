@@ -236,16 +236,41 @@ impl PlaybackCoordinator {
         self.released_sequence = Some(self.snapshot.sequence);
     }
 
-    pub fn update_position(&mut self, position: f64) {
-        self.snapshot.position = position.max(0.0);
+    /// Position-query jitter below this is not a real movement. Tick callers
+    /// must check `timing_changed` before taking a write guard: creating the
+    /// guard alone marks the whole app signal dirty and re-renders 10x/s.
+    pub const TIMING_EPSILON: f64 = 0.005;
+
+    pub fn update_position(&mut self, position: f64) -> bool {
+        if self.snapshot.session_unavailable {
+            return false;
+        }
+        let position = position.max(0.0);
+        if (self.snapshot.position - position).abs() < Self::TIMING_EPSILON {
+            return false;
+        }
+        self.snapshot.position = position;
+        true
     }
 
-    pub fn update_timing(&mut self, position: f64, duration: f64) {
+    pub fn timing_changed(&self, position: f64, duration: f64) -> bool {
         if self.snapshot.session_unavailable {
-            return;
+            return false;
+        }
+        (self.snapshot.position - position.max(0.0)).abs() >= Self::TIMING_EPSILON
+            || (self.snapshot.duration - duration.max(0.0)).abs() >= Self::TIMING_EPSILON
+    }
+
+    pub fn update_timing(&mut self, position: f64, duration: f64) -> bool {
+        if self.snapshot.session_unavailable {
+            return false;
+        }
+        if !self.timing_changed(position, duration) {
+            return false;
         }
         self.snapshot.position = position.max(0.0);
         self.snapshot.duration = duration.max(0.0);
+        true
     }
 
     pub fn set_quality(&mut self, quality: Quality) -> Option<Effect> {
@@ -307,5 +332,54 @@ impl PlaybackCoordinator {
             _ if current + 1 < length => Some(current + 1),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_timing_reports_no_change() {
+        let mut coordinator = PlaybackCoordinator::default();
+        assert!(coordinator.update_timing(10.0, 200.0));
+        // Identical values and sub-epsilon jitter must not count as writes.
+        assert!(!coordinator.timing_changed(10.0, 200.0));
+        assert!(!coordinator.timing_changed(10.004, 200.004));
+        assert!(!coordinator.update_timing(10.0, 200.0));
+        assert_eq!(coordinator.snapshot().position, 10.0);
+    }
+
+    #[test]
+    fn moved_timing_reports_change() {
+        let mut coordinator = PlaybackCoordinator::default();
+        assert!(coordinator.update_timing(10.0, 200.0));
+        assert!(coordinator.timing_changed(10.5, 200.0));
+        assert!(coordinator.timing_changed(10.0, 201.0));
+        assert!(coordinator.update_timing(10.5, 200.0));
+        assert_eq!(coordinator.snapshot().position, 10.5);
+    }
+
+    #[test]
+    fn timing_clamps_negatives_and_ignores_unavailable_sessions() {
+        let mut coordinator = PlaybackCoordinator::default();
+        assert!(coordinator.update_timing(10.0, 200.0));
+        assert!(coordinator.update_timing(-3.0, -1.0));
+        assert_eq!(coordinator.snapshot().position, 0.0);
+        assert_eq!(coordinator.snapshot().duration, 0.0);
+
+        coordinator.snapshot.session_unavailable = true;
+        assert!(!coordinator.timing_changed(99.0, 99.0));
+        assert!(!coordinator.update_timing(99.0, 99.0));
+        assert!(!coordinator.update_position(99.0));
+    }
+
+    #[test]
+    fn update_position_gates_jitter_but_applies_seeks() {
+        let mut coordinator = PlaybackCoordinator::default();
+        assert!(coordinator.update_position(15.0));
+        assert!(!coordinator.update_position(15.004));
+        assert!(coordinator.update_position(90.0));
+        assert_eq!(coordinator.snapshot().position, 90.0);
     }
 }

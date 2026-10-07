@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCloudArrowUp } from "@fortawesome/free-solid-svg-icons/faCloudArrowUp";
@@ -74,6 +74,19 @@ function Modal({ title, subtitle, children, onClose, width = 960 }) {
 function clearFileInputs() { ["admin-media-file", "admin-media-thumb", "admin-category-cover-file", "admin-media-batch-folder", "admin-media-batch-files"].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; }); }
 async function readApiError(res, fallback) { const t = await res.text().catch(() => ""); if (!t) return fallback; try { return JSON.parse(t).error || fallback; } catch { return t.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || fallback; } }
 
+export async function fetchAllCategoryMedia(categoryId, { signal } = {}) {
+  const limit = 100;
+  const items = [];
+  for (let offset = 0; ; offset += limit) {
+    const res = await api(`/api/media?category_id=${encodeURIComponent(categoryId)}&limit=${limit}&offset=${offset}`, { signal });
+    if (!res.ok) throw new Error(await readApiError(res, "Category media load failed"));
+    const page = await res.json();
+    if (!Array.isArray(page)) throw new Error("Invalid category media response");
+    items.push(...page);
+    if (page.length < limit) return items;
+  }
+}
+
 export default function CategoryManager() {
   const { tier } = useAccess();
   const { categories: globalCategories, refreshCategories: refreshGlobalCategories } = useLibrary();
@@ -87,6 +100,32 @@ export default function CategoryManager() {
   const [editingMedia, setEditingMedia] = useState(null), [episodeModalOpen, setEpisodeModalOpen] = useState(false), [scanningTrackOrders, setScanningTrackOrders] = useState(false);
   const [mobileRelease, setMobileRelease] = useState(null), [releaseVersion, setReleaseVersion] = useState("0.1.0"), [releaseFile, setReleaseFile] = useState(null), [uploadingRelease, setUploadingRelease] = useState(false), [releaseProgress, setReleaseProgress] = useState(null);
   const [uploadQueueOpen, setUploadQueueOpen] = useState(false), [uploadQueueJobs, setUploadQueueJobs] = useState([]), [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 }), [uploadQueueLoading, setUploadQueueLoading] = useState(false), [uploadQueueError, setUploadQueueError] = useState("");
+  const mediaLoad = useRef({ version: 0, controller: null });
+
+  const cancelMediaLoad = () => {
+    mediaLoad.current.version += 1;
+    mediaLoad.current.controller?.abort();
+    mediaLoad.current.controller = null;
+  };
+  const startMediaLoad = (categoryId) => {
+    cancelMediaLoad();
+    const version = mediaLoad.current.version;
+    const controller = new AbortController();
+    mediaLoad.current.controller = controller;
+    setLoadingMedia(true);
+    const promise = fetchAllCategoryMedia(categoryId, { signal: controller.signal }).then((items) => {
+      if (version !== mediaLoad.current.version) return null;
+      const ordered = orderMedia(items);
+      setCategoryMedia(ordered);
+      return ordered;
+    }).finally(() => {
+      if (version === mediaLoad.current.version) {
+        mediaLoad.current.controller = null;
+        setLoadingMedia(false);
+      }
+    });
+    return { version, promise };
+  };
 
   const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover || removingCategoryCover;
   const browserTransferActive = mediaUploadActive || uploadingRelease;
@@ -133,9 +172,11 @@ export default function CategoryManager() {
 
   useEffect(() => {
     if (mediaModalCategoryId === null) return;
-    let cancelled = false;
-    const loadMedia = async () => { setLoadingMedia(true); try { const res = await api(`/api/media?category_id=${mediaModalCategoryId}`); const data = await res.json(); if (!cancelled) setCategoryMedia(Array.isArray(data) ? orderMedia(data) : []); } catch { if (!cancelled) setMessage({ type: "error", text: "Failed to load category media." }); } finally { if (!cancelled) setLoadingMedia(false); } };
-    loadMedia(); return () => { cancelled = true; };
+    const { version, promise } = startMediaLoad(mediaModalCategoryId);
+    void promise.catch(() => {
+      if (version === mediaLoad.current.version) setMessage({ type: "error", text: "Failed to load category media." });
+    });
+    return () => { if (version === mediaLoad.current.version) cancelMediaLoad(); };
   }, [mediaModalCategoryId]);
 
   const batchItems = useMemo(() => buildBatchItems(batchFiles), [batchFiles]);
@@ -178,9 +219,11 @@ export default function CategoryManager() {
     setCategoryModalOpen(true);
   };
   const openMediaModal = (catId) => {
+    cancelMediaLoad();
     setMessage(null); setCategoryModalOpen(false); setMediaModalCategoryId(String(catId)); setMediaWorkspaceTab("collection"); setVideoKind("episode"); setCategoryMedia([]); setMediaDescription(""); setVideoFiles([]); setVideoOverrides({}); setMediaThumb(null); setCategoryCoverFile(null); setUpdatingCategoryCover(false); setRemovingCategoryCover(false); setBatchFiles([]); setBatchArtist(""); setBatchOverrides({}); setEditingMedia(null); setEpisodeModalOpen(false); clearFileInputs(); setSelectedCategoryId(String(catId));
   };
   const closeMediaModal = () => {
+    cancelMediaLoad();
     setMediaModalCategoryId(null); setCategoryMedia([]); setLoadingMedia(false);
     if (!mediaUploadActive) { setMediaDescription(""); setVideoFiles([]); setVideoOverrides({}); setMediaThumb(null); setCategoryCoverFile(null); setBatchFiles([]); setBatchArtist(""); setBatchOverrides({}); clearFileInputs(); }
     setEditingMedia(null); setEpisodeModalOpen(false);
@@ -190,11 +233,15 @@ export default function CategoryManager() {
     const data = await refreshGlobalCategories(); if (!Array.isArray(data)) throw new Error("Failed to refresh categories"); setCategories(data);
   };
   const refreshCategoryMedia = async (fallbackItems) => {
-    try {
-      const res = await api(`/api/media?category_id=${mediaModalCategoryId}`); if (!res.ok) throw new Error("Category media refresh failed");
-      const items = await res.json(); if (!Array.isArray(items)) throw new Error("Invalid category media response");
-      const ordered = orderMedia(items); setCategoryMedia(ordered); return ordered;
-    } catch { const ordered = orderMedia(fallbackItems); setCategoryMedia(ordered); return ordered; }
+    if (mediaModalCategoryId === null) return null;
+    const { version, promise } = startMediaLoad(mediaModalCategoryId);
+    try { return await promise; }
+    catch {
+      if (version !== mediaLoad.current.version) return null;
+      const ordered = orderMedia(fallbackItems);
+      setCategoryMedia(ordered);
+      return ordered;
+    }
   };
 
   const handleSaveCategory = async ({ id, name, description, parentId, minAccessTier, coverFile }) => {
@@ -338,9 +385,8 @@ export default function CategoryManager() {
       if (!res.ok) throw new Error(await readApiError(res, "Track metadata scan failed"));
       const result = await res.json();
       if (mediaModalCategoryId !== null) {
-        const mRes = await api(`/api/media?category_id=${mediaModalCategoryId}`);
-        if (!mRes.ok) throw new Error(await readApiError(mRes, "Media refresh failed"));
-        const mItems = await mRes.json(); setCategoryMedia(Array.isArray(mItems) ? orderMedia(mItems) : []);
+        const { promise } = startMediaLoad(mediaModalCategoryId);
+        await promise;
       }
       setMessage({ type: result.failed ? "error" : "success", text: `Track scan complete: ${result.scanned} scanned, ${result.updated} updated, ${result.missing} without a track tag, ${result.failed} failed.` });
     } catch (err) { setMessage({ type: "error", text: err.message }); }
