@@ -40,6 +40,22 @@
   view-transition-name: none !important;
 }
 
+.category-view-transition .web-mini-player,
+.category-view-transition .video-mini-player {
+  view-transition-name: mini-player;
+}
+
+.category-view-transition::view-transition-group(mini-player) {
+  z-index: 1000;
+  animation: none;
+}
+
+.category-view-transition::view-transition-old(mini-player),
+.category-view-transition::view-transition-new(mini-player) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
 .category-view-transition::view-transition-old(library-content) {
   animation: category-content-out 90ms ease-out both;
 }

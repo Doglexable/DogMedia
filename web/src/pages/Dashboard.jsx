@@ -406,7 +406,7 @@ export default function Dashboard() {
   useEffect(() => {
     const controller = new AbortController();
     const generation = browseGenerationRef.current + 1;
-    const browseScope = `${libraryView}:${selectedCategory || "all"}`;
+    const browseScope = `${libraryView}:${selectedCategory || "all"}:${mediaType || "all"}`;
     browseGenerationRef.current = generation;
     loadingMoreRef.current = false;
     setLoadingMore(false);

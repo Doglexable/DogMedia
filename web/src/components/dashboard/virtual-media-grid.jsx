@@ -4,7 +4,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faClock } from "@fortawesome/free-solid-svg-icons/faClock";
 import { AnimatedList, AnimatedListItem } from "./animated-list";
 import MediaCard from "./media-card";
-import { mediaViewTransitionName } from "../../utils/view-transitions";
 
 const DESKTOP_ROW_HEIGHT = 56;
 const MOBILE_ROW_HEIGHT = 60;
@@ -133,7 +132,6 @@ export const VirtualMediaGrid = memo(function VirtualMediaGrid({
                 position: "absolute",
                 top: 0,
                 transform: `translateY(${virtualRow.start - scrollMargin}px)`,
-                viewTransitionName: `${mediaViewTransitionName(item.id)}-row`,
                 width: "100%",
                 willChange: "transform",
               }}
