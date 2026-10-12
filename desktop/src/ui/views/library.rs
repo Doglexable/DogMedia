@@ -239,7 +239,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                     for (index, media) in snapshot.library.items.iter().enumerate().skip(start).take(end - start) {
                         div {
                             key: "{media.id}",
-                            class: "track-row",
+                            class: if open_menu == Some(media.id) { "track-row menu-open" } else { "track-row" },
                             div {
                             class: match (
                                 playback
@@ -316,6 +316,13 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                 }
                             }
                             if open_menu == Some(media.id) {
+                                div {
+                                    class: "context-menu-backdrop",
+                                    onclick: move |event: MouseEvent| {
+                                        event.stop_propagation();
+                                        context_menu.set(None);
+                                    },
+                                }
                                 div {
                                     class: "context-menu row-context-menu below",
                                     role: "menu",

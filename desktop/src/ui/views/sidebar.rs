@@ -102,6 +102,13 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                 }
                                 if open_menu == Some(category.id) {
                                     div {
+                                        class: "context-menu-backdrop",
+                                        onclick: move |event: MouseEvent| {
+                                            event.stop_propagation();
+                                            folder_menu.set(None);
+                                        },
+                                    }
+                                    div {
                                         class: "context-menu row-context-menu below",
                                         role: "menu",
                                         "aria-label": "Options for {category.name}",

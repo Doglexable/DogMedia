@@ -278,6 +278,8 @@ select:focus-visible {
 .media-track { position: relative; display: grid; width: 100%; min-width: 0; min-height: 52px; grid-template-columns: minmax(0, 1fr) 70px; align-items: center; margin-bottom: 4px; border-radius: var(--radius-sm); }
 .track-row { display: block; width: 100%; min-width: 0; margin-bottom: 4px; }
 .track-row .media-track { margin-bottom: 2px; }
+.track-row.menu-open { position: relative; z-index: 360; }
+.media-track.menu-open { position: relative; z-index: 360; }
 .media-track:hover { background: var(--hover); }
 .media-track:active { background: var(--pressed); transform: translateY(1px); }
 .media-track.active { background: #35151e; }
@@ -313,6 +315,7 @@ select:focus-visible {
 .track-actions .icon-button.active { opacity: 1; }
 .more-menu .ui-icon { width: 18px; height: 18px; }
 .context-menu { z-index: 350; isolation: isolate; display: flex; flex-direction: column; width: 196px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; padding: 5px; background-color: var(--surface-elevated); box-shadow: 0 18px 46px var(--shadow); }
+.context-menu-backdrop { position: fixed; inset: 0; z-index: 340; background: transparent; }
 .row-context-menu { position: absolute; right: 6px; left: auto; }
 .row-context-menu.below { top: 38px; }
 .row-context-menu.above { bottom: 38px; }

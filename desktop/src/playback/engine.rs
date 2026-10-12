@@ -121,10 +121,18 @@ impl PlaybackEngine {
         // Keep sync=true (default) so video stays locked to the pipeline clock
         // for A/V sync. Setting sync=false would deliver frames as fast as the
         // decoder produces them and break lip-sync; frame drops from a slow
-        // consumer are absorbed via max-buffers + drop instead.
+        // consumer are absorbed via max-buffers + drop instead. The renderer
+        // keeps only the newest frame, so an appsink queue of four frames only
+        // retains extra decoded video buffers when rendering falls behind.
         video_sink.set_property("sync", true);
-        video_sink.set_property("max-buffers", 4_u32);
+        video_sink.set_property("max-buffers", 1_u32);
         video_sink.set_property("drop", true);
+        // Let upstream decoders avoid work when this synchronized sink falls
+        // behind. On-time playback is unaffected by QoS feedback.
+        video_sink.set_property("qos", true);
+        // VideoPaintSource owns the displayed texture; BaseSink's last-sample
+        // cache would retain another decoded frame that the app never reads.
+        video_sink.set_property("enable-last-sample", false);
         video_sink.set_property("emit-signals", true);
         receiver.clear();
         let frame = Arc::clone(&receiver.frame);
@@ -325,9 +333,7 @@ impl PlaybackEngine {
         }
         let _ = self.playbin.set_state(gst::State::Null);
         self.playbin.set_property("uri", stream_url.as_str());
-        if let Ok(mut frame) = self.frame.lock() {
-            *frame = None;
-        }
+        self.clear_video_buffers();
         Ok(())
     }
 
@@ -346,10 +352,17 @@ impl PlaybackEngine {
         }
         let _ = self.playbin.set_state(gst::State::Null);
         self.playbin.set_property("uri", file_url.as_str());
+        self.clear_video_buffers();
+        Ok(())
+    }
+
+    fn clear_video_buffers(&self) {
         if let Ok(mut frame) = self.frame.lock() {
             *frame = None;
         }
-        Ok(())
+        if let Ok(mut recycle) = self.recycle.lock() {
+            recycle.clear();
+        }
     }
 
     pub fn play(&self) -> Result<(), EngineError> {
@@ -385,12 +398,7 @@ impl PlaybackEngine {
         // demuxer/decoder buffers immediately; the next open installs a fresh
         // URI on the same configured playbin.
         self.playbin.set_property("uri", "");
-        if let Ok(mut frame) = self.frame.lock() {
-            *frame = None;
-        }
-        if let Ok(mut recycle) = self.recycle.lock() {
-            recycle.clear();
-        }
+        self.clear_video_buffers();
         if let Ok(mut headers) = self.headers.lock() {
             *headers = None;
         }
@@ -593,6 +601,28 @@ mod tests {
         });
         engine.stop().unwrap();
         assert!(engine.playbin.property::<String>("uri").is_empty());
+        assert!(engine.recycle.lock().unwrap().is_empty());
+        assert!(engine.frame.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn opening_an_audio_track_releases_previous_video_buffers() {
+        let engine = PlaybackEngine::new().unwrap();
+        engine
+            .open_local(&url::Url::parse("file:///tmp/video.mp4").unwrap())
+            .unwrap();
+        engine.recycle.lock().unwrap().push(vec![0; 2_304_000]);
+        engine.frame.lock().unwrap().replace(VideoFrame {
+            width: 1,
+            height: 1,
+            format: VideoPixelFormat::Rgba,
+            pixels: vec![0; 4],
+        });
+
+        engine
+            .open_local(&url::Url::parse("file:///tmp/audio.flac").unwrap())
+            .unwrap();
+
         assert!(engine.recycle.lock().unwrap().is_empty());
         assert!(engine.frame.lock().unwrap().is_none());
     }
