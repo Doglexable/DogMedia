@@ -1,0 +1,47 @@
+name: Node workspace checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/node-workspaces.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'server/**'
+      - 'web/**'
+      - 'mobile/**'
+  push:
+    paths:
+      - '.github/workflows/node-workspaces.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'server/**'
+      - 'web/**'
+      - 'mobile/**'
+
+permissions:
+  contents: read
+
+jobs:
+  node-workspaces:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint workspaces
+        run: npm run lint
+
+      - name: Test workspaces
+        run: npm test
+
+      - name: Build web
+        run: npm run build
