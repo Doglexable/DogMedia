@@ -103,3 +103,10 @@ services:
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
       - ./data/nginx:/var/log/nginx:Z
     restart: unless-stopped
+
+  homepage:
+    build:
+      context: .
+      dockerfile: homepage/Containerfile
+    network_mode: host
+    restart: unless-stopped

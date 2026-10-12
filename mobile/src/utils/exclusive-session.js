@@ -25,7 +25,6 @@ export function normalizeHolderSession(value) {
     deviceLabel,
   };
   if (Number.isInteger(value.mediaId) && value.mediaId > 0) holder.mediaId = value.mediaId;
-  if (Number.isInteger(value.expiresIn) && value.expiresIn >= 0) holder.expiresIn = value.expiresIn;
   if (value.playback && typeof value.playback === "object") {
     const playbackMediaId = Number.isInteger(value.playback.mediaId) && value.playback.mediaId > 0
       ? value.playback.mediaId
@@ -57,9 +56,6 @@ export function conflictFromError(error) {
   return {
     message: error.message,
     holder: normalizeHolderSession(error.data?.activeSession),
-    retryAfter: Number.isInteger(error.retryAfter) && error.retryAfter >= 0
-      ? error.retryAfter
-      : undefined,
   };
 }
 
@@ -68,17 +64,7 @@ export function conflictDetailText(conflict) {
   return `${label} is playing this library`;
 }
 
-export function conflictCountdownText(conflict) {
-  const seconds = [conflict?.holder?.expiresIn, conflict?.retryAfter]
-    .find((value) => Number.isInteger(value) && value >= 0);
-  if (seconds === undefined) return "";
-  return `Available in about ${seconds}s`;
-}
-
 export function conflictDisplayText(conflict, fallbackMessage) {
   if (!conflict) return fallbackMessage || "";
-  const countdown = conflictCountdownText(conflict);
-  return countdown
-    ? `Playback is active elsewhere — ${conflictDetailText(conflict)}. ${countdown}.`
-    : `Playback is active elsewhere — ${conflictDetailText(conflict)}.`;
+  return `Playback is active elsewhere — ${conflictDetailText(conflict)}.`;
 }

@@ -21,7 +21,7 @@ WORKDIR /src
 COPY LICENSE package.json ./
 COPY desktop ./desktop
 
-RUN PFS_PACKAGE_OUTPUT_DIR=/packages desktop/packaging/rpm/build-rpm.sh
+RUN PFS_PACKAGE_OUTPUT_DIR=/packages PFS_PUBLISH_DESKTOP_RELEASE=0 desktop/packaging/rpm/build-rpm.sh
 
 FROM scratch
 COPY --from=builder /packages /packages

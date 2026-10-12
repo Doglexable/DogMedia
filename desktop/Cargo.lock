@@ -1560,6 +1560,7 @@ dependencies = [
  "uuid",
  "wgpu 26.0.1",
  "winit",
+ "zbus",
 ]
 
 [[package]]
@@ -5661,8 +5662,10 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -7315,6 +7318,7 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

@@ -214,7 +214,7 @@ for playback leases and resume state. Audio and video playback is protected by
 a single global IP lease: another IP cannot start playback until the active
 client releases its lease or the lease expires. Use HTTPS outside a trusted LAN.
 
-Build native Debian or Fedora packages with:
+Build and publish native Debian or Fedora packages with:
 
 ```bash
 npm run package:desktop:deb # requires dpkg-dev
@@ -222,10 +222,62 @@ npm run package:desktop:rpm # requires rpm-build
 npm run package:desktop:containers # builds both through Podman or Docker
 ```
 
-Packages are written to `dist/packages/`. See
-[desktop/README.md](desktop/README.md) for Debian/Fedora prerequisites and
+If the container image was built but package export failed, reuse it without
+building again, for example:
+
+```bash
+PFS_SKIP_PACKAGE_IMAGE_BUILD=1 npm run package:desktop:containers -- rpm
+```
+
+Each successful command writes packages to `dist/packages/` and publishes the
+supported x64 package to `data/media/desktop-release/`. The container command
+publishes after copying the package back to the host. Cross packaging does the
+same for macOS and Windows when those builds succeed:
+
+```bash
+npm run package:desktop:cross -- mac
+npm run package:desktop:cross -- windows
+```
+
+Set `PFS_PUBLISH_DESKTOP_RELEASE=0` before a packaging command to build without
+publishing. To publish an already-built `.deb` without rebuilding, run:
+
+```bash
+bash desktop/packaging/publish-release.sh linux-deb dist/packages/dogmedia-desktop_0.1.0_amd64.deb
+```
+
+See [desktop/README.md](desktop/README.md) for Debian/Fedora prerequisites and
 installation commands, user-local installation, Flatpak packaging, usage, and
 current feature limits.
+
+The packaging commands publish to `data/media/desktop-release/` (the server's
+`DATA_DIR/desktop-release`) using these filenames:
+
+| Package | Published filename |
+| --- | --- |
+| Debian / Ubuntu x64 | `dogmedia-linux-amd64.deb` |
+| Fedora / RHEL x64 | `dogmedia-linux-x86_64.rpm` |
+| Windows x64 | `dogmedia-windows-x86_64.exe` |
+| macOS Apple silicon | `dogmedia-macos-arm64.zip` |
+| macOS Intel | `dogmedia-macos-x86_64.zip` |
+
+When upgrading from the old `.dmg` mapping to `.zip`, rebuild the server once
+so the download API uses the new filenames and MIME type:
+
+```bash
+podman compose up -d --build server
+```
+
+Later package replacements need no extra Compose mount, image rebuild, or
+server restart. The Windows installer is not currently present in
+`dist/packages/`. Cross-built
+macOS archives still need native runtime verification before relying on them.
+
+The web sidebar detects the visitor's operating system and shows the matching
+package choices. Visitors can select another platform manually. Unpublished
+packages remain unavailable; publish only packages that have been built and
+verified for that platform. The server streams published packages through
+`/api/desktop-release/download/:id`.
 
 ## Compressing thumbnails
 
@@ -274,11 +326,40 @@ cp -a data/media/.thumbnail-backups/<timestamp>/. data/media/
 ## Architecture
 
 ```text
-Browser → Apache :80/:443 → Nginx :8030 → Fastify :3001
-                                      ├─ PostgreSQL :5440
-                                      ├─ Redis :16379
-                                      └─ encoding worker (Redis Streams)
+Browser → Apache :80/:443 ┬→ Homepage Nginx :8040 (main domain)
+                          └→ Web Nginx :8030 (private app) → Fastify :3001
+                                                              ├─ PostgreSQL :5440
+                                                              ├─ Redis :16379
+                                                              └─ encoding worker (Redis Streams)
 ```
+
+### Public homepage container
+
+The `homepage` service is a separate static demo player on
+`http://127.0.0.1:8040`. It uses the same Dogmedia charcoal, white, and rose
+palette as the private app. Its three demo tracks are synthesized in the
+visitor's browser; it does not request or expose private media. The existing
+`web` service stays on `127.0.0.1:8030` and Fastify stays on `127.0.0.1:3001`.
+
+```bash
+podman compose up --build -d homepage
+curl -I http://127.0.0.1:8040/
+```
+
+For the main domain, point the existing host Apache virtual host's root proxy
+to `127.0.0.1:8040` instead of `127.0.0.1:8030`. Keep the private app's
+existing `8030` listener; route its own hostname to that port if it must remain
+accessible by domain. No Apache container is needed. The main-domain proxy
+lines are:
+
+```apache
+ProxyPass        / http://127.0.0.1:8040/ connectiontimeout=5 timeout=60
+ProxyPassReverse / http://127.0.0.1:8040/
+```
+
+Set those lines in the main domain's `VirtualHost`, then validate and reload
+the host Apache configuration. The full private app proxy example below still
+targets `8030` and can be used for its separate hostname.
 
 All application containers use host networking. Apache removes any
 client-supplied `X-Forwarded-For` value and adds the address of its direct
@@ -311,6 +392,28 @@ For older Apache versions, enable `proxy_wstunnel` and add a more specific
 `ProxyPass /api/playback/socket ws://127.0.0.1:8030/api/playback/socket`
 before the general `ProxyPass /` rule. Keep Apache and Nginx on the same host
 so whitelist identity is consistent for HTTP and WebSocket.
+
+If the public entry point is Nginx, its WebSocket location also needs to pass
+the upgrade headers. Add this exact location to the public `server` block that
+already proxies the app to `127.0.0.1:8030`, alongside its general `/` proxy:
+
+```nginx
+location = /api/playback/socket {
+    proxy_pass http://127.0.0.1:8030;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 60s;
+}
+```
+
+Use the public proxy's existing upstream if it differs from `127.0.0.1:8030`.
+Without the upgrade headers, Fastify receives an ordinary GET for this route
+and responds with 404 even though `/api/playback/socket-ticket` works.
 
 Connected playback clients receive immediate lease changes and safe playing
 snapshots. The server renews a bound native lease while its socket answers
@@ -639,11 +742,48 @@ npm run dev:desktop      # native Dioxus/Blitz desktop client
 npm run migrate          # run DB migrations
 npm run build            # Vite production build
 npm run build:desktop    # release desktop binary
+npm run clean:desktop    # clean desktop Cargo build cache (frees target/)
 npm run lint             # ESLint
 npm run test             # Vitest (all)
 npm run test:server      # server tests
 npm run test:web         # web tests
 npm run test:desktop     # Rust desktop tests
+```
+
+## Disk space and cleanup
+
+Local builds, compiler targets, and packaging toolchains generate artifacts that can consume significant disk space (frequently 20–30+ GB across the workspace).
+
+### Safe to delete (reclaim disk space)
+
+| Path | Typical size | Description & cleanup command |
+|---|---|---|
+| `desktop/target/` | **20+ GB** | Cargo build cache, intermediate object files, and compiled binaries for the desktop client. Rebuilds automatically on next `cargo build` or `cargo run`.<br>`cargo clean --manifest-path desktop/Cargo.toml` or `rm -rf desktop/target` |
+| `desktop/packaging/macos/__pycache__/` | Few KB | Python bytecode cache from macOS packaging scripts. Safe to delete. |
+| `desktop/bundle/`, `desktop/.dioxus/` | Variable | Ephemeral Dioxus packaging output if present. |
+| `dist/`, `mobile/dist/` | ~1.8 GB | Vite and frontend production build output. Re-generated with `npm run build`. |
+| `mobile/android/app/build/`, `mobile/android/.gradle/` | ~2.8 GB | Android Gradle build cache and APK output.<br>`rm -rf mobile/android/app/build mobile/android/.gradle` (or `./gradlew clean` in `mobile/android`). |
+| `.flatpak-builder/`, `.flatpak-build/` | ~90 MB | Local Flatpak build caches. |
+| `pfs-sdk/` | ~4.8 GB | Downloaded GStreamer installers, macOS SDK tarballs, and Zig toolchains used for cross-platform packaging. Safe to remove if not currently packaging release binaries. |
+| `node_modules/` | ~10 GB | Node dependencies. Can be deleted and cleanly restored anytime with `npm ci`. |
+
+### DO NOT delete (tracked source & critical assets)
+
+- **`desktop/vendor/`**: Contains local vendored crates (`dioxus-native`, `wgpu_context`). Tracked in Git and required for compiling the desktop client.
+- **`desktop/src/`**, **`desktop/assets/`**, **`desktop/resources/`**, **`desktop/packaging/`**, **`desktop/tests/`**, **`desktop/flatpak/`**, **`desktop/scripts/`**: Tracked application source, icons, packaging scripts, and metadata.
+- **`data/`**: Persistent media libraries, uploads, PostgreSQL database, and Redis runtime files. Only delete if intentionally resetting the server.
+
+### Quick cleanup commands
+
+```bash
+# 1. Clean Rust desktop build cache (frees ~20+ GB)
+cargo clean --manifest-path desktop/Cargo.toml
+
+# 2. Clean web and mobile build artifacts
+rm -rf dist/ mobile/dist/ mobile/android/app/build/ .flatpak-builder/ .flatpak-build/
+
+# 3. Optional: remove downloaded cross-compile SDKs (frees ~4.8 GB)
+rm -rf pfs-sdk/
 ```
 
 ## Security notes

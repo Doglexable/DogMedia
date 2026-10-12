@@ -2,9 +2,9 @@ use dioxus_native::prelude::*;
 
 use crate::domain::Quality;
 use crate::playback::PlaybackEngine;
-use crate::ui::kit::{Artwork, Icon, IconName, Slider, SliderVariant};
+use crate::ui::kit::{Artwork, Icon, IconName, Slider};
+use crate::ui::views::SessionConflictCard;
 use crate::ui::views::player_bar::quality_badge;
-use crate::ui::views::{SessionConflictCard, SessionTakeoverButton, can_take_over_playback};
 use crate::ui::{
     NativeApp, PlaybackStatus, artwork_url, format_duration, media_folder, seek, stop_playback,
     toggle_playback,
@@ -16,7 +16,7 @@ pub(crate) fn VideoMiniPlayer(
     engine: Signal<Option<PlaybackEngine>>,
     video_source_id: u64,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let playback = snapshot.coordinator.snapshot();
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
@@ -109,7 +109,6 @@ pub(crate) fn VideoMiniPlayer(
                 onclick: move |e: MouseEvent| e.stop_propagation(),
                 Slider {
                     class: "video-mini-scrubber-slider".to_owned(),
-                    variant: SliderVariant::Round,
                     min: 0.0,
                     max: max_pos,
                     step: 0.1,
@@ -139,13 +138,6 @@ pub(crate) fn VideoMiniPlayer(
                 div {
                     class: "video-mini-actions",
                     onclick: move |e: MouseEvent| e.stop_propagation(),
-
-                    if session_unavailable {
-                        SessionConflictCard { holder: playback.holder.clone(), retry_after: playback.holder_retry_after }
-                        if can_take_over_playback(snapshot.access_tier) {
-                            SessionTakeoverButton { app, engine }
-                        }
-                    }
 
                     // Rewind 10s
                     button {
@@ -190,6 +182,14 @@ pub(crate) fn VideoMiniPlayer(
                         },
                         Icon { name: IconName::RotateCw }
                     }
+                }
+            }
+
+            if session_unavailable {
+                SessionConflictCard {
+                    holder: playback.holder.clone(),
+                    app: Some(app),
+                    engine: Some(engine),
                 }
             }
         }

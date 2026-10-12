@@ -333,13 +333,10 @@ export function FullscreenLyrics({ artworkUrl: _artworkUrl, media, mediaId, onSe
   }, [focusIndex]);
 
   if (!lyrics?.segments?.length) {
+    if (!lyricsLoading) return null;
     return (
       <section className="fullscreen-lyrics fullscreen-lyrics--empty" aria-label="Synchronized lyrics">
-        {lyricsLoading ? (
-          <p>Loading timed lyrics…</p>
-        ) : (
-          <p>Lyrics will appear here when they are available for this track.</p>
-        )}
+        <p>Loading timed lyrics…</p>
       </section>
     );
   }

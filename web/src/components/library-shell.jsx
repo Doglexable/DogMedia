@@ -18,6 +18,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
 import { api, apiUrl, categoryThumbnailUrl, readJsonArray } from "../api";
 import { SiteFooter } from "./site-footer";
+import { DesktopDownload } from "./desktop-download";
 import { APP_VERSION_LABEL } from "../version";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
@@ -391,6 +392,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 
         {/* Sidebar footer: theme toggle */}
         <div className="global-sidebar-footer">
+          <DesktopDownload />
           <AndroidDownloadLink />
           <AccessBadge access={access} />
           <ThemeToggle className="global-sidebar-theme-btn" />
@@ -443,6 +445,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           </button>
         </div>
         <nav className="mobile-categories-sheet-body" aria-label="Media categories">
+          <DesktopDownload mobile />
           <AndroidDownloadLink mobile />
           {categoriesLoading ? (
             Array.from({ length: 6 }, (_, index) => (

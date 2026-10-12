@@ -2,8 +2,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   conflictFromError,
-  holderCountdownText,
-  holderDetailText,
   isHolderConflict,
   normalizeHolderSession,
   shouldHandleLeaseLoss,
@@ -28,7 +26,7 @@ describe("normalizeHolderSession", () => {
       deviceLabel: "Studio PC",
       mediaId: 42,
       expiresIn: 24,
-    })).toEqual({ platform: "desktop", deviceLabel: "Studio PC", mediaId: 42, expiresIn: 24 });
+    })).toEqual({ platform: "desktop", deviceLabel: "Studio PC", mediaId: 42 });
     expect(normalizeHolderSession({})).toEqual({
       platform: "unknown",
       deviceLabel: "Another device",
@@ -70,17 +68,8 @@ describe("normalizeHolderSession", () => {
       activeSession: { platform: "mobile", deviceLabel: "Phone", expiresIn: 9 },
     })).toEqual({
       message: "busy",
-      holder: { platform: "mobile", deviceLabel: "Phone", expiresIn: 9 },
-      retryAfter: 9,
+      holder: { platform: "mobile", deviceLabel: "Phone" },
     });
-  });
-
-  it("formats detail and countdown text with safe fallbacks", () => {
-    expect(holderDetailText(null)).toBe("Playback is active on another device");
-    expect(holderDetailText({ deviceLabel: "Studio PC" })).toBe("Studio PC is playing this library");
-    expect(holderCountdownText({ expiresIn: 24 })).toBe("Available in about 24s");
-    expect(holderCountdownText(null, 9)).toBe("Available in about 9s");
-    expect(holderCountdownText(null, undefined)).toBe("");
   });
 });
 
@@ -101,6 +90,7 @@ describe("PlayerBar Spotify Connect Observer Bar", () => {
     expect(markup).toContain("spotify-connect-bar");
     expect(markup).toContain("Playing on iPhone");
     expect(markup).toContain("Play here");
+    expect(markup).not.toContain("Available in about");
   });
 
   it("maps holder platforms to lucide icons", () => {

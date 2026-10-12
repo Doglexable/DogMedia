@@ -5,6 +5,7 @@ import {
   findLyricsFocusIndex,
   getLyricsPreview,
   getLyricsScrollBehavior,
+  FullscreenLyrics,
   LyricsShareCard,
 } from "./lyrics-panel";
 
@@ -75,6 +76,22 @@ describe("getLyricsPreview", () => {
     expect(getLyricsPreview(segments, 1)).toBe("Second");
     expect(getLyricsPreview(segments, -1)).toBe("First");
     expect(getLyricsPreview([], 0)).toBe("");
+  });
+});
+
+describe("FullscreenLyrics", () => {
+  it("renders no panel when the track has no lyrics", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const markup = renderToStaticMarkup(
+      <FullscreenLyrics
+        media={{ id: 42 }}
+        lyrics={{ mediaId: 42, segments: [] }}
+        lyricsLoading={false}
+        onSeek={() => {}}
+        position={0}
+      />
+    );
+    expect(markup).toBe("");
   });
 });
 

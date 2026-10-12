@@ -71,6 +71,7 @@ export function FullPlayer({
   eqGains, eqPreset, eqEnabled, eqTargetDb, onSetEqGain, onSetEqPreset, onSetEqEnabled,
   onSetEqTargetDb, onAdjustEqToTarget,
   lyrics, lyricsLoading,
+  conflict, controlsLocked = false, canTakeOver = false, onTakeOver,
 }) {
   const [displayedArtworkSrc, setDisplayedArtworkSrc] = useState(thumbSrc);
   const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
@@ -90,8 +91,9 @@ export function FullPlayer({
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
-  const hasLyrics = Boolean(lyrics?.segments?.length > 0 || lyricsLoading);
-  const lyricsActive = isSingleColumn ? showLyricsMobile : showLyricsDesktop;
+  const lyricsMatchCurrentMedia = !lyrics?.mediaId || Number(lyrics.mediaId) === Number(currentMedia?.id);
+  const hasLyrics = Boolean(lyricsLoading || (lyricsMatchCurrentMedia && lyrics?.segments?.length > 0));
+  const lyricsActive = hasLyrics && (isSingleColumn ? showLyricsMobile : showLyricsDesktop);
   const openShareDialog = useCallback(() => runViewTransition(
     () => setShareOpen(true),
     { className: "modal-view-transition" },
@@ -233,7 +235,7 @@ export function FullPlayer({
 
     return (
       <div
-        className="fullscreen-player"
+        className={`fullscreen-player ${queueOpen ? "fullscreen-player--with-queue-sidebar" : ""}`}
         onContextMenu={onPreventMenu}
         style={{ "--fullscreen-volume": `${effectiveVolume}%` }}
       >
@@ -259,11 +261,11 @@ export function FullPlayer({
         </button>
 
         <main
-          className={`fullscreen-player-layout ${lyricsActive ? "fullscreen-player-layout--lyrics-active" : ""}${!showLyricsDesktop && !isSingleColumn ? " fullscreen-player-layout--desktop-no-lyrics" : ""}`}
+          className={`fullscreen-player-layout ${lyricsActive ? "fullscreen-player-layout--lyrics-active" : ""}${!lyricsActive && !isSingleColumn ? " fullscreen-player-layout--desktop-no-lyrics" : ""}`}
         >
           <section className="fullscreen-player-left" aria-label="Now playing">
             <div className="fullscreen-player-stage">
-              {isSingleColumn && showLyricsMobile ? (
+              {isSingleColumn && lyricsActive ? (
                 <div className="fullscreen-player-stage-lyrics">
                   <FullscreenLyrics
                     artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
@@ -342,18 +344,17 @@ export function FullPlayer({
               >
                 <FontAwesomeIcon icon={faBookmark} />
               </button>
-              {hasLyrics && (
-                <button
-                  type="button"
-                  className={lyricsActive ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
-                  aria-label={lyricsActive ? "Hide lyrics" : "Show lyrics"}
-                  aria-pressed={lyricsActive}
-                  title={lyricsActive ? "Hide lyrics" : "Show lyrics"}
-                  onClick={onToggleLyrics}
-                >
-                  <FontAwesomeIcon icon={faQuoteRight} />
-                </button>
-              )}
+              <button
+                type="button"
+                className={lyricsActive ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
+                aria-label={!hasLyrics ? "Lyrics unavailable" : lyricsActive ? "Hide lyrics" : "Show lyrics"}
+                aria-pressed={lyricsActive}
+                title={!hasLyrics ? "No lyrics available for this track" : lyricsActive ? "Hide lyrics" : "Show lyrics"}
+                disabled={!hasLyrics}
+                onClick={onToggleLyrics}
+              >
+                <FontAwesomeIcon icon={faQuoteRight} />
+              </button>
               <button
                 type="button"
                 className={shareOpen ? "fullscreen-player-icon-button fullscreen-player-icon-button--active" : "fullscreen-player-icon-button"}
@@ -458,7 +459,7 @@ export function FullPlayer({
             </div>
           </section>
 
-          {!isSingleColumn && showLyricsDesktop && (
+          {!isSingleColumn && lyricsActive && (
             <div className="fullscreen-player-utilities">
               <FullscreenLyrics
                 artworkUrl={thumbFailed ? null : effectiveArtworkSrc}
@@ -557,7 +558,7 @@ export function FullPlayer({
   }
 
   return (
-    <div className="premium-app-shell" onContextMenu={onPreventMenu} style={styles.fullPage}>
+    <div className={`premium-app-shell ${queueOpen ? "full-player--with-queue-sidebar" : ""}`} onContextMenu={onPreventMenu} style={styles.fullPage}>
       <button
         type="button"
         className="fullscreen-player-close full-player-close"
@@ -631,6 +632,10 @@ export function FullPlayer({
         actualQuality={actualQuality}
         onChangeQuality={onChangeQuality}
         onSetSleepTimer={onSetSleepTimer}
+        conflict={conflict}
+        controlsLocked={controlsLocked}
+        canTakeOver={canTakeOver}
+        onTakeOver={onTakeOver}
       />
     </div>
   );

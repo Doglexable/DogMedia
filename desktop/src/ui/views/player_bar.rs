@@ -4,7 +4,7 @@ use super::super::*;
 
 #[component]
 pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let playback = snapshot.coordinator.snapshot();
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
@@ -43,11 +43,6 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
         None
     };
 
-    let holder_label = playback
-        .holder
-        .as_ref()
-        .map(SessionHolder::display_label)
-        .unwrap_or_else(|| "Another device".to_owned());
     let mini_player_class = if session_unavailable {
         "mini-player has-connect-bar"
     } else {
@@ -122,7 +117,6 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                     MusicProgress {
                         position: playback.position,
                         duration: playback.duration,
-                        variant: SliderVariant::Round,
                         disabled: session_unavailable,
                         onseek: move |position| seek(app, engine, position),
                     }
@@ -152,26 +146,10 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                 IconButton { label: "Stop playback".to_owned(), icon: IconName::Stop, class: "stop-btn".to_owned(), onclick: move |_| stop_playback(app, engine) }
             }
             if session_unavailable {
-                div {
-                    class: "spotify-connect-bar",
-                    role: "status",
-                    if can_take_over_playback(snapshot.access_tier) {
-                        button {
-                            class: "spotify-connect-takeover-btn",
-                            r#type: "button",
-                            disabled: snapshot.session_takeover_pending,
-                            onclick: move |event: MouseEvent| {
-                                event.stop_propagation();
-                                take_over_playback(app, engine);
-                            },
-                            if snapshot.session_takeover_pending { "Moving playback…" } else { "Play here" }
-                        }
-                    }
-                    div {
-                        class: "spotify-connect-status",
-                        span { class: "spotify-connect-icon", Icon { name: IconName::Volume } }
-                        span { class: "spotify-connect-label", "Playing on {holder_label}" }
-                    }
+                SessionConflictCard {
+                    holder: playback.holder.clone(),
+                    app: Some(app),
+                    engine: Some(engine),
                 }
             }
         }
@@ -191,31 +169,48 @@ pub(crate) fn can_take_over_playback(tier: i32) -> bool {
 #[component]
 pub(crate) fn SessionConflictCard(
     holder: Option<SessionHolder>,
-    retry_after: Option<u64>,
+    #[props(default)] app: Option<Signal<NativeApp>>,
+    #[props(default)] engine: Option<Signal<Option<PlaybackEngine>>>,
 ) -> Element {
     let label = holder
         .as_ref()
         .map(SessionHolder::display_label)
         .unwrap_or_else(|| "Another device".to_owned());
-    let countdown = holder
-        .as_ref()
-        .and_then(|value| value.expires_in)
-        .or(retry_after)
-        .map(|seconds| format!("Available in about {seconds}s"));
+    let can_takeover = app
+        .map(|a| can_take_over_playback(a.read().access_tier))
+        .unwrap_or(false);
+    let pending = app
+        .map(|a| a.read().session_takeover_pending)
+        .unwrap_or(false);
     rsx! {
         div {
             "data-name": "SessionConflictCard",
-            class: "session-conflict-card",
-            role: "alert",
-            strong { "Playback is active elsewhere" }
-            span { "{label} is playing this library" }
-            if let Some(countdown) = countdown {
-                span { class: "conflict-countdown", "{countdown}" }
+            class: "spotify-connect-bar session-conflict-card",
+            role: "status",
+            if can_takeover {
+                button {
+                    class: "spotify-connect-takeover-btn",
+                    r#type: "button",
+                    disabled: pending,
+                    onclick: move |event: MouseEvent| {
+                        event.stop_propagation();
+                        if let (Some(a), Some(e)) = (app, engine) {
+                            take_over_playback(a, e);
+                        }
+                    },
+                    if pending { "Moving playback…" } else { "Play here" }
+                }
+            }
+            div {
+                class: "spotify-connect-status",
+                span { class: "spotify-connect-icon", Icon { name: IconName::Volume } }
+                span { class: "spotify-connect-label", "Playing on {label}" }
             }
         }
     }
 }
 
+#[allow(dead_code)]
 #[component]
 pub(crate) fn SessionTakeoverButton(
     app: Signal<NativeApp>,
@@ -223,12 +218,15 @@ pub(crate) fn SessionTakeoverButton(
 ) -> Element {
     let pending = app.read().session_takeover_pending;
     rsx! {
-        Button {
-            label: if pending { "Moving playback…".to_owned() } else { "Play here".to_owned() },
-            icon: IconName::Refresh,
-            class: "session-takeover-btn".to_owned(),
+        button {
+            class: "spotify-connect-takeover-btn",
+            r#type: "button",
             disabled: pending,
-            onclick: move |_| take_over_playback(app, engine),
+            onclick: move |event: MouseEvent| {
+                event.stop_propagation();
+                take_over_playback(app, engine);
+            },
+            if pending { "Moving playback…" } else { "Play here" }
         }
     }
 }
@@ -384,8 +382,6 @@ pub(crate) fn QualityOverlay(
 pub(crate) fn VolumePopover(
     app: Signal<NativeApp>,
     engine: Signal<Option<PlaybackEngine>>,
-    #[props(default = PopoverSide::Top)] side: PopoverSide,
-    #[props(default = PopoverAlign::Center)] align: PopoverAlign,
 ) -> Element {
     let vol = app.read().settings.volume.get();
     let vol_percent = (vol * 100.0).round() as i32;
@@ -405,8 +401,6 @@ pub(crate) fn VolumePopover(
 
     rsx! {
         Popover {
-            align,
-            side,
             PopoverTrigger {
                 class: if is_muted { "player-volume-button player-volume-control--muted" } else { "player-volume-button" },
                 aria_label: vol_label.clone(),

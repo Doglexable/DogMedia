@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Check the whole script before starting a potentially long container build.
+bash -n "${BASH_SOURCE[0]}"
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_dir=$(cd -- "$script_dir/../../.." && pwd)
 output_dir=${PFS_PACKAGE_OUTPUT_DIR:-"$repo_dir/dist/packages"}
@@ -54,25 +57,46 @@ for package_type in "${package_types[@]}"; do
   image="localhost/dogmedia-${package_type}-packager:$version"
   container_name="dogmedia-${package_type}-export-$$"
 
-  echo "Building $package_type package with $engine..."
-  "$engine" build \
-    --file "$script_dir/Containerfile.$package_type" \
-    --tag "$image" \
-    "$repo_dir"
+  if [[ "${PFS_SKIP_PACKAGE_IMAGE_BUILD:-0}" == 1 ]]; then
+    "$engine" image exists "$image" || { echo "error: package image not found: $image" >&2; exit 1; }
+    echo "Exporting $package_type package from $image..."
+  else
+    echo "Building $package_type package with $engine..."
+    "$engine" build \
+      --file "$script_dir/Containerfile.$package_type" \
+      --tag "$image" \
+      "$repo_dir"
+  fi
 
   "$engine" create --name "$container_name" "$image" /bin/true >/dev/null
+  export_dir=$(mktemp -d "${TMPDIR:-/tmp}/dogmedia-${package_type}-export.XXXXXX")
   cleanup_container() {
     "$engine" rm --force "$container_name" >/dev/null 2>&1 || true
+    rm -rf -- "$export_dir"
   }
   trap cleanup_container EXIT
-  "$engine" cp "$container_name:/packages/." "$output_dir/"
-  cleanup_container
-  trap - EXIT
+  "$engine" cp "$container_name:/packages/." "$export_dir/"
 
-  if ! compgen -G "$output_dir/*.${package_type}" >/dev/null; then
-    echo "error: the $package_type container produced no package" >&2
+  case "$package_type" in
+    deb)
+      variant=linux-deb
+      package_name="dogmedia-desktop_${version}_amd64.deb"
+      ;;
+    rpm)
+      variant=linux-rpm
+      package_name=$(find "$export_dir" -maxdepth 1 -type f -name "dogmedia-desktop-${version}-*.x86_64.rpm" -printf '%f\n' | sort | head -n 1)
+      ;;
+  esac
+  if [[ -z "$package_name" || ! -s "$export_dir/$package_name" ]]; then
+    echo "error: the $package_type container produced no supported package" >&2
     exit 1
   fi
+  cp -- "$export_dir/$package_name" "$output_dir/$package_name"
+  if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
+    bash "$repo_dir/desktop/packaging/publish-release.sh" "$variant" "$output_dir/$package_name"
+  fi
+  cleanup_container
+  trap - EXIT
 done
 
 echo "Packages created in $output_dir:"

@@ -16,7 +16,7 @@ strings "$framework/Versions/1.0/lib/gstreamer-1.0/libgstapplemedia.dylib" | gre
 export SDKROOT="$sdk"
 export CARGO_ZIGBUILD_ZIG_PATH="$zig"
 command -v cargo >/dev/null
-command -v genisoimage >/dev/null
+command -v zip >/dev/null
 command -v 7z >/dev/null
 
 version="$(awk -F '"' '/^\[package\]/{p=1; next} p && /^\[/{exit} p && /^version = /{print $2; exit}' "$desktop_root/Cargo.toml")"
@@ -63,9 +63,21 @@ for target in "${targets[@]}"; do
   cp "$binary" "$app/Contents/MacOS/Dogmedia-bin"
   cp -a "$framework" "$app/Contents/Frameworks/GStreamer.framework"
   bundled="$app/Contents/Frameworks/GStreamer.framework"
-  # The development archives are only needed while linking, not at runtime.
+  # Keep the build SDK intact; only the staged application needs runtime files.
   find "$bundled" -name '*.a' -delete
   bundled_version="$bundled/Versions/1.0"
+  rm -rf -- \
+    "$bundled_version/Headers" \
+    "$bundled_version/include" \
+    "$bundled_version/share/gir-1.0" \
+    "$bundled_version/lib/pkgconfig" \
+    "$bundled_version/lib/gstreamer-1.0/pkgconfig" \
+    "$bundled_version/lib/cmake"
+  # These optional plugins provide cloud, conferencing, speech, disc-burning,
+  # and tracing features; Dogmedia plays media through playbin3 instead.
+  for plugin in aws burn elevenlabs quinn rswebrtc rstracers webrtchttp; do
+    rm -f -- "$bundled_version/lib/gstreamer-1.0/libgst${plugin}.dylib"
+  done
   # The extracted pkg components place framework metadata one level too deep.
   # Rebuild the usual framework links inside the staged copy.
   cp -L "$bundled_version/GStreamer" "$bundled_version/GStreamer.real"
@@ -77,7 +89,7 @@ for target in "${targets[@]}"; do
   ln -s bin "$bundled_version/Commands"
   ln -s lib "$bundled_version/Libraries"
   ln -s 1.0 "$bundled/Versions/Current"
-  for name in GStreamer Commands Libraries Resources Headers; do
+  for name in GStreamer Commands Libraries Resources; do
     ln -s "Versions/Current/$name" "$bundled/$name"
   done
   [[ -z "$(find "$bundled" -xtype l -print -quit)" ]] || { echo "Broken GStreamer framework symlink" >&2; exit 1; }
@@ -86,8 +98,16 @@ for target in "${targets[@]}"; do
     "$desktop_root/packaging/macos/launcher.c" -o "$app/Contents/MacOS/Dogmedia"
   file "$app/Contents/MacOS/Dogmedia" | grep -q 'Mach-O 64-bit' || { echo "Launcher is not Mach-O" >&2; exit 1; }
   ln -s /Applications "$stage/Applications"
-  image="$output_dir/Dogmedia-$version-macos-$arch.dmg"
-  genisoimage -quiet -V Dogmedia -D -R -apple -no-pad -o "$image" "$stage"
-  7z l "$image" | grep 'Dogmedia.app/Contents/Info.plist' >/dev/null || { echo "Image listing failed" >&2; exit 1; }
-  echo "Created $image"
+  archive="$output_dir/Dogmedia-$version-macos-$arch.zip"
+  rm -f -- "$archive"
+  (cd "$stage" && zip -qry "$archive" Dogmedia.app Applications)
+  7z l "$archive" | grep 'Dogmedia.app/Contents/Info.plist' >/dev/null || { echo "Archive listing failed" >&2; exit 1; }
+  echo "Created $archive"
+  if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
+    case "$arch" in
+      arm64) variant=macos-arm64 ;;
+      x86_64) variant=macos-x64 ;;
+    esac
+    bash "$desktop_root/packaging/publish-release.sh" "$variant" "$archive"
+  fi
 done

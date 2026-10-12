@@ -143,6 +143,19 @@ export function GlobalPlayerProvider({ children }) {
   const [hiddenQueueIds, setHiddenQueueIds] = useState(new Set());
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [queueMounted, setQueueMounted] = useState(false);
+
+  useEffect(() => {
+    if (queueOpen) {
+      setQueueMounted(true);
+    } else {
+      const timer = setTimeout(() => {
+        setQueueMounted(false);
+      }, 260);
+      return () => clearTimeout(timer);
+    }
+  }, [queueOpen]);
+
   const [loopMode, setLoopMode] = useState("none");
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
   const [resumePos, setResumePos] = useState(null);
@@ -443,10 +456,41 @@ export function GlobalPlayerProvider({ children }) {
   }, []);
 
   const refreshQueue = useCallback(() => {
-    return api("/api/queue/window?limit=100")
+    return api("/api/queue/window?limit=15")
       .then((response) => response.json())
       .then((data) => applyQueueWindow(data));
   }, [applyQueueWindow]);
+
+  const fetchingMoreQueueRef = useRef(false);
+
+  const fetchMoreQueue = useCallback((count = 10) => {
+    if (fetchingMoreQueueRef.current) return Promise.resolve();
+    const nextOffset = queueOffset + queueItems.length;
+    if (nextOffset >= queueTotal) return Promise.resolve();
+
+    fetchingMoreQueueRef.current = true;
+    return api(`/api/queue/window?offset=${nextOffset}&limit=${count}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data?.items?.length) return;
+        const newItems = visibleQueueItems(data.items);
+        setQueueItems((prev) => {
+          const existing = new Set(prev.map((item) => Number(item.id)));
+          const uniqueNew = newItems.filter((item) => !existing.has(Number(item.id)));
+          return [...prev, ...uniqueNew];
+        });
+        setQueueIds((prev) => {
+          const existing = new Set(prev);
+          const uniqueNew = newItems.map((item) => Number(item.id)).filter((id) => !existing.has(id));
+          return [...prev, ...uniqueNew];
+        });
+        if (data.revision) setQueueRevision(Number(data.revision));
+      })
+      .catch(() => {})
+      .finally(() => {
+        fetchingMoreQueueRef.current = false;
+      });
+  }, [queueItems.length, queueOffset, queueTotal, visibleQueueItems]);
 
   useEffect(() => {
     const applyExternalQueueChange = () => {
@@ -533,10 +577,10 @@ export function GlobalPlayerProvider({ children }) {
     if (message.state !== "busy" || !message.activeSession) return;
     if (playbackSessionIdRef.current) {
       playbackSocketRef.current?.bind(null);
-      handleLeaseLost({ code: "PLAYBACK_LEASE_LOST", message: "Playback is active on another device", activeSession: message.activeSession, retryAfter: message.expiresIn });
+      handleLeaseLost({ code: "PLAYBACK_LEASE_LOST", message: "Playback is active on another device", activeSession: message.activeSession });
     }
     const holder = message.activeSession;
-    setPlaybackConflict({ holder, retryAfter: message.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+    setPlaybackConflict({ holder, message: `Playback is active on ${holder.deviceLabel}` });
     setObservingExclusiveSession(true);
     const snapshot = holder.playback;
     const mediaId = Number(snapshot?.mediaId || holder.mediaId);
@@ -659,7 +703,6 @@ export function GlobalPlayerProvider({ children }) {
         if (status.state === "busy" && status.activeSession) {
           setPlaybackConflict({
             holder: status.activeSession,
-            retryAfter: status.expiresIn,
             message: `Playback is active on ${status.activeSession.deviceLabel}`,
           });
           setObservingExclusiveSession(true);
@@ -691,7 +734,7 @@ export function GlobalPlayerProvider({ children }) {
           return;
         }
         const holder = status.activeSession;
-        setPlaybackConflict({ holder, retryAfter: status.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+        setPlaybackConflict({ holder, message: `Playback is active on ${holder.deviceLabel}` });
         const snapshot = holder.playback;
         const mediaId = Number(snapshot?.mediaId || holder.mediaId);
         if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
@@ -859,7 +902,7 @@ export function GlobalPlayerProvider({ children }) {
     const seq = queueLoadSeqRef.current + 1;
     queueLoadSeqRef.current = seq;
     setQueueLoading(true);
-    api("/api/queue/window?limit=100")
+    api("/api/queue/window?limit=15")
       .then((response) => response.json())
       .then((data) => {
         if (queueLoadSeqRef.current !== seq) return;
@@ -874,6 +917,16 @@ export function GlobalPlayerProvider({ children }) {
     if (!queueOpen) return;
     loadQueueItems();
   }, [loadQueueItems, queueOpen]);
+
+  // When upcoming items in loaded queue drops to <= 5, fetch 10 more items
+  useEffect(() => {
+    if (!currentMedia || !queueItems.length) return;
+    const pinnedIdx = queueItems.findIndex((it) => Number(it.id) === Number(currentMedia.id));
+    const upcomingCount = pinnedIdx >= 0 ? queueItems.length - 1 - pinnedIdx : queueItems.length;
+    if (upcomingCount <= 5 && queueOffset + queueItems.length < queueTotal) {
+      fetchMoreQueue(10).catch(() => {});
+    }
+  }, [currentMedia, fetchMoreQueue, queueItems, queueOffset, queueTotal]);
 
   const stopPlayback = useCallback(() => {
     takeoverAutoplayRef.current = false;
@@ -1163,10 +1216,19 @@ export function GlobalPlayerProvider({ children }) {
           next.delete(numericId);
           return next;
         });
-        await refreshQueue();
+
+        // If upcoming items in loaded queue drops to <= 5, fetch 10 more items
+        const remainingUpcoming = queueItems.filter(
+          (item) => Number(item.id) !== numericId && Number(item.id) !== Number(currentMedia?.id)
+        );
+        if (remainingUpcoming.length <= 5 && queueOffset + queueItems.length < queueTotal) {
+          fetchMoreQueue(10).catch(() => {});
+        } else {
+          await refreshQueue();
+        }
         return data;
       });
-  }, [applyCompactQueueResponse, currentMedia?.id, refreshQueue]);
+  }, [applyCompactQueueResponse, currentMedia?.id, fetchMoreQueue, queueItems, queueOffset, queueTotal, refreshQueue]);
 
   const clearQueue = useCallback(() => {
     return api("/api/queue?compact=1", { method: "DELETE" })
@@ -2111,6 +2173,10 @@ export function GlobalPlayerProvider({ children }) {
               onAdjustEqToTarget={adjustEqToTargetDb}
               lyrics={lyrics}
               lyricsLoading={lyricsLoading}
+              conflict={playbackConflict}
+              controlsLocked={observingExclusiveSession}
+              canTakeOver={tier >= 100}
+              onTakeOver={takeOverExclusiveSession}
             />
             </Suspense>
           ) : currentMedia ? (
@@ -2159,7 +2225,7 @@ export function GlobalPlayerProvider({ children }) {
           ) : null}
         </>
       )}
-      {queueOpen && (
+      {queueMounted && (
         <Suspense fallback={null}>
         <QueuePanel
           currentIndex={queueIndex - queueOffset}
@@ -2167,11 +2233,16 @@ export function GlobalPlayerProvider({ children }) {
           items={queueItems}
           loading={queueLoading}
           total={Math.max(queueTotal - hiddenQueueIds.size, 0)}
+          paused={paused}
+          isOpen={queueOpen}
+          isSidebar={Boolean(isRouteFullPlayer || playerExpanded)}
           onClear={clearQueue}
           onClose={() => setQueueOpen(false)}
           onRemove={removeFromQueue}
           onReorder={reorderQueue}
           onSelect={playQueueMedia}
+          onTogglePlay={togglePlayback}
+          onFetchMore={fetchMoreQueue}
         />
         </Suspense>
       )}

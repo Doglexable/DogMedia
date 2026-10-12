@@ -353,7 +353,6 @@ mod tests {
             shuffle: false,
             session_unavailable: false,
             holder: None,
-            holder_retry_after: None,
             error: None,
         }
     }

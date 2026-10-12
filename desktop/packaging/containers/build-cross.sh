@@ -62,6 +62,7 @@ run_args=(
   --env PFS_MAC_ARCH="${PFS_MAC_ARCH:-both}"
   --env PFS_SKIP_BUILD="${PFS_SKIP_BUILD:-0}"
   --env PFS_WIN_RUNTIME_ONLY="${PFS_WIN_RUNTIME_ONLY:-0}"
+  --env PFS_PUBLISH_DESKTOP_RELEASE="${PFS_PUBLISH_DESKTOP_RELEASE:-1}"
 )
 if [[ "$engine" == podman ]]; then
   run_args+=(--userns keep-id)

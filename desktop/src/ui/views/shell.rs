@@ -2,8 +2,8 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::{
-    FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog, Sidebar,
-    VideoMiniPlayer,
+    AppMenubar, FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog,
+    Sidebar, VideoMiniPlayer,
 };
 
 #[component]
@@ -12,16 +12,40 @@ pub(crate) fn Shell(
     engine: Signal<Option<PlaybackEngine>>,
     video_source_id: u64,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     // The previous modal remains exported by views/mod.rs for existing callers.
     let _connection_dialog = super::ConnectionErrorDialog;
-    let shell_class = match snapshot.settings.color_scheme {
+    #[cfg(target_os = "linux")]
+    let system_fallback = ColorScheme::Light;
+    #[cfg(not(target_os = "linux"))]
+    let system_fallback = ColorScheme::System;
+    let selected_scheme = if snapshot.settings.color_scheme == ColorScheme::System {
+        snapshot.system_color_scheme.unwrap_or(system_fallback)
+    } else {
+        snapshot.settings.color_scheme
+    };
+    let shell_class = match selected_scheme {
         ColorScheme::Light => "vault-shell light",
         ColorScheme::Dark => "vault-shell dark",
         ColorScheme::System => "vault-shell system",
     };
     let has_media = snapshot.coordinator.snapshot().media.is_some();
     let playback = snapshot.coordinator.snapshot();
+
+    let mut queue_mounted = use_signal(|| snapshot.queue_open);
+    use_effect(move || {
+        let is_open = app.read().queue_open;
+        if is_open {
+            *queue_mounted.write() = true;
+        } else {
+            spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(260)).await;
+                if !app.read().queue_open {
+                    *queue_mounted.write() = false;
+                }
+            });
+        }
+    });
 
     let on_shell_keydown = move |event: KeyboardEvent| {
         let player_expanded = app.read().player_expanded;
@@ -83,6 +107,13 @@ pub(crate) fn Shell(
             Key::Character(ref ch) if (ch == "f" || ch == "F") && has_media && !player_expanded => {
                 app.write().player_expanded = true;
             }
+            Key::Character(ref ch) if (ch == "," || ch == "<") => {
+                let current_url = app.read().settings.server_url.to_string();
+                app.write().settings_url = current_url;
+                app.write().settings_error = None;
+                app.write().queue_open = false;
+                app.write().settings_open = true;
+            }
             _ => {}
         }
     };
@@ -94,6 +125,9 @@ pub(crate) fn Shell(
             tabindex: "-1",
             autofocus: true,
             onkeydown: on_shell_keydown,
+            div { class: "vault-topbar",
+                AppMenubar { app, engine }
+            }
             if !snapshot.player_expanded
                 && !snapshot.queue_open
                 && !snapshot.quality_popover_open
@@ -187,7 +221,7 @@ pub(crate) fn Shell(
                     }
                 }
             }
-            if snapshot.queue_open {
+            if *queue_mounted.read() {
                 if snapshot.local_mode {
                     aside { class: "queue-panel", "aria-label": "Local playback queue",
                         header { class: "panel-header",

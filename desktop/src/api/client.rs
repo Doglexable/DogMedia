@@ -55,35 +55,12 @@ impl ApiError {
             Self::AccessDenied => {
                 "This computer's IP address is not allowed by the server.".to_owned()
             }
-            Self::PlaybackInUse {
-                retry_after,
-                holder,
-            } => {
+            Self::PlaybackInUse { holder, .. } | Self::PlaybackLeaseLost { holder, .. } => {
                 let label = holder
                     .as_ref()
                     .map(SessionHolder::display_label)
                     .unwrap_or_else(|| "another device".to_owned());
-                match retry_after {
-                    Some(seconds) => {
-                        format!("Playback is active on {label}. Retry in {seconds}s.")
-                    }
-                    None => format!("Playback is active on {label}."),
-                }
-            }
-            Self::PlaybackLeaseLost {
-                retry_after,
-                holder,
-            } => {
-                let label = holder
-                    .as_ref()
-                    .map(SessionHolder::display_label)
-                    .unwrap_or_else(|| "another device".to_owned());
-                match retry_after {
-                    Some(seconds) => {
-                        format!("Playback is active on {label}. Retry in {seconds}s.")
-                    }
-                    None => format!("Playback is active on {label}."),
-                }
+                format!("Playback is active on {label}.")
             }
             Self::PlaybackSessionInvalid => "Playback session is no longer valid.".to_owned(),
             Self::QueueChanged => "Queue changed; refresh and try again.".to_owned(),
@@ -96,14 +73,6 @@ impl ApiError {
                 format!("Unable to reach the server: {message}")
             }
             _ => self.to_string(),
-        }
-    }
-
-    pub fn retry_after(&self) -> Option<u64> {
-        match self {
-            Self::PlaybackInUse { retry_after, .. }
-            | Self::PlaybackLeaseLost { retry_after, .. } => *retry_after,
-            _ => None,
         }
     }
 
@@ -397,14 +366,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn playback_conflict_messages_preserve_retry_hints() {
+    fn playback_conflict_messages_do_not_imply_a_fixed_wait() {
         assert_eq!(
             ApiError::PlaybackInUse {
                 retry_after: Some(8),
                 holder: None,
             }
             .user_message(),
-            "Playback is active on another device. Retry in 8s."
+            "Playback is active on another device."
         );
         assert_eq!(
             ApiError::PlaybackLeaseLost {
@@ -418,7 +387,7 @@ mod tests {
                 }),
             }
             .user_message(),
-            "Playback is active on Studio PC. Retry in 4s."
+            "Playback is active on Studio PC."
         );
     }
 
@@ -438,7 +407,7 @@ mod tests {
         );
         // Sensitive identifiers never reach the typed holder.
         assert!(holder.device_label.as_deref() != Some("secret"));
-        assert_eq!(error.retry_after(), Some(15));
+        assert_eq!(error.user_message(), "Playback is active on Studio PC.");
     }
 
     #[test]

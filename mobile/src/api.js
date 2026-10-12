@@ -128,7 +128,6 @@ export async function getPlaybackLease() {
   const data = await apiJson("/api/playback/lease");
   return {
     state: data?.state === "owned" ? "owned" : data?.state === "busy" ? "busy" : "available",
-    expiresIn: Number.isInteger(data?.expiresIn) ? data.expiresIn : 0,
     activeSession: normalizeHolderSession(data?.activeSession),
   };
 }

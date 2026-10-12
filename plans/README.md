@@ -67,6 +67,11 @@ done.
 | [057](057-diagnose-desktop-playback-memory.md) | Diagnose and fix desktop memory growth during audio and video playback | P1 | L | — | DONE — bus drain, engine teardown, artwork cleanup; operator validated stable ~680 MiB post-Stop plateau |
 | [058](058-portable-desktop-integration-module.md) | Compile the desktop integration module on macOS | P2 | S | — | DONE |
 | [059](059-gate-desktop-playback-tick-rerenders.md) | Gate desktop playback-tick writes that re-render 10×/s while paused | P1 | S | 057 | DONE 2026-10-07 — closing FLAC run pid=202786 (release 10:41, tick gate in): pause +14 MiB/~2 min (≈0.1 MiB/s, was 2.4 MiB/s), post-Stop +2 MiB then flat (was +8–97 MiB). Prior BLOCKED note superseded by this run. Remaining in-play transition steps (+561 MiB play, +68 MiB Stop) stay with Plan 057 |
+| [060](060-bound-desktop-ui-memory-cross-platform.md) | Bound desktop UI memory and validate Linux, macOS, Windows | P2 | L | — | IN PROGRESS — shared-state/image changes and 100-row button paging applied; Linux checks pass, native memory/macOS/Windows runtime checks remain |
+| [061](061-add-workspace-ci.md) | Run server, web, and mobile checks in CI | P1 | M | — | DONE — reviewed isolated executor commit `40eef0c` in `/tmp/pfs-061-worktree`; lint, tests, and web build pass; branch not merged |
+| [062](062-expire-abandoned-mobile-release-uploads.md) | Expire abandoned Android release uploads | P2 | S | — | DONE — reviewed isolated executor commit `c1f0841` in `/tmp/pfs-062-worktree`; 310 server tests and server lint pass; branch not merged |
+| [063](063-reuse-playback-snapshot-per-socket-broadcast.md) | Reuse one playback snapshot for each socket broadcast | P2 | S | 054 | DONE — reviewed isolated executor commits `c1c6e16`, `7696a13` in `/tmp/pfs-063-worktree`; 306 server tests and server lint pass; branch not merged |
+| [064](064-verify-android-release-artifacts.md) | Verify Android release APKs before publishing | P1 | M | 062 | BLOCKED — operator has no trusted release signer fingerprint yet; local generated release build uses debug signing; establish release signing and provide its public SHA-256 fingerprint |
 
 ## Dependency notes
 
@@ -118,8 +123,27 @@ done.
   anon heap); `poll_event` never pops non-Eos/Error/AsyncDone/StateChanged bus
   messages (prime suspect, Step 2 tests bus-drain first); scan/artwork/channels/
   frame-recycle ruled out by inspection.
+- **Plan 060** follows completed playback-memory Plans 057/059. It targets
+  whole-state UI clones, encoded image ownership, and large list rendering,
+  with native memory and image-renderer checks on Linux, macOS, and Windows.
+  The existing Linux-only `/proc` diagnostic is not a cross-platform test;
+  cross-builds do not replace native runtime acceptance. Preserve current
+  uncommitted edits in `desktop/src/ui/views/library.rs` and CSS.
 - **Plan 053** (docs-only) is independent of everything and safe to execute
   anytime.
+- **Plan 061** adds Node workspace CI and is independent of the server cleanup,
+  socket, and APK validation work.
+- **Plan 062** uses the existing upload cleanup implementation for the Android
+  release staging root. Complete it before **064**, because both plans modify
+  the mobile release upload routes and tests. Plan 062 is approved in an
+  isolated, unmerged branch; Plan 064 must start from commit `c1f0841` or from
+  a branch containing it.
+- **Plan 063** is a focused optimization of the existing socket broadcast
+  implementation. It follows DONE revision Plan 054, which delivered the usable
+  socket work from blocked Plan 041, and does not change the wire contract.
+- **Plan 064** requires an operator-supplied trusted public signer fingerprint
+  and a reproducibly packaged APK verifier. If either is unavailable, follow
+  its STOP conditions; do not publish with an untrusted or inferred signer.
 
 ## Findings considered and rejected
 

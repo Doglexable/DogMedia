@@ -569,7 +569,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       playbackSocketRef.current?.bind(null);
     }
     const holder = message.activeSession;
-    applyObservedConflict({ holder, retryAfter: message.expiresIn, message: `Playback is active on ${holder.deviceLabel}` });
+    applyObservedConflict({ holder, message: `Playback is active on ${holder.deviceLabel}` });
     const snapshot = holder.playback;
     const mediaId = Number(snapshot?.mediaId || holder.mediaId);
     if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
@@ -648,7 +648,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
           return;
         }
         const holder = status.activeSession;
-        const conflict = { holder, retryAfter: status.expiresIn, message: `Playback is active on ${holder.deviceLabel}` };
+        const conflict = { holder, message: `Playback is active on ${holder.deviceLabel}` };
         applyObservedConflict(conflict);
         const snapshot = holder.playback;
         const mediaId = Number(snapshot?.mediaId || holder.mediaId);

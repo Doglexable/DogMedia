@@ -54,4 +54,9 @@ rpmbuild -bb \
 
 mkdir -p "$output_dir"
 find "$top_dir/RPMS" -type f -name '*.rpm' -exec cp -- {} "$output_dir/" \;
+if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
+  while IFS= read -r artifact; do
+    bash "$desktop_dir/packaging/publish-release.sh" linux-rpm "$artifact"
+  done < <(find "$top_dir/RPMS" -type f -name "*.x86_64.rpm" | sort)
+fi
 find "$output_dir" -maxdepth 1 -type f -name "dogmedia-desktop-$version-*.rpm" -print

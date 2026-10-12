@@ -5,7 +5,7 @@ use super::super::*;
 #[component]
 pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) -> Element {
     let mut folder_menu = use_signal(|| None::<CategoryId>);
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let version = env!("CARGO_PKG_VERSION");
     let open_menu = *folder_menu.read();
     let (access_label, access_class) = match &snapshot.library.access {
@@ -138,22 +138,6 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
             }
             footer { class: "sidebar-footer",
                 StatusBadge { label: access_label.to_owned(), class: access_class.to_owned() }
-                button {
-                    class: "sidebar-settings",
-                    r#type: "button",
-                    onclick: move |_| {
-                        let current_url = app.read().settings.server_url.to_string();
-                        app.write().settings_url = current_url;
-                        app.write().settings_error = None;
-                        app.write().queue_open = false;
-                        app.write().settings_open = true;
-                    },
-                    span { class: "sidebar-settings-label",
-                        Icon { name: IconName::Settings }
-                        span { "Settings" }
-                    }
-                    span { "⌘," }
-                }
                 div { class: "sidebar-version", "Desktop v{version}" }
             }
         }

@@ -8,6 +8,7 @@ import { faClone } from "@fortawesome/free-solid-svg-icons/faClone";
 import { faCompress } from "@fortawesome/free-solid-svg-icons/faCompress";
 import { faExpand } from "@fortawesome/free-solid-svg-icons/faExpand";
 import { faForwardStep } from "@fortawesome/free-solid-svg-icons/faForwardStep";
+import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faRotateLeft } from "@fortawesome/free-solid-svg-icons/faRotateLeft";
@@ -101,6 +102,7 @@ export function VideoPlayer({
   muted,
   paused,
   position,
+  queueOpen,
   resumePos,
   sleepTimerRemaining,
   sleepTimerMode,
@@ -630,7 +632,7 @@ export function VideoPlayer({
   return (
     <div
       ref={rootRef}
-      className={`video-player-root ${!showHud && !paused ? "video-player-root--hide-cursor" : ""}`}
+      className={`video-player-root ${!showHud && !paused ? "video-player-root--hide-cursor" : ""} ${queueOpen ? "video-player-root--with-queue-sidebar" : ""}`}
       onMouseMove={resetHudTimer}
       onContextMenu={onPreventMenu}
       onClick={handleStageClick}
@@ -920,6 +922,20 @@ export function VideoPlayer({
                 >
                   <FontAwesomeIcon icon={faBookmark} />
                 </button>
+
+                {/* Queue Toggle */}
+                {onOpenQueue && (
+                  <button
+                    type="button"
+                    className={`video-player-ctrl-btn ${queueOpen ? "video-player-ctrl-btn--active" : ""}`}
+                    aria-label="Queue (Q)"
+                    aria-pressed={queueOpen}
+                    title="Queue (Q)"
+                    onClick={onOpenQueue}
+                  >
+                    <FontAwesomeIcon icon={faList} />
+                  </button>
+                )}
 
                 {/* Picture in Picture */}
                 {canPip && (

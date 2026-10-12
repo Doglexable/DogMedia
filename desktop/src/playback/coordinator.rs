@@ -30,7 +30,6 @@ pub struct PlaybackSnapshot {
     pub shuffle: bool,
     pub session_unavailable: bool,
     pub holder: Option<SessionHolder>,
-    pub holder_retry_after: Option<u64>,
     pub error: Option<String>,
 }
 
@@ -47,7 +46,6 @@ impl Default for PlaybackSnapshot {
             shuffle: false,
             session_unavailable: false,
             holder: None,
-            holder_retry_after: None,
             error: None,
         }
     }
@@ -95,7 +93,6 @@ impl PlaybackCoordinator {
         self.snapshot.error = None;
         self.snapshot.session_unavailable = false;
         self.snapshot.holder = None;
-        self.snapshot.holder_retry_after = None;
         let media_id = media.id;
         self.snapshot.media = Some(media);
         self.released_sequence = None;
@@ -119,7 +116,6 @@ impl PlaybackCoordinator {
         self.snapshot.status = PlaybackStatus::Playing;
         self.snapshot.session_unavailable = false;
         self.snapshot.holder = None;
-        self.snapshot.holder_retry_after = None;
         true
     }
 
@@ -131,7 +127,6 @@ impl PlaybackCoordinator {
         self.snapshot.status = PlaybackStatus::Paused;
         self.snapshot.session_unavailable = false;
         self.snapshot.holder = None;
-        self.snapshot.holder_retry_after = None;
         true
     }
 
@@ -179,11 +174,9 @@ impl PlaybackCoordinator {
         self.snapshot.error = Some(message.into());
     }
 
-    /// Record who holds the exclusive lease (and when it expires) for the
-    /// conflict card. Cleared together with `session_unavailable`.
-    pub fn set_holder(&mut self, holder: Option<SessionHolder>, retry_after: Option<u64>) {
+    /// Record who holds the exclusive lease. Cleared with `session_unavailable`.
+    pub fn set_holder(&mut self, holder: Option<SessionHolder>) {
         self.snapshot.holder = holder;
-        self.snapshot.holder_retry_after = retry_after;
     }
 
     pub fn remote_available(&mut self) {
@@ -194,16 +187,11 @@ impl PlaybackCoordinator {
             self.snapshot.duration = 0.0;
             self.snapshot.session_unavailable = false;
             self.snapshot.holder = None;
-            self.snapshot.holder_retry_after = None;
+            self.snapshot.error = None;
         }
     }
 
-    pub fn observe_remote(
-        &mut self,
-        media: Media,
-        holder: SessionHolder,
-        retry_after: Option<u64>,
-    ) {
+    pub fn observe_remote(&mut self, media: Media, holder: SessionHolder) {
         let playback = holder.playback.as_ref();
         self.snapshot.sequence += 1;
         self.snapshot.media = Some(media);
@@ -231,7 +219,6 @@ impl PlaybackCoordinator {
         self.snapshot.shuffle = playback.is_some_and(|value| value.shuffle_enabled);
         self.snapshot.session_unavailable = true;
         self.snapshot.holder = Some(holder);
-        self.snapshot.holder_retry_after = retry_after;
         self.snapshot.error = Some("Playback is active elsewhere".to_owned());
         self.released_sequence = Some(self.snapshot.sequence);
     }
@@ -318,7 +305,6 @@ impl PlaybackCoordinator {
         self.snapshot.error = None;
         self.snapshot.session_unavailable = false;
         self.snapshot.holder = None;
-        self.snapshot.holder_retry_after = None;
         effects
     }
 

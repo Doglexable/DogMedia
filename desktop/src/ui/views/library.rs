@@ -3,12 +3,42 @@ use dioxus_native::prelude::*;
 use super::super::*;
 use super::Featured;
 
+const LIST_PAGE_SIZE: usize = 100;
+
+fn list_page_window(total: usize, requested_page: usize) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
+    }
+    let last_page = (total - 1) / LIST_PAGE_SIZE;
+    let start = requested_page.min(last_page) * LIST_PAGE_SIZE;
+    (start, (start + LIST_PAGE_SIZE).min(total))
+}
+
 #[component]
 pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) -> Element {
     let mut context_menu = use_signal(|| None::<MediaId>);
-    let snapshot = app.read().clone();
+    let mut list_page = use_signal(|| (false, 0u64, 0usize));
+    let snapshot = app.read();
     let playback = snapshot.coordinator.snapshot();
+    let page_key = (
+        snapshot.local_mode,
+        if snapshot.local_mode {
+            snapshot.local_scan_generation
+        } else {
+            snapshot.library.generation()
+        },
+    );
+    let requested_page = {
+        let state = list_page.read();
+        if (state.0, state.1) == page_key {
+            state.2
+        } else {
+            0
+        }
+    };
     if snapshot.local_mode {
+        let (start, end) = list_page_window(snapshot.local_tracks.len(), requested_page);
+        let page = start / LIST_PAGE_SIZE;
         let folder = snapshot
             .settings
             .local_folder
@@ -31,7 +61,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                         Button { label: "Retry connection".to_owned(), class: "secondary".to_owned(), onclick: move |_| refresh(app) }
                     }
                     div { class: "track-list",
-                        for (index, track) in snapshot.local_tracks.iter().enumerate() {
+                        for (index, track) in snapshot.local_tracks.iter().enumerate().skip(start).take(end - start) {
                             div { key: "{track.path.display()}", class: if snapshot.local_index == Some(index) { "track-row active" } else { "track-row" },
                                 div { class: "track-main", role: "button", tabindex: "0",
                                     onclick: move |_| play_local_at(app, engine, index),
@@ -46,11 +76,28 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                             }
                         }
                     }
+                    if snapshot.local_tracks.len() > LIST_PAGE_SIZE {
+                        div { class: "empty-actions",
+                            if start > 0 {
+                                Button { label: "Previous page".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                    list_page.set((page_key.0, page_key.1, page - 1));
+                                } }
+                            }
+                            span { "{start + 1}–{end} of {snapshot.local_tracks.len()}" }
+                            if end < snapshot.local_tracks.len() {
+                                Button { label: "Next page".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                    list_page.set((page_key.0, page_key.1, page + 1));
+                                } }
+                            }
+                        }
+                    }
                 }
             }
         };
     }
     let item_count = snapshot.library.items.len();
+    let (start, end) = list_page_window(item_count, requested_page);
+    let page = start / LIST_PAGE_SIZE;
     let can_load_more = snapshot.library.next_cursor.is_some() && !snapshot.library.loading;
 
     let title = if snapshot.favorites_only {
@@ -189,7 +236,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                             }
                         }
                     }
-                    for (index, media) in snapshot.library.items.iter().enumerate() {
+                    for (index, media) in snapshot.library.items.iter().enumerate().skip(start).take(end - start) {
                         div {
                             key: "{media.id}",
                             class: "track-row",
@@ -270,7 +317,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                             }
                             if open_menu == Some(media.id) {
                                 div {
-                                    class: "context-menu track-inline-menu",
+                                    class: "context-menu row-context-menu below",
                                     role: "menu",
                                     "aria-label": "Options for {media.title()}",
                                     onclick: move |event: MouseEvent| event.stop_propagation(),
@@ -301,6 +348,21 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                             }
                         }
                     }
+                    if item_count > LIST_PAGE_SIZE {
+                        div { class: "empty-actions",
+                            if start > 0 {
+                                Button { label: "Previous page".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                    list_page.set((page_key.0, page_key.1, page - 1));
+                                } }
+                            }
+                            span { "{start + 1}–{end} of {item_count} loaded" }
+                            if end < item_count {
+                                Button { label: "Next page".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
+                                    list_page.set((page_key.0, page_key.1, page + 1));
+                                } }
+                            }
+                        }
+                    }
                     if snapshot.library.loading && !snapshot.library.items.is_empty() {
                         MediaListSkeleton { rows: 2 }
                     } else if can_load_more {
@@ -309,5 +371,19 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod list_page_tests {
+    use super::list_page_window;
+
+    #[test]
+    fn page_window_keeps_absolute_indexes_and_clamps_after_filtering() {
+        assert_eq!(list_page_window(0, 0), (0, 0));
+        assert_eq!(list_page_window(50, 0), (0, 50));
+        assert_eq!(list_page_window(250, 1), (100, 200));
+        assert_eq!(list_page_window(250, 2), (200, 250));
+        assert_eq!(list_page_window(50, 9), (0, 50));
     }
 }

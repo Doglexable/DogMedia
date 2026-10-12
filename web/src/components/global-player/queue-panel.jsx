@@ -3,14 +3,19 @@ import { DndContext, KeyboardSensor, PointerSensor, TouchSensor, closestCenter, 
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEllipsis } from "@fortawesome/free-solid-svg-icons/faEllipsis";
 import { faGripVertical } from "@fortawesome/free-solid-svg-icons/faGripVertical";
-import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
+import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
+import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
+import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { Drawer } from "vaul";
-import { playerStyles as styles } from "./player-styles";
-import { formatDuration, getQueueItemSubtitle } from "./player-utils";
+import { mediaThumbnailUrl } from "../../api";
+import { formatDuration, getMediaFolderName, resolveMediaArtist } from "./player-utils";
 
 const MOBILE_DRAWER_QUERY = "(max-width: 640px)";
+const MAX_RENDER_ITEMS = 10;
+const REFILL_THRESHOLD = 5;
 
 function useMobileDrawer() {
   const [mobile, setMobile] = useState(() => (
@@ -28,110 +33,147 @@ function useMobileDrawer() {
   return mobile;
 }
 
-function QueueListSkeleton({ count }) {
+function QueueArtwork({ media, size = 44, overlayIcon = null, onClick }) {
+  const [imgError, setImgError] = useState(false);
+  const src = mediaThumbnailUrl(media);
+
+  return (
+    <div
+      className="spotify-queue-thumb"
+      style={{ width: size, height: size }}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+    >
+      {src && !imgError ? (
+        <img
+          src={src}
+          alt={media?.title || "Artwork"}
+          className="spotify-queue-thumb-img"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      ) : (
+        <div className="spotify-queue-thumb-fallback">
+          <FontAwesomeIcon icon={faMusic} />
+        </div>
+      )}
+      {overlayIcon && (
+        <div className="spotify-queue-thumb-overlay">
+          <FontAwesomeIcon icon={overlayIcon} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QueueListSkeleton({ count = 6 }) {
   return (
     <div role="status" aria-label="Loading queue" aria-busy="true">
       {Array.from({ length: count }, (_, index) => (
         <div key={index} className="queue-item-skeleton" aria-hidden="true">
-          <span className="skeleton-shimmer h-7 w-7 rounded-md" />
-          <span className="grid gap-2">
-            <span className="skeleton-shimmer h-3 w-3/4 rounded" />
+          <span className="skeleton-shimmer h-10 w-10 rounded" />
+          <span className="grid gap-2 flex-1">
+            <span className="skeleton-shimmer h-3.5 w-3/4 rounded" />
             <span className="skeleton-shimmer h-2.5 w-1/2 rounded" />
           </span>
           <span className="skeleton-shimmer h-3 w-8 rounded" />
-          <span className="skeleton-shimmer h-7 w-7 rounded-md" />
         </div>
       ))}
     </div>
   );
 }
 
-function SortableQueueItem({ active, item, onRemove, onSelect }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: Number(item.id),
-    disabled: { draggable: active },
-  });
-  const subtitle = getQueueItemSubtitle(item);
+function NowPlayingQueueItem({ item, paused = false, onTogglePlay, onRemove, onSelect }) {
+  const artist = resolveMediaArtist(item, "Unknown artist");
+
   return (
-    <div
-      ref={setNodeRef}
-      style={{
-        ...styles.queueItem(active),
-        gridTemplateColumns: "32px minmax(0, 1fr) auto auto",
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.65 : active ? 0.82 : 1,
-        position: "relative",
-        zIndex: isDragging ? 1 : "auto",
-      }}
-    >
+    <div className="spotify-queue-now-playing" role="listitem">
+      <QueueArtwork
+        media={item}
+        size={48}
+        overlayIcon={paused ? faPlay : faPause}
+        onClick={onTogglePlay || (() => onSelect(item))}
+      />
       <button
         type="button"
-        aria-label={active ? `${item.title} is currently playing and cannot be moved` : `Move ${item.title}`}
-        title={active ? "Now playing — locked in place" : "Drag to reorder"}
-        disabled={active}
-        style={{ ...styles.queueActionButton, cursor: active ? "not-allowed" : "grab", opacity: active ? 0.45 : 1 }}
-        {...attributes}
-        {...listeners}
+        className="spotify-queue-meta"
+        onClick={() => onSelect(item)}
+        title={item.title}
       >
-        <FontAwesomeIcon icon={faGripVertical} />
+        <span className="spotify-queue-track-title">{item.title}</span>
+        <span className="spotify-queue-artist" title={artist}>{artist}</span>
       </button>
-      <button type="button" style={styles.queueSelectButton} onClick={() => onSelect(item)} title={item.title}>
-        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 700 }}>
-          {item.title}
-        </span>
-        <span
-          title={active ? "Now Playing · Locked" : subtitle}
-          style={{ display: "block", marginTop: 2, overflow: "hidden", color: "var(--muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          {active ? "Now Playing · Locked" : subtitle}
-        </span>
-      </button>
-      <span style={{ color: "var(--muted)", fontSize: 12 }}>
-        {item.duration ? formatDuration(item.duration) : ""}
-      </span>
-      <button type="button" aria-label={`Remove ${item.title}`} title="Remove from queue" style={styles.queueActionButton} onClick={() => onRemove(item.id)}>
-        <FontAwesomeIcon icon={faTrash} />
+      <button
+        type="button"
+        className="spotify-queue-ellipsis-btn"
+        title="Remove from queue"
+        aria-label={`Remove ${item.title}`}
+        onClick={() => onRemove(item.id)}
+      >
+        <FontAwesomeIcon icon={faEllipsis} />
       </button>
     </div>
   );
 }
 
-function PinnedQueueItem({ item, onRemove, onSelect }) {
-  const subtitle = getQueueItemSubtitle(item);
+function SortableQueueItem({ item, onRemove, onSelect }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: Number(item.id),
+  });
+  const artist = resolveMediaArtist(item, "Unknown artist");
+
   return (
     <div
+      ref={setNodeRef}
+      className={`spotify-queue-item ${isDragging ? "is-dragging" : ""}`}
       style={{
-        ...styles.queueItem(true),
-        gridTemplateColumns: "32px minmax(0, 1fr) auto auto",
-        opacity: 0.92,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        position: "relative",
+        zIndex: isDragging ? 2 : "auto",
       }}
+      role="listitem"
     >
       <button
         type="button"
-        aria-label={`${item.title} is currently playing and cannot be moved`}
-        title="Now playing — locked in place"
-        disabled
-        style={{ ...styles.queueActionButton, cursor: "not-allowed", opacity: 0.45 }}
+        className="spotify-queue-grip"
+        aria-label={`Move ${item.title}`}
+        title="Drag to reorder"
+        {...attributes}
+        {...listeners}
       >
         <FontAwesomeIcon icon={faGripVertical} />
       </button>
-      <button type="button" style={styles.queueSelectButton} onClick={() => onSelect(item)} title={item.title}>
-        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13, fontWeight: 700 }}>
-          {item.title}
-        </span>
-        <span
-          title={`Now Playing · Locked · ${subtitle}`}
-          style={{ display: "block", marginTop: 2, overflow: "hidden", color: "var(--muted)", fontSize: 11, textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          Now Playing · Locked
-        </span>
+      <QueueArtwork
+        media={item}
+        size={44}
+        overlayIcon={faPlay}
+        onClick={() => onSelect(item)}
+      />
+      <button
+        type="button"
+        className="spotify-queue-meta"
+        onClick={() => onSelect(item)}
+        title={item.title}
+      >
+        <span className="spotify-queue-track-title">{item.title}</span>
+        <span className="spotify-queue-artist" title={artist}>{artist}</span>
       </button>
-      <span style={{ color: "var(--muted)", fontSize: 12 }}>
-        {item.duration ? formatDuration(item.duration) : ""}
-      </span>
-      <button type="button" aria-label={`Remove ${item.title}`} title="Remove from queue" style={styles.queueActionButton} onClick={() => onRemove(item.id)}>
-        <FontAwesomeIcon icon={faTrash} />
+      {item.duration ? (
+        <span className="spotify-queue-duration">
+          {formatDuration(item.duration)}
+        </span>
+      ) : null}
+      <button
+        type="button"
+        className="spotify-queue-ellipsis-btn"
+        title="Remove from queue"
+        aria-label={`Remove ${item.title}`}
+        onClick={() => onRemove(item.id)}
+      >
+        <FontAwesomeIcon icon={faEllipsis} />
       </button>
     </div>
   );
@@ -149,10 +191,27 @@ function resolveCurrentIndex(items, currentIndex, currentMedia) {
   return items.findIndex((item) => Number(item.id) === Number(currentMedia?.id));
 }
 
-export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, total, onClear, onClose, onRemove, onReorder, onSelect }) {
+export function QueuePanel({
+  currentIndex = 0,
+  currentMedia,
+  items = [],
+  loading = false,
+  total = 0,
+  paused = false,
+  isOpen = true,
+  isSidebar = false,
+  onClear,
+  onClose,
+  onRemove,
+  onReorder,
+  onSelect,
+  onTogglePlay,
+  onFetchMore,
+}) {
   const [error, setError] = useState("");
   const [snap, setSnap] = useState(0.88);
   const mobile = useMobileDrawer();
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
@@ -166,21 +225,47 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
 
   const pinnedIndex = resolveCurrentIndex(items, currentIndex, currentMedia);
   const hasPinnedItem = pinnedIndex > -1;
-  const pinnedItem = hasPinnedItem ? items[pinnedIndex] : null;
+  const pinnedItem = hasPinnedItem ? items[pinnedIndex] : currentMedia;
   const previousItems = hasPinnedItem ? items.slice(0, pinnedIndex) : [];
-  const upcomingItems = hasPinnedItem ? items.slice(pinnedIndex + 1) : items;
-  const displayedTotal = loading ? total : (hasPinnedItem ? upcomingItems.length + 1 : items.length);
+  const upcomingItems = hasPinnedItem
+    ? items.slice(pinnedIndex + 1)
+    : items.filter((item) => Number(item.id) !== Number(currentMedia?.id));
+
+  // Limit render list to 10
+  const visibleUpcoming = upcomingItems.slice(0, MAX_RENDER_ITEMS);
+  const displayedTotal = loading ? total : (pinnedItem ? upcomingItems.length + 1 : items.length);
+
+  // Auto-fetch 10 more items when remaining upcoming items in queue window reaches 5
+  useEffect(() => {
+    if (upcomingItems.length <= REFILL_THRESHOLD && total > items.length) {
+      onFetchMore?.(10);
+    }
+  }, [upcomingItems.length, total, items.length, onFetchMore]);
+
+  const handleRemove = (id) => {
+    const nextUpcoming = upcomingItems.filter((item) => Number(item.id) !== Number(id));
+    if (nextUpcoming.length <= REFILL_THRESHOLD && total > items.length) {
+      onFetchMore?.(10);
+    }
+    run(onRemove(id));
+  };
 
   const handleDragEnd = ({ active, over }) => {
     if (!over || active.id === over.id) return;
-    if (hasPinnedItem && Number(active.id) === Number(pinnedItem.id)) return;
-    const oldIndex = upcomingItems.findIndex((item) => Number(item.id) === Number(active.id));
-    const newIndex = upcomingItems.findIndex((item) => Number(item.id) === Number(over.id));
+    if (pinnedItem && Number(active.id) === Number(pinnedItem.id)) return;
+
+    const oldIndex = visibleUpcoming.findIndex((item) => Number(item.id) === Number(active.id));
+    const newIndex = visibleUpcoming.findIndex((item) => Number(item.id) === Number(over.id));
     if (oldIndex < 0 || newIndex < 0) return;
-    const reorderedUpcoming = arrayMove(upcomingItems, oldIndex, newIndex);
+
+    const reorderedRendered = arrayMove(visibleUpcoming, oldIndex, newIndex);
+    const unrenderedUpcoming = upcomingItems.slice(MAX_RENDER_ITEMS);
+    const reorderedUpcoming = [...reorderedRendered, ...unrenderedUpcoming];
+
     const nextItems = hasPinnedItem
       ? [...previousItems, pinnedItem, ...reorderedUpcoming]
       : reorderedUpcoming;
+
     run(onReorder(nextItems.map((item) => Number(item.id))));
   };
 
@@ -196,14 +281,24 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobile, onClose]);
 
+  const contextName = currentMedia?.album
+    || getMediaFolderName(currentMedia)
+    || currentMedia?.category_name
+    || currentMedia?.category?.name
+    || "Queue";
+
+  const sidebarClass = isSidebar
+    ? `spotify-queue-panel spotify-queue-panel--sidebar ${isOpen ? "spotify-queue-panel--sidebar-open" : "spotify-queue-panel--sidebar-closed"}`
+    : "spotify-queue-panel";
+
   const panel = (
     <div
       role={mobile ? undefined : "region"}
       aria-label={mobile ? undefined : "Playback queue"}
-      className={mobile ? "premium-queue-panel premium-queue-panel--drawer" : "premium-queue-panel"}
+      aria-hidden={!mobile && isSidebar && !isOpen ? true : undefined}
+      className={mobile ? "spotify-queue-panel premium-queue-panel--drawer" : sidebarClass}
       onContextMenu={(event) => event.preventDefault()}
       style={mobile ? {
-        ...styles.queuePanel,
         position: "static",
         width: "100%",
         maxHeight: "none",
@@ -212,69 +307,87 @@ export function QueuePanel({ currentIndex = 0, currentMedia, items, loading, tot
         borderRadius: 0,
         background: "transparent",
         boxShadow: "none",
-      } : styles.queuePanel}
+      } : undefined}
     >
-      <div style={styles.queueHeader}>
-        <div>
-          {mobile ? (
-            <>
-              <span className="mobile-queue-drawer-kicker">Up next</span>
-              <Drawer.Title className="mobile-queue-drawer-title">Queue</Drawer.Title>
-              <Drawer.Description className="mobile-queue-drawer-description">
-                {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
-              </Drawer.Description>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>Queue</div>
-              <div style={{ marginTop: 2, fontSize: 12, color: "var(--muted)" }}>
-                {displayedTotal ? `${displayedTotal} item${displayedTotal === 1 ? "" : "s"} queued` : "No items queued"}
-              </div>
-            </>
+      <div className="spotify-queue-header">
+        <div className="spotify-queue-title-text">Queue</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {displayedTotal > 0 && onClear && (
+            <button
+              type="button"
+              className="spotify-queue-clear-btn"
+              onClick={() => run(onClear())}
+            >
+              Clear
+            </button>
           )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {total > 0 && <button type="button" style={styles.queueClearButton} onClick={() => run(onClear())}>Clear</button>}
-          <button type="button" aria-label="Close queue" style={styles.iconButton()} onClick={onClose} title="Close queue">
+          <button
+            type="button"
+            aria-label="Close queue"
+            className="spotify-queue-close-btn"
+            onClick={onClose}
+            title="Close queue"
+          >
             <FontAwesomeIcon icon={faXmark} />
           </button>
         </div>
       </div>
 
-      {error && <div role="alert" style={{ padding: "8px 14px", color: "var(--warning-text)", background: "var(--warning-bg)", fontSize: 12 }}>{error}</div>}
-      <div className="queue-panel-list" style={styles.queueList}>
+      {error && (
+        <div role="alert" style={{ padding: "8px 14px", color: "var(--warning-text)", background: "var(--warning-bg)", fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+
+      <div className="spotify-queue-scroll">
         {loading ? (
           <QueueListSkeleton count={Math.min(Math.max(total, 3), 6)} />
-        ) : items.length > 0 ? (
+        ) : (
           <>
             {pinnedItem && (
-              <PinnedQueueItem
-                item={pinnedItem}
-                onRemove={(id) => run(onRemove(id))}
-                onSelect={onSelect}
-              />
+              <>
+                <div className="spotify-queue-section-header">Now playing</div>
+                <NowPlayingQueueItem
+                  item={pinnedItem}
+                  paused={paused}
+                  onTogglePlay={onTogglePlay}
+                  onRemove={handleRemove}
+                  onSelect={onSelect}
+                />
+              </>
             )}
-            {upcomingItems.length > 0 && (
+
+            <div className="spotify-queue-section-header">
+              Next from: {contextName}
+            </div>
+
+            {visibleUpcoming.length > 0 ? (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={upcomingItems.map((item) => Number(item.id))} strategy={verticalListSortingStrategy}>
-                  {upcomingItems.map((item) => (
-                    <SortableQueueItem
-                      key={item.id}
-                      active={false}
-                      item={item}
-                      onRemove={(id) => run(onRemove(id))}
-                      onSelect={onSelect}
-                    />
-                  ))}
+                <SortableContext items={visibleUpcoming.map((item) => Number(item.id))} strategy={verticalListSortingStrategy}>
+                  <div role="list" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {visibleUpcoming.map((item) => (
+                      <SortableQueueItem
+                        key={item.id}
+                        item={item}
+                        onRemove={handleRemove}
+                        onSelect={onSelect}
+                      />
+                    ))}
+                  </div>
                 </SortableContext>
               </DndContext>
+            ) : (
+              <div style={{ padding: "12px 6px", color: "var(--muted)", fontSize: 13 }}>
+                No upcoming items.
+              </div>
             )}
-            {pinnedItem && upcomingItems.length === 0 && (
-              <div style={{ padding: "10px 2px 2px", color: "var(--muted)", fontSize: 12 }}>No upcoming items.</div>
+
+            {upcomingItems.length > MAX_RENDER_ITEMS && (
+              <div className="spotify-queue-more-hint">
+                +{upcomingItems.length - MAX_RENDER_ITEMS} more in queue
+              </div>
             )}
           </>
-        ) : (
-          <div style={{ padding: 16, color: "var(--muted)", fontSize: 13 }}>Queue is empty.</div>
         )}
       </div>
     </div>

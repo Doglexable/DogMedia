@@ -62,6 +62,15 @@ pub struct VideoFrameReceiver {
 }
 
 impl VideoFrameReceiver {
+    pub fn clear(&self) {
+        if let Ok(mut frame) = self.frame.lock() {
+            *frame = None;
+        }
+        if let Ok(mut recycle) = self.recycle.lock() {
+            recycle.clear();
+        }
+    }
+
     pub fn take_frame(&self) -> Option<VideoFrame> {
         self.frame.lock().ok()?.take()
     }
@@ -91,6 +100,10 @@ pub struct VideoFrame {
 
 impl PlaybackEngine {
     pub fn new() -> Result<Self, EngineError> {
+        Self::with_frame_receiver(VideoFrameReceiver::default())
+    }
+
+    pub fn with_frame_receiver(receiver: VideoFrameReceiver) -> Result<Self, EngineError> {
         gst::init()?;
         let playbin = gst::ElementFactory::make("playbin3")
             .build()
@@ -113,9 +126,10 @@ impl PlaybackEngine {
         video_sink.set_property("max-buffers", 4_u32);
         video_sink.set_property("drop", true);
         video_sink.set_property("emit-signals", true);
-        let frame = Arc::new(Mutex::new(None::<VideoFrame>));
+        receiver.clear();
+        let frame = Arc::clone(&receiver.frame);
         let frame_target = Arc::clone(&frame);
-        let recycle = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
+        let recycle = Arc::clone(&receiver.recycle);
         let recycle_target = Arc::clone(&recycle);
         let redraw = Arc::new(Mutex::new(None::<RedrawCallback>));
         let redraw_target = Arc::clone(&redraw);
@@ -619,5 +633,25 @@ mod tests {
         receiver.recycle_buffer(buffer);
         assert_eq!(receiver.recycle.lock().unwrap().len(), 1);
         assert_eq!(receiver.recycle.lock().unwrap()[0].len(), 2_304_000);
+        *receiver.frame.lock().unwrap() = Some(VideoFrame {
+            width: 1,
+            height: 1,
+            format: VideoPixelFormat::Rgba,
+            pixels: vec![0; 4],
+        });
+        receiver.clear();
+        assert!(receiver.frame.lock().unwrap().is_none());
+        assert!(receiver.recycle.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn replacement_engine_keeps_the_video_receiver_connected() {
+        let receiver = VideoFrameReceiver::default();
+        let first = PlaybackEngine::with_frame_receiver(receiver.clone()).unwrap();
+        assert!(Arc::ptr_eq(&first.frame, &receiver.frame));
+        drop(first);
+        let replacement = PlaybackEngine::with_frame_receiver(receiver.clone()).unwrap();
+        assert!(Arc::ptr_eq(&replacement.frame, &receiver.frame));
+        assert!(Arc::ptr_eq(&replacement.recycle, &receiver.recycle));
     }
 }

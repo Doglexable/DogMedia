@@ -9,7 +9,7 @@ pub(crate) fn Featured(
     media: Media,
     #[props(default)] on_menu: Option<EventHandler<(Media, f64, f64)>>,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let source = artwork_url(&snapshot, &media);
     let full_category = media
         .category_path

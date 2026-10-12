@@ -116,7 +116,6 @@ fn remote_position_is_not_overwritten_by_the_previous_local_pipeline() {
             })),
             ..Default::default()
         },
-        None,
     );
 
     coordinator.update_timing(50.0, 60.0);
@@ -136,16 +135,13 @@ fn holder_is_stored_and_cleared_with_session_availability() {
     let mut coordinator = PlaybackCoordinator::default();
     coordinator.load(media(MediaId::new(1)));
     coordinator.session_unavailable("busy");
-    coordinator.set_holder(
-        Some(SessionHolder {
-            platform: Some("desktop".to_owned()),
-            device_label: Some("Studio PC".to_owned()),
-            media_id: Some(MediaId::new(9)),
-            expires_in: Some(20),
-            playback: None,
-        }),
-        Some(20),
-    );
+    coordinator.set_holder(Some(SessionHolder {
+        platform: Some("desktop".to_owned()),
+        device_label: Some("Studio PC".to_owned()),
+        media_id: Some(MediaId::new(9)),
+        expires_in: Some(20),
+        playback: None,
+    }));
     assert_eq!(
         coordinator
             .snapshot()
@@ -154,10 +150,17 @@ fn holder_is_stored_and_cleared_with_session_availability() {
             .map(SessionHolder::display_label),
         Some("Studio PC".to_owned())
     );
-    assert_eq!(coordinator.snapshot().holder_retry_after, Some(20));
     coordinator.load(media(MediaId::new(2)));
     assert!(coordinator.snapshot().holder.is_none());
-    assert!(coordinator.snapshot().holder_retry_after.is_none());
+    coordinator.session_unavailable("busy");
+    coordinator.set_holder(Some(SessionHolder {
+        platform: Some("web".to_owned()),
+        ..Default::default()
+    }));
+    coordinator.remote_available();
+    assert!(coordinator.snapshot().holder.is_none());
+    assert!(coordinator.snapshot().error.is_none());
+    assert!(!coordinator.snapshot().session_unavailable);
     // Fallback labels never leak identifiers.
     assert_eq!(SessionHolder::default().display_label(), "Another device");
     assert_eq!(

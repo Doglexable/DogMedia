@@ -1,4 +1,7 @@
 mod kit;
+pub mod menubar;
+#[cfg(target_os = "linux")]
+mod system_theme;
 mod video_surface;
 mod views;
 
@@ -25,20 +28,16 @@ use crate::{
     },
     integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
-        EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RepeatMode,
-        VideoFrameReceiver,
+        EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RedrawCallback,
+        RepeatMode, VideoFrameReceiver,
     },
     store::{ColorScheme, Settings, SettingsError, SettingsStore},
 };
 
-#[allow(unused_imports)]
 pub(crate) use kit::{
-    Artwork, Button, Chip, Dialog, DialogAction, DialogBackdrop, DialogBody, DialogClose,
-    DialogContent, DialogContext, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-    DialogTrigger, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName, Input,
-    MediaListSkeleton, MusicProgress, Notice, Popover, PopoverAlign, PopoverContent,
-    PopoverContext, PopoverDescription, PopoverSide, PopoverTitle, PopoverTrigger, Select,
-    Skeleton, Slider, SliderVariant, StatusBadge, ThemeToggle, VolumeSlider,
+    Artwork, Button, Chip, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName,
+    Input, MediaListSkeleton, MusicProgress, Notice, Popover, PopoverContent, PopoverTrigger,
+    Select, Skeleton, Slider, StatusBadge, ThemeToggle, VolumeSlider,
 };
 use video_surface::VideoPaintSource;
 use views::Shell;
@@ -56,11 +55,12 @@ struct SubtitleCue {
 }
 
 const ARTWORK_CACHE_LIMIT: usize = 96;
+const ARTWORK_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ArtworkState {
     Loading,
-    Ready(String),
+    Ready(Arc<String>),
     Missing,
 }
 
@@ -68,6 +68,7 @@ enum ArtworkState {
 struct ArtworkCache {
     entries: HashMap<String, ArtworkState>,
     order: VecDeque<String>,
+    ready_bytes: usize,
 }
 
 impl ArtworkCache {
@@ -109,7 +110,7 @@ impl ArtworkCache {
         }
         while self.entries.len() >= ARTWORK_CACHE_LIMIT {
             if let Some(oldest) = self.order.pop_front() {
-                self.entries.remove(&oldest);
+                self.evict(&oldest);
             }
         }
         self.order.push_back(key.clone());
@@ -119,12 +120,46 @@ impl ArtworkCache {
 
     fn finish(&mut self, key: String, state: ArtworkState) {
         if self.entries.contains_key(&key) {
+            self.evict_bytes(&key);
+            self.entries.insert(key.clone(), ArtworkState::Loading);
+            let size = match &state {
+                ArtworkState::Ready(value) => value.len(),
+                _ => 0,
+            };
+            if size > ARTWORK_CACHE_BYTES {
+                self.entries.insert(key, ArtworkState::Missing);
+                return;
+            }
+            while self.ready_bytes + size > ARTWORK_CACHE_BYTES {
+                let Some(oldest) = self
+                    .order
+                    .iter()
+                    .find(|entry| matches!(self.entries.get(*entry), Some(ArtworkState::Ready(_))))
+                    .cloned()
+                else {
+                    break;
+                };
+                self.evict(&oldest);
+                self.order.retain(|entry| entry != &oldest);
+            }
+            self.ready_bytes += size;
             self.entries.insert(key, state);
         }
     }
 
-    fn remove(&mut self, key: &str) {
+    fn evict_bytes(&mut self, key: &str) {
+        if let Some(ArtworkState::Ready(value)) = self.entries.get(key) {
+            self.ready_bytes -= value.len();
+        }
+    }
+
+    fn evict(&mut self, key: &str) {
+        self.evict_bytes(key);
         self.entries.remove(key);
+    }
+
+    fn remove(&mut self, key: &str) {
+        self.evict(key);
         self.order.retain(|entry| entry != key);
     }
 }
@@ -133,6 +168,7 @@ impl ArtworkCache {
 pub(crate) struct NativeApp {
     store: SettingsStore,
     settings: Settings,
+    system_color_scheme: Option<ColorScheme>,
     client: Option<ApiClient>,
     library: AppState,
     categories: Vec<Category>,
@@ -149,6 +185,8 @@ pub(crate) struct NativeApp {
     local_mode: bool,
     local_scan_generation: u64,
     engine_signal: Option<Signal<Option<PlaybackEngine>>>,
+    video_frames: VideoFrameReceiver,
+    redraw_callback: Option<RedrawCallback>,
     coordinator: PlaybackCoordinator,
     session: Option<PlaybackSession>,
     socket_sender: Option<mpsc::Sender<SocketCommand>>,
@@ -159,10 +197,11 @@ pub(crate) struct NativeApp {
     socket_last_report_at: Option<Instant>,
     socket_last_revision: Option<u64>,
     lyrics: String,
+    lyrics_visible: bool,
     subtitles: Vec<SubtitleTrack>,
     selected_subtitle: Option<usize>,
     subtitle_cues: Vec<SubtitleCue>,
-    photo_data_url: Option<String>,
+    photo_data_url: Option<Arc<String>>,
     player_expanded: bool,
     quality_popover_open: bool,
     queue_open: bool,
@@ -205,9 +244,14 @@ impl NativeApp {
         coordinator.set_quality(settings.quality);
         let settings_open = !settings.configured;
         let settings_url = settings.server_url.to_string();
+        #[cfg(target_os = "linux")]
+        let system_color_scheme = system_theme::read_gsettings_scheme();
+        #[cfg(not(target_os = "linux"))]
+        let system_color_scheme = None;
         Self {
             store,
             settings,
+            system_color_scheme,
             client,
             library,
             categories: Vec::new(),
@@ -224,6 +268,8 @@ impl NativeApp {
             local_mode: false,
             local_scan_generation: 0,
             engine_signal: None,
+            video_frames: VideoFrameReceiver::default(),
+            redraw_callback: None,
             coordinator,
             session: None,
             socket_sender: None,
@@ -234,6 +280,7 @@ impl NativeApp {
             socket_last_report_at: None,
             socket_last_revision: None,
             lyrics: String::new(),
+            lyrics_visible: true,
             subtitles: Vec::new(),
             selected_subtitle: None,
             subtitle_cues: Vec::new(),
@@ -271,6 +318,18 @@ fn app_window_icon() -> Option<winit::window::Icon> {
     winit::window::Icon::from_rgba(rgba.into_raw(), width, height).ok()
 }
 
+#[cfg(target_os = "linux")]
+fn window_theme(preference: ColorScheme, system: Option<ColorScheme>) -> winit::window::Theme {
+    match if preference == ColorScheme::System {
+        system.unwrap_or(ColorScheme::Light)
+    } else {
+        preference
+    } {
+        ColorScheme::Dark => winit::window::Theme::Dark,
+        ColorScheme::Light | ColorScheme::System => winit::window::Theme::Light,
+    }
+}
+
 pub fn run() {
     // Ensure environment variables for Dioxus CLI config have Dogmedia identity
     if std::env::var("DIOXUS_APP_TITLE").is_err() {
@@ -298,6 +357,15 @@ pub fn run() {
     {
         use winit::platform::wayland::WindowAttributesExtWayland;
         use winit::platform::x11::WindowAttributesExtX11;
+        let preference = SettingsStore::discover()
+            .and_then(|store| store.load())
+            .map(|settings| settings.color_scheme)
+            .unwrap_or_default();
+        let system_scheme = (preference == ColorScheme::System)
+            .then(system_theme::read_gsettings_scheme)
+            .flatten();
+        window_attributes =
+            window_attributes.with_theme(Some(window_theme(preference, system_scheme)));
         window_attributes = WindowAttributesExtWayland::with_name(
             window_attributes,
             "com.dogmedia.Desktop",
@@ -321,6 +389,30 @@ pub fn run() {
 fn App() -> Element {
     let mut app = use_signal(NativeApp::boot);
     let native_window = try_consume_context::<Arc<winit::window::Window>>();
+    #[cfg(target_os = "linux")]
+    use_future(move || async move {
+        loop {
+            let detected = system_theme::read().await;
+            if app.read().system_color_scheme != detected {
+                app.write().system_color_scheme = detected;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    });
+    #[cfg(target_os = "linux")]
+    {
+        let theme_window = native_window.clone();
+        use_effect(move || {
+            if let Some(window) = theme_window.as_ref() {
+                let snapshot = app.read();
+                let theme =
+                    window_theme(snapshot.settings.color_scheme, snapshot.system_color_scheme);
+                if window.theme() != Some(theme) {
+                    window.set_theme(Some(theme));
+                }
+            }
+        });
+    }
     let redraw_handle = try_consume_context::<WindowRedrawHandle>();
     let trigger_redraw = {
         let redraw_handle = redraw_handle.clone();
@@ -333,16 +425,7 @@ fn App() -> Element {
             }
         })
     };
-    let engine = {
-        let trigger = trigger_redraw.clone();
-        use_signal(|| {
-            let eng = PlaybackEngine::new().ok();
-            if let Some(eng_ref) = eng.as_ref() {
-                eng_ref.set_redraw_callback(trigger);
-            }
-            eng
-        })
-    };
+    let engine = use_signal(|| None::<PlaybackEngine>);
     let effect_trigger = trigger_redraw.clone();
     use_effect(move || {
         if let Some(engine_ref) = engine.read().as_ref() {
@@ -375,21 +458,11 @@ fn App() -> Element {
         }
     });
     let mpris = use_hook(MprisBridge::start);
-    let frames = use_hook(|| {
-        engine
-            .read()
-            .as_ref()
-            .map(PlaybackEngine::frame_receiver)
-            .unwrap_or_else(VideoFrameReceiver::default)
-    });
+    let frames = use_hook(|| app.read().video_frames.clone());
     let video_source_id = dioxus_native::use_wgpu(move || VideoPaintSource::new(frames.clone()));
     use_hook(move || {
         app.write().engine_signal = Some(engine);
-        if engine.read().is_none() {
-            app.write().status = Some(
-                "GStreamer playback is unavailable. Photos and browsing still work.".to_owned(),
-            );
-        }
+        app.write().redraw_callback = Some(trigger_redraw.clone());
         connect(app);
         if matches!(app.read().library.access, AccessView::Unreachable(_)) {
             auto_open_local_folder(app);
@@ -422,10 +495,15 @@ fn App() -> Element {
             loop {
                 // Full rate only while progress is possible; paused/stopped/
                 // idle ticks only refresh MPRIS/lease state (Plan 059).
-                let active = matches!(
-                    app.read().coordinator.snapshot().status,
-                    PlaybackStatus::Playing | PlaybackStatus::Loading
-                );
+                let active = {
+                    let state = app.read();
+                    let playback = state.coordinator.snapshot();
+                    !playback.session_unavailable
+                        && matches!(
+                            playback.status,
+                            PlaybackStatus::Playing | PlaybackStatus::Loading
+                        )
+                };
                 tokio::time::sleep(std::time::Duration::from_millis(if active {
                     100
                 } else {
@@ -489,7 +567,7 @@ fn App() -> Element {
                                     }
                                 }
                             }
-                            SocketEvent::Lease { revision, state, expires_in, holder } => {
+                            SocketEvent::Lease { revision, state, holder, .. } => {
                                 let stale = {
                                     let snapshot = app.read();
                                     snapshot.socket_last_revision.is_some_and(|last| revision < last)
@@ -510,10 +588,10 @@ fn App() -> Element {
                                     if same_media {
                                         if let (Some(media), Some(holder)) = (current_media, holder.clone()) {
                                             ensure_artwork(app, media.clone());
-                                            app.write().coordinator.observe_remote(media, holder, Some(expires_in));
+                                            app.write().coordinator.observe_remote(media, holder);
                                         }
                                     } else {
-                                        apply_remote_holder(app, engine, &client, holder, Some(expires_in), "Playback is active elsewhere").await;
+                                        apply_remote_holder(app, engine, &client, holder, "Playback is active elsewhere").await;
                                     }
                                 } else if state == "available" {
                                     // Keep the observer player mounted until an in-flight
@@ -736,6 +814,26 @@ fn local_media(track: &LocalTrack, index: usize) -> Media {
     }
 }
 
+fn ensure_playback_engine(
+    app: Signal<NativeApp>,
+    mut engine: Signal<Option<PlaybackEngine>>,
+) -> Result<(), String> {
+    if engine.read().is_some() {
+        return Ok(());
+    }
+    let state = app.read();
+    let receiver = state.video_frames.clone();
+    let redraw_callback = state.redraw_callback.clone();
+    drop(state);
+    let player =
+        PlaybackEngine::with_frame_receiver(receiver).map_err(|error| error.to_string())?;
+    if let Some(callback) = redraw_callback {
+        player.set_redraw_callback(callback);
+    }
+    *engine.write() = Some(player);
+    Ok(())
+}
+
 fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, index: usize) {
     let track = {
         let state = app.read();
@@ -770,18 +868,20 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     }
     let sequence = app.read().coordinator.snapshot().sequence;
     let volume = app.read().settings.volume;
-    let result = engine
-        .read()
-        .as_ref()
-        .ok_or_else(|| "GStreamer playback is unavailable".to_owned())
-        .and_then(|player| {
-            player
-                .open_local(&url)
-                .and_then(|_| player.play())
-                .map_err(|error| error.to_string())?;
-            player.set_volume(volume);
-            Ok(())
-        });
+    let result = ensure_playback_engine(app, engine).and_then(|_| {
+        engine
+            .read()
+            .as_ref()
+            .ok_or_else(|| "GStreamer playback is unavailable".to_owned())
+            .and_then(|player| {
+                player
+                    .open_local(&url)
+                    .and_then(|_| player.play())
+                    .map_err(|error| error.to_string())?;
+                player.set_volume(volume);
+                Ok(())
+            })
+    });
     match result {
         Ok(()) => {
             app.write().coordinator.loaded(sequence, 0.0);
@@ -899,19 +999,19 @@ fn featured_media(app: &NativeApp) -> Option<Media> {
         .or_else(|| app.library.items.first().cloned())
 }
 
-fn artwork_url(app: &NativeApp, media: &Media) -> Option<String> {
+fn artwork_url(app: &NativeApp, media: &Media) -> Option<Arc<String>> {
     if app.local_mode {
         return None;
     }
     match app.artwork.get(media) {
-        Some(ArtworkState::Ready(value)) => Some(value.clone()),
+        Some(ArtworkState::Ready(value)) => Some(Arc::clone(value)),
         _ => None,
     }
 }
 
-fn category_artwork_url(app: &NativeApp, category: &Category) -> Option<String> {
+fn category_artwork_url(app: &NativeApp, category: &Category) -> Option<Arc<String>> {
     match app.artwork.get_category(category) {
-        Some(ArtworkState::Ready(value)) => Some(value.clone()),
+        Some(ArtworkState::Ready(value)) => Some(Arc::clone(value)),
         _ => None,
     }
 }
@@ -931,7 +1031,7 @@ fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
     };
     spawn(async move {
         let result = match client.category_thumbnail(category.id).await {
-            Ok(bytes) => Some(ArtworkState::Ready(artwork_data_url(bytes))),
+            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_data_url(bytes)))),
             Err(ApiError::Http { status: 404, .. }) => Some(ArtworkState::Missing),
             Err(error) => {
                 tracing::debug!(%error, category_id = %category.id, "category artwork request failed");
@@ -958,7 +1058,7 @@ fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
     };
     spawn(async move {
         let result = match client.media_thumbnail(media.id).await {
-            Ok(bytes) => Some(ArtworkState::Ready(artwork_data_url(bytes))),
+            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_data_url(bytes)))),
             Err(ApiError::Http { status: 404, .. }) => Some(ArtworkState::Missing),
             Err(error) => {
                 tracing::debug!(%error, media_id = %media.id, "artwork request failed");
@@ -1150,15 +1250,7 @@ fn play_media_at(
             Err(error) => {
                 let message = error.user_message();
                 if error.is_playback_session_unavailable() {
-                    apply_remote_holder(
-                        app,
-                        engine,
-                        &client,
-                        error.holder(),
-                        error.retry_after(),
-                        &message,
-                    )
-                    .await;
+                    apply_remote_holder(app, engine, &client, error.holder(), &message).await;
                     app.write().player_expanded = false;
                 } else {
                     app.write().coordinator.failed(sequence, &message);
@@ -1178,19 +1270,30 @@ fn play_media_at(
             }
             return;
         }
-        let started = match client.wait_for_stream_ready(&session).await {
-            Ok(()) => engine.read().as_ref().map(|engine| {
-                engine
-                    .open(&session, &stream)
-                    .and_then(|_| {
-                        if autoplay {
-                            engine.play()
-                        } else {
-                            engine.pause()
-                        }
-                    })
-                    .map_err(|error| error.to_string())
-            }),
+        let ready = client.wait_for_stream_ready(&session).await;
+        if app.read().coordinator.snapshot().sequence != sequence {
+            let _ = client.release(&session).await;
+            if takeover {
+                app.write().session_takeover_pending = false;
+            }
+            return;
+        }
+        let started = match ready {
+            Ok(()) => match ensure_playback_engine(app, engine) {
+                Ok(()) => engine.read().as_ref().map(|engine| {
+                    engine
+                        .open(&session, &stream)
+                        .and_then(|_| {
+                            if autoplay {
+                                engine.play()
+                            } else {
+                                engine.pause()
+                            }
+                        })
+                        .map_err(|error| error.to_string())
+                }),
+                Err(error) => Some(Err(error)),
+            },
             Err(error) => Some(Err(error.to_string())),
         };
         match started {
@@ -1271,7 +1374,7 @@ fn play_photo(
     if let Some(current_engine) = engine.write().take() {
         let _ = current_engine.stop();
     }
-    *engine.write() = PlaybackEngine::new().ok();
+    app.read().video_frames.clear();
     app.write().coordinator.load(media.clone());
     let sequence = app.read().coordinator.snapshot().sequence;
     app.write().photo_data_url = None;
@@ -1311,7 +1414,8 @@ fn play_photo(
                 if current {
                     let mime = media.mime_type.as_deref().unwrap_or("image/jpeg");
                     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-                    app.write().photo_data_url = Some(format!("data:{mime};base64,{encoded}"));
+                    app.write().photo_data_url =
+                        Some(Arc::new(format!("data:{mime};base64,{encoded}")));
                     app.write().coordinator.loaded(sequence, 0.0);
                 }
             }
@@ -1548,18 +1652,29 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
     let observing_remote = app.read().coordinator.snapshot().session_unavailable;
     if session.is_none() && observing_remote {
         spawn(async move {
-            if let Ok(status) = client.playback_lease().await
-                && status.state == "busy"
-            {
-                apply_remote_holder(
-                    app,
-                    engine,
-                    &client,
-                    status.active_session,
-                    Some(status.expires_in),
-                    "Playback is active elsewhere",
-                )
-                .await;
+            if let Ok(status) = client.playback_lease().await {
+                let still_observing = {
+                    let state = app.read();
+                    !state.local_mode
+                        && !state.socket_ready
+                        && state.session.is_none()
+                        && state.coordinator.snapshot().session_unavailable
+                };
+                if !still_observing {
+                    return;
+                }
+                if status.state == "busy" {
+                    apply_remote_holder(
+                        app,
+                        engine,
+                        &client,
+                        status.active_session,
+                        "Playback is active elsewhere",
+                    )
+                    .await;
+                } else if status.state == "available" && !app.read().session_takeover_pending {
+                    app.write().coordinator.remote_available();
+                }
             }
         });
         return;
@@ -1591,15 +1706,7 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
             }
             let message = error.user_message();
             if error.is_playback_session_unavailable() {
-                apply_remote_holder(
-                    app,
-                    engine,
-                    &client,
-                    error.holder(),
-                    error.retry_after(),
-                    &message,
-                )
-                .await;
+                apply_remote_holder(app, engine, &client, error.holder(), &message).await;
                 app.write().player_expanded = false;
                 app.write().quality_popover_open = false;
             } else {
@@ -1637,9 +1744,10 @@ async fn apply_remote_holder(
     engine: Signal<Option<PlaybackEngine>>,
     client: &ApiClient,
     holder: Option<SessionHolder>,
-    retry_after: Option<u64>,
     message: &str,
 ) {
+    let previous_revision = app.read().socket_last_revision;
+    let was_observing = app.read().coordinator.snapshot().session_unavailable;
     if app.read().local_mode {
         return;
     }
@@ -1653,14 +1761,30 @@ async fn apply_remote_holder(
         && let Some(media_id) = holder.media_id
         && let Ok(media) = client.media(media_id).await
     {
+        let current = app.read();
+        let superseded = current.local_mode
+            || current.session.is_some()
+            || current.socket_last_revision != previous_revision
+            || (was_observing && !current.coordinator.snapshot().session_unavailable);
+        drop(current);
+        if superseded {
+            return;
+        }
         ensure_artwork(app, media.clone());
-        app.write()
-            .coordinator
-            .observe_remote(media, holder, retry_after);
+        app.write().coordinator.observe_remote(media, holder);
+        return;
+    }
+    let current = app.read();
+    let superseded = current.local_mode
+        || current.session.is_some()
+        || current.socket_last_revision != previous_revision
+        || (was_observing && !current.coordinator.snapshot().session_unavailable);
+    drop(current);
+    if superseded {
         return;
     }
     app.write().coordinator.session_unavailable(message);
-    app.write().coordinator.set_holder(holder, retry_after);
+    app.write().coordinator.set_holder(holder);
 }
 
 fn toggle_playback(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
@@ -1813,7 +1937,7 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     if let Some(current_engine) = engine.write().take() {
         let _ = current_engine.stop();
     }
-    *engine.write() = PlaybackEngine::new().ok();
+    app.read().video_frames.clear();
     app.write().coordinator.stop();
     // Thumbnail responses are held as base64 data URLs in the native signal.
     // Release them with the playback session so repeated connected playback
@@ -2969,6 +3093,52 @@ mod tests {
     }
 
     #[test]
+    fn artwork_cache_evicts_oldest_encoded_bytes() {
+        let mut cache = ArtworkCache::default();
+        let first = "first".to_owned();
+        let second = "second".to_owned();
+        cache.start_key(first.clone());
+        cache.finish(
+            first.clone(),
+            ArtworkState::Ready(Arc::new("a".repeat(ARTWORK_CACHE_BYTES / 2 + 1))),
+        );
+        cache.start_key(second.clone());
+        cache.finish(
+            second.clone(),
+            ArtworkState::Ready(Arc::new("b".repeat(ARTWORK_CACHE_BYTES / 2))),
+        );
+        assert!(!cache.entries.contains_key(&first));
+        assert!(cache.entries.contains_key(&second));
+        assert!(cache.ready_bytes <= ARTWORK_CACHE_BYTES);
+    }
+
+    #[test]
+    fn oversize_artwork_does_not_enter_ready_cache() {
+        let mut cache = ArtworkCache::default();
+        let key = "oversize".to_owned();
+        cache.start_key(key.clone());
+        cache.finish(
+            key.clone(),
+            ArtworkState::Ready(Arc::new("a".repeat(ARTWORK_CACHE_BYTES + 1))),
+        );
+        assert!(matches!(
+            cache.entries.get(&key),
+            Some(ArtworkState::Missing)
+        ));
+        assert_eq!(cache.ready_bytes, 0);
+    }
+
+    #[test]
+    fn artwork_state_clone_shares_encoded_image() {
+        let image = Arc::new("data:image/png;base64,AAAA".to_owned());
+        let state = ArtworkState::Ready(image.clone());
+        let projection = state.clone();
+        assert_eq!(Arc::strong_count(&image), 3);
+        drop(projection);
+        assert_eq!(Arc::strong_count(&image), 2);
+    }
+
+    #[test]
     fn native_artwork_decoders_are_enabled() {
         use image::ImageFormat;
 
@@ -2983,26 +3153,20 @@ mod tests {
     }
 
     #[test]
-    fn progress_and_duration_format_correctly() {
-        use super::kit::{Progress, SliderVariant, slider_value_at};
+    fn slider_and_duration_format_correctly() {
+        use super::kit::slider_value_at;
 
         assert_eq!(format_duration(Some(0.0)), "0:00");
         assert_eq!(format_duration(Some(65.0)), "1:05");
         assert_eq!(format_duration(Some(3600.0)), "60:00");
         assert_eq!(format_duration(None), "0:00");
 
-        assert_eq!(SliderVariant::Round.as_str(), "Round");
-        assert_eq!(SliderVariant::Flat.as_str(), "Flat");
         assert_eq!(slider_value_at(0, 100, 0.0, 240.0, 0.1), 0.0);
         assert_eq!(slider_value_at(50, 100, 0.0, 240.0, 0.1), 120.0);
         assert_eq!(slider_value_at(100, 100, 0.0, 240.0, 0.1), 240.0);
         assert_eq!(slider_value_at(75, 100, 0.0, 100.0, 1.0), 75.0);
         assert_eq!(slider_value_at(20, 40, 0.0, 100.0, 1.0), 50.0);
         assert_eq!(slider_value_at(40, 40, 0.0, 100.0, 1.0), 100.0);
-
-        let _ = rsx! {
-            Progress { value: 50.0, max: 100.0 }
-        };
     }
 
     #[test]
@@ -3023,64 +3187,6 @@ mod tests {
                         span { "Item 2" }
                     }
                 }
-            }
-        };
-    }
-
-    #[test]
-    fn dialog_components_render_correctly() {
-        use super::kit::{
-            Dialog, DialogAction, DialogBackdrop, DialogBody, DialogClose, DialogContent,
-            DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
-        };
-
-        fn dialog_harness() -> Element {
-            let open = use_signal(|| true);
-            rsx! {
-                Dialog { open,
-                    DialogTrigger { label: "Open Dialog".to_string() }
-                    DialogContent {
-                        DialogHeader {
-                            DialogTitle { "Dialog Title" }
-                            DialogDescription { "Dialog Description" }
-                        }
-                        DialogBody {
-                            p { "Dialog Body Content" }
-                        }
-                        DialogFooter {
-                            DialogClose { label: "Cancel".to_string() }
-                            DialogAction { label: "Confirm".to_string() }
-                        }
-                    }
-                }
-            }
-        }
-
-        let vdom = dioxus_core::VirtualDom::new(dialog_harness);
-        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
-        document.initial_build();
-
-        let mut rendered_parts = Vec::new();
-        document.inner.visit(|_, node| {
-            let Some(element) = node.element_data() else {
-                return;
-            };
-            if let Some(name) = element
-                .attrs
-                .iter()
-                .find(|attr| attr.name.local.as_ref() == "data-name")
-            {
-                rendered_parts.push(name.value.clone());
-            }
-        });
-        assert!(rendered_parts.iter().any(|name| name == "Dialog"));
-        assert!(rendered_parts.iter().any(|name| name == "DialogContent"));
-        assert!(rendered_parts.iter().any(|name| name == "DialogClose"));
-
-        let _ = rsx! {
-            DialogBackdrop {
-                close_on_backdrop_click: true,
-                div { "Backdrop Content" }
             }
         };
     }
@@ -3127,8 +3233,8 @@ mod tests {
                 playback: None,
             };
             rsx! {
-                SessionConflictCard { holder: Some(holder), retry_after: None }
-                SessionConflictCard { holder: None, retry_after: Some(15) }
+                SessionConflictCard { holder: Some(holder) }
+                SessionConflictCard { holder: None }
             }
         }
 

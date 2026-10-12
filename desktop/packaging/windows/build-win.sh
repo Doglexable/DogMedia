@@ -60,3 +60,6 @@ makensis -D"STAGE=$app" -D"OUT=$installer" -D"VERSION=$version" "$script_root/in
 file "$installer" | grep -q 'PE32' || { echo "NSIS output is not a PE executable" >&2; exit 1; }
 7z l "$installer" | grep 'Dogmedia.exe' >/dev/null || { echo "Installer payload missing Dogmedia.exe" >&2; exit 1; }
 echo "Created $installer"
+if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
+  bash "$desktop_root/packaging/publish-release.sh" windows-x64 "$installer"
+fi

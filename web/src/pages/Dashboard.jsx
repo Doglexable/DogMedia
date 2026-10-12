@@ -21,7 +21,7 @@ import { formatDuration, getMediaFolderName } from "../components/global-player/
 import SpotlightCard from "../components/SpotlightCard";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
 import { shouldShowBrowse } from "./dashboard-utils";
-import { mediaViewTransitionName, runViewTransition } from "../utils/view-transitions";
+import { runViewTransition } from "../utils/view-transitions";
 
 const NOW_PLAYING_POLL_MS = 10000;
 
@@ -220,7 +220,7 @@ function openCardContextMenu(event, setMenu) {
   });
 }
 
-function FeaturedPanel({ isActive, isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
+function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -265,7 +265,7 @@ function FeaturedPanel({ isActive, isLiked, item, onAddQueue, onNotice, onPlay, 
               item={item}
               size="hero"
               priority
-              transitionName={isActive ? "none" : mediaViewTransitionName(item.id)}
+              transitionName="none"
             />
           </div>
         </section>
@@ -694,7 +694,6 @@ export default function Dashboard() {
             {!normalizedSearch && (
               <div className="vault-reveal">
                 <FeaturedPanel
-                  isActive={Number(currentMediaId) === Number(featuredMedia?.id)}
                   item={featuredMedia}
                   isLiked={player?.isLiked?.(featuredMedia?.id) || false}
                   onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}

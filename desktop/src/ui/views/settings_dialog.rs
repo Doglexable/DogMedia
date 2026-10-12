@@ -4,7 +4,8 @@ use super::super::*;
 
 #[component]
 pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
+    let can_close = snapshot.settings.configured && !snapshot.settings_connecting;
     let url_changed = snapshot.settings_url.trim().trim_end_matches('/')
         != snapshot.settings.server_url.as_str().trim_end_matches('/');
     let save_label = if snapshot.settings_connecting {
@@ -25,10 +26,7 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                 tabindex: "0",
                 autofocus: true,
                 onkeydown: move |event: KeyboardEvent| {
-                    if event.key() == Key::Escape
-                        && snapshot.settings.configured
-                        && !snapshot.settings_connecting
-                    {
+                    if event.key() == Key::Escape && can_close {
                         event.stop_propagation();
                         app.write().settings_open = false;
                         app.write().settings_error = None;

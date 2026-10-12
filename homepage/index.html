@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101116" />
+    <meta name="description" content="Kenali Dogmedia lewat demo player musik yang berjalan langsung di browser." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Dogmedia — ruang untuk musikmu</title>
+    <script src="/player.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="Dogmedia, kembali ke awal">
+          <img src="/favicon.svg" alt="" width="34" height="34" />
+          <span>dogmedia<span class="brand-period">.</span></span>
+        </a>
+        <nav class="header-nav" aria-label="Navigasi utama">
+          <a href="#player">Demo player</a>
+          <a href="#about">Tentang</a>
+        </nav>
+        <span class="header-label"><span class="live-dot"></span> DEMO PUBLIK</span>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <p class="eyebrow">YOUR MUSIC, YOUR SPACE <span>—</span> 001</p>
+            <h1 id="hero-title">Beri musikmu<br /><em>ruang sendiri.</em></h1>
+            <p class="hero-description">Dogmedia adalah ruang pribadi untuk mendengarkan koleksimu. Coba rasa player-nya di sini, langsung dari browser.</p>
+            <a class="primary-link" href="#player">Coba player <span aria-hidden="true">↗</span></a>
+            <p class="hero-note">Audio demo dibuat di perangkatmu. Koleksi privat tidak dipublikasikan.</p>
+          </div>
+          <div class="hero-art" aria-hidden="true">
+            <div class="art-caption"><span>NOW PLAYING</span><span>01 / 03</span></div>
+            <div class="record-wrap">
+              <div class="record"><div class="record-label"><span>DM</span><small>SIDE A</small></div></div>
+              <div class="art-sheen"></div>
+            </div>
+            <div class="art-bottom"><span>Made for listening.</span><span class="art-signal">▂ ▅ ▃ ▇ ▄ ▆ ▂</span></div>
+          </div>
+        </section>
+
+        <section class="player-section" id="player" aria-labelledby="player-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">LISTENING ROOM / DEMO</p><h2 id="player-title">Tekan play, rasakan ritmenya.</h2></div>
+            <span class="section-count">03 DEMO TRACKS</span>
+          </div>
+          <div class="player-layout">
+            <div class="track-panel">
+              <div class="panel-heading"><span>ANTRIAN</span><span>LOKAL DI BROWSER</span></div>
+              <ol class="track-list" id="track-list"></ol>
+              <div class="track-panel-footer">Pilih lagu untuk memulai demo. Tidak ada audio dari server.</div>
+            </div>
+            <div class="player-panel" aria-label="Pemutar demo">
+              <div class="player-topline"><span><span class="live-dot"></span> DEMO PLAYER</span><span id="track-number">01 / 03</span></div>
+              <div class="mini-art" id="mini-art" aria-hidden="true"><div class="mini-art-ring"></div><span>DM</span></div>
+              <div class="now-playing-copy"><p>SEDANG DIPUTAR</p><h3 id="now-title">Soft Signal</h3><span id="now-artist">Dogmedia Demo</span></div>
+              <div class="progress-wrap">
+                <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Posisi lagu" />
+                <div class="time-row"><span id="elapsed">0:00</span><span id="duration">1:12</span></div>
+              </div>
+              <div class="transport" aria-label="Kontrol pemutaran">
+                <button id="previous" type="button" aria-label="Lagu sebelumnya" title="Lagu sebelumnya">⏮</button>
+                <button id="toggle-play" class="play-button" type="button" aria-label="Putar" title="Putar">▶</button>
+                <button id="next" type="button" aria-label="Lagu berikutnya" title="Lagu berikutnya">⏭</button>
+              </div>
+              <div class="volume-row"><span aria-hidden="true">◖))</span><label for="volume">Volume</label><input id="volume" type="range" min="0" max="100" value="55" /></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="about-section" id="about" aria-labelledby="about-title">
+          <p class="eyebrow">DOGMEDIA / THE IDEA</p>
+          <h2 id="about-title">Koleksimu tetap<br /><em>di tempatmu.</em></h2>
+          <p>Musik, video, dan foto dalam satu ruang yang kamu kelola sendiri. Halaman ini hanya memperlihatkan pengalaman mendengar; player demo tidak terhubung ke library privat.</p>
+        </section>
+      </main>
+      <footer><span>© 2026 Dogmedia</span><span>Self-hosted media, made personal.</span></footer>
+    </div>
+  </body>
+</html>

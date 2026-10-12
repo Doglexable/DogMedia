@@ -25,7 +25,6 @@ export function normalizeHolderSession(value) {
     deviceLabel,
   };
   if (Number.isInteger(value.mediaId) && value.mediaId > 0) holder.mediaId = value.mediaId;
-  if (Number.isInteger(value.expiresIn) && value.expiresIn >= 0) holder.expiresIn = value.expiresIn;
   if (value.playback && typeof value.playback === "object") {
     const playbackMediaId = Number.isInteger(value.playback.mediaId) && value.playback.mediaId > 0
       ? value.playback.mediaId
@@ -46,18 +45,6 @@ export function normalizeHolderSession(value) {
   return holder;
 }
 
-export function holderDetailText(holder) {
-  if (!holder) return "Playback is active on another device";
-  return `${holder.deviceLabel} is playing this library`;
-}
-
-export function holderCountdownText(holder, retryAfter) {
-  const seconds = [holder?.expiresIn, retryAfter]
-    .find((value) => Number.isInteger(value) && value >= 0);
-  if (seconds === undefined) return "";
-  return `Available in about ${seconds}s`;
-}
-
 export function isHolderConflict(error) {
   return error?.code === "PLAYBACK_IN_USE"
     || error?.code === "PLAYBACK_LEASE_LOST"
@@ -75,8 +62,5 @@ export function conflictFromError(error) {
   return {
     message: error.message,
     holder: normalizeHolderSession(error.activeSession),
-    retryAfter: Number.isInteger(error.retryAfter) && error.retryAfter >= 0
-      ? error.retryAfter
-      : undefined,
   };
 }

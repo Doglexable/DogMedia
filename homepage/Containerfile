@@ -1,0 +1,5 @@
+FROM nginx:stable-alpine
+COPY homepage/nginx.conf /etc/nginx/conf.d/default.conf
+COPY homepage/index.html homepage/styles.css homepage/player.js /usr/share/nginx/html/
+COPY web/public/favicon.svg /usr/share/nginx/html/favicon.svg
+EXPOSE 8040

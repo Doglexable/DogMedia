@@ -19,7 +19,7 @@ describe("FullPlayer", () => {
     label: "Audio",
   };
 
-  it("renders audio FullPlayer with QualityControl, SleepTimerControl, and FullscreenLyrics without error", () => {
+  it("keeps the lyrics control visible and closes the panel when lyrics are unavailable", () => {
     const markup = renderToStaticMarkup(
       <FullPlayer
         autoPlay={false}
@@ -76,6 +76,10 @@ describe("FullPlayer", () => {
     expect(markup).toContain('aria-keyshortcuts="Space"');
     expect(markup).toContain('title="Pause (Space)"');
     expect(markup).toContain('aria-label="Share music clip"');
+    expect(markup).toContain('aria-label="Lyrics unavailable"');
+    expect(markup).toContain('fullscreen-player-layout--desktop-no-lyrics');
+    expect(markup).not.toContain('aria-label="Synchronized lyrics"');
+    expect(markup).not.toContain('Lyrics will appear here');
   });
 
   it("renders lyrics toggle button in actions toolbar when lyrics are available", () => {
@@ -132,6 +136,7 @@ describe("FullPlayer", () => {
     );
 
     expect(markup).toContain('aria-label="Hide lyrics"');
+    expect(markup).toContain('aria-label="Synchronized lyrics"');
     expect(markup).toContain("fullscreen-player-stage");
   });
 

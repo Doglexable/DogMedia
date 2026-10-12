@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  conflictCountdownText,
   conflictDetailText,
   conflictDisplayText,
   conflictFromError,
@@ -15,7 +14,7 @@ describe("normalizeHolderSession", () => {
       deviceLabel: "Studio PC",
       mediaId: 42,
       expiresIn: 24,
-    })).toEqual({ platform: "desktop", deviceLabel: "Studio PC", mediaId: 42, expiresIn: 24 });
+    })).toEqual({ platform: "desktop", deviceLabel: "Studio PC", mediaId: 42 });
     expect(normalizeHolderSession({})).toEqual({
       platform: "unknown",
       deviceLabel: "Another device",
@@ -51,22 +50,18 @@ describe("normalizeHolderSession", () => {
       data: { activeSession: { platform: "web", deviceLabel: "Laptop", expiresIn: 9 } },
     })).toEqual({
       message: "lost",
-      holder: { platform: "web", deviceLabel: "Laptop", expiresIn: 9 },
-      retryAfter: 9,
+      holder: { platform: "web", deviceLabel: "Laptop" },
     });
   });
 
   it("formats shared audio/video wording with safe fallbacks", () => {
     expect(conflictDetailText(null)).toBe("another device is playing this library");
-    expect(conflictCountdownText(null)).toBe("");
-    expect(conflictCountdownText({ holder: { expiresIn: 24 } }))
-      .toBe("Available in about 24s");
     expect(conflictDisplayText(null, "fallback")).toBe("fallback");
     const text = conflictDisplayText({
       holder: { deviceLabel: "Studio PC", expiresIn: 24 },
     });
     expect(text).toContain("Studio PC is playing this library");
-    expect(text).toContain("Available in about 24s");
+    expect(text).not.toContain("Available in about");
     expect(text).not.toContain("viewer");
   });
 });

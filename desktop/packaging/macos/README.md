@@ -1,6 +1,6 @@
 # macOS cross-build inputs
 
-This directory builds unsigned architecture-specific application images on
+This directory builds unsigned architecture-specific application archives on
 Linux. Run `prepare-framework.sh` to assemble `pfs-sdk/GStreamer.framework`
 from the pinned runtime and development packages. `build-mac.sh` uses that
 directory by default; `GST_FRAMEWORK_ROOT` can override it. Its `Versions/1.0/lib/pkgconfig`
@@ -35,6 +35,11 @@ against the framework dylibs.
 The build uses the framework dylibs from this extraction, not Linux libraries.
 The package script repairs framework symlinks that point one directory too
 deep after the component payloads are merged.
+The staged app omits build headers, pkg-config/CMake metadata, GObject
+introspection data, and optional GStreamer cloud, conferencing, speech,
+disc-burning, and tracing plugins. The prepared SDK remains complete for
+cross-compilation. Keep the Apple media and normal playback plugins in the
+bundle; playback still needs verification on an actual Mac.
 
 The local SDK copy used for this build had 437 `.tbd` files with
 `reexported-libraries` sections removed. This works around Zig 0.15.2 and
@@ -43,9 +48,16 @@ ColorSync and CarbonCore link flags for symbols normally provided through
 reexports. Restore the untouched SDK from the pristine archive when the
 linker bug is fixed.
 
-The output is a `genisoimage` Apple hybrid ISO with a `.dmg` filename.
-`7z l` is the Linux smoke test; installation, `vtdec` playback, and Gatekeeper
-behavior still require real Mac tests. A small Mach-O launcher at
+The Linux cross-build produces `.zip` archives with preserved Unix symlinks.
+Previous builds incorrectly named an Apple hybrid ISO `.dmg`; those files are
+not native UDIF disk images and must not be distributed as DMGs. `7z l` checks
+the archive structure on Linux. On a Mac, extract the ZIP with Finder, move
+`Dogmedia.app` into Applications, then open it. Since the app is unsigned,
+macOS may require the user to select **Open Anyway** in System Settings →
+Privacy & Security after the first launch attempt. A warning-free public
+release requires Developer ID signing and Apple notarization on macOS.
+Installation, `vtdec` playback, and Gatekeeper behavior still require real Mac
+tests. A small Mach-O launcher at
 `Contents/MacOS/Dogmedia` sets the plugin path and a per-user registry
 location before starting the application binary at
 `Contents/MacOS/Dogmedia-bin`.

@@ -7,7 +7,7 @@ pub(crate) fn QueuePanel(
     app: Signal<NativeApp>,
     engine: Signal<Option<PlaybackEngine>>,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let mut dragging_id = use_signal(|| None::<MediaId>);
     let mut drag_over_id = use_signal(|| None::<MediaId>);
 
@@ -79,7 +79,15 @@ pub(crate) fn QueuePanel(
 
     rsx! {
         aside {
-            class: "queue-panel",
+            class: if snapshot.player_expanded {
+                if snapshot.queue_open {
+                    "queue-panel sidebar queue-sidebar-open"
+                } else {
+                    "queue-panel sidebar queue-sidebar-closed"
+                }
+            } else {
+                "queue-panel"
+            },
             "aria-label": "Playback queue",
             tabindex: "0",
             autofocus: true,
@@ -89,6 +97,12 @@ pub(crate) fn QueuePanel(
                     app.write().queue_open = false;
                 }
             },
+            IconButton {
+                label: "Close queue".to_owned(),
+                icon: IconName::Close,
+                class: "queue-panel-close".to_owned(),
+                onclick: move |_| app.write().queue_open = false,
+            }
             header { class: "panel-header",
                 div {
                     p { class: "eyebrow", "Up next" }

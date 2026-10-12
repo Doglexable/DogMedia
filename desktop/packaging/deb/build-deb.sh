@@ -70,3 +70,6 @@ mkdir -p "$output_dir"
 artifact="$output_dir/dogmedia-desktop_${version}_${architecture}.deb"
 dpkg-deb --root-owner-group --build "$staging_dir" "$artifact"
 echo "Created $artifact"
+if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 && "$architecture" == amd64 ]]; then
+  bash "$desktop_dir/packaging/publish-release.sh" linux-deb "$artifact"
+fi

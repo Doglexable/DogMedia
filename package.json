@@ -17,6 +17,7 @@
     "worker": "npm run worker --workspace=server",
     "build": "npm run build --workspace=web",
     "build:desktop": "cargo build --release --manifest-path desktop/Cargo.toml --bin dogmedia-desktop",
+    "clean:desktop": "cargo clean --manifest-path desktop/Cargo.toml",
     "check:desktop:native": "desktop/scripts/check-native-deps.sh",
     "check:desktop:packaging": "desktop/scripts/check-packaging.sh",
     "generate:desktop:icons": "desktop/scripts/generate-icons.sh",

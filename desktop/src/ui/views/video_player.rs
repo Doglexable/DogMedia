@@ -12,7 +12,7 @@ fn SubtitlesOverlayMenu(
     mut onclose: EventHandler<()>,
     mut onselect: EventHandler<Option<String>>,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let current_idx = snapshot.selected_subtitle;
 
     rsx! {
@@ -102,7 +102,7 @@ pub(crate) fn VideoPlayer(
     engine: Signal<Option<PlaybackEngine>>,
     video_source_id: u64,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let playback = snapshot.coordinator.snapshot();
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
@@ -302,7 +302,7 @@ pub(crate) fn VideoPlayer(
 
     rsx! {
         div {
-            class: "video-player-root",
+            class: if snapshot.queue_open { "video-player-root has-queue-sidebar" } else { "video-player-root" },
             tabindex: "0",
             autofocus: true,
             onmousemove: move |_| on_activity(),
@@ -414,7 +414,6 @@ pub(crate) fn VideoPlayer(
                         class: "video-player-scrubber-wrap",
                         onclick: move |e: MouseEvent| e.stop_propagation(),
                         Slider {
-                            variant: SliderVariant::Round,
                             min: 0.0,
                             max: max_pos,
                             step: 0.1,

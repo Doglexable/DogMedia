@@ -360,6 +360,8 @@ textarea {
   background: var(--card-bg);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
+  isolation: isolate;
+  contain: paint;
 }
 
 .library-featured-inner {

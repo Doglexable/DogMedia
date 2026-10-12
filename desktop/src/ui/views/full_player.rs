@@ -2,7 +2,7 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::VideoPlayer;
-use super::{QualityPopover, SessionConflictCard, SessionTakeoverButton, can_take_over_playback};
+use super::{QualityPopover, SessionConflictCard};
 
 #[component]
 pub(crate) fn FullPlayer(
@@ -10,7 +10,7 @@ pub(crate) fn FullPlayer(
     engine: Signal<Option<PlaybackEngine>>,
     video_source_id: u64,
 ) -> Element {
-    let snapshot = app.read().clone();
+    let snapshot = app.read();
     let playback = snapshot.coordinator.snapshot();
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
@@ -40,6 +40,7 @@ pub(crate) fn FullPlayer(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let has_lyrics = !lyrics.is_empty();
+    let lyrics_open = has_lyrics && snapshot.lyrics_visible;
     let source = artwork_url(&snapshot, media);
     let fallback = if media.is_video() {
         "▶"
@@ -145,7 +146,7 @@ pub(crate) fn FullPlayer(
 
     rsx! {
         section {
-            class: "full-player",
+            class: if snapshot.queue_open { "full-player has-queue-sidebar" } else { "full-player" },
             "aria-label": "Full player",
             tabindex: "0",
             autofocus: true,
@@ -167,7 +168,7 @@ pub(crate) fn FullPlayer(
                 class: "full-close".to_owned(),
                 onclick: move |_| app.write().player_expanded = false
             }
-            div { class: if has_lyrics { "full-layout" } else { "full-layout no-lyrics" },
+            div { class: if lyrics_open { "full-layout" } else { "full-layout no-lyrics" },
                 div { class: "full-primary",
                     div { class: "full-stage",
                         if media.is_video() {
@@ -199,7 +200,6 @@ pub(crate) fn FullPlayer(
                         MusicProgress {
                             position: playback.position,
                             duration: playback.duration,
-                            variant: SliderVariant::Round,
                             class: "full-music-progress".to_owned(),
                             disabled: session_unavailable,
                             onseek: move |position| seek(app, engine, position),
@@ -253,18 +253,25 @@ pub(crate) fn FullPlayer(
                         }
                     }
                     div { class: "full-tools",
-                        if session_unavailable {
-                            SessionConflictCard { holder: playback.holder.clone(), retry_after: playback.holder_retry_after }
-                            if can_take_over_playback(snapshot.access_tier) {
-                                SessionTakeoverButton { app, engine }
-                            }
-                        }
                         if media.is_audio() {
                             IconButton {
                                 label: if media.liked { "Remove from favorites".to_owned() } else { "Add to favorites".to_owned() },
                                 icon: IconName::Heart,
                                 class: if media.liked { "favorite active".to_owned() } else { "favorite".to_owned() },
                                 onclick: { let liked = !media.liked; move |_| set_favorite(app, liked) }
+                            }
+                            button {
+                                class: if lyrics_open { "icon-button lyrics-toggle active" } else { "icon-button lyrics-toggle" },
+                                r#type: "button",
+                                disabled: !has_lyrics,
+                                title: if !has_lyrics { "No lyrics available for this track" } else if lyrics_open { "Hide lyrics" } else { "Show lyrics" },
+                                "aria-label": if !has_lyrics { "Lyrics unavailable" } else if lyrics_open { "Hide lyrics" } else { "Show lyrics" },
+                                "aria-pressed": lyrics_open,
+                                onclick: move |_| {
+                                    let visible = app.read().lyrics_visible;
+                                    app.write().lyrics_visible = !visible;
+                                },
+                                Icon { name: IconName::Lyrics }
                             }
                         }
                         if !media.is_photo() {
@@ -295,13 +302,20 @@ pub(crate) fn FullPlayer(
                         }
                     }
                 }
-                if has_lyrics {
+                if lyrics_open {
                     aside { class: "lyrics-panel", "aria-label": "Lyrics",
                         p { class: "eyebrow", "Lyrics" }
                         div { class: "lyrics-lines",
                             for line in lyrics.iter() { p { "{line}" } }
                         }
                     }
+                }
+            }
+            if session_unavailable {
+                SessionConflictCard {
+                    holder: playback.holder.clone(),
+                    app: Some(app),
+                    engine: Some(engine),
                 }
             }
         }

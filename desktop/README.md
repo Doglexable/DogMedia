@@ -71,7 +71,7 @@ texture, while protected photos render directly from their fetched bytes.
 ## Experimental macOS cross-build from Linux
 
 The macOS build needs the Apple Rust targets, `cargo-zigbuild` 0.23.4, Zig
-0.16.0, `pkg-config`, `genisoimage`, `7z`, `bsdtar`, `cpio`, Python 3, and a
+0.16.0, `pkg-config`, `zip`, `7z`, `bsdtar`, `cpio`, Python 3, and a
 macOS 15.5 SDK. It also needs
 the official GStreamer 1.28.6 universal runtime and development packages,
 extracted to one `GStreamer.framework` directory. See
@@ -94,12 +94,16 @@ bash desktop/packaging/macos/prepare-framework.sh
 bash desktop/packaging/macos/build-mac.sh
 ```
 
-The script writes separate arm64 and x86_64 unsigned images to
-`dist/packages/`. This uses `genisoimage`'s Apple hybrid ISO mode and has only
-been listed with `7z` on Linux; mounting and playback on real Macs remain to
-be checked. The launcher sets GStreamer plugin paths to the bundled framework.
-Unsigned builds can trigger Gatekeeper warnings. A signed and notarized
-release requires an Apple-hosted signing job and operator credentials.
+The script writes separate arm64 and x86_64 unsigned ZIP archives to
+`dist/packages/`. These preserve the app's symlinks and are listed with `7z`
+on Linux; extraction and playback on real Macs remain to be checked. The
+launcher sets GStreamer plugin paths to the bundled framework. In Finder,
+extract the ZIP, move `Dogmedia.app` to Applications, and try opening it.
+Unsigned builds can trigger Gatekeeper warnings; if you trust the archive,
+use **System Settings → Privacy & Security → Open Anyway** after the first
+launch attempt. A warning-free release requires Developer ID signing and
+notarization on a Mac. Do not use old `.dmg` files from this Linux builder:
+they are ISO images with the wrong extension, not native macOS disk images.
 
 The SDK comes from Apple's Xcode distribution and is subject to Apple's
 license. The tested SDK 15.5 archive was obtained through the community
@@ -400,3 +404,23 @@ the local viewer ID.
 
 MPRIS requires the user session D-Bus. If that bus is unavailable, Dogmedia
 logs one warning and keeps the in-app playback controls working normally.
+
+## Disk space and cleanup
+
+Rust incremental compilation and debug/release targets can cause `desktop/target/` to grow to 20+ GB over time.
+
+### Safe to delete
+
+- **`desktop/target/`**: Cargo compilation output, dependencies, and cached binaries. Can be cleaned anytime with:
+  ```bash
+  cargo clean --manifest-path desktop/Cargo.toml
+  # or
+  rm -rf desktop/target
+  ```
+- **`desktop/packaging/macos/__pycache__/`**: Python bytecode cache from packaging scripts.
+- **`desktop/bundle/`** or **`desktop/.dioxus/`**: Ephemeral Dioxus packaging artifacts (if generated).
+
+### DO NOT delete
+
+- **`desktop/vendor/`**: Local vendored crates (`dioxus-native` and `wgpu_context`). These are tracked in Git and required to build the application.
+- **`desktop/src/`**, **`desktop/assets/`**, **`desktop/resources/`**, **`desktop/packaging/`**, **`desktop/tests/`**, **`desktop/flatpak/`**, **`desktop/scripts/`**: Tracked source code, assets, icons, packaging specs, and test suites.
