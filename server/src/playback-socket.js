@@ -94,8 +94,9 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
     if (closed) return;
     revision += 1;
     const lease = await getExclusiveLease(fastify.redis);
+    const recipients = [...sockets];
     const holder = lease ? await publicHolderWithPlayback(fastify.redis, lease, lease.expiresIn) : null;
-    for (const entry of sockets) {
+    for (const entry of recipients) {
       if (entry.boundSessionId && lease?.sessionId !== entry.boundSessionId) {
         const revokedSessionId = entry.boundSessionId;
         entry.revokedSessionId = entry.boundSessionId;
