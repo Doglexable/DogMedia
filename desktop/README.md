@@ -270,7 +270,7 @@ The versioned package is written to `dist/packages/`. Install or upgrade it
 with APT so runtime dependencies are resolved automatically:
 
 ```bash
-sudo apt install ./dist/packages/dogmedia-desktop_0.1.0_amd64.deb
+sudo apt install ./dist/packages/dogmedia-desktop_0.5.0_amd64.deb
 ```
 
 The architecture and version in the filename are detected automatically and
@@ -291,7 +291,7 @@ The RPM is written to `dist/packages/`. Install it through DNF so runtime
 dependencies are resolved:
 
 ```bash
-sudo dnf install ./dist/packages/dogmedia-desktop-0.1.0-1.*.rpm
+sudo dnf install ./dist/packages/dogmedia-desktop-0.5.0-1.*.rpm
 ```
 
 The release and architecture portion of the filename may differ. Remove the

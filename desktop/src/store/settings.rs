@@ -138,6 +138,13 @@ pub fn subtitle_cache_path(
     Ok(directory.join(format!("{subtitle_id}.{extension}")))
 }
 
+pub fn artwork_cache_path(key: &str, extension: &str) -> Result<PathBuf, SettingsError> {
+    let directory = project_dirs()?.cache_dir().join("artwork");
+    fs::create_dir_all(&directory)?;
+    let safe_name = key.replace([':', '/', '\\', ' '], "_");
+    Ok(directory.join(format!("{safe_name}.{extension}")))
+}
+
 fn project_dirs() -> Result<ProjectDirs, SettingsError> {
     ProjectDirs::from("com", "dogmedia", "Desktop").ok_or(SettingsError::NoApplicationDirectory)
 }

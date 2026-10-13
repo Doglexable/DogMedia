@@ -204,8 +204,14 @@ pub(crate) fn VideoPlayer(
         format!("Volume {vol_percent}%")
     };
 
-    let duration = playback.duration.max(media.duration.unwrap_or(0.0));
-    let max_pos = duration.max(playback.position).max(1.0);
+    let timing = try_consume_context::<Signal<PlaybackTiming>>();
+    let timing_data = timing.map(|t| *t.read());
+    let current_position = timing_data.map(|t| t.position).unwrap_or(playback.position);
+    let current_duration = timing_data
+        .and_then(|t| (t.duration > 0.0).then_some(t.duration))
+        .unwrap_or(playback.duration)
+        .max(media.duration.unwrap_or(0.0));
+    let max_pos = current_duration.max(current_position).max(1.0);
 
     let on_activity = move || {
         let mut last_activity = last_activity;
@@ -417,7 +423,7 @@ pub(crate) fn VideoPlayer(
                             min: 0.0,
                             max: max_pos,
                             step: 0.1,
-                            value: playback.position,
+                            value: current_position,
                             aria_label: "Seek slider".to_owned(),
                             class: "video-player-scrubber-slider".to_owned(),
                             onchange: move |pos| {
@@ -532,9 +538,9 @@ pub(crate) fn VideoPlayer(
                                 }
                             }
                             div { class: "video-player-time-display",
-                                span { "{format_duration(Some(playback.position))}" }
+                                span { "{format_duration(Some(current_position))}" }
                                 span { class: "opacity-50 mx-1", "/" }
-                                span { class: "opacity-75", "{format_duration(Some(duration))}" }
+                                span { class: "opacity-75", "{format_duration(Some(current_duration))}" }
                             }
                         }
 

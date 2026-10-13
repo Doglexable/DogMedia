@@ -26,6 +26,11 @@
   <url type="homepage">https://github.com/Doglexable/Dogmedia</url>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.5.0" date="2026-10-13">
+      <description>
+        <p>Spotify-style sliding queue sidebar, Connect bar, menubar integration, bounded memory artwork caching, and real-time playback synchronization.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-30">
       <description>
         <p>Initial native Linux desktop client.</p>

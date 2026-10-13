@@ -38,11 +38,20 @@ impl Default for AppState {
 }
 
 impl AppState {
+    pub fn clear(&mut self) {
+        self.generation += 1;
+        self.items.clear();
+        self.items.shrink_to_fit();
+        self.next_cursor = None;
+        self.loading = false;
+    }
+
     pub fn begin_query(&mut self, mut query: BrowseQuery) -> u64 {
         self.generation += 1;
         query.cursor = None;
         self.query = query;
         self.items.clear();
+        self.items.shrink_to_fit();
         self.next_cursor = None;
         self.loading = true;
         self.generation
@@ -67,6 +76,7 @@ impl AppState {
             self.items.iter().map(|item| item.id).collect()
         } else {
             self.items.clear();
+            self.items.shrink_to_fit();
             HashSet::new()
         };
         self.items
@@ -138,5 +148,40 @@ mod tests {
         assert_eq!(state.items.len(), 1);
         let (_, query) = state.next_page().unwrap();
         assert_eq!(query.cursor.as_ref().map(Cursor::as_str), Some("next"));
+    }
+
+    #[test]
+    fn clear_purges_items_cursor_and_increments_generation() {
+        let mut state = AppState::default();
+        let query_gen = state.begin_query(BrowseQuery::default());
+        assert!(state.apply_page(
+            query_gen,
+            BrowsePage {
+                items: vec![media(MediaId::new(1))],
+                next_cursor: Some("cursor".into()),
+            },
+            false,
+        ));
+        assert_eq!(state.items.len(), 1);
+        assert_eq!(
+            state.next_cursor.as_ref().map(Cursor::as_str),
+            Some("cursor")
+        );
+
+        state.clear();
+        assert!(state.items.is_empty());
+        assert_eq!(state.items.capacity(), 0);
+        assert_eq!(state.next_cursor, None);
+        assert!(!state.loading);
+
+        // A response from the old query cannot apply after clear
+        assert!(!state.apply_page(
+            query_gen,
+            BrowsePage {
+                items: vec![media(MediaId::new(2))],
+                next_cursor: None,
+            },
+            false,
+        ));
     }
 }

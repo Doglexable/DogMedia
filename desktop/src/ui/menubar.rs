@@ -32,10 +32,7 @@ struct MenubarSubContext {
 /* ========================================================== */
 
 #[component]
-pub fn Menubar(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn Menubar(#[props(default)] class: String, children: Element) -> Element {
     let mut active_menu = use_signal(|| None::<String>);
     provide_context(MenubarContext { active_menu });
 
@@ -74,7 +71,10 @@ pub fn MenubarMenu(
     let menu_id = use_hook(|| {
         id.unwrap_or_else(|| {
             static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
-            format!("menubar-menu-{}", COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+            format!(
+                "menubar-menu-{}",
+                COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            )
         })
     });
 
@@ -95,10 +95,7 @@ pub fn MenubarMenu(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarTrigger(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarTrigger(#[props(default)] class: String, children: Element) -> Element {
     let menubar_ctx = use_context::<MenubarContext>();
     let menu_ctx = use_context::<MenubarMenuContext>();
     let mut active_menu = menubar_ctx.active_menu;
@@ -139,10 +136,7 @@ pub fn MenubarTrigger(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarContent(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarContent(#[props(default)] class: String, children: Element) -> Element {
     let menubar_ctx = use_context::<MenubarContext>();
     let menu_ctx = use_context::<MenubarMenuContext>();
     let is_open = menubar_ctx.active_menu.read().as_ref() == Some(&menu_ctx.menu_id);
@@ -167,10 +161,7 @@ pub fn MenubarContent(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarGroup(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarGroup(#[props(default)] class: String, children: Element) -> Element {
     rsx! {
         div {
             class: "menubar-group {class}",
@@ -221,10 +212,7 @@ pub fn MenubarItem(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarShortcut(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarShortcut(#[props(default)] class: String, children: Element) -> Element {
     rsx! {
         span {
             class: "menubar-shortcut {class}",
@@ -240,9 +228,7 @@ pub fn MenubarShortcut(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarSeparator(
-    #[props(default)] class: String,
-) -> Element {
+pub fn MenubarSeparator(#[props(default)] class: String) -> Element {
     rsx! {
         div {
             class: "menubar-separator {class}",
@@ -256,10 +242,7 @@ pub fn MenubarSeparator(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarLabel(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarLabel(#[props(default)] class: String, children: Element) -> Element {
     rsx! {
         div {
             class: "menubar-label {class}",
@@ -324,7 +307,10 @@ pub fn MenubarRadioGroup<T: Clone + PartialEq + 'static>(
     onchange: EventHandler<T>,
     children: Element,
 ) -> Element {
-    provide_context(MenubarRadioContext { current: value, onchange });
+    provide_context(MenubarRadioContext {
+        current: value,
+        onchange,
+    });
 
     rsx! {
         div {
@@ -382,10 +368,7 @@ pub fn MenubarRadioItem<T: Clone + PartialEq + 'static>(
 /* ========================================================== */
 
 #[component]
-pub fn MenubarSub(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarSub(#[props(default)] class: String, children: Element) -> Element {
     let mut is_sub_open = use_signal(|| false);
     provide_context(MenubarSubContext { is_sub_open });
 
@@ -400,10 +383,7 @@ pub fn MenubarSub(
 }
 
 #[component]
-pub fn MenubarSubTrigger(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarSubTrigger(#[props(default)] class: String, children: Element) -> Element {
     let mut sub_ctx = use_context::<MenubarSubContext>();
     let is_open = *sub_ctx.is_sub_open.read();
 
@@ -429,10 +409,7 @@ pub fn MenubarSubTrigger(
 }
 
 #[component]
-pub fn MenubarSubContent(
-    #[props(default)] class: String,
-    children: Element,
-) -> Element {
+pub fn MenubarSubContent(#[props(default)] class: String, children: Element) -> Element {
     let sub_ctx = use_context::<MenubarSubContext>();
     let is_open = *sub_ctx.is_sub_open.read();
 

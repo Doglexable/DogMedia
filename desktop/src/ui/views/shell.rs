@@ -32,21 +32,6 @@ pub(crate) fn Shell(
     let has_media = snapshot.coordinator.snapshot().media.is_some();
     let playback = snapshot.coordinator.snapshot();
 
-    let mut queue_mounted = use_signal(|| snapshot.queue_open);
-    use_effect(move || {
-        let is_open = app.read().queue_open;
-        if is_open {
-            *queue_mounted.write() = true;
-        } else {
-            spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(260)).await;
-                if !app.read().queue_open {
-                    *queue_mounted.write() = false;
-                }
-            });
-        }
-    });
-
     let on_shell_keydown = move |event: KeyboardEvent| {
         let player_expanded = app.read().player_expanded;
         match event.key() {
@@ -221,7 +206,7 @@ pub(crate) fn Shell(
                     }
                 }
             }
-            if *queue_mounted.read() {
+            if snapshot.queue_open {
                 if snapshot.local_mode {
                     aside { class: "queue-panel", "aria-label": "Local playback queue",
                         header { class: "panel-header",
@@ -229,7 +214,7 @@ pub(crate) fn Shell(
                             IconButton { label: "Close queue".to_owned(), icon: IconName::Close, onclick: move |_| app.write().queue_open = false }
                         }
                         div { class: "track-list",
-                            for (index, track) in snapshot.local_tracks.iter().enumerate() {
+                            for (index, track) in snapshot.local_tracks.iter().enumerate().take(100) {
                                 div { key: "{track.path.display()}", class: if snapshot.local_index == Some(index) { "track-row active" } else { "track-row" },
                                     button { class: "track-main", onclick: move |_| play_local_at(app, engine, index),
                                         span { class: "track-leading", "{index + 1}" }

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Dogmedia",
     "slug": "dogmedia-mobile",
-    "version": "0.1.0",
+    "version": "0.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "dogmedia",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.dogmedia.mobile",
-      "versionCode": 1,
+      "versionCode": 5,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
       ],

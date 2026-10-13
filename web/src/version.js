@@ -8,7 +8,7 @@ export const APP_VERSION =
   (typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "") ||
   import.meta.env?.VITE_APP_VERSION ||
   packageJson.version ||
-  "0.1.0";
+  "0.5.0";
 
 export const APP_VERSION_LABEL = `v${APP_VERSION.replace(/^v/, "")}`;
 export const APP_NAME = "Dogmedia";

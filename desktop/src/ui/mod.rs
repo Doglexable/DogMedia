@@ -31,7 +31,7 @@ use crate::{
         EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RedrawCallback,
         RepeatMode, VideoFrameReceiver,
     },
-    store::{ColorScheme, Settings, SettingsError, SettingsStore},
+    store::{ColorScheme, Settings, SettingsError, SettingsStore, artwork_cache_path},
 };
 
 pub(crate) use kit::{
@@ -149,11 +149,19 @@ impl ArtworkCache {
 
     fn evict_bytes(&mut self, key: &str) {
         if let Some(ArtworkState::Ready(value)) = self.entries.get(key) {
-            self.ready_bytes -= value.len();
+            self.ready_bytes = self.ready_bytes.saturating_sub(value.len());
         }
     }
 
     fn evict(&mut self, key: &str) {
+        if let Some(file_path) = match self.entries.get(key) {
+            Some(ArtworkState::Ready(url)) => url::Url::parse(url)
+                .ok()
+                .and_then(|u| u.to_file_path().ok()),
+            _ => None,
+        } {
+            let _ = std::fs::remove_file(file_path);
+        }
         self.evict_bytes(key);
         self.entries.remove(key);
     }
@@ -162,6 +170,35 @@ impl ArtworkCache {
         self.evict(key);
         self.order.retain(|entry| entry != key);
     }
+
+    fn clear_other_media(&mut self, keep_media: Option<&Media>) {
+        let keep_key = keep_media.map(Self::key);
+        let media_keys: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|key| key.starts_with("media:") && keep_key.as_deref() != Some(key.as_str()))
+            .cloned()
+            .collect();
+        for key in media_keys {
+            self.remove(&key);
+        }
+    }
+
+    fn clear_all(&mut self) {
+        let keys: Vec<String> = self.entries.keys().cloned().collect();
+        for key in &keys {
+            self.evict(key);
+        }
+        self.entries.clear();
+        self.order.clear();
+        self.ready_bytes = 0;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PlaybackTiming {
+    pub position: f64,
+    pub duration: f64,
 }
 
 #[derive(Clone)]
@@ -185,6 +222,7 @@ pub(crate) struct NativeApp {
     local_mode: bool,
     local_scan_generation: u64,
     engine_signal: Option<Signal<Option<PlaybackEngine>>>,
+    timing_signal: Option<Signal<PlaybackTiming>>,
     video_frames: VideoFrameReceiver,
     redraw_callback: Option<RedrawCallback>,
     coordinator: PlaybackCoordinator,
@@ -268,6 +306,7 @@ impl NativeApp {
             local_mode: false,
             local_scan_generation: 0,
             engine_signal: None,
+            timing_signal: None,
             video_frames: VideoFrameReceiver::default(),
             redraw_callback: None,
             coordinator,
@@ -307,6 +346,83 @@ impl NativeApp {
             liked: self.favorites_only,
             cursor: None,
             limit: Limit::new(50),
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn trim_allocator() {
+    unsafe {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        let _ = malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn trim_allocator() {}
+
+impl NativeApp {
+    pub(crate) fn purge_server_memory(&mut self) {
+        self.categories.clear();
+        self.categories.shrink_to_fit();
+        self.library.clear();
+        self.dashboard_generation += 1;
+        self.dashboard = DashboardSummary::default();
+        self.queue = None;
+        self.session = None;
+        self.photo_data_url = None;
+        self.lyrics.clear();
+        self.lyrics.shrink_to_fit();
+        self.subtitles.clear();
+        self.subtitles.shrink_to_fit();
+        self.subtitle_cues.clear();
+        self.subtitle_cues.shrink_to_fit();
+        self.artwork.clear_all();
+        self.socket_ready = false;
+        self.socket_session_id = None;
+        self.socket_last_signature = None;
+        self.socket_last_revision = None;
+        self.video_frames.clear();
+        trim_allocator();
+    }
+
+    pub(crate) fn purge_local_memory(&mut self) {
+        self.local_scan_generation += 1;
+        self.local_tracks.clear();
+        self.local_tracks.shrink_to_fit();
+        self.local_index = None;
+        self.local_mode = false;
+        self.artwork.clear_all();
+        self.photo_data_url = None;
+        self.lyrics.clear();
+        self.lyrics.shrink_to_fit();
+        self.subtitles.clear();
+        self.subtitles.shrink_to_fit();
+        self.subtitle_cues.clear();
+        self.subtitle_cues.shrink_to_fit();
+        self.video_frames.clear();
+        trim_allocator();
+    }
+
+    pub(crate) fn on_server_connected(&mut self) {
+        let current_media = self.coordinator.snapshot().media.clone();
+        self.purge_local_memory();
+        self.artwork.clear_other_media(current_media.as_ref());
+        self.photo_data_url = None;
+        self.library.clear();
+        self.dashboard_generation += 1;
+        self.dashboard = DashboardSummary::default();
+    }
+
+    pub(crate) fn on_server_disconnected(&mut self) {
+        self.purge_server_memory();
+        self.coordinator.stop();
+        if let Some(engine) = self.engine_signal
+            && let Some(player) = engine.read().as_ref()
+        {
+            let _ = player.stop();
         }
     }
 }
@@ -426,6 +542,8 @@ fn App() -> Element {
         })
     };
     let engine = use_signal(|| None::<PlaybackEngine>);
+    let timing = use_signal(PlaybackTiming::default);
+    provide_context(timing);
     let effect_trigger = trigger_redraw.clone();
     use_effect(move || {
         if let Some(engine_ref) = engine.read().as_ref() {
@@ -462,6 +580,7 @@ fn App() -> Element {
     let video_source_id = dioxus_native::use_wgpu(move || VideoPaintSource::new(frames.clone()));
     use_hook(move || {
         app.write().engine_signal = Some(engine);
+        app.write().timing_signal = Some(timing);
         app.write().redraw_callback = Some(trigger_redraw.clone());
         connect(app);
         if matches!(app.read().library.access, AccessView::Unreachable(_)) {
@@ -505,7 +624,7 @@ fn App() -> Element {
                         )
                 };
                 tokio::time::sleep(std::time::Duration::from_millis(if active {
-                    100
+                    500
                 } else {
                     1000
                 }))
@@ -554,7 +673,14 @@ fn App() -> Element {
                                 state.socket_last_revision = None;
                             }
                             SocketEvent::Disconnected => {
-                                app.write().socket_ready = false;
+                                let mut state = app.write();
+                                state.socket_ready = false;
+                                state.socket_session_id = None;
+                                state.socket_last_signature = None;
+                                state.socket_last_revision = None;
+                                if state.session.is_none() && state.coordinator.snapshot().session_unavailable {
+                                    state.coordinator.remote_available();
+                                }
                             }
                             SocketEvent::Error { code, session_id } => {
                                 if code == "PLAYBACK_LEASE_LOST" {
@@ -642,10 +768,14 @@ fn connect(mut app: Signal<NativeApp>) {
         match client.check_access().await {
             Ok(status) => {
                 exit_local_mode(app);
-                app.write().access_tier = status.tier;
-                app.write().library.access = AccessView::Ready;
-                app.write().settings_connecting = false;
-                app.write().settings_error = None;
+                {
+                    let mut state = app.write();
+                    state.on_server_connected();
+                    state.access_tier = status.tier;
+                    state.library.access = AccessView::Ready;
+                    state.settings_connecting = false;
+                    state.settings_error = None;
+                }
                 match client.categories().await {
                     Ok(value) => {
                         app.write().categories = value.clone();
@@ -660,15 +790,20 @@ fn connect(mut app: Signal<NativeApp>) {
             }
             Err(ApiError::AccessDenied) => {
                 let msg = "Access Denied: Server reached, but this computer's IP is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
-                app.write().library.access = AccessView::Denied;
-                app.write().settings_connecting = false;
-                app.write().status = Some(msg);
+                let mut state = app.write();
+                state.on_server_disconnected();
+                state.library.access = AccessView::Denied;
+                state.settings_connecting = false;
+                state.status = Some(msg);
             }
             Err(error) => {
                 let user_msg = error.user_message();
-                app.write().library.access = AccessView::Unreachable(user_msg);
-                app.write().settings_connecting = false;
-                app.write().status = None;
+                let mut state = app.write();
+                state.on_server_disconnected();
+                state.library.access = AccessView::Unreachable(user_msg);
+                state.settings_connecting = false;
+                state.status = None;
+                drop(state);
                 auto_open_local_folder(app);
             }
         }
@@ -692,13 +827,10 @@ fn exit_local_mode(mut app: Signal<NativeApp>) {
     let engine = app.read().engine_signal;
     {
         let mut state = app.write();
-        state.local_scan_generation += 1;
         if !state.local_mode {
             return;
         }
-        state.local_mode = false;
-        state.local_tracks.clear();
-        state.local_index = None;
+        state.purge_local_memory();
         state.queue = None;
         state.queue_open = false;
         state.coordinator.stop();
@@ -766,18 +898,13 @@ fn open_local_folder(
         }
         {
             let mut state = app.write();
+            state.purge_server_memory();
             state.local_tracks = tracks;
             state.local_index = None;
             state.local_mode = true;
             state.settings_open = false;
-            state.session = None;
-            state.queue = None;
-            state.artwork = ArtworkCache::default();
             state.settings.local_folder = Some(path);
             state.status = None;
-            state.lyrics.clear();
-            state.subtitles.clear();
-            state.photo_data_url = None;
             if let Err(error) = state.store.save(&state.settings) {
                 state.status = Some(error.to_string());
             }
@@ -854,6 +981,8 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         let mut state = app.write();
         state.local_index = Some(index);
         state.coordinator.load(media);
+        state.artwork.clear_other_media(None);
+        state.photo_data_url = None;
         state.queue = Some(QueueWindow {
             items: Vec::new(),
             offset: 0,
@@ -885,6 +1014,12 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     match result {
         Ok(()) => {
             app.write().coordinator.loaded(sequence, 0.0);
+            if let Some(mut timing) = app.read().timing_signal {
+                timing.set(PlaybackTiming {
+                    position: 0.0,
+                    duration: track.duration.unwrap_or(0.0),
+                });
+            }
         }
         Err(error) => {
             app.write().coordinator.failed(sequence, &error);
@@ -1031,7 +1166,9 @@ fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
     };
     spawn(async move {
         let result = match client.category_thumbnail(category.id).await {
-            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_data_url(bytes)))),
+            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_source_url(
+                &key, bytes,
+            )))),
             Err(ApiError::Http { status: 404, .. }) => Some(ArtworkState::Missing),
             Err(error) => {
                 tracing::debug!(%error, category_id = %category.id, "category artwork request failed");
@@ -1050,6 +1187,9 @@ fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
     if app.read().local_mode {
         return;
     }
+    // Immediately clear artwork data from any previous media so old data does not linger in memory
+    app.write().artwork.clear_other_media(Some(&media));
+
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1058,7 +1198,9 @@ fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
     };
     spawn(async move {
         let result = match client.media_thumbnail(media.id).await {
-            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_data_url(bytes)))),
+            Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_source_url(
+                &key, bytes,
+            )))),
             Err(ApiError::Http { status: 404, .. }) => Some(ArtworkState::Missing),
             Err(error) => {
                 tracing::debug!(%error, media_id = %media.id, "artwork request failed");
@@ -1080,6 +1222,41 @@ pub(crate) fn brand_mark_data_url() -> &'static str {
         format!("data:image/png;base64,{encoded}")
     });
     &BRAND_MARK
+}
+
+fn artwork_extension(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(b"\x89PNG") {
+        "png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "jpg"
+    } else if bytes.starts_with(b"GIF8") {
+        "gif"
+    } else {
+        "webp"
+    }
+}
+
+fn artwork_file_url(key: &str, bytes: &[u8]) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (key, bytes);
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let ext = artwork_extension(bytes);
+        let path = artwork_cache_path(key, ext).ok()?;
+        std::fs::write(&path, bytes).ok()?;
+        url::Url::from_file_path(&path).ok().map(|u| u.to_string())
+    }
+}
+
+fn artwork_source_url(key: &str, bytes: Vec<u8>) -> String {
+    if let Some(file_url) = artwork_file_url(key, &bytes) {
+        file_url
+    } else {
+        artwork_data_url(bytes)
+    }
 }
 
 fn artwork_data_url(bytes: Vec<u8>) -> String {
@@ -1540,12 +1717,24 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
 
     if let Some(position) = position {
         let duration = effective_duration.unwrap_or(position);
-        // Read-only pre-check: taking a write guard below marks the whole
-        // app signal dirty (full re-render), so only write on real movement.
-        // While paused this skips ~600 no-op writes/minute (Plan 059).
+        // Read-only pre-check: taking a write guard marks the whole
+        // app signal dirty (full re-render). Instead, update NativeApp
+        // timing silently and publish to dedicated timing_signal listeners.
         let changed = app.read().coordinator.timing_changed(position, duration);
         if changed {
-            app.write().coordinator.update_timing(position, duration);
+            #[allow(deprecated)]
+            app.write_silent()
+                .coordinator
+                .update_timing(position, duration);
+            if let Some(mut timing) = app.read().timing_signal {
+                let current_timing = *timing.read();
+                let ui_changed = (current_timing.position - position).abs() >= 1.0
+                    || (current_timing.duration - duration).abs() >= 1.0;
+                if ui_changed {
+                    timing.set(PlaybackTiming { position, duration });
+                    trim_allocator();
+                }
+            }
         }
     }
     if app.read().local_mode {
@@ -1939,10 +2128,16 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     }
     app.read().video_frames.clear();
     app.write().coordinator.stop();
+    if let Some(mut timing) = app.read().timing_signal {
+        timing.set(PlaybackTiming {
+            position: 0.0,
+            duration: 0.0,
+        });
+    }
     // Thumbnail responses are held as base64 data URLs in the native signal.
     // Release them with the playback session so repeated connected playback
     // cannot retain every album/track artwork until the process exits.
-    app.write().artwork = ArtworkCache::default();
+    app.write().artwork.clear_all();
     app.write().photo_data_url = None;
     app.write().lyrics.clear();
     app.write().subtitles.clear();
@@ -1982,6 +2177,13 @@ fn seek(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, posi
         engine.seek(position);
     }
     app.write().coordinator.update_position(position);
+    if let Some(mut timing) = app.read().timing_signal {
+        let dur = app.read().coordinator.snapshot().duration;
+        timing.set(PlaybackTiming {
+            position,
+            duration: dur,
+        });
+    }
 }
 
 fn skip_seconds(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>, offset: f64) {
@@ -2743,6 +2945,10 @@ fn save_settings(mut app: Signal<NativeApp>) {
                 return;
             }
 
+            if url_changed {
+                app.write().on_server_disconnected();
+            }
+
             match ApiClient::new(
                 &candidate.server_url.to_string(),
                 candidate.viewer_id.clone(),
@@ -2768,13 +2974,17 @@ fn save_settings(mut app: Signal<NativeApp>) {
                         match client.check_access().await {
                             Ok(status) => {
                                 exit_local_mode(app);
-                                app.write().access_tier = status.tier;
-                                app.write().library.access = AccessView::Ready;
-                                app.write().settings_open = false;
-                                app.write().settings_connecting = false;
-                                app.write().settings_error = None;
-                                app.write().status =
-                                    Some("Connected to server successfully.".to_owned());
+                                {
+                                    let mut state = app.write();
+                                    state.on_server_connected();
+                                    state.access_tier = status.tier;
+                                    state.library.access = AccessView::Ready;
+                                    state.settings_open = false;
+                                    state.settings_connecting = false;
+                                    state.settings_error = None;
+                                    state.status =
+                                        Some("Connected to server successfully.".to_owned());
+                                }
 
                                 match client.categories().await {
                                     Ok(value) => {
@@ -2790,22 +3000,27 @@ fn save_settings(mut app: Signal<NativeApp>) {
                             }
                             Err(ApiError::AccessDenied) => {
                                 let msg = "Access Denied: The server received the request, but this computer's IP address is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
-                                app.write().library.access = AccessView::Denied;
-                                app.write().settings_connecting = false;
-                                app.write().settings_error = Some(msg.clone());
-                                app.write().status = Some(msg);
-                                app.write().settings_open = true;
+                                let mut state = app.write();
+                                state.on_server_disconnected();
+                                state.library.access = AccessView::Denied;
+                                state.settings_connecting = false;
+                                state.settings_error = Some(msg.clone());
+                                state.status = Some(msg);
+                                state.settings_open = true;
                             }
                             Err(error) => {
                                 let user_msg = error.user_message();
                                 let msg = format!(
                                     "Cannot connect to server: {user_msg}. Please check the server address, port, and network connection."
                                 );
-                                app.write().library.access = AccessView::Unreachable(user_msg);
-                                app.write().settings_connecting = false;
-                                app.write().settings_error = Some(msg.clone());
-                                app.write().status = None;
-                                app.write().settings_open = true;
+                                let mut state = app.write();
+                                state.on_server_disconnected();
+                                state.library.access = AccessView::Unreachable(user_msg);
+                                state.settings_connecting = false;
+                                state.settings_error = Some(msg.clone());
+                                state.status = None;
+                                state.settings_open = true;
+                                drop(state);
                                 auto_open_local_folder(app);
                             }
                         }
@@ -2813,8 +3028,10 @@ fn save_settings(mut app: Signal<NativeApp>) {
                 }
                 Err(error) => {
                     let msg = error.user_message();
-                    app.write().settings_error = Some(msg.clone());
-                    app.write().status = Some(msg);
+                    let mut state = app.write();
+                    state.on_server_disconnected();
+                    state.settings_error = Some(msg.clone());
+                    state.status = Some(msg);
                 }
             }
         }
@@ -3083,6 +3300,68 @@ mod tests {
     }
 
     #[test]
+    fn artwork_cache_clears_other_media_immediately() {
+        let mut cache = ArtworkCache::default();
+        let media_1: Media = serde_json::from_value(serde_json::json!({"id": 101})).unwrap();
+        let media_2: Media = serde_json::from_value(serde_json::json!({"id": 102})).unwrap();
+
+        let key_1 = cache.start(&media_1).unwrap();
+        cache.finish(
+            key_1.clone(),
+            ArtworkState::Ready(Arc::new("data:image/png;base64,TRACK1".to_owned())),
+        );
+        assert!(cache.get(&media_1).is_some());
+        assert_eq!(cache.ready_bytes, "data:image/png;base64,TRACK1".len());
+
+        // When switching to media_2, clear other media immediately
+        cache.clear_other_media(Some(&media_2));
+        assert!(cache.get(&media_1).is_none());
+        assert_eq!(cache.ready_bytes, 0);
+
+        let key_2 = cache.start(&media_2).unwrap();
+        cache.finish(
+            key_2,
+            ArtworkState::Ready(Arc::new("data:image/png;base64,TRACK2".to_owned())),
+        );
+        assert!(cache.get(&media_2).is_some());
+        assert_eq!(cache.ready_bytes, "data:image/png;base64,TRACK2".len());
+
+        // When stopping or clearing all media
+        cache.clear_other_media(None);
+        assert!(cache.get(&media_2).is_none());
+        assert_eq!(cache.ready_bytes, 0);
+    }
+
+    #[test]
+    fn artwork_disk_caching_and_eviction() {
+        let test_bytes = b"\x89PNG\r\n\x1a\nfake_png_data";
+        let key = "media:999:test_version";
+        let url = artwork_source_url(key, test_bytes.to_vec());
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert!(url.starts_with("file://"));
+            let parsed = url::Url::parse(&url).unwrap();
+            let file_path = parsed.to_file_path().unwrap();
+            assert!(file_path.exists());
+            assert_eq!(std::fs::read(&file_path).unwrap(), test_bytes);
+
+            // When evicted from ArtworkCache, file should be removed from disk
+            let mut cache = ArtworkCache::default();
+            cache
+                .entries
+                .insert(key.to_string(), ArtworkState::Ready(Arc::new(url)));
+            cache.evict(key);
+            assert!(!file_path.exists());
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            assert!(url.starts_with("data:image/png;base64,"));
+        }
+    }
+
+    #[test]
     fn artwork_cache_remains_bounded() {
         let mut cache = ArtworkCache::default();
         for id in 1..=(ARTWORK_CACHE_LIMIT + 4) {
@@ -3339,5 +3618,73 @@ mod tests {
         assert!(super::CSS.contains("outline: 2px solid var(--focus)"));
         assert!(super::CSS.contains(".chip:focus-visible"));
         assert!(super::CSS.contains(".track-main:focus-visible"));
+    }
+
+    #[test]
+    fn server_connect_and_disconnect_purges_unrelated_memory() {
+        let mut app = NativeApp::boot();
+
+        let cat: Category = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "name": "Rock"
+        }))
+        .unwrap();
+        app.categories.push(cat);
+        let med: Media = serde_json::from_value(serde_json::json!({
+            "id": 10,
+            "title": "Song"
+        }))
+        .unwrap();
+        app.library.items.push(med.clone());
+        app.lyrics = "Sample lyrics".to_owned();
+        app.photo_data_url = Some(std::sync::Arc::new("data:image/jpeg;base64,...".to_owned()));
+        app.socket_ready = true;
+        app.socket_session_id = Some("sess-1".to_owned());
+        let key = app.artwork.start(&med).unwrap();
+        app.artwork.finish(
+            key,
+            ArtworkState::Ready(std::sync::Arc::new("data:image/png;base64,DATA".to_owned())),
+        );
+
+        assert!(!app.categories.is_empty());
+        assert!(!app.library.items.is_empty());
+        assert!(!app.lyrics.is_empty());
+        assert!(app.photo_data_url.is_some());
+        assert!(app.artwork.get(&med).is_some());
+
+        // Disconnect state: all server data must be completely purged from memory
+        app.purge_server_memory();
+
+        assert!(app.categories.is_empty());
+        assert_eq!(app.categories.capacity(), 0);
+        assert!(app.library.items.is_empty());
+        assert_eq!(app.library.items.capacity(), 0);
+        assert!(app.lyrics.is_empty());
+        assert_eq!(app.lyrics.capacity(), 0);
+        assert!(app.photo_data_url.is_none());
+        assert!(app.queue.is_none());
+        assert!(app.session.is_none());
+        assert!(!app.socket_ready);
+        assert!(app.socket_session_id.is_none());
+        assert!(app.artwork.get(&med).is_none());
+        assert_eq!(app.artwork.ready_bytes, 0);
+
+        // Populate local mode data
+        app.local_mode = true;
+        app.local_tracks.push(LocalTrack {
+            path: std::path::PathBuf::from("/music/song.mp3"),
+            title: "Local Song".to_owned(),
+            kind: crate::domain::LocalKind::Audio,
+            duration: None,
+        });
+        assert!(!app.local_tracks.is_empty());
+
+        // Connected state: all local mode data must be completely purged from memory
+        app.purge_local_memory();
+
+        assert!(app.local_tracks.is_empty());
+        assert_eq!(app.local_tracks.capacity(), 0);
+        assert!(!app.local_mode);
+        assert!(app.local_index.is_none());
     }
 }

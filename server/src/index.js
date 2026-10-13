@@ -7,7 +7,7 @@ import { join } from "path";
 import { createRequire } from "module";
 
 const _require = createRequire(import.meta.url);
-const SERVER_VERSION = _require("../package.json").version || "0.1.0";
+const SERVER_VERSION = _require("../package.json").version || "0.5.0";
 
 import redisPlugin from "./plugins/redis.js";
 import authPlugin from "./plugins/auth.js";

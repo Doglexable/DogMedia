@@ -1,13 +1,12 @@
 use dioxus_native::prelude::*;
 
-use crate::store::ColorScheme;
-use super::super::*;
 use super::super::kit::{Icon, IconName};
 use super::super::menubar::{
-    Menubar, MenubarContent, MenubarGroup, MenubarItem, MenubarLabel,
-    MenubarMenu, MenubarRadioGroup, MenubarRadioItem, MenubarSeparator, MenubarShortcut,
-    MenubarTrigger,
+    Menubar, MenubarContent, MenubarGroup, MenubarItem, MenubarLabel, MenubarMenu,
+    MenubarRadioGroup, MenubarRadioItem, MenubarSeparator, MenubarShortcut, MenubarTrigger,
 };
+use super::super::*;
+use crate::store::ColorScheme;
 
 #[component]
 pub(crate) fn AppMenubar(

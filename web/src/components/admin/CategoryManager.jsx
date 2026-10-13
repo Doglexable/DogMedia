@@ -17,7 +17,7 @@ import MediaMetadataEditorModal from "./MediaMetadataEditorModal";
 import MediaUploadWorkspace, { removeCategoryCover, uploadCategoryCover, uploadMediaInChunks } from "./MediaUploadWorkspace";
 import MobileReleaseManager, { uploadAndroidRelease } from "./MobileReleaseManager";
 import UploadQueueViewer, { BrowserTransferProgress } from "./UploadQueueViewer";
-import { APP_VERSION_LABEL } from "../../version";
+import { APP_VERSION, APP_VERSION_LABEL } from "../../version";
 import "../../pages/admin-media-import.css";
 
 const styles = {
@@ -98,7 +98,7 @@ export default function CategoryManager() {
   const [batchFiles, setBatchFiles] = useState([]), [batchArtist, setBatchArtist] = useState(""), [batchOverrides, setBatchOverrides] = useState({});
   const [uploadingMedia, setUploadingMedia] = useState(false), [uploadingBatch, setUploadingBatch] = useState(false), [uploadProgress, setUploadProgress] = useState(null), [batchProgress, setBatchProgress] = useState(null), [uploadEtaSeconds, setUploadEtaSeconds] = useState(null), [batchEtaSeconds, setBatchEtaSeconds] = useState(null), [loadingMedia, setLoadingMedia] = useState(false);
   const [editingMedia, setEditingMedia] = useState(null), [episodeModalOpen, setEpisodeModalOpen] = useState(false), [scanningTrackOrders, setScanningTrackOrders] = useState(false);
-  const [mobileRelease, setMobileRelease] = useState(null), [releaseVersion, setReleaseVersion] = useState("0.1.0"), [releaseFile, setReleaseFile] = useState(null), [uploadingRelease, setUploadingRelease] = useState(false), [releaseProgress, setReleaseProgress] = useState(null);
+  const [mobileRelease, setMobileRelease] = useState(null), [releaseVersion, setReleaseVersion] = useState(APP_VERSION), [releaseFile, setReleaseFile] = useState(null), [uploadingRelease, setUploadingRelease] = useState(false), [releaseProgress, setReleaseProgress] = useState(null);
   const [uploadQueueOpen, setUploadQueueOpen] = useState(false), [uploadQueueJobs, setUploadQueueJobs] = useState([]), [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 }), [uploadQueueLoading, setUploadQueueLoading] = useState(false), [uploadQueueError, setUploadQueueError] = useState("");
   const mediaLoad = useRef({ version: 0, controller: null });
 

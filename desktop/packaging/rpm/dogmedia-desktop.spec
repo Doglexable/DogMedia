@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%{!?dogmedia_version:%global dogmedia_version 0.1.0}
+%{!?dogmedia_version:%global dogmedia_version 0.5.0}
 
 Name:           dogmedia-desktop
 Version:        %{dogmedia_version}

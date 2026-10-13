@@ -6,8 +6,8 @@ use crate::ui::kit::{Artwork, Icon, IconName, Slider};
 use crate::ui::views::SessionConflictCard;
 use crate::ui::views::player_bar::quality_badge;
 use crate::ui::{
-    NativeApp, PlaybackStatus, artwork_url, format_duration, media_folder, seek, stop_playback,
-    toggle_playback,
+    NativeApp, PlaybackStatus, PlaybackTiming, artwork_url, format_duration, media_folder, seek,
+    stop_playback, toggle_playback,
 };
 
 #[component]
@@ -22,12 +22,19 @@ pub(crate) fn VideoMiniPlayer(
         return rsx! {};
     };
 
-    let duration = if playback.duration > 0.0 {
-        playback.duration
-    } else {
-        media.duration.unwrap_or(0.0)
-    };
-    let max_pos = duration.max(playback.position).max(1.0);
+    let timing = try_consume_context::<Signal<PlaybackTiming>>();
+    let timing_data = timing.map(|t| *t.read());
+    let current_position = timing_data.map(|t| t.position).unwrap_or(playback.position);
+    let duration = timing_data
+        .and_then(|t| (t.duration > 0.0).then_some(t.duration))
+        .unwrap_or_else(|| {
+            if playback.duration > 0.0 {
+                playback.duration
+            } else {
+                media.duration.unwrap_or(0.0)
+            }
+        });
+    let max_pos = duration.max(current_position).max(1.0);
     let playing = playback.status == PlaybackStatus::Playing;
     let session_unavailable = playback.session_unavailable;
     let source = artwork_url(&snapshot, media);
@@ -95,7 +102,7 @@ pub(crate) fn VideoMiniPlayer(
                 div {
                     class: "video-mini-bottom-overlay",
                     span { class: "video-mini-time-tag",
-                        "{format_duration(Some(playback.position))} / {format_duration(Some(duration))}"
+                        "{format_duration(Some(current_position))} / {format_duration(Some(duration))}"
                     }
                     if playback.quality != Quality::Ori {
                         span { class: "video-mini-badge", "{quality_badge(playback.quality)}" }
@@ -112,7 +119,7 @@ pub(crate) fn VideoMiniPlayer(
                     min: 0.0,
                     max: max_pos,
                     step: 0.1,
-                    value: playback.position,
+                    value: current_position,
                     disabled: session_unavailable,
                     onchange: move |val| seek(app, engine, val),
                 }

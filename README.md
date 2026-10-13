@@ -243,7 +243,7 @@ Set `PFS_PUBLISH_DESKTOP_RELEASE=0` before a packaging command to build without
 publishing. To publish an already-built `.deb` without rebuilding, run:
 
 ```bash
-bash desktop/packaging/publish-release.sh linux-deb dist/packages/dogmedia-desktop_0.1.0_amd64.deb
+bash desktop/packaging/publish-release.sh linux-deb dist/packages/dogmedia-desktop_0.5.0_amd64.deb
 ```
 
 See [desktop/README.md](desktop/README.md) for Debian/Fedora prerequisites and

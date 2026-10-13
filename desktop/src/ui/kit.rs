@@ -324,15 +324,21 @@ pub fn Artwork(
     fallback: String,
     #[props(default)] class: String,
 ) -> Element {
-    rsx! {
-        div { class: "artwork {class}",
-            if let Some(source) = source {
-                img { src: "{source}", alt: "{alt}", draggable: "false" }
-            } else {
-                span { class: "artwork-fallback", "aria-hidden": "true", "{fallback}" }
+    let cached_content = use_memo(use_reactive(
+        (&source, &alt, &fallback, &class),
+        move |(source, alt, fallback, class)| {
+            rsx! {
+                div { class: "artwork {class}",
+                    if let Some(source) = source {
+                        img { src: "{source}", alt: "{alt}", draggable: "false" }
+                    } else {
+                        span { class: "artwork-fallback", "aria-hidden": "true", "{fallback}" }
+                    }
+                }
             }
-        }
-    }
+        },
+    ));
+    cached_content()
 }
 
 #[component]
@@ -462,6 +468,56 @@ pub(super) fn slider_value_at(
 }
 
 #[component]
+fn SliderHitArea(
+    hit_divisions: usize,
+    disabled: bool,
+    min: f64,
+    max: f64,
+    step: f64,
+    onchange: Option<EventHandler<f64>>,
+) -> Element {
+    let mut dragging = use_signal(|| false);
+    let commit = move |index: usize| {
+        if disabled {
+            return;
+        }
+        if let Some(handler) = &onchange {
+            handler.call(slider_value_at(index, hit_divisions, min, max, step));
+        }
+    };
+
+    rsx! {
+        div {
+            class: "slider-hit-area",
+            onmouseleave: move |_| dragging.set(false),
+            for index in 0..=hit_divisions {
+                span {
+                    key: "{index}",
+                    class: "slider-hit-zone",
+                    onmousedown: move |event: MouseEvent| {
+                        event.stop_propagation();
+                        dragging.set(true);
+                        commit(index);
+                    },
+                    onmouseenter: move |_| {
+                        if dragging() {
+                            commit(index);
+                        }
+                    },
+                    onmouseup: move |event: MouseEvent| {
+                        event.stop_propagation();
+                        if dragging() {
+                            commit(index);
+                        }
+                        dragging.set(false);
+                    },
+                }
+            }
+        }
+    }
+}
+
+#[component]
 pub fn Slider(
     #[props(into, optional)] class: Option<String>,
     #[props(default = 0.0)] min: f64,
@@ -486,15 +542,6 @@ pub fn Slider(
     let percentage = ((value - min) / range * 100.0).clamp(0.0, 100.0);
     let fill_style = format!("width: {percentage:.2}%;");
     let thumb_style = format!("left: {percentage:.2}%;");
-    let mut dragging = use_signal(|| false);
-    let commit = move |index: usize| {
-        if disabled {
-            return;
-        }
-        if let Some(handler) = &onchange {
-            handler.call(slider_value_at(index, hit_divisions, min, max, step));
-        }
-    };
 
     rsx! {
         div {
@@ -522,31 +569,13 @@ pub fn Slider(
                     handler.call(next.clamp(min, max));
                 }
             },
-            div {
-                class: "slider-hit-area",
-                onmouseleave: move |_| dragging.set(false),
-                for index in 0..=hit_divisions {
-                    span {
-                        class: "slider-hit-zone",
-                        onmousedown: move |event: MouseEvent| {
-                            event.stop_propagation();
-                            dragging.set(true);
-                            commit(index);
-                        },
-                        onmouseenter: move |_| {
-                            if dragging() {
-                                commit(index);
-                            }
-                        },
-                        onmouseup: move |event: MouseEvent| {
-                            event.stop_propagation();
-                            if dragging() {
-                                commit(index);
-                            }
-                            dragging.set(false);
-                        },
-                    }
-                }
+            SliderHitArea {
+                hit_divisions,
+                disabled,
+                min,
+                max,
+                step,
+                onchange: onchange.clone(),
             }
             div { class: "slider-visual", "aria-hidden": "true",
                 div { class: "slider-track",
@@ -566,15 +595,22 @@ pub fn MusicProgress(
     #[props(default = String::new())] class: String,
     #[props(default = false)] disabled: bool,
 ) -> Element {
-    let max = duration.max(1.0);
-    let mut value = use_signal(|| position.min(max));
-    use_effect(use_reactive(
-        (&position, &duration),
-        move |(position, duration)| {
-            value.set(position.min(duration.max(1.0)));
-        },
-    ));
-    let current = value().min(max);
+    let timing = try_consume_context::<Signal<super::PlaybackTiming>>();
+    let (current_pos, current_dur) = if let Some(timing) = timing {
+        let t = timing.read();
+        (
+            t.position,
+            if t.duration > 0.0 {
+                t.duration
+            } else {
+                duration
+            },
+        )
+    } else {
+        (position, duration)
+    };
+    let max = current_dur.max(1.0);
+    let current = current_pos.min(max);
 
     rsx! {
         div { class: "music-progress-wrap {class}",
@@ -583,16 +619,16 @@ pub fn MusicProgress(
                 min: 0.0,
                 max,
                 step: 0.1,
+                hit_divisions: 50,
                 value: current,
                 aria_label: "Playback position".to_owned(),
                 class: "music-progress-slider".to_string(),
                 disabled,
                 onchange: move |position: f64| {
-                    value.set(position);
                     onseek.call(position);
                 },
             }
-            span { class: "progress-time progress-duration", "{super::format_duration(Some(duration))}" }
+            span { class: "progress-time progress-duration", "{super::format_duration(Some(current_dur))}" }
         }
     }
 }

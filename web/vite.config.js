@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
   const apiTarget = env.VITE_API_URL || "http://localhost:3001";
 
   const pkg = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf-8"));
-  const appVersion = process.env.VITE_APP_VERSION || env.VITE_APP_VERSION || pkg.version || "0.1.0";
+  const appVersion = process.env.VITE_APP_VERSION || env.VITE_APP_VERSION || pkg.version || "0.5.0";
   const versionLabel = `v${appVersion.replace(/^v/, "")}`;
 
   return {

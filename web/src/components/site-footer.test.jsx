@@ -71,7 +71,7 @@ describe("SiteFooter", () => {
     const markup = renderFooter();
     expect(markup).toContain(`© ${currentYear} Dogmedia. All rights reserved.`);
     expect(markup).toContain("site-footer-version-tag");
-    expect(markup).toContain("Web v0.1.0");
+    expect(markup).toContain("Web v0.5.0");
   });
 
   it("shows Admin Console link when access tier is >= 100 and hides it for standard users", () => {

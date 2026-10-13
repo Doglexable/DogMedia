@@ -11,13 +11,29 @@ fn main() {
         }
         return;
     }
-    if arguments
+    let memory_watch = arguments
         .iter()
-        .any(|argument| argument == "--memory-watch")
-    {
-        std::thread::spawn(|| {
+        .any(|argument| argument == "--memory-watch" || argument.starts_with("--memory-watch="));
+    if memory_watch {
+        let interval_secs = arguments
+            .iter()
+            .position(|arg| arg == "--memory-watch")
+            .and_then(|idx| arguments.get(idx + 1))
+            .and_then(|val| val.parse::<u64>().ok())
+            .or_else(|| {
+                arguments
+                    .iter()
+                    .find_map(|arg| arg.strip_prefix("--memory-watch=")?.parse::<u64>().ok())
+            })
+            .unwrap_or(60);
+
+        std::thread::spawn(move || {
+            match dogmedia_desktop::diagnostics::process_memory_snapshot() {
+                Ok(snapshot) => eprintln!("memory {snapshot}"),
+                Err(error) => eprintln!("memory snapshot unavailable: {error}"),
+            }
             loop {
-                std::thread::sleep(std::time::Duration::from_secs(60));
+                std::thread::sleep(std::time::Duration::from_secs(interval_secs));
                 match dogmedia_desktop::diagnostics::process_memory_snapshot() {
                     Ok(snapshot) => eprintln!("memory {snapshot}"),
                     Err(error) => eprintln!("memory snapshot unavailable: {error}"),
