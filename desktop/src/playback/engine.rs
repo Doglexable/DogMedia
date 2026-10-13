@@ -1,8 +1,9 @@
 use std::str::FromStr;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use std::time::{Duration, Instant};
 
 use gst::prelude::*;
 use gstreamer as gst;
@@ -47,6 +48,10 @@ pub type RedrawCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 
 pub struct PlaybackEngine {
     playbin: gst::Element,
+    video_sink: gst::Element,
+    video_constraint: Arc<Mutex<Option<(u32, u32)>>>,
+    caps_negotiating: Arc<AtomicBool>,
+    small_resolution_since: Arc<Mutex<Option<Instant>>>,
     headers: Arc<Mutex<Option<ProtectedHeaders>>>,
     frame: Arc<Mutex<Option<VideoFrame>>>,
     recycle: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -144,8 +149,13 @@ impl PlaybackEngine {
         let pending_seek = Arc::new(Mutex::new(None::<f64>));
         let last_video_pts = Arc::new(Mutex::new(None::<f64>));
         let last_video_pts_target = Arc::clone(&last_video_pts);
+        let caps_negotiating = Arc::new(AtomicBool::new(false));
+        let caps_negotiating_target = Arc::clone(&caps_negotiating);
+        let small_resolution_since = Arc::new(Mutex::new(None::<Instant>));
+        let small_resolution_since_target = Arc::clone(&small_resolution_since);
 
         video_sink.connect("new-sample", false, move |values| {
+            caps_negotiating_target.store(false, Ordering::SeqCst);
             let sink = values.first()?.get::<gst::Element>().ok()?;
             let sample = sink.emit_by_name::<Option<gst::Sample>>("pull-sample", &[])?;
             let caps = sample.caps()?;
@@ -175,10 +185,45 @@ impl PlaybackEngine {
                 _ => return Some(gst::FlowReturn::Ok.to_value()),
             };
 
+            let is_small = total_bytes <= 1_000_000;
+            let in_grace_period = if is_small {
+                let mut small_since = small_resolution_since_target.lock().ok();
+                if let Some(ref mut slot) = small_since {
+                    if slot.is_none() {
+                        **slot = Some(Instant::now());
+                    }
+                    slot.as_ref()
+                        .map(|t| t.elapsed() < Duration::from_secs(4))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            } else {
+                if let Ok(mut slot) = small_resolution_since_target.lock() {
+                    *slot = None;
+                }
+                false
+            };
+
             let mut pixels = recycle_target
                 .lock()
                 .ok()
-                .and_then(|mut pool| pool.pop())
+                .and_then(|mut pool| {
+                    if in_grace_period {
+                        if let Some(idx) = pool.iter().position(|b| b.capacity() <= total_bytes * 2)
+                        {
+                            return Some(pool.remove(idx));
+                        }
+                        None
+                    } else {
+                        while let Some(buf) = pool.pop() {
+                            if !is_small || buf.capacity() <= total_bytes * 2 {
+                                return Some(buf);
+                            }
+                        }
+                        None
+                    }
+                })
                 .unwrap_or_else(|| Vec::with_capacity(total_bytes));
 
             pixels.clear();
@@ -255,6 +300,7 @@ impl PlaybackEngine {
                 if let Some(old) = slot.take()
                     && let Ok(mut pool) = recycle_target.lock()
                     && pool.len() < 4
+                    && (in_grace_period || !is_small || old.pixels.capacity() <= total_bytes * 2)
                 {
                     pool.push(old.pixels);
                 }
@@ -300,8 +346,13 @@ impl PlaybackEngine {
             }
             None
         });
+        let video_constraint = Arc::new(Mutex::new(None));
         Ok(Self {
             playbin,
+            video_sink,
+            video_constraint,
+            caps_negotiating,
+            small_resolution_since,
             headers,
             frame,
             recycle,
@@ -332,6 +383,7 @@ impl PlaybackEngine {
             *pts = None;
         }
         let _ = self.playbin.set_state(gst::State::Null);
+        self.playbin.set_property("uri", "");
         self.playbin.set_property("uri", stream_url.as_str());
         self.clear_video_buffers();
         Ok(())
@@ -351,12 +403,17 @@ impl PlaybackEngine {
             *pts = None;
         }
         let _ = self.playbin.set_state(gst::State::Null);
+        self.playbin.set_property("uri", "");
         self.playbin.set_property("uri", file_url.as_str());
         self.clear_video_buffers();
         Ok(())
     }
 
     fn clear_video_buffers(&self) {
+        if let Ok(mut slot) = self.small_resolution_since.lock() {
+            *slot = None;
+        }
+        self.caps_negotiating.store(false, Ordering::SeqCst);
         if let Ok(mut frame) = self.frame.lock() {
             *frame = None;
         }
@@ -481,6 +538,51 @@ impl PlaybackEngine {
         if let Ok(mut slot) = self.redraw.lock() {
             *slot = Some(callback);
         }
+    }
+
+    pub fn set_video_constraint(&self, max_width: Option<u32>, max_height: Option<u32>) {
+        let requested = match (max_width, max_height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => Some((w, h)),
+            _ => None,
+        };
+        if let Ok(mut current) = self.video_constraint.lock() {
+            if *current == requested {
+                return;
+            }
+            *current = requested;
+        }
+
+        // Defer if pipeline is actively in the middle of a caps negotiation cycle
+        let is_playing = self.is_playing();
+        if is_playing && self.caps_negotiating.load(Ordering::SeqCst) {
+            return;
+        }
+
+        if is_playing {
+            self.caps_negotiating.store(true, Ordering::SeqCst);
+        }
+
+        let caps = Self::build_caps(requested);
+        self.video_sink.set_property("caps", &caps);
+    }
+
+    fn build_caps(constraint: Option<(u32, u32)>) -> gst::Caps {
+        match constraint {
+            Some((w, h)) => {
+                gst::Caps::from_str(&format!(
+                    "video/x-raw, format=(string){{ NV12, RGBA }}, width=(int)[ 1, {} ], height=(int)[ 1, {} ]",
+                    w, h
+                ))
+                .unwrap_or_else(|_| {
+                    gst::Caps::from_str("video/x-raw, format=(string){ NV12, RGBA }").unwrap()
+                })
+            }
+            None => gst::Caps::from_str("video/x-raw, format=(string){ NV12, RGBA }").unwrap(),
+        }
+    }
+
+    pub fn video_constraint(&self) -> Option<(u32, u32)> {
+        self.video_constraint.lock().ok().and_then(|guard| *guard)
     }
 
     pub fn take_frame(&self) -> Option<VideoFrame> {
@@ -683,5 +785,24 @@ mod tests {
         let replacement = PlaybackEngine::with_frame_receiver(receiver.clone()).unwrap();
         assert!(Arc::ptr_eq(&replacement.frame, &receiver.frame));
         assert!(Arc::ptr_eq(&replacement.recycle, &receiver.recycle));
+    }
+
+    #[test]
+    fn set_video_constraint_updates_sink_caps_and_tracks_state() {
+        let engine = PlaybackEngine::new().unwrap();
+        assert_eq!(engine.video_constraint(), None);
+
+        engine.set_video_constraint(Some(640), Some(360));
+        assert_eq!(engine.video_constraint(), Some((640, 360)));
+        let caps = engine.video_sink.property::<gst::Caps>("caps");
+        let caps_str = caps.to_string();
+        assert!(caps_str.contains("width=(int)[ 1, 640 ]"));
+        assert!(caps_str.contains("height=(int)[ 1, 360 ]"));
+
+        engine.set_video_constraint(None, None);
+        assert_eq!(engine.video_constraint(), None);
+        let caps = engine.video_sink.property::<gst::Caps>("caps");
+        let caps_str = caps.to_string();
+        assert!(!caps_str.contains("width="));
     }
 }

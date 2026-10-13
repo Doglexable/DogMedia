@@ -25,13 +25,20 @@ struct ScaleUniform {
     scale: vec2<f32>,
     offset: vec2<f32>,
     color_standard: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    source_width: f32,
+    source_height: f32,
+    is_upscaling: u32,
 };
 
 @group(0) @binding(3)
 var<uniform> u_transform: ScaleUniform;
+
+fn smooth_uv(uv: vec2<f32>, tex_size: vec2<f32>) -> vec2<f32> {
+    let texel = uv * tex_size - 0.5;
+    let f = fract(texel);
+    let smooth_f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    return (floor(texel) + 0.5 + smooth_f) / tex_size;
+}
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
@@ -66,8 +73,12 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let y_raw = textureSample(t_y, s_diffuse, in.uv).r;
-    let uv_raw = textureSample(t_uv, s_diffuse, in.uv).rg;
+    var sample_uv = in.uv;
+    if (u_transform.is_upscaling == 1u && u_transform.source_width > 0.0 && u_transform.source_height > 0.0) {
+        sample_uv = smooth_uv(in.uv, vec2<f32>(u_transform.source_width, u_transform.source_height));
+    }
+    let y_raw = textureSample(t_y, s_diffuse, sample_uv).r;
+    let uv_raw = textureSample(t_uv, s_diffuse, sample_uv).rg;
 
     // Standard video studio swing normalization:
     // Y in [16, 235] -> [0.0, 1.0]
@@ -106,13 +117,20 @@ struct ScaleUniform {
     scale: vec2<f32>,
     offset: vec2<f32>,
     color_standard: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
+    source_width: f32,
+    source_height: f32,
+    is_upscaling: u32,
 };
 
 @group(0) @binding(2)
 var<uniform> u_transform: ScaleUniform;
+
+fn smooth_uv(uv: vec2<f32>, tex_size: vec2<f32>) -> vec2<f32> {
+    let texel = uv * tex_size - 0.5;
+    let f = fract(texel);
+    let smooth_f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    return (floor(texel) + 0.5 + smooth_f) / tex_size;
+}
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
@@ -145,7 +163,11 @@ var s_diffuse: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, in.uv);
+    var sample_uv = in.uv;
+    if (u_transform.is_upscaling == 1u && u_transform.source_width > 0.0 && u_transform.source_height > 0.0) {
+        sample_uv = smooth_uv(in.uv, vec2<f32>(u_transform.source_width, u_transform.source_height));
+    }
+    return textureSample(t_diffuse, s_diffuse, sample_uv);
 }
 "#;
 
@@ -785,6 +807,11 @@ impl CustomPaintSource for VideoPaintSource {
             let scale_x = fit_w / tw;
             let scale_y = fit_h / th;
 
+            let is_upscaling: u32 = if tw > fw * 1.05 || th > fh * 1.05 {
+                1
+            } else {
+                0
+            };
             let color_standard: u32 = if fh < 720.0 { 1 } else { 0 };
             let mut uniform_bytes = [0u8; 32];
             uniform_bytes[0..4].copy_from_slice(&scale_x.to_ne_bytes());
@@ -792,6 +819,9 @@ impl CustomPaintSource for VideoPaintSource {
             uniform_bytes[8..12].copy_from_slice(&0.0_f32.to_ne_bytes());
             uniform_bytes[12..16].copy_from_slice(&0.0_f32.to_ne_bytes());
             uniform_bytes[16..20].copy_from_slice(&color_standard.to_ne_bytes());
+            uniform_bytes[20..24].copy_from_slice(&fw.to_ne_bytes());
+            uniform_bytes[24..28].copy_from_slice(&fh.to_ne_bytes());
+            uniform_bytes[28..32].copy_from_slice(&is_upscaling.to_ne_bytes());
 
             match format {
                 VideoPixelFormat::Nv12 => {

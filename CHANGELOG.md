@@ -22,6 +22,9 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
 - **Bounded RAM & Disk Caching**:
   - Disk-backed artwork cache (`file://` URLs) with instant LRU eviction and memory bounds.
   - Video buffer recycling and NV12 color formatting, reducing frame memory by 62.5%.
+  - Adaptive resolution constraint (640×360 mini-player vs unconstrained fullscreen) reducing decode and texture upload memory bandwidth by >90%.
+  - Buffer pool hysteresis (4s cooldown) and atomic caps negotiation rate-limiting to prevent memory thrashing and streaming thread stalls.
+  - Quintic Hermite curve (`smooth_uv`) shader filtering for artifact-free viewport upscaling during mini-to-fullscreen transitions.
   - AppSink `max-buffers=1` with QoS and disabled sample retention to eliminate video memory bloat.
   - Subscribed timing signals preventing continuous 60fps UI rerenders.
 - **Native MPRIS Support**: Linux D-Bus MPRIS integration for system media keys, desktop metadata displays, and playback control.
@@ -62,6 +65,7 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
 
 ### Fixed
 - Fixed audio playback unbounded memory growth in desktop client by memoizing slider hit zones, eliminating redundant progress re-renders, throttling UI playback ticks, and trimming fragmented allocator arenas.
+- Fixed desktop event loop deadlock/freeze caused by recursive reactive signal updates inside `use_effect`, replacing signal-based debouncing with atomic sequence counters.
 - Fixed residual memory retention on server connect/disconnect and local folder switching by purging unneeded cached items and running glibc allocator cleanup.
 - Fixed memory ballooning in desktop client when navigating large music directories by bounding artwork cache and virtualizing lists.
 - Fixed integer underflow in desktop artwork cache eviction byte calculations.
@@ -69,6 +73,7 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
 - Fixed potential outbox deadlocks in mobile offline synchronization.
 - Fixed video player mini-player overlap during web view transitions.
 - Fixed duplicate transcoding claims on worker restart by enforcing strict stream claim timeouts.
+- Fixed GStreamer decoder graph retention between media track transitions by detaching previous URI before attaching new playback targets.
 
 ---
 

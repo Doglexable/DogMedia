@@ -575,7 +575,7 @@ pub fn Slider(
                 min,
                 max,
                 step,
-                onchange: onchange.clone(),
+                onchange,
             }
             div { class: "slider-visual", "aria-hidden": "true",
                 div { class: "slider-track",

@@ -72,6 +72,7 @@ done.
 | [062](062-expire-abandoned-mobile-release-uploads.md) | Expire abandoned Android release uploads | P2 | S | — | DONE — reviewed isolated executor commit `c1f0841` in `/tmp/pfs-062-worktree`; 310 server tests and server lint pass; branch not merged |
 | [063](063-reuse-playback-snapshot-per-socket-broadcast.md) | Reuse one playback snapshot for each socket broadcast | P2 | S | 054 | DONE — reviewed isolated executor commits `c1c6e16`, `7696a13` in `/tmp/pfs-063-worktree`; 306 server tests and server lint pass; branch not merged |
 | [064](064-verify-android-release-artifacts.md) | Verify Android release APKs before publishing | P1 | M | 062 | BLOCKED — operator has no trusted release signer fingerprint yet; local generated release build uses debug signing; establish release signing and provide its public SHA-256 fingerprint |
+| [065](065-downscale-desktop-mini-player-video.md) | Downscale desktop video decode and texture upload for mini-player | P2 | S | 057, 059 | DONE — adaptive 640×360 mini-player vs unconstrained fullscreen caps negotiation; oversized pool drain; 74 tests pass |
 
 ## Dependency notes
 

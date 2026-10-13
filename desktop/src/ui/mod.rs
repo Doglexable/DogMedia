@@ -8,6 +8,7 @@ mod views;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI8, AtomicU64, Ordering};
 use std::time::Instant;
 
 use base64::Engine as _;
@@ -742,6 +743,31 @@ fn App() -> Element {
             state.socket_session_id = None;
         }
     });
+    let last_expanded = use_hook(|| Arc::new(AtomicI8::new(-1)));
+    let constraint_seq = use_hook(|| Arc::new(AtomicU64::new(0)));
+    use_effect(move || {
+        let expanded = app.read().player_expanded;
+        let current_val = if expanded { 1 } else { 0 };
+        let prev = last_expanded.swap(current_val, Ordering::SeqCst);
+        if prev == current_val {
+            return;
+        }
+
+        let seq = constraint_seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let seq_clone = constraint_seq.clone();
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if seq_clone.load(Ordering::SeqCst) == seq
+                && let Some(engine) = engine.read().as_ref()
+            {
+                if expanded {
+                    engine.set_video_constraint(None, None);
+                } else {
+                    engine.set_video_constraint(Some(640), Some(360));
+                }
+            }
+        });
+    });
     use_future(move || async move {
         loop {
             // Lease heartbeat every 5s against the 30s server lease
@@ -957,6 +983,9 @@ fn ensure_playback_engine(
     if let Some(callback) = redraw_callback {
         player.set_redraw_callback(callback);
     }
+    if !app.read().player_expanded {
+        player.set_video_constraint(Some(640), Some(360));
+    }
     *engine.write() = Some(player);
     Ok(())
 }
@@ -995,6 +1024,7 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         });
         state.player_expanded = track.kind == LocalKind::Video;
     }
+    trim_allocator();
     let sequence = app.read().coordinator.snapshot().sequence;
     let volume = app.read().settings.volume;
     let result = ensure_playback_engine(app, engine).and_then(|_| {
