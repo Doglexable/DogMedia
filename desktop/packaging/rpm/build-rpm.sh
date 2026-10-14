@@ -60,3 +60,7 @@ if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
   done < <(find "$top_dir/RPMS" -type f -name "*.x86_64.rpm" | sort)
 fi
 find "$output_dir" -maxdepth 1 -type f -name "dogmedia-desktop-$version-*.rpm" -print
+
+if [[ "${PFS_KEEP_BUILD_CACHE:-0}" != 1 ]]; then
+  bash "$desktop_dir/scripts/clean-package-cache.sh"
+fi

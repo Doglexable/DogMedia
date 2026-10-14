@@ -10,7 +10,7 @@ cleaned=0
 
 # 1. Clean macOS / Windows stage directories in dist/packages/
 if [[ -d "$dist_dir/packages" ]]; then
-  for item in "$dist_dir/packages"/*-stage "$dist_dir/packages"/.pfs-win-pkgconfig; do
+  for item in "$dist_dir/packages"/*-stage "$dist_dir/packages"/.pfs-win-pkgconfig "$desktop_dir/target/.pfs-win-pkgconfig"; do
     if [[ -e "$item" ]]; then
       rm -rf -- "$item"
       cleaned=1

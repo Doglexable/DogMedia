@@ -37,7 +37,7 @@ fi
 if [[ -n "${PFS_WIN_EXE:-}" ]]; then
   binary="$PFS_WIN_EXE"
 else
-  pc_dir="$output_dir/.pfs-win-pkgconfig"
+  pc_dir="$desktop_root/target/.pfs-win-pkgconfig"
   python3 "$script_root/prepare-pc.py" "$library" "$pc_dir"
   export PKG_CONFIG_ALLOW_CROSS=1
   export PKG_CONFIG_LIBDIR="$pc_dir"
@@ -66,4 +66,8 @@ fi
 
 if [[ "${PFS_KEEP_STAGE:-0}" != 1 ]]; then
   rm -rf "$stage" "${pc_dir:-}"
+fi
+
+if [[ "${PFS_KEEP_BUILD_CACHE:-0}" != 1 ]]; then
+  bash "$desktop_root/scripts/clean-package-cache.sh"
 fi

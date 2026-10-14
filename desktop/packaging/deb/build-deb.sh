@@ -73,3 +73,7 @@ echo "Created $artifact"
 if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 && "$architecture" == amd64 ]]; then
   bash "$desktop_dir/packaging/publish-release.sh" linux-deb "$artifact"
 fi
+
+if [[ "${PFS_KEEP_BUILD_CACHE:-0}" != 1 ]]; then
+  bash "$desktop_dir/scripts/clean-package-cache.sh"
+fi
