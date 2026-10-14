@@ -40,7 +40,7 @@ pub(crate) fn FullPlayer(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let has_lyrics = !lyrics.is_empty();
-    let lyrics_open = has_lyrics && snapshot.lyrics_visible;
+    let lyrics_open = snapshot.lyrics_visible;
     let source = artwork_url(&snapshot, media);
     let fallback = if media.is_video() {
         "▶"
@@ -260,18 +260,14 @@ pub(crate) fn FullPlayer(
                                 class: if media.liked { "favorite active".to_owned() } else { "favorite".to_owned() },
                                 onclick: { let liked = !media.liked; move |_| set_favorite(app, liked) }
                             }
-                            button {
-                                class: if lyrics_open { "icon-button lyrics-toggle active" } else { "icon-button lyrics-toggle" },
-                                r#type: "button",
-                                disabled: !has_lyrics,
-                                title: if !has_lyrics { "No lyrics available for this track" } else if lyrics_open { "Hide lyrics" } else { "Show lyrics" },
-                                "aria-label": if !has_lyrics { "Lyrics unavailable" } else if lyrics_open { "Hide lyrics" } else { "Show lyrics" },
-                                "aria-pressed": lyrics_open,
+                            IconButton {
+                                label: if lyrics_open { "Hide lyrics".to_owned() } else { "Show lyrics".to_owned() },
+                                icon: IconName::Lyrics,
+                                class: if lyrics_open { "lyrics-toggle active".to_owned() } else { "lyrics-toggle".to_owned() },
                                 onclick: move |_| {
                                     let visible = app.read().lyrics_visible;
                                     app.write().lyrics_visible = !visible;
                                 },
-                                Icon { name: IconName::Lyrics }
                             }
                         }
                         if !media.is_photo() {
@@ -306,7 +302,11 @@ pub(crate) fn FullPlayer(
                     aside { class: "lyrics-panel", "aria-label": "Lyrics",
                         p { class: "eyebrow", "Lyrics" }
                         div { class: "lyrics-lines",
-                            for line in lyrics.iter() { p { "{line}" } }
+                            if has_lyrics {
+                                for line in lyrics.iter() { p { "{line}" } }
+                            } else {
+                                p { class: "lyrics-empty", "No lyrics available for this track" }
+                            }
                         }
                     }
                 }

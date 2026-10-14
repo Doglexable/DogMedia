@@ -83,6 +83,40 @@ fn walk(folder: &Path, depth: usize, tracks: &mut Vec<LocalTrack>) -> io::Result
     Ok(())
 }
 
+pub fn parse_lrc(content: &str) -> String {
+    let mut lines = Vec::new();
+    for raw_line in content.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut text = trimmed;
+        while let Some(start) = text.find('[') {
+            if let Some(end) = text[start..].find(']') {
+                text = text[start + end + 1..].trim();
+            } else {
+                break;
+            }
+        }
+        if !text.is_empty() {
+            lines.push(text.to_owned());
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn load_local_lyrics(audio_path: &Path) -> Option<String> {
+    let lrc_path = audio_path.with_extension("lrc");
+    if lrc_path.is_file() {
+        let content = fs::read_to_string(&lrc_path).ok()?;
+        let parsed = parse_lrc(&content);
+        if !parsed.is_empty() {
+            return Some(parsed);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +172,23 @@ mod tests {
         fs::write(deep.join("too-deep.mp3"), []).unwrap();
         fs::write(root.path().join("visible.mp3"), []).unwrap();
         assert_eq!(scan_local_folder(root.path()).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn local_lrc_parsing_and_loading() {
+        let root = tempfile::tempdir().unwrap();
+        let audio_path = root.path().join("track.flac");
+        let lrc_path = root.path().join("track.lrc");
+
+        assert!(load_local_lyrics(&audio_path).is_none());
+
+        let lrc_content = "[ti:Test Track]\n[ar:Test Artist]\n\n[00:10.50]First line of lyrics\n[00:15.20][00:20.10]Second line with repeated time\nThird plain line\n";
+        fs::write(&lrc_path, lrc_content).unwrap();
+
+        let loaded = load_local_lyrics(&audio_path).expect("should load local lrc");
+        assert_eq!(
+            loaded,
+            "First line of lyrics\nSecond line with repeated time\nThird plain line"
+        );
     }
 }

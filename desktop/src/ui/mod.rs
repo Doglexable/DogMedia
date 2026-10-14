@@ -25,7 +25,7 @@ use crate::{
         BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, LocalKind,
         LocalTrack, Media, MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality,
         QueueItem, QueueOrder, QueueWindow, SessionHolder, SubtitleTrack, Volume,
-        scan_local_folder,
+        scan_local_folder, load_local_lyrics,
     },
     integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
@@ -447,6 +447,23 @@ fn window_theme(preference: ColorScheme, system: Option<ColorScheme>) -> winit::
     }
 }
 
+pub(crate) fn format_window_title(media: Option<&Media>) -> String {
+    match media {
+        Some(media) => {
+            let title = media.title().trim();
+            let artist = media.artists.as_deref().unwrap_or("").trim();
+            if !artist.is_empty() {
+                format!("{title} by {artist} - Dogmedia")
+            } else if !title.is_empty() {
+                format!("{title} - Dogmedia")
+            } else {
+                "Dogmedia".to_owned()
+            }
+        }
+        None => "Dogmedia".to_owned(),
+    }
+}
+
 pub fn run() {
     // Ensure environment variables for Dioxus CLI config have Dogmedia identity
     if std::env::var("DIOXUS_APP_TITLE").is_err() {
@@ -526,6 +543,25 @@ fn App() -> Element {
                     window_theme(snapshot.settings.color_scheme, snapshot.system_color_scheme);
                 if window.theme() != Some(theme) {
                     window.set_theme(Some(theme));
+                }
+            }
+        });
+    }
+    {
+        let title_window = native_window.clone();
+        let last_title = use_hook(|| Arc::new(std::sync::Mutex::new(String::from("Dogmedia"))));
+        use_effect(move || {
+            let snapshot = app.read();
+            let media = snapshot.coordinator.snapshot().media.clone();
+            drop(snapshot);
+
+            let new_title = format_window_title(media.as_ref());
+            if let Ok(mut last) = last_title.lock() {
+                if *last != new_title {
+                    *last = new_title.clone();
+                    if let Some(window) = title_window.as_ref() {
+                        window.set_title(&new_title);
+                    }
                 }
             }
         });
@@ -1006,12 +1042,24 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         return;
     };
     let media = local_media(&track, index);
+    let local_lyrics = if track.kind == LocalKind::Audio {
+        load_local_lyrics(&track.path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    app.read().video_frames.clear();
     {
         let mut state = app.write();
         state.local_index = Some(index);
         state.coordinator.load(media);
         state.artwork.clear_other_media(None);
         state.photo_data_url = None;
+        state.lyrics = local_lyrics;
+        state.subtitles.clear();
+        state.subtitles.shrink_to_fit();
+        state.selected_subtitle = None;
+        state.subtitle_cues.clear();
+        state.subtitle_cues.shrink_to_fit();
         state.queue = Some(QueueWindow {
             items: Vec::new(),
             offset: 0,
@@ -1050,6 +1098,7 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
                     duration: track.duration.unwrap_or(0.0),
                 });
             }
+            trim_allocator();
         }
         Err(error) => {
             app.write().coordinator.failed(sequence, &error);
@@ -1383,21 +1432,30 @@ fn play_media_at(
     if let Some(engine) = engine.read().as_ref() {
         let _ = engine.pause();
     }
-    app.write().coordinator.load(media.clone());
-    if let Some(pos) = resume_at {
-        app.write().coordinator.update_position(pos);
+    app.read().video_frames.clear();
+    {
+        let mut state = app.write();
+        state.coordinator.load(media.clone());
+        if let Some(pos) = resume_at {
+            state.coordinator.update_position(pos);
+        }
+        if media.is_video() && resume_at.is_none() {
+            state.player_expanded = true;
+        }
+        state.artwork.clear_other_media(Some(&media));
+        state.lyrics.clear();
+        state.lyrics.shrink_to_fit();
+        state.subtitles.clear();
+        state.subtitles.shrink_to_fit();
+        state.selected_subtitle = None;
+        state.subtitle_cues.clear();
+        state.subtitle_cues.shrink_to_fit();
+        state.photo_data_url = None;
+        state.status = None;
     }
-    if media.is_video() && resume_at.is_none() {
-        app.write().player_expanded = true;
-    }
+    trim_allocator();
     let sequence = app.read().coordinator.snapshot().sequence;
     let quality = app.read().settings.quality;
-    app.write().lyrics.clear();
-    app.write().subtitles.clear();
-    app.write().selected_subtitle = None;
-    app.write().subtitle_cues.clear();
-    app.write().photo_data_url = None;
-    app.write().status = None;
 
     if let Some(previous) = previous
         && previous.id != media.id
@@ -1517,6 +1575,13 @@ fn play_media_at(
                 } else {
                     app.write().coordinator.loaded_paused(sequence, resume);
                 }
+                if let Some(mut timing) = app.read().timing_signal {
+                    timing.set(PlaybackTiming {
+                        position: resume,
+                        duration: media.duration.unwrap_or(0.0),
+                    });
+                }
+                trim_allocator();
                 if takeover {
                     app.write().session_takeover_pending = false;
                 }
@@ -1582,16 +1647,24 @@ fn play_photo(
         let _ = current_engine.stop();
     }
     app.read().video_frames.clear();
-    app.write().coordinator.load(media.clone());
+    {
+        let mut state = app.write();
+        state.coordinator.load(media.clone());
+        state.artwork.clear_other_media(Some(&media));
+        state.photo_data_url = None;
+        state.lyrics.clear();
+        state.lyrics.shrink_to_fit();
+        state.subtitles.clear();
+        state.subtitles.shrink_to_fit();
+        state.selected_subtitle = None;
+        state.subtitle_cues.clear();
+        state.subtitle_cues.shrink_to_fit();
+        state.player_expanded = true;
+        state.queue_open = false;
+        state.status = None;
+    }
+    trim_allocator();
     let sequence = app.read().coordinator.snapshot().sequence;
-    app.write().photo_data_url = None;
-    app.write().lyrics.clear();
-    app.write().subtitles.clear();
-    app.write().selected_subtitle = None;
-    app.write().subtitle_cues.clear();
-    app.write().player_expanded = true;
-    app.write().queue_open = false;
-    app.write().status = None;
     if auto_queue {
         auto_fill_queue(app, media.id);
     }
@@ -1624,6 +1697,13 @@ fn play_photo(
                     app.write().photo_data_url =
                         Some(Arc::new(format!("data:{mime};base64,{encoded}")));
                     app.write().coordinator.loaded(sequence, 0.0);
+                    if let Some(mut timing) = app.read().timing_signal {
+                        timing.set(PlaybackTiming {
+                            position: 0.0,
+                            duration: 0.0,
+                        });
+                    }
+                    trim_allocator();
                 }
             }
             Err(error) => {
@@ -2157,24 +2237,28 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         let _ = current_engine.stop();
     }
     app.read().video_frames.clear();
-    app.write().coordinator.stop();
+    {
+        let mut state = app.write();
+        state.coordinator.stop();
+        state.artwork.clear_all();
+        state.photo_data_url = None;
+        state.lyrics.clear();
+        state.lyrics.shrink_to_fit();
+        state.subtitles.clear();
+        state.subtitles.shrink_to_fit();
+        state.selected_subtitle = None;
+        state.subtitle_cues.clear();
+        state.subtitle_cues.shrink_to_fit();
+        state.player_expanded = false;
+        state.queue_open = false;
+    }
     if let Some(mut timing) = app.read().timing_signal {
         timing.set(PlaybackTiming {
             position: 0.0,
             duration: 0.0,
         });
     }
-    // Thumbnail responses are held as base64 data URLs in the native signal.
-    // Release them with the playback session so repeated connected playback
-    // cannot retain every album/track artwork until the process exits.
-    app.write().artwork.clear_all();
-    app.write().photo_data_url = None;
-    app.write().lyrics.clear();
-    app.write().subtitles.clear();
-    app.write().selected_subtitle = None;
-    app.write().subtitle_cues.clear();
-    app.write().player_expanded = false;
-    app.write().queue_open = false;
+    trim_allocator();
     if let Some(client) = client.filter(|_| !local_mode) {
         spawn(async move {
             if let Some(media) = media {
@@ -2763,8 +2847,13 @@ fn change_subtitle(
     engine: Signal<Option<PlaybackEngine>>,
     index: Option<usize>,
 ) {
-    app.write().selected_subtitle = index;
-    app.write().subtitle_cues.clear();
+    {
+        let mut state = app.write();
+        state.selected_subtitle = index;
+        state.subtitle_cues.clear();
+        state.subtitle_cues.shrink_to_fit();
+    }
+    trim_allocator();
     if let Some(engine) = engine.read().as_ref() {
         // Keep subtitle presentation in the native RSX layer instead of
         // compositing it into the decoded RGBA texture.
@@ -3716,5 +3805,166 @@ mod tests {
         assert_eq!(app.local_tracks.capacity(), 0);
         assert!(!app.local_mode);
         assert!(app.local_index.is_none());
+    }
+
+    #[test]
+    fn full_player_lyrics_toggle_is_always_usable() {
+        use super::views::FullPlayer;
+
+        fn harness() -> Element {
+            let app = use_signal(|| {
+                let mut state = NativeApp::boot();
+                let media: Media = serde_json::from_value(serde_json::json!({
+                    "id": 1,
+                    "title": "Test Song",
+                    "mime_type": "audio/flac"
+                }))
+                .unwrap();
+                state.coordinator.load(media);
+                state.lyrics_visible = true;
+                state
+            });
+            let engine = use_signal(|| None);
+
+            rsx! {
+                FullPlayer {
+                    app,
+                    engine,
+                    video_source_id: 1,
+                }
+            }
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+
+        let mut found_toggle = false;
+        let mut toggle_disabled = false;
+        let mut found_empty_lyrics = false;
+        document.inner.visit(|_, node| {
+            let Some(element) = node.element_data() else {
+                return;
+            };
+            if let Some(class_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "class") {
+                if class_attr.value.contains("lyrics-toggle") {
+                    found_toggle = true;
+                    if element.attrs.iter().any(|a| a.name.local.as_ref() == "disabled" && a.value.as_str() != "false") {
+                        toggle_disabled = true;
+                    }
+                }
+                if class_attr.value.contains("lyrics-empty") {
+                    found_empty_lyrics = true;
+                }
+            }
+        });
+
+        assert!(found_toggle, "lyrics toggle button must be rendered in full player");
+        assert!(!toggle_disabled, "lyrics toggle button must never be disabled even without lyrics");
+        assert!(found_empty_lyrics, "empty lyrics message should be displayed when opened without lyrics");
+    }
+
+    #[test]
+    fn stream_transition_purges_previous_media_state_and_resets_timing() {
+        let mut app = NativeApp::boot();
+        let media_1: Media = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "title": "Stream Track 1",
+            "mime_type": "audio/flac"
+        }))
+        .unwrap();
+        let media_2: Media = serde_json::from_value(serde_json::json!({
+            "id": 2,
+            "title": "Stream Track 2",
+            "mime_type": "video/mp4"
+        }))
+        .unwrap();
+
+        let key_1 = app.artwork.start(&media_1).unwrap();
+        app.artwork.finish(
+            key_1,
+            ArtworkState::Ready(Arc::new("data:image/png;base64,TRACK1".to_owned())),
+        );
+        app.lyrics = "Stale stream lyrics".to_owned();
+        app.subtitle_cues.push(SubtitleCue {
+            start: 0.0,
+            end: 1.0,
+            text: "cue".to_owned(),
+        });
+        assert!(app.artwork.get(&media_1).is_some());
+        assert!(!app.lyrics.is_empty());
+        assert!(!app.subtitle_cues.is_empty());
+
+        // When switching to media_2
+        app.video_frames.clear();
+        app.coordinator.load(media_2.clone());
+        app.artwork.clear_other_media(Some(&media_2));
+        app.lyrics.clear();
+        app.lyrics.shrink_to_fit();
+        app.subtitles.clear();
+        app.subtitles.shrink_to_fit();
+        app.selected_subtitle = None;
+        app.subtitle_cues.clear();
+        app.subtitle_cues.shrink_to_fit();
+        app.photo_data_url = None;
+
+        assert!(app.artwork.get(&media_1).is_none());
+        assert_eq!(app.artwork.ready_bytes, 0);
+        assert!(app.lyrics.is_empty());
+        assert_eq!(app.lyrics.capacity(), 0);
+        assert!(app.subtitle_cues.is_empty());
+        assert_eq!(app.subtitle_cues.capacity(), 0);
+        assert!(app.video_frames.take_frame().is_none());
+    }
+
+    #[test]
+    fn dynamic_window_title_formats_per_media() {
+        use super::format_window_title;
+
+        // Stopped / idle state
+        assert_eq!(format_window_title(None), "Dogmedia");
+
+        // Media with title and artist
+        let track_with_artist: Media = serde_json::from_value(serde_json::json!({
+            "id": 10,
+            "title": "Helena",
+            "artists": "My Chemical Romance"
+        }))
+        .unwrap();
+        assert_eq!(
+            format_window_title(Some(&track_with_artist)),
+            "Helena by My Chemical Romance - Dogmedia"
+        );
+
+        // Media with title only (no artist / video / local)
+        let track_title_only: Media = serde_json::from_value(serde_json::json!({
+            "id": 11,
+            "title": "01 Helena.wav"
+        }))
+        .unwrap();
+        assert_eq!(
+            format_window_title(Some(&track_title_only)),
+            "01 Helena.wav - Dogmedia"
+        );
+
+        // Media with empty artist string
+        let track_empty_artist: Media = serde_json::from_value(serde_json::json!({
+            "id": 12,
+            "title": "Song",
+            "artists": "   "
+        }))
+        .unwrap();
+        assert_eq!(
+            format_window_title(Some(&track_empty_artist)),
+            "Song - Dogmedia"
+        );
+
+        // Media with empty title
+        let track_empty_title: Media = serde_json::from_value(serde_json::json!({
+            "id": 13,
+            "title": "   "
+        }))
+        .unwrap();
+        assert_eq!(format_window_title(Some(&track_empty_title)), "Dogmedia");
     }
 }

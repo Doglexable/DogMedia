@@ -202,7 +202,7 @@ pub(crate) fn Shell(
                         quality: playback.quality,
                         is_video: media.is_video(),
                         expanded: snapshot.player_expanded,
-                        has_lyrics: !snapshot.lyrics.trim().is_empty(),
+                        has_lyrics: snapshot.lyrics_visible,
                     }
                 }
             }

@@ -28,7 +28,8 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
   - AppSink `max-buffers=1` with QoS and disabled sample retention to eliminate video memory bloat.
   - Subscribed timing signals preventing continuous 60fps UI rerenders.
 - **Native MPRIS Support**: Linux D-Bus MPRIS integration for system media keys, desktop metadata displays, and playback control.
-- **Subtitles & Lyrics**: Full ASS/SSA and WebVTT subtitle parsing with synchronized cue rendering.
+- **Dynamic Window Title**: Real-time window title updates displaying currently playing media (`{title} by {artist} - Dogmedia` or `{title} - Dogmedia`), updating per media start without 1-second polling intervals.
+- **Subtitles & Synced Lyrics**: Full ASS/SSA and WebVTT subtitle parsing with synchronized cue rendering, plus local `.lrc` lyrics discovery and parsing for offline folders.
 - **Local Folder Fallback**: Browse and play media directly from local directories without network access.
 - **Packaging & Distribution**: Automated packaging for Debian (`.deb`), RPM (`.rpm`), Flatpak, and macOS (`.dmg`) cross-compilation.
 
@@ -75,6 +76,8 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
 - Fixed video player mini-player overlap during web view transitions.
 - Fixed duplicate transcoding claims on worker restart by enforcing strict stream claim timeouts.
 - Fixed GStreamer decoder graph retention between media track transitions by detaching previous URI before attaching new playback targets.
+- Fixed remote stream state memory retention by clearing video frame buffers, shrinking vector capacities, immediately evicting old artwork, and trimming glibc allocators on track changes and playback stop.
+- Fixed lyrics toggle button accessibility in desktop full player to always remain interactive with empty-state messages when lyrics are missing.
 
 ---
 
