@@ -62,6 +62,7 @@ Comprehensive multi-platform release introducing the native Rust desktop client,
 - Enhanced database migrations runner to wrap migrations in atomic PostgreSQL transactions.
 - Upgraded Fastify dependencies past vulnerable multi-part busboy advisories.
 - Containerized development and production pipelines with rootless Podman Compose.
+- Added automatic build and packaging cache cleanup (`clean:desktop:packages`) to automatically purge staging directories, Zig caches, and cross-compilation caches after `package:desktop:*` commands.
 
 ### Fixed
 - Fixed audio playback unbounded memory growth in desktop client by memoizing slider hit zones, eliminating redundant progress re-renders, throttling UI playback ticks, and trimming fragmented allocator arenas.

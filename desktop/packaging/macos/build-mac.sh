@@ -110,4 +110,11 @@ for target in "${targets[@]}"; do
     esac
     bash "$desktop_root/packaging/publish-release.sh" "$variant" "$archive"
   fi
+  if [[ "${PFS_KEEP_STAGE:-0}" != 1 ]]; then
+    rm -rf "$stage"
+  fi
 done
+
+if [[ "${PFS_KEEP_BUILD_CACHE:-0}" != 1 ]]; then
+  rm -rf "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
+fi

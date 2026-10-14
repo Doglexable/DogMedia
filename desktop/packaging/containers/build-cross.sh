@@ -70,3 +70,7 @@ fi
 
 "$engine" "${run_args[@]}" "$image" \
   bash desktop/packaging/containers/run-cross.sh "$requested"
+
+if [[ "${PFS_KEEP_BUILD_CACHE:-0}" != 1 ]]; then
+  bash "$repo_root/desktop/scripts/clean-package-cache.sh"
+fi

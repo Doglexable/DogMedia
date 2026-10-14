@@ -63,3 +63,7 @@ echo "Created $installer"
 if [[ "${PFS_PUBLISH_DESKTOP_RELEASE:-1}" == 1 ]]; then
   bash "$desktop_root/packaging/publish-release.sh" windows-x64 "$installer"
 fi
+
+if [[ "${PFS_KEEP_STAGE:-0}" != 1 ]]; then
+  rm -rf "$stage" "${pc_dir:-}"
+fi
