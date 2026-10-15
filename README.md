@@ -797,3 +797,7 @@ rm -rf pfs-sdk/
 - CIDR matching prefers specific entries over broader ones (`ORDER BY masklen`)
 - Apache sanitizes and forwards the client address; Nginx accepts forwarded
   addresses only from host loopback, and Fastify trusts only local Nginx
+
+## Credits
+
+- Line-synchronized lyrics provided by [LRCLIB](https://lrclib.net/).

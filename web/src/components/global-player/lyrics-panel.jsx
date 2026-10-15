@@ -208,6 +208,15 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
         <h2>Lyrics</h2>
         <div className="lyrics-heading-actions">
           {lyrics.language && <span>{lyrics.language}</span>}
+          <a
+            href="https://lrclib.net/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="lyrics-credit-link"
+            title="Lyrics provided by LRCLIB"
+          >
+            LRCLIB
+          </a>
           <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={openShare}><FontAwesomeIcon icon={faShareNodes} /></button>
         </div>
       </div>
@@ -255,6 +264,15 @@ export function LyricsPanel({ artworkUrl, media, mediaId, onSeek, position, lyri
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   {lyrics.language && <span className="mobile-player-drawer-chip">{lyrics.language}</span>}
+                  <a
+                    href="https://lrclib.net/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="lyrics-credit-link"
+                    title="Lyrics provided by LRCLIB"
+                  >
+                    LRCLIB
+                  </a>
                   <button type="button" className="lyrics-share-trigger" aria-label="Share lyrics" title="Share lyrics" onClick={openShareFromDrawer}><FontAwesomeIcon icon={faShareNodes} /></button>
                   <button
                     type="button"
@@ -343,6 +361,17 @@ export function FullscreenLyrics({ artworkUrl: _artworkUrl, media, mediaId, onSe
 
   return (
     <section className="fullscreen-lyrics" aria-label="Synchronized lyrics">
+      <div className="fullscreen-lyrics-header">
+        <a
+          href="https://lrclib.net/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="lyrics-credit-link"
+          title="Lyrics provided by LRCLIB"
+        >
+          Lyrics by LRCLIB
+        </a>
+      </div>
       <div ref={listRef} className="fullscreen-lyrics-list">
         {displaySegments.map((segment, index) => {
           const distance = Math.max(Math.min(index - focusIndex, 4), -4);

@@ -16,7 +16,8 @@ describe("media quality selection", () => {
   it.each([
     ["high", ["low", "med"], "med"],
     ["high", ["low"], "low"],
-    ["med", ["high"], "ori"],
+    ["med", ["high"], "high"],
+    ["low", ["med", "high"], "med"],
     ["low", [], "ori"],
     ["ori", ["low", "med", "high"], "ori"],
   ])("resolves %s against %j to %s", (requested, ready, expected) => {

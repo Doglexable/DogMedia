@@ -34,6 +34,7 @@ pub enum IconName {
     RotateCw,
     Search,
     Settings,
+    Share,
     Shuffle,
     Signal,
     Stop,
@@ -147,6 +148,12 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         IconName::Settings => rsx! {
             circle { cx: "12", cy: "12", r: "3" }
             path { d: "M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" }
+        },
+        IconName::Share => rsx! {
+            circle { cx: "18", cy: "5", r: "2.5" }
+            circle { cx: "6", cy: "12", r: "2.5" }
+            circle { cx: "18", cy: "19", r: "2.5" }
+            path { d: "m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4" }
         },
         IconName::Shuffle => rsx! {
             path { d: "M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.6-8.6c.8-1.1 2-1.7 3.3-1.7H22" }
@@ -829,3 +836,6 @@ pub fn DraggableItem(
         }
     }
 }
+
+#[allow(unused_imports)]
+pub use super::menubar::{Kbd, KbdGroup};

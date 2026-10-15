@@ -16,5 +16,14 @@ export function actualMediaQuality(requested, available = ["ori"]) {
   for (let index = tiers.indexOf(requested); index >= 0; index -= 1) {
     if (ready.has(tiers[index])) return tiers[index];
   }
-  return "ori";
+  for (let index = tiers.indexOf(requested) + 1; index < tiers.length; index += 1) {
+    if (ready.has(tiers[index])) return tiers[index];
+  }
+  return ready.has("ori") ? "ori" : null;
+}
+
+export function visibleMediaQualities(available) {
+  return Array.isArray(available)
+    ? MEDIA_QUALITIES.filter((quality) => available.includes(quality))
+    : MEDIA_QUALITIES;
 }

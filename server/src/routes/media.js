@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
+import { ensureArtworkPalette, sharePaletteAccent } from "../artwork-palette.js";
 import { enqueueEncodingQuality, retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
@@ -1592,6 +1593,36 @@ export default async function (fastify, options = {}) {
     reply.type(contentType);
     const stream = createReadStream(resolvedFilePath);
     return reply.send(stream);
+  });
+
+  fastify.get("/:id/artwork-palette", async (request, reply) => {
+    const { id } = request.params;
+    const parsedId = Number.parseInt(id, 10);
+    if (!/^\d+$/.test(id) || !Number.isInteger(parsedId) || parsedId < 1 || parsedId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT COALESCE(m.thumbnail_path, ac.cover_path) AS artwork_path
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.id = $2`,
+      [request.accessTier, id]
+    );
+    if (!rows.length) return reply.code(404).send({ error: "Media not found" });
+    if (!rows[0].artwork_path) return reply.code(404).send({ error: "Artwork not found" });
+    try {
+      const colors = await ensureArtworkPalette({
+        pg: fastify.pg,
+        dataDir,
+        artworkPath: rows[0].artwork_path,
+      });
+      reply.header("Cache-Control", "private, no-store");
+      return { colors, accent: sharePaletteAccent(colors) };
+    } catch (error) {
+      request.log.warn({ err: error, mediaId: parsedId }, "artwork palette unavailable");
+      return reply.code(503).send({ error: "Artwork palette unavailable" });
+    }
   });
 
   fastify.get("/:id/thumbnail", async (request, reply) => {

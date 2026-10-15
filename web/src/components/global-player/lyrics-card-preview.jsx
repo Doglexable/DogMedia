@@ -1,25 +1,17 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
+import { accessibleTextColor } from "./lyrics-share";
 
 export function LyricsShareCard({
   artworkFailed,
+  backgroundColor = "#202438",
   cardRef,
   metadata,
   onArtworkError,
   selected = [],
 }) {
   return (
-    <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview">
-      {metadata?.artworkUrl && !artworkFailed && (
-        <img
-          className="lyrics-share-card-backdrop"
-          src={metadata.artworkUrl}
-          alt=""
-          crossOrigin="anonymous"
-          onError={onArtworkError}
-        />
-      )}
-      <div className="lyrics-share-card-wash" />
+    <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview" style={{ backgroundColor, color: accessibleTextColor(backgroundColor) }}>
       <div className="lyrics-share-card-brand">
         <img
           src="/web-app-manifest-192x192.png"
@@ -31,8 +23,7 @@ export function LyricsShareCard({
         />
         <span className="lyrics-share-card-brand-title">Dogmedia</span>
       </div>
-      <div className="lyrics-share-card-copy">
-        <div className="lyrics-share-card-rule" />
+      <div className="lyrics-share-card-copy" data-lines={selected.length}>
         {selected.map((segment, index) => (
           <p key={`${segment.start}-${index}`}>{segment.text}</p>
         ))}

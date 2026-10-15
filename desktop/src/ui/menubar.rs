@@ -208,6 +208,32 @@ pub fn MenubarItem(
 }
 
 /* ========================================================== */
+/*                     KBD                                    */
+/* ========================================================== */
+
+#[component]
+pub fn Kbd(#[props(default)] class: String, children: Element) -> Element {
+    rsx! {
+        kbd {
+            class: "kbd {class}",
+            "data-slot": "kbd",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn KbdGroup(#[props(default)] class: String, children: Element) -> Element {
+    rsx! {
+        kbd {
+            class: "kbd-group {class}",
+            "data-slot": "kbd-group",
+            {children}
+        }
+    }
+}
+
+/* ========================================================== */
 /*                     MENUBAR SHORTCUT                       */
 /* ========================================================== */
 
@@ -218,7 +244,9 @@ pub fn MenubarShortcut(#[props(default)] class: String, children: Element) -> El
             class: "menubar-shortcut {class}",
             "data-slot": "menubar-shortcut",
             "aria-hidden": "true",
-            {children}
+            Kbd {
+                {children}
+            }
         }
     }
 }

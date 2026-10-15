@@ -49,6 +49,9 @@ export function selectActualQuality(requested, readyQualities = []) {
   for (let index = requestedIndex; index >= 0; index -= 1) {
     if (ready.has(ENCODED_QUALITIES[index])) return ENCODED_QUALITIES[index];
   }
+  for (let index = requestedIndex + 1; index < ENCODED_QUALITIES.length; index += 1) {
+    if (ready.has(ENCODED_QUALITIES[index])) return ENCODED_QUALITIES[index];
+  }
   return "ori";
 }
 

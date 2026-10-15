@@ -40,7 +40,7 @@ describe("AudioShareDialog", () => {
     expect(markup).toContain("lyrics-share-picker");
     expect(markup).toContain("Searching for the starlight in your eyes");
     expect(markup).toContain("1/5 lines selected");
-    expect(markup).toContain("Share image");
+    expect(markup).toContain("Loading colors…");
   });
 
   it("defaults to 10s Clip tab when no lyrics are available", () => {

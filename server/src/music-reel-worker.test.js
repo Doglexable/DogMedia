@@ -54,6 +54,14 @@ describe("music reel renderer", () => {
     expect(cmd).toContain("Unknown Artist");
   });
 
+  it("tints the share background with the artwork palette when available", () => {
+    const args = reelSegmentArgs({
+      audioPath: "/data/song.mp3", artworkPath: "/data/cover.webp",
+      paletteAccent: "#b6ae5d", outputPath: "/tmp/clip.mp4",
+    });
+    expect(args.join(" ")).toContain("color=c=0xb6ae5d@0.34");
+  });
+
   it("supports textfile inputs for title, artist, and badge", () => {
     const args = reelSegmentArgs({
       audioPath: "/data/song.mp3",

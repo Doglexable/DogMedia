@@ -108,4 +108,13 @@ describe("LyricsShareCard", () => {
     expect(markup).toContain('class="lyrics-share-card-logo"');
     expect(markup).toContain("Dogmedia");
   });
+
+  it("uses a single palette color with contrast-safe text", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const light = renderToString(<LyricsShareCard backgroundColor="#efefef" selected={[{ start: 0, text: "Line one" }]} />);
+    const dark = renderToString(<LyricsShareCard backgroundColor="#080807" selected={[{ start: 0, text: "Line one" }]} />);
+    expect(light).toContain("background-color:#efefef;color:#000000");
+    expect(dark).toContain("background-color:#080807;color:#ffffff");
+    expect(light).not.toContain("linear-gradient");
+  });
 });

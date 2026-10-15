@@ -18,6 +18,7 @@ fn media(id: MediaId) -> Media {
         liked: false,
         source_version: Some(1),
         created_at: None,
+        available_qualities: None,
     }
 }
 

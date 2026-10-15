@@ -118,6 +118,7 @@ mod tests {
             liked: false,
             source_version: None,
             created_at: None,
+            available_qualities: None,
         }
     }
 

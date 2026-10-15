@@ -2,6 +2,7 @@ mod app_menubar;
 mod featured;
 mod full_player;
 mod library;
+mod lyrics_share;
 mod player_bar;
 mod queue_panel;
 mod settings_dialog;
@@ -14,6 +15,7 @@ pub(crate) use app_menubar::AppMenubar;
 pub(crate) use featured::Featured;
 pub(crate) use full_player::FullPlayer;
 pub(crate) use library::Library;
+pub(crate) use lyrics_share::LyricsShareDialog;
 #[cfg(test)]
 pub(crate) use player_bar::can_take_over_playback;
 pub(crate) use player_bar::{PlayerBar, QualityOverlay, QualityPopover, SessionConflictCard};

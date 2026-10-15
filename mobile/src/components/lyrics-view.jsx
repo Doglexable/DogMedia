@@ -7,7 +7,7 @@ import ViewShot, { captureRef } from "react-native-view-shot";
 import { api } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { buildLyricsDisplaySegments, findActiveLyricsIndex, findLyricsFocusIndex, normalizeLyricsResponse } from "../utils/lyrics";
-import { captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
+import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
 import { formatDuration } from "../utils/media";
 
 function useReducedMotion() {
@@ -30,25 +30,24 @@ function useReducedMotion() {
   return reducedMotion;
 }
 
-function LyricsCard({ artworkFailed, cardRef, cardWidth, metadata, onArtworkError, selected, styles }) {
-  const cardHeight = cardWidth * 16 / 9;
+function LyricsCard({ backgroundColor, artworkFailed, cardRef, cardWidth, metadata, onArtworkError, selected, styles }) {
+  const cardHeight = cardWidth * 9 / 16;
+  const lineSize = cardWidth * (selected.length >= 4 ? 0.036 : selected.length === 3 ? 0.044 : 0.052);
+  const textColor = accessibleTextColor(backgroundColor);
   return (
-    <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }} style={[styles.shareCard, { width: cardWidth, height: cardHeight }]}>
-      {metadata.artworkUri && !artworkFailed && <Image source={{ uri: metadata.artworkUri }} blurRadius={30} onError={onArtworkError} style={styles.shareCardBackdrop} />}
-      <View style={styles.shareCardWash} />
+    <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }} style={[styles.shareCard, { width: cardWidth, height: cardHeight, backgroundColor }]}>
       <View style={styles.shareCardBrand}>
         <Image source={require("../../assets/logo.png")} style={styles.shareCardBrandLogo} />
-        <Text style={styles.shareCardBrandText}>Dogmedia</Text>
+        <Text style={[styles.shareCardBrandText, { color: textColor }]}>Dogmedia</Text>
       </View>
       <View style={styles.shareCardCopy}>
-        <View style={styles.shareCardRule} />
-        {selected.map((segment, index) => <Text key={`${segment.start}-${index}`} style={[styles.shareCardLine, { fontSize: cardWidth * 0.066, lineHeight: cardWidth * 0.071 }]}>{segment.text}</Text>)}
+        {selected.map((segment, index) => <Text key={`${segment.start}-${index}`} style={[styles.shareCardLine, { color: textColor, fontSize: lineSize, lineHeight: lineSize * 1.12 }]}>{segment.text}</Text>)}
       </View>
-      <View style={styles.shareCardFooter}>
+      <View style={[styles.shareCardFooter, { borderTopColor: textColor }]}>
         {metadata.artworkUri && !artworkFailed
           ? <Image source={{ uri: metadata.artworkUri }} onError={onArtworkError} style={styles.shareCardArtwork} />
-          : <View style={[styles.shareCardArtwork, styles.shareCardArtworkFallback]}><Ionicons name="reader" size={20} color="#fff" /></View>}
-        <View style={styles.shareCardMeta}><Text numberOfLines={1} style={styles.shareCardTitle}>{metadata.title}</Text><Text numberOfLines={1} style={styles.shareCardArtist}>{metadata.artists}</Text></View>
+          : <View style={[styles.shareCardArtwork, styles.shareCardArtworkFallback, { backgroundColor: textColor === "#000000" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)" }]}><Ionicons name="reader" size={20} color={textColor} /></View>}
+        <View style={styles.shareCardMeta}><Text numberOfLines={1} style={[styles.shareCardTitle, { color: textColor }]}>{metadata.title}</Text><Text numberOfLines={1} style={[styles.shareCardArtist, { color: textColor }]}>{metadata.artists}</Text></View>
       </View>
     </ViewShot>
   );
@@ -56,7 +55,7 @@ function LyricsCard({ artworkFailed, cardRef, cardWidth, metadata, onArtworkErro
 
 function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, segments, visible }) {
   const { colors } = useTheme();
-  const { height, width } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const cardRef = useRef(null);
   const pickerRef = useRef(null);
@@ -65,10 +64,36 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState("");
   const [artworkFailed, setArtworkFailed] = useState(false);
+  const [paletteColors, setPaletteColors] = useState([]);
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const [paletteLoading, setPaletteLoading] = useState(false);
   const metadata = useMemo(() => getLyricsShareMetadata(media, artworkUri), [artworkUri, media]);
+  const mediaId = Number(media?.id ?? media?.mediaId);
   const selected = useMemo(() => getSelectedLyrics(segments, selection), [segments, selection]);
-  const cardWidth = Math.min(width - spacing.xl * 2, height < 720 ? 190 : 230);
+  const cardWidth = Math.min(width - spacing.md * 4, 480);
+  const selectedBackground = paletteColors[paletteIndex]?.hex || "#202438";
   const currentPlaybackIndex = getLyricsShareIndex(segments, position, activeIndex);
+
+  useEffect(() => {
+    setPaletteColors([]);
+    setPaletteIndex(0);
+    setPaletteLoading(visible && Number.isInteger(mediaId) && mediaId > 0);
+    if (!visible || !Number.isInteger(mediaId) || mediaId < 1) return undefined;
+    let active = true;
+    api(`/api/media/${mediaId}/artwork-palette`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((palette) => {
+        if (active && Array.isArray(palette?.colors)) {
+          setPaletteColors(palette.colors.filter((color) => /^#[0-9a-f]{6}$/i.test(color?.hex)
+            && Number.isFinite(color?.percentage) && color.percentage >= 0 && color.percentage <= 100));
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setPaletteLoading(false);
+      });
+    return () => { active = false; };
+  }, [mediaId, visible]);
 
   useEffect(() => {
     if (visible) {
@@ -91,7 +116,7 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
   }, [scrollPickerToActiveLine, visible]);
 
   const share = useCallback(async () => {
-    if (!cardRef.current || selected.length === 0 || sharing) return;
+    if (!cardRef.current || selected.length === 0 || sharing || paletteLoading) return;
     setSharing(true);
     setError("");
     try {
@@ -107,7 +132,7 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
     } finally {
       setSharing(false);
     }
-  }, [metadata.title, onClose, selected.length, sharing]);
+  }, [metadata.title, onClose, paletteLoading, selected.length, sharing]);
 
   return (
     <Modal animationType="fade" onRequestClose={sharing ? undefined : onClose} statusBarTranslucent transparent visible={visible}>
@@ -146,13 +171,33 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
             style={styles.sharePicker}
             windowSize={5}
           />
-          <View style={styles.sharePreview}><LyricsCard artworkFailed={artworkFailed} cardRef={cardRef} cardWidth={cardWidth} metadata={metadata} onArtworkError={() => setArtworkFailed(true)} selected={selected} styles={styles} /></View>
+          <View style={styles.sharePreview}><LyricsCard backgroundColor={selectedBackground} artworkFailed={artworkFailed} cardRef={cardRef} cardWidth={cardWidth} metadata={metadata} onArtworkError={() => setArtworkFailed(true)} selected={selected} styles={styles} /></View>
+          {paletteColors.length > 0 && (
+            <View style={styles.sharePalettePicker}>
+              <Text style={styles.sharePaletteLabel}>Background color</Text>
+              <View style={styles.sharePaletteOptions}>
+                {paletteColors.map((color, index) => (
+                  <Pressable
+                    key={`${color.hex}-${index}`}
+                    accessibilityLabel={`Background ${color.hex}, ${color.percentage.toFixed(2)} percent of artwork`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: paletteIndex === index }}
+                    disabled={sharing}
+                    onPress={() => setPaletteIndex(index)}
+                    style={[styles.sharePaletteSwatch, { backgroundColor: color.hex, borderColor: paletteIndex === index ? colors.text : alpha(colors.text, 0.25), borderWidth: paletteIndex === index ? 3 : 1 }]}
+                  >
+                    {paletteIndex === index && <Ionicons name="checkmark" size={17} color={accessibleTextColor(color.hex)} />}
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
           {error ? <Text accessibilityRole="alert" style={styles.shareError}>{error}</Text> : null}
           <View style={styles.shareActions}>
             <Text style={styles.shareCount}>{selected.length}/5 lines</Text>
-            <Pressable accessibilityLabel="Share lyrics image" accessibilityRole="button" accessibilityState={{ disabled: sharing || selected.length === 0 }} disabled={sharing || selected.length === 0} onPress={share} style={[styles.shareButton, (sharing || selected.length === 0) && styles.shareButtonDisabled]}>
-              {sharing ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="share-social" size={18} color="#fff" />}
-              <Text style={styles.shareButtonText}>{sharing ? "Creating card…" : "Share image"}</Text>
+            <Pressable accessibilityLabel="Share lyrics image" accessibilityRole="button" accessibilityState={{ disabled: sharing || paletteLoading || selected.length === 0 }} disabled={sharing || paletteLoading || selected.length === 0} onPress={share} style={[styles.shareButton, (sharing || paletteLoading || selected.length === 0) && styles.shareButtonDisabled]}>
+              {sharing || paletteLoading ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="share-social" size={18} color="#fff" />}
+              <Text style={styles.shareButtonText}>{sharing ? "Creating card…" : paletteLoading ? "Loading colors…" : "Share image"}</Text>
             </Pressable>
           </View>
         </View>
@@ -255,7 +300,10 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
   return (
     <View style={[styles.readyShell, style]}>
       <View style={styles.lyricsToolbar}>
-        <Text style={styles.lyricsToolbarTitle}>Synced lyrics</Text>
+        <View style={styles.lyricsToolbarHeading}>
+          <Text style={styles.lyricsToolbarTitle}>Synced lyrics</Text>
+          <Text style={styles.lyricsCreditText}>• LRCLIB</Text>
+        </View>
         <Pressable accessibilityLabel="Share lyrics" accessibilityRole="button" onPress={() => setShareOpen(true)} style={styles.lyricsShareTrigger}>
           <Ionicons name="share-social" size={17} color={colors.text} /><Text style={styles.lyricsShareTriggerText}>Share</Text>
         </Pressable>
@@ -301,7 +349,9 @@ const makeStyles = (colors) => StyleSheet.create({
   },
   readyShell: { flex: 1, minHeight: 0 },
   lyricsToolbar: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, paddingHorizontal: spacing.sm, borderBottomWidth: 1, borderBottomColor: alpha(colors.text, 0.08) },
+  lyricsToolbarHeading: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   lyricsToolbarTitle: { color: colors.muted, fontSize: 11, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
+  lyricsCreditText: { color: colors.muted, fontSize: 10, fontWeight: "700" },
   lyricsShareTrigger: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm, borderRadius: 17, backgroundColor: alpha(colors.text, 0.09) },
   lyricsShareTriggerText: { color: colors.text, fontSize: 12, fontWeight: "900" },
   content: {
@@ -388,23 +438,24 @@ const makeStyles = (colors) => StyleSheet.create({
   sharePickerText: { flex: 1, color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: "800" },
   sharePickerTextSelected: { color: colors.text, fontWeight: "900" },
   sharePreview: { alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  shareCard: { overflow: "hidden", padding: 20, backgroundColor: "#11131c" },
-  shareCardBackdrop: { ...StyleSheet.absoluteFillObject, width: "125%", height: "125%", left: "-12.5%", top: "-12.5%", opacity: 0.68 },
-  shareCardWash: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(6,7,12,0.52)" },
+  sharePalettePicker: { alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingBottom: spacing.md },
+  sharePaletteLabel: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+  sharePaletteOptions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.sm },
+  sharePaletteSwatch: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
+  shareCard: { overflow: "hidden", padding: 12, backgroundColor: "#11131c" },
   shareCardBrand: { position: "relative", flexDirection: "row", alignItems: "center", gap: 8 },
-  shareCardBrandLogo: { width: 22, height: 22, borderRadius: 5 },
+  shareCardBrandLogo: { width: 18, height: 18, borderRadius: 4 },
   shareCardBrandMark: { width: 25, height: 25, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.45)", borderRadius: 13 },
   shareCardBrandMarkText: { color: "#fff", fontSize: 8, fontWeight: "900" },
-  shareCardBrandText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
-  shareCardCopy: { position: "relative", flex: 1, justifyContent: "center", paddingVertical: spacing.lg },
-  shareCardRule: { width: 38, height: 4, marginBottom: spacing.md, borderRadius: 2, backgroundColor: "#fff" },
-  shareCardLine: { marginBottom: 6, color: "#fff", fontWeight: "900", letterSpacing: -0.8 },
-  shareCardFooter: { position: "relative", flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  shareCardArtwork: { width: 44, height: 44, borderRadius: 7 },
+  shareCardBrandText: { color: "#fff", fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
+  shareCardCopy: { position: "relative", flex: 1, justifyContent: "center", paddingVertical: 5 },
+  shareCardLine: { marginBottom: 2, color: "#fff", fontWeight: "900", letterSpacing: -0.4 },
+  shareCardFooter: { position: "relative", flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingTop: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.6)" },
+  shareCardArtwork: { width: 32, height: 32, borderRadius: 5 },
   shareCardArtworkFallback: { alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
   shareCardMeta: { flex: 1, minWidth: 0, gap: 2 },
-  shareCardTitle: { color: "#fff", fontSize: 13, fontWeight: "900" },
-  shareCardArtist: { color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "700" },
+  shareCardTitle: { color: "#fff", fontSize: 11, fontWeight: "900" },
+  shareCardArtist: { color: "rgba(255,255,255,0.7)", fontSize: 9, fontWeight: "700" },
   shareError: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.warningText, backgroundColor: colors.warningBg, fontSize: 12, fontWeight: "800" },
   shareActions: { minHeight: 68, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, padding: spacing.md, borderTopWidth: 1, borderTopColor: alpha(colors.text, 0.08) },
   shareCount: { color: colors.muted, fontSize: 12, fontWeight: "800" },

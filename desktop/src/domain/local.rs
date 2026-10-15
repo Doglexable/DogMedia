@@ -83,6 +83,99 @@ fn walk(folder: &Path, depth: usize, tracks: &mut Vec<LocalTrack>) -> io::Result
     Ok(())
 }
 
+use super::LyricSegment;
+
+fn parse_lrc_timestamp(tag: &str) -> Option<f64> {
+    let tag = tag.trim();
+    let (mins_str, rest) = tag.split_once(':')?;
+    let mins: f64 = mins_str.parse().ok()?;
+    let (secs_str, frac_str) = if let Some((s, f)) = rest.split_once('.') {
+        (s, Some(f))
+    } else if let Some((s, f)) = rest.split_once(':') {
+        (s, Some(f))
+    } else {
+        (rest, None)
+    };
+    let secs: f64 = secs_str.parse().ok()?;
+    let frac: f64 = if let Some(f) = frac_str {
+        let f_val: f64 = f.parse().ok()?;
+        let scale = 10_f64.powi(f.len() as i32);
+        f_val / scale
+    } else {
+        0.0
+    };
+    Some(mins * 60.0 + secs + frac)
+}
+
+pub fn parse_lrc_segments(content: &str) -> Vec<LyricSegment> {
+    let mut entries: Vec<(f64, String)> = Vec::new();
+    let mut plain_entries: Vec<String> = Vec::new();
+
+    for raw_line in content.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut rest = trimmed;
+        let mut timestamps = Vec::new();
+        while let Some(start_bracket) = rest.find('[') {
+            if let Some(end_bracket) = rest[start_bracket..].find(']') {
+                let tag = &rest[start_bracket + 1..start_bracket + end_bracket];
+                if let Some(secs) = parse_lrc_timestamp(tag) {
+                    timestamps.push(secs);
+                }
+                rest = &rest[start_bracket + end_bracket + 1..];
+            } else {
+                break;
+            }
+        }
+        let text = rest.trim();
+        if !text.is_empty() {
+            if !timestamps.is_empty() {
+                for ts in timestamps {
+                    entries.push((ts, text.to_owned()));
+                }
+            } else {
+                plain_entries.push(text.to_owned());
+            }
+        }
+    }
+
+    if !entries.is_empty() {
+        entries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut segments = Vec::with_capacity(entries.len());
+        for i in 0..entries.len() {
+            let (start, text) = &entries[i];
+            let end = entries.get(i + 1).map(|(next_start, _)| *next_start);
+            segments.push(LyricSegment {
+                start: *start,
+                end,
+                text: text.clone(),
+            });
+        }
+        segments
+    } else {
+        plain_entries
+            .into_iter()
+            .map(|text| LyricSegment {
+                start: 0.0,
+                end: None,
+                text,
+            })
+            .collect()
+    }
+}
+
+pub fn load_local_lyrics_segments(audio_path: &Path) -> Vec<LyricSegment> {
+    let lrc_path = audio_path.with_extension("lrc");
+    if lrc_path.is_file() {
+        if let Ok(content) = fs::read_to_string(&lrc_path) {
+            return parse_lrc_segments(&content);
+        }
+    }
+    Vec::new()
+}
+
 pub fn parse_lrc(content: &str) -> String {
     let mut lines = Vec::new();
     for raw_line in content.lines() {
@@ -190,5 +283,18 @@ mod tests {
             loaded,
             "First line of lyrics\nSecond line with repeated time\nThird plain line"
         );
+
+        let segments = load_local_lyrics_segments(&audio_path);
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].text, "First line of lyrics");
+        assert_eq!(segments[0].start, 10.50);
+        assert_eq!(segments[0].end, Some(15.20));
+
+        assert_eq!(segments[1].text, "Second line with repeated time");
+        assert_eq!(segments[1].start, 15.20);
+        assert_eq!(segments[1].end, Some(20.10));
+
+        assert_eq!(segments[2].text, "Second line with repeated time");
+        assert_eq!(segments[2].start, 20.10);
     }
 }

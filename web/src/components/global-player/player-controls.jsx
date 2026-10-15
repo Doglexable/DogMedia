@@ -16,6 +16,7 @@ import { faVolumeLow } from "@fortawesome/free-solid-svg-icons/faVolumeLow";
 import { faVolumeXmark } from "@fortawesome/free-solid-svg-icons/faVolumeXmark";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { getLoopButtonTitle } from "./player-utils";
+import { visibleMediaQualities } from "../../media-quality";
 
 const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 const QUALITY_OPTIONS = [
@@ -277,14 +278,13 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
     };
   }, [open]);
 
-  const activeOption = QUALITY_OPTIONS.find((opt) => opt.value === quality) || QUALITY_OPTIONS[0];
-  const visibleOptions = Array.isArray(currentMedia?.available_qualities)
-    && !currentMedia.available_qualities.includes("ori")
-    ? QUALITY_OPTIONS.filter((option) => option.value !== "ori")
-    : QUALITY_OPTIONS;
-  const isModified = quality !== "ori";
-  const activeBitrate = getQualityBitrateLabel(actualQuality || quality, currentMedia);
-  const title = `Quality: ${activeOption.label}${activeBitrate ? ` (${activeBitrate})` : ""}${actualQuality && actualQuality !== quality ? ` (Playing ${actualQuality})` : ""}`;
+  const displayedQuality = actualQuality || quality;
+  const activeOption = QUALITY_OPTIONS.find((opt) => opt.value === displayedQuality) || QUALITY_OPTIONS[0];
+  const visible = visibleMediaQualities(currentMedia?.available_qualities);
+  const visibleOptions = QUALITY_OPTIONS.filter((option) => visible.includes(option.value));
+  const isModified = displayedQuality !== "ori";
+  const activeBitrate = getQualityBitrateLabel(displayedQuality, currentMedia);
+  const title = `Quality: ${activeOption.label}${activeBitrate ? ` (${activeBitrate})` : ""}`;
 
   const buttonClass = variant === "fullscreen"
     ? `fullscreen-player-icon-button ${isModified ? "fullscreen-player-icon-button--active" : ""}`
@@ -316,13 +316,10 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
           {activeBitrate && (
             <span className="player-quality-bitrate-active">{activeBitrate}</span>
           )}
-          {actualQuality && actualQuality !== quality && (
-            <span className="player-quality-fallback">→ {actualQuality.toUpperCase()}</span>
-          )}
         </div>
         <div className="player-quality-presets">
           {visibleOptions.map((opt) => {
-            const isSelected = opt.value === quality;
+            const isSelected = opt.value === displayedQuality;
             const bitrateLabel = getQualityBitrateLabel(opt.value, currentMedia);
             return (
               <button
@@ -346,6 +343,7 @@ export function QualityControl({ currentMedia, quality = "ori", actualQuality, o
               </button>
             );
           })}
+          {visibleOptions.length === 0 && <span className="player-quality-preset-info">Preparing quality options…</span>}
         </div>
       </div>
     </div>

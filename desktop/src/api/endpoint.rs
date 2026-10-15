@@ -20,6 +20,7 @@ pub enum Endpoint {
     Dashboard(String),
     Media(MediaId),
     MediaThumbnail(MediaId),
+    ArtworkPalette(MediaId),
     PlaybackSession(MediaId),
     LeaseHeartbeat,
     LeaseRelease,
@@ -111,6 +112,7 @@ impl Endpoint {
             Self::Dashboard(query) => format!("api/playback/dashboard?{query}"),
             Self::Media(id) => format!("api/media/{id}"),
             Self::MediaThumbnail(id) => format!("api/media/{id}/thumbnail"),
+            Self::ArtworkPalette(id) => format!("api/media/{id}/artwork-palette"),
             Self::PlaybackSession(id) => format!("api/media/{id}/playback-session"),
             Self::LeaseHeartbeat => "api/playback/lease/heartbeat".to_owned(),
             Self::LeaseRelease => "api/playback/lease".to_owned(),
@@ -179,6 +181,10 @@ mod tests {
         assert_eq!(
             Endpoint::MediaThumbnail(MediaId::new(4)).path(),
             "api/media/4/thumbnail"
+        );
+        assert_eq!(
+            Endpoint::ArtworkPalette(MediaId::new(4)).path(),
+            "api/media/4/artwork-palette"
         );
         assert_eq!(
             Endpoint::QueueAutoCategory {

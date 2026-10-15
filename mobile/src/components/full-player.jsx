@@ -672,14 +672,14 @@ export function FullPlayer({ navigation }) {
         />
         <QualityControl player={player} style={[styles.visualQuality, { top: insets.top + spacing.md }]} styles={styles} />
         <View style={styles.visualStage}>
-          {(protectedSourceConflict || protectedSourceError || player.playbackAccessError) && (
+          {(protectedSourceConflict || protectedSourceError || player.playbackAccessError || player.playbackConflict || player.controlsLocked) && (
             <View style={styles.exclusiveSessionNotice}>
               <Text style={{ color: colors.white, textAlign: "center" }}>
                 {protectedSourceConflict
                   ? conflictDisplayText(protectedSourceConflict, protectedSourceError)
-                  : (protectedSourceError || player.playbackAccessError)}
+                  : (protectedSourceError || player.playbackAccessError || conflictDisplayText(player.playbackConflict, "Playback is active on another device"))}
               </Text>
-              {player.canTakeOverPlayback && player.playbackConflict && (
+              {player.canTakeOverPlayback && (player.playbackConflict || protectedSourceConflict) && (
                 <Pressable
                   accessibilityRole="button"
                   onPress={player.takeOverExclusiveSession}
@@ -695,7 +695,7 @@ export function FullPlayer({ navigation }) {
               key={`${media.id}-${player.quality}`}
               playerState={player}
               source={protectedSource}
-              shouldPlay={!player.paused}
+              shouldPlay={!player.paused && !player.controlsLocked}
               styles={styles}
             />
           )}
@@ -788,10 +788,16 @@ export function FullPlayer({ navigation }) {
           styles={styles}
         />
         <View style={styles.progressBlock}>
-          <Pressable style={styles.progressTrack} onLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPress={(event) => {
-            const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / Math.max(progressWidth, 1)));
-            player.seek(ratio * (player.duration || media.duration || 1));
-          }}>
+          <Pressable
+            disabled={player.controlsLocked}
+            style={styles.progressTrack}
+            onLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)}
+            onPress={(event) => {
+              if (player.controlsLocked) return;
+              const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / Math.max(progressWidth, 1)));
+              player.seek(ratio * (player.duration || media.duration || 1));
+            }}
+          >
             <View style={[styles.progressFill, { width: `${Math.min(100, ((player.position || 0) / Math.max(player.duration || media.duration || 1, 1)) * 100)}%` }]} />
           </Pressable>
           <View style={styles.timeRow}>
@@ -804,8 +810,9 @@ export function FullPlayer({ navigation }) {
           <PlayerIconButton
             accessibilityLabel={player.shuffleEnabled ? "Disable shuffle" : "Enable shuffle"}
             active={player.shuffleEnabled}
+            disabled={player.controlsLocked}
             icon="shuffle"
-            iconColor={player.shuffleEnabled ? colors.primary : colors.text}
+            iconColor={player.controlsLocked ? colors.subtle : player.shuffleEnabled ? colors.primary : colors.text}
             onPress={player.toggleShuffle}
           />
           <PlayerTransportControls
@@ -820,8 +827,9 @@ export function FullPlayer({ navigation }) {
           <PlayerIconButton
             accessibilityLabel={player.loopMode === "none" ? "Enable repeat" : `Repeat ${player.loopMode} enabled`}
             active={player.loopMode !== "none"}
+            disabled={player.controlsLocked}
             icon={getLoopIcon(player.loopMode)}
-            iconColor={player.loopMode !== "none" ? colors.primary : colors.text}
+            iconColor={player.controlsLocked ? colors.subtle : player.loopMode !== "none" ? colors.primary : colors.text}
             onPress={player.toggleLoop}
           />
         </View>
@@ -865,7 +873,7 @@ export function FullPlayer({ navigation }) {
           />
         </View>
 
-        {player.controlsLocked && (
+        {(player.controlsLocked || player.playbackConflict) && (
           <View style={styles.spotifyConnectFullPill}>
             <View style={styles.spotifyConnectFullInfo}>
               <Ionicons name="volume-high" size={16} color={colors.primary} />

@@ -323,6 +323,13 @@ pub(crate) fn QualityOverlay(
     has_lyrics: bool,
 ) -> Element {
     let active_desc = quality_description(quality, is_video);
+    let available = app
+        .read()
+        .coordinator
+        .snapshot()
+        .media
+        .as_ref()
+        .and_then(|media| media.available_qualities.clone());
     let layer_class = if !expanded {
         "quality-layer quality-layer--mini"
     } else if is_video {
@@ -360,7 +367,9 @@ pub(crate) fn QualityOverlay(
                         span { class: "player-quality-bitrate-active", "{active_desc}" }
                     }
                     div { class: "player-quality-presets",
-                        for opt in [Quality::Ori, Quality::High, Quality::Med, Quality::Low] {
+                        for opt in [Quality::Ori, Quality::High, Quality::Med, Quality::Low]
+                            .into_iter()
+                            .filter(|opt| available.as_ref().is_none_or(|choices| choices.contains(opt))) {
                             QualityOption {
                                 opt,
                                 is_active: quality == opt,
@@ -370,6 +379,9 @@ pub(crate) fn QualityOverlay(
                                     change_quality(app, engine, selected);
                                 },
                             }
+                        }
+                        if available.as_ref().is_some_and(Vec::is_empty) {
+                            span { class: "player-quality-preset-info", "Preparing quality options…" }
                         }
                     }
                 }

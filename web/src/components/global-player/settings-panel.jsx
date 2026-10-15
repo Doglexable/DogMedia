@@ -10,6 +10,7 @@ import { EQ_BANDS, GAIN_MIN, GAIN_MAX } from "./use-equalizer";
 import { SpotifyEqualizer } from "./spotify-equalizer";
 import { getQualityBitrateLabel } from "./player-controls";
 import { APP_VERSION_LABEL } from "../../version";
+import { visibleMediaQualities } from "../../media-quality";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const QUALITY_OPTIONS = [
@@ -121,7 +122,7 @@ export function SettingsControl({
   // Badge counts for active state indicators
   const timerActive = Boolean(sleepTimerMode) || sleepTimerRemaining > 0;
   const eqActive    = eqEnabled;
-  const qualityMod  = quality !== "ori";
+  const qualityMod  = (actualQuality || quality) !== "ori";
   const speedMod    = playbackRate !== 1;
   const anyActive   = timerActive || eqActive || qualityMod || speedMod;
 
@@ -151,10 +152,8 @@ export function SettingsControl({
       ? `fullscreen-player-icon-button ${anyActive ? "fullscreen-player-icon-button--active" : ""}`
       : `video-player-ctrl-btn ${anyActive ? "video-player-ctrl-btn--active" : ""}`;
 
-  const visibleQualityOptions = Array.isArray(currentMedia?.available_qualities)
-    && !currentMedia.available_qualities.includes("ori")
-    ? QUALITY_OPTIONS.filter((o) => o.value !== "ori")
-    : QUALITY_OPTIONS;
+  const visible = visibleMediaQualities(currentMedia?.available_qualities);
+  const visibleQualityOptions = QUALITY_OPTIONS.filter((option) => visible.includes(option.value));
 
   return (
     <div
@@ -218,13 +217,10 @@ export function SettingsControl({
                 <div className="settings-section-header">
                   <FontAwesomeIcon icon={faSignal} />
                   <span>Quality</span>
-                  {actualQuality && actualQuality !== quality && (
-                    <span className="settings-section-badge">→ {actualQuality.toUpperCase()}</span>
-                  )}
                 </div>
                 <div className="settings-quality-options">
                   {visibleQualityOptions.map((opt) => {
-                    const isSelected = opt.value === quality;
+                    const isSelected = opt.value === (actualQuality || quality);
                     const bitrate = getQualityBitrateLabel(opt.value, currentMedia);
                     return (
                       <button
@@ -241,6 +237,7 @@ export function SettingsControl({
                       </button>
                     );
                   })}
+                  {visibleQualityOptions.length === 0 && <span>Preparing quality options…</span>}
                 </div>
               </div>
             )}

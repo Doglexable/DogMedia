@@ -21,9 +21,11 @@ import { FullscreenLyrics } from "./lyrics-panel";
 import { AudioShareDialog } from "./audio-share-dialog";
 import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
+import { SpotifyConnectBar } from "./spotify-connect-bar";
 import { playerStyles as styles } from "./player-styles";
 import { formatDuration, getLoopButtonTitle, getMediaFolderName, isEditableTarget } from "./player-utils";
 import { mediaViewTransitionName, runViewTransition } from "../../utils/view-transitions";
+import { api } from "../../api";
 
 const PLAYER_LYRICS_VISIBLE_KEY = "pfs:player-lyrics-visible";
 
@@ -75,6 +77,7 @@ export function FullPlayer({
 }) {
   const [displayedArtworkSrc, setDisplayedArtworkSrc] = useState(thumbSrc);
   const [isArtworkLoaded, setIsArtworkLoaded] = useState(Boolean(thumbSrc) && !thumbFailed);
+  const [shadowPalette, setShadowPalette] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [showLyricsMobile, setShowLyricsMobile] = useState(false);
   const [showLyricsDesktop, setShowLyricsDesktop] = useState(readStoredLyricsVisibility);
@@ -82,6 +85,25 @@ export function FullPlayer({
     if (typeof window === "undefined") return false;
     return window.matchMedia("(max-width: 899px)").matches;
   });
+
+  const mediaId = Number(currentMedia?.id);
+  const artworkShadowColor = shadowPalette?.mediaId === mediaId && shadowPalette?.thumbSrc === thumbSrc
+    ? shadowPalette.hex : null;
+
+  useEffect(() => {
+    if (!isAudio || !thumbSrc || !Number.isInteger(mediaId) || mediaId < 1) return undefined;
+    const controller = new AbortController();
+    api(`/api/media/${mediaId}/artwork-palette`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((palette) => {
+        const hex = palette?.colors?.[2]?.hex;
+        if (!controller.signal.aborted && /^#[0-9a-f]{6}$/i.test(hex || "")) {
+          setShadowPalette({ mediaId, thumbSrc, hex });
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [isAudio, mediaId, thumbSrc]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -235,7 +257,7 @@ export function FullPlayer({
 
     return (
       <div
-        className={`fullscreen-player ${queueOpen ? "fullscreen-player--with-queue-sidebar" : ""}`}
+        className={`fullscreen-player ${queueOpen ? "fullscreen-player--with-queue-sidebar" : ""}${conflict ? " has-connect-bar" : ""}`}
         onContextMenu={onPreventMenu}
         style={{ "--fullscreen-volume": `${effectiveVolume}%` }}
       >
@@ -284,7 +306,7 @@ export function FullPlayer({
                       src={effectiveArtworkSrc}
                       alt={currentMedia.title}
                       className="fullscreen-player-artwork"
-                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id) }}
+                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id), ...(artworkShadowColor ? { "--artwork-shadow-color": artworkShadowColor } : {}) }}
                       draggable={false}
                       onContextMenu={onPreventMenu}
                       onError={onThumbError}
@@ -385,6 +407,7 @@ export function FullPlayer({
                 max={max}
                 value={Math.min(position, max)}
                 onChange={onSeek}
+                disabled={controlsLocked}
                 className="fullscreen-player-progress-range"
                 aria-label="Playback position"
               />
@@ -401,11 +424,12 @@ export function FullPlayer({
                 aria-label="Shuffle"
                 aria-pressed={shuffleEnabled}
                 title="Shuffle"
+                disabled={controlsLocked}
                 onClick={onToggleShuffle}
               >
                 <FontAwesomeIcon icon={faShuffle} />
               </button>
-              <button type="button" className="fullscreen-player-transport" aria-label="Previous" disabled={!hasPrev} title="Previous" onClick={() => onAdvance("prev")}>
+              <button type="button" className="fullscreen-player-transport" aria-label="Previous" disabled={controlsLocked || !hasPrev} title="Previous" onClick={() => onAdvance("prev")}>
                 <FontAwesomeIcon icon={faBackwardStep} />
               </button>
               <button
@@ -414,11 +438,12 @@ export function FullPlayer({
                 aria-label={paused ? "Play" : "Pause"}
                 aria-keyshortcuts="Space"
                 title={paused ? "Play (Space)" : "Pause (Space)"}
+                disabled={controlsLocked}
                 onClick={onToggle}
               >
                 <FontAwesomeIcon icon={paused ? faPlay : faPause} />
               </button>
-              <button type="button" className="fullscreen-player-transport" aria-label="Next" disabled={!hasNext} title="Next" onClick={() => onAdvance("next")}>
+              <button type="button" className="fullscreen-player-transport" aria-label="Next" disabled={controlsLocked || !hasNext} title="Next" onClick={() => onAdvance("next")}>
                 <FontAwesomeIcon icon={faForwardStep} />
               </button>
               <button
@@ -427,6 +452,7 @@ export function FullPlayer({
                 aria-label={getLoopButtonTitle(loopMode)}
                 aria-pressed={loopMode !== "none"}
                 title={getLoopButtonTitle(loopMode)}
+                disabled={controlsLocked}
                 onClick={onToggleLoop}
               >
                 <RepeatIcon mode={loopMode} />
@@ -493,6 +519,13 @@ export function FullPlayer({
             onClose={closeShareDialog}
           />
         )}
+
+        <SpotifyConnectBar
+          className="fullscreen-player-connect-bar"
+          conflict={conflict}
+          canTakeOver={canTakeOver}
+          onTakeOver={onTakeOver}
+        />
       </div>
     );
   }
@@ -553,6 +586,10 @@ export function FullPlayer({
         onSetEqEnabled={onSetEqEnabled}
         onSetEqTargetDb={onSetEqTargetDb}
         onAdjustEqToTarget={onAdjustEqToTarget}
+        conflict={conflict}
+        controlsLocked={controlsLocked}
+        canTakeOver={canTakeOver}
+        onTakeOver={onTakeOver}
       />
     );
   }

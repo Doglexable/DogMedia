@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { AlbumArt } from "./album-art";
-import HolderPlatformIcon from "./holder-platform-icon";
+import SpotifyConnectBar from "./spotify-connect-bar";
 import { PlaybackProgress } from "./playback-progress";
 import { LoopButton, QualityControl, QueueButton, ShuffleButton, SleepTimerControl, TransportControls, VolumeControl } from "./player-controls";
 import { TrackInfo } from "./track-info";
@@ -120,31 +120,11 @@ export function PlayerBar({
         <QueueButton active={queueOpen} onClick={onOpenQueue} />
       </div>
 
-      {conflict && (
-        <div
-          className="spotify-connect-bar"
-          role="status"
-        >
-          {canTakeOver && onTakeOver && (
-            <div className="spotify-connect-bar-actions">
-              <button
-                type="button"
-                className="spotify-connect-bar-takeover"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onTakeOver();
-                }}
-              >
-                Play here
-              </button>
-            </div>
-          )}
-          <div className="spotify-connect-bar-content">
-            <HolderPlatformIcon platform={conflict.holder?.platform} className="spotify-connect-bar-icon" />
-            <span>Playing on {conflict.holder?.deviceLabel || "another device"}</span>
-          </div>
-        </div>
-      )}
+      <SpotifyConnectBar
+        conflict={conflict}
+        canTakeOver={canTakeOver}
+        onTakeOver={onTakeOver}
+      />
     </section>
   );
 }

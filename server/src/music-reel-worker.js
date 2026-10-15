@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { MUSIC_REEL_GROUP, MUSIC_REEL_STREAM } from "./music-reel-queue.js";
+import { ensureArtworkPalette, sharePaletteAccent } from "./artwork-palette.js";
 
 const execFileAsync = promisify(execFile);
 const CLIP_SECONDS = 10;
@@ -146,6 +147,7 @@ export function parseReelStreamFields(values = []) {
 
 export function reelSegmentArgs({
   audioPath, artworkPath, brandIconPath = DEFAULT_BRAND_ICON_PATH,
+  paletteAccent = null,
   fontPath = getDefaultFontPath(),
   titleFontPath = getDefaultTitleFontPath(),
   artistFontPath = getDefaultArtistFontPath(),
@@ -167,10 +169,13 @@ export function reelSegmentArgs({
     ? ["-loop", "1", "-i", artworkPath]
     : ["-f", "lavfi", "-i", `color=c=0x121318:s=${WIDTH}x${HEIGHT}:r=30`];
 
+  const tint = /^#[0-9a-f]{6}$/i.test(paletteAccent || "") ? paletteAccent.slice(1) : null;
   let filter = artworkPath
     ? `[1:v]scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,crop=${WIDTH}:${HEIGHT},boxblur=28:14[blurred];` +
+      (tint ? `color=c=0x${tint}@0.34:s=${WIDTH}x${HEIGHT}[palette];` +
+        `[blurred][palette]overlay=0:0[tinted];` : "") +
       `color=c=black@0.42:s=${WIDTH}x${HEIGHT}[scrim];` +
-      `[blurred][scrim]overlay=0:0[bg];` +
+      `${tint ? "[tinted]" : "[blurred]"}[scrim]overlay=0:0[bg];` +
       `color=c=black@0.55:s=400x400[artshadow];` +
       `[1:v]scale=390:390:force_original_aspect_ratio=increase,crop=390:390,drawbox=x=0:y=0:w=iw:h=ih:color=white@0.15:t=1[art];` +
       `[2:v]scale=38:38:force_original_aspect_ratio=decrease[brandicon];` +
@@ -325,9 +330,20 @@ export async function processMusicReelJob({ dataDir, log, pg, reelId, runFfmpeg 
       await writeFile(artistPath, artistText, "utf8");
       await writeFile(badgePath, badgeText, "utf8");
 
+      let paletteAccent = null;
+      if (item.artwork_path) {
+        try {
+          const colors = await ensureArtworkPalette({ pg, dataDir, artworkPath: item.artwork_path });
+          paletteAccent = sharePaletteAccent(colors);
+        } catch (error) {
+          log?.warn?.({ err: error, artworkPath: item.artwork_path }, "music reel palette unavailable");
+        }
+      }
+
       await runFfmpeg("ffmpeg", reelSegmentArgs({
         audioPath: join(dataDir, item.file_path),
         artworkPath: item.artwork_path ? join(dataDir, item.artwork_path) : null,
+        paletteAccent,
         brandIconPath,
         fontPath,
         titleFontPath,

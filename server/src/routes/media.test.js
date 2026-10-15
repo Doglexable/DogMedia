@@ -474,6 +474,25 @@ describe("quality-aware streaming", () => {
     expect(response.headers["cache-control"]).toBe("private, no-store, max-age=0");
     expect(response.headers["cross-origin-resource-policy"]).toBe("same-origin");
     expect(response.body).toBe("medium");
+    const lowSession = await app.inject({
+      method: "POST",
+      url: "/api/media/1/playback-session",
+      payload: { quality: "low" },
+      headers: { "x-viewer-id": sessionResponse.json().viewerId },
+    });
+    expect(lowSession.statusCode).toBe(200);
+    const lowCookie = (Array.isArray(lowSession.headers["set-cookie"])
+      ? lowSession.headers["set-cookie"]
+      : [lowSession.headers["set-cookie"]])
+      .find((value) => value.startsWith("pfs_stream_1="))?.split(";")[0];
+    const lowResponse = await app.inject({
+      method: "GET",
+      url: "/api/media/1/stream?quality=low",
+      headers: { cookie: lowCookie, "x-viewer-id": lowSession.json().viewerId },
+    });
+    expect(lowResponse.statusCode).toBe(200);
+    expect(lowResponse.headers["x-media-quality"]).toBe("med");
+    expect(lowResponse.body).toBe("medium-media");
     expect((await app.inject({ method: "GET", url: "/api/media/1/stream?quality=ultra" })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: "/api/media/1/playback-session", payload: { quality: "ori" } })).statusCode).toBe(403);
     await app.close();
@@ -550,6 +569,33 @@ describe("quality-aware streaming", () => {
     expect(body).not.toHaveProperty("viewerId");
     expect(body).not.toHaveProperty("sessionId");
     await app.close();
+  });
+});
+
+describe("artwork palettes", () => {
+  it("serves the stored palette for accessible media without running Python again", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-palette-route-"));
+    await mkdir(join(dataDir, "7"));
+    const filePath = join(dataDir, "7/front.webp");
+    await writeFile(filePath, "artwork");
+    const fileStat = await stat(filePath);
+    const fileFingerprint = `${fileStat.size}:${Math.trunc(fileStat.mtimeMs)}`;
+    const colors = [{ hex: "#b6ae5d", percentage: 100 }];
+    const query = vi.fn(async (sql) => {
+      if (sql.includes("AS artwork_path")) return { rows: [{ artwork_path: "7/front.webp" }] };
+      if (sql.includes("FROM artwork_palettes")) return { rows: [{ colors, algorithm_version: 1, file_fingerprint: fileFingerprint }] };
+      throw new Error(`Unexpected query: ${sql}`);
+    });
+    const app = Fastify();
+    app.decorate("pg", { query });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; });
+    await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
+    const response = await app.inject({ method: "GET", url: "/api/media/1/artwork-palette" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ colors, accent: "#b6ae5d" });
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
   });
 });
 

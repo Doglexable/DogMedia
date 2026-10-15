@@ -20,6 +20,7 @@ import { faClosedCaptioning } from "@fortawesome/free-solid-svg-icons/faClosedCa
 import { api } from "../../api";
 import { ShinyText } from "../ShinyText";
 import { SettingsControl } from "./settings-panel";
+import { SpotifyConnectBar } from "./spotify-connect-bar";
 import { formatDuration } from "./player-utils";
 import { SubtitlesMenu, formatLanguageLabel } from "./subtitles-menu";
 import { AssSubtitleController } from "./ass-subtitle-manager";
@@ -137,6 +138,10 @@ export function VideoPlayer({
   onSetEqEnabled,
   onSetEqTargetDb,
   onAdjustEqToTarget,
+  conflict,
+  controlsLocked = false,
+  canTakeOver = false,
+  onTakeOver,
 }) {
   const rootRef = useRef(null);
   const cardRef = useRef(null);
@@ -446,10 +451,11 @@ export function VideoPlayer({
 
   // Skip time helper
   const handleSkipSeconds = useCallback((delta) => {
+    if (controlsLocked) return;
     const nextTime = Math.min(Math.max(position + delta, 0), max);
     onSeek(nextTime);
     showFeedbackToast(delta > 0 ? `+${delta}s` : `${delta}s`, delta > 0 ? faArrowRotateRight : faArrowRotateLeft);
-  }, [max, onSeek, position, showFeedbackToast]);
+  }, [controlsLocked, max, onSeek, position, showFeedbackToast]);
 
   // Scrubber hover & seek
   const calculateScrubTime = useCallback((e) => {
@@ -460,6 +466,7 @@ export function VideoPlayer({
   }, [max]);
 
   const handleScrubberMouseMove = (e) => {
+    if (controlsLocked) return;
     const { time, percent } = calculateScrubTime(e);
     setHoverTime(time);
     setHoverPercent(percent);
@@ -469,6 +476,7 @@ export function VideoPlayer({
   };
 
   const handleScrubberMouseDown = (e) => {
+    if (controlsLocked) return;
     setIsScrubbing(true);
     const { time } = calculateScrubTime(e);
     onSeek(time);
@@ -481,7 +489,7 @@ export function VideoPlayer({
 
   // Video stage click & double-click interactions
   const handleStageClick = (e) => {
-    if (e.target.closest("button, input, a, [role='slider'], [role='menu'], [role='menuitem'], [role='listbox'], [role='option']")) return;
+    if (e.target.closest("button, input, a, [role='slider'], [role='menu'], [role='menuitem'], [role='listbox'], [role='option'], .spotify-connect-bar")) return;
 
     if (clickTimeoutRef.current) {
       clearTimeout(clickTimeoutRef.current);
@@ -499,7 +507,9 @@ export function VideoPlayer({
       }
     } else {
       clickTimeoutRef.current = setTimeout(() => {
-        onToggle();
+        if (!controlsLocked) {
+          onToggle();
+        }
         clickTimeoutRef.current = null;
       }, 220);
     }
@@ -516,17 +526,23 @@ export function VideoPlayer({
         case " ":
         case "k":
           e.preventDefault();
-          onToggle();
+          if (!controlsLocked) {
+            onToggle();
+          }
           break;
         case "arrowleft":
         case "j":
           e.preventDefault();
-          handleSkipSeconds(e.shiftKey ? -10 : -5);
+          if (!controlsLocked) {
+            handleSkipSeconds(e.shiftKey ? -10 : -5);
+          }
           break;
         case "arrowright":
         case "l":
           e.preventDefault();
-          handleSkipSeconds(e.shiftKey ? 10 : 5);
+          if (!controlsLocked) {
+            handleSkipSeconds(e.shiftKey ? 10 : 5);
+          }
           break;
         case "arrowup":
           e.preventDefault();
@@ -564,7 +580,9 @@ export function VideoPlayer({
         case "8":
         case "9":
           e.preventDefault();
-          onSeek((Number(e.key) / 10) * max);
+          if (!controlsLocked) {
+            onSeek((Number(e.key) / 10) * max);
+          }
           break;
         case "c":
           if (subtitles.length > 0) {
@@ -585,13 +603,13 @@ export function VideoPlayer({
           }
           break;
         case "n":
-          if (hasNext && onAdvance) {
+          if (!controlsLocked && hasNext && onAdvance) {
             e.preventDefault();
             onAdvance("next");
           }
           break;
         case "p":
-          if (hasPrev && onAdvance) {
+          if (!controlsLocked && hasPrev && onAdvance) {
             e.preventDefault();
             onAdvance("prev");
           }
@@ -610,6 +628,7 @@ export function VideoPlayer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    controlsLocked,
     handleClose,
     handleSkipSeconds,
     hasNext,
@@ -632,7 +651,7 @@ export function VideoPlayer({
   return (
     <div
       ref={rootRef}
-      className={`video-player-root ${!showHud && !paused ? "video-player-root--hide-cursor" : ""} ${queueOpen ? "video-player-root--with-queue-sidebar" : ""}`}
+      className={`video-player-root ${conflict ? "has-connect-bar " : ""}${!showHud && !paused ? "video-player-root--hide-cursor" : ""} ${queueOpen ? "video-player-root--with-queue-sidebar" : ""}`}
       onMouseMove={resetHudTimer}
       onContextMenu={onPreventMenu}
       onClick={handleStageClick}
@@ -730,7 +749,7 @@ export function VideoPlayer({
             {/* Scrubber */}
             <div
               ref={scrubberRef}
-              className="video-player-scrubber-wrap"
+              className={`video-player-scrubber-wrap ${controlsLocked ? "opacity-50 pointer-events-none" : ""}`}
               onMouseMove={handleScrubberMouseMove}
               onMouseLeave={() => {
                 setHoverTime(null);
@@ -738,6 +757,7 @@ export function VideoPlayer({
               }}
               onMouseDown={handleScrubberMouseDown}
               role="slider"
+              aria-disabled={controlsLocked}
               aria-label="Seek slider"
               aria-valuemin={0}
               aria-valuemax={max}
@@ -775,6 +795,7 @@ export function VideoPlayer({
                   aria-label={paused ? "Play" : "Pause"}
                   aria-keyshortcuts="Space"
                   title={paused ? "Play (Space)" : "Pause (Space)"}
+                  disabled={controlsLocked}
                   onClick={onToggle}
                 >
                   <FontAwesomeIcon icon={paused ? faPlay : faPause} />
@@ -784,7 +805,7 @@ export function VideoPlayer({
                   type="button"
                   className="video-player-ctrl-btn"
                   aria-label="Previous"
-                  disabled={!hasPrev}
+                  disabled={controlsLocked || !hasPrev}
                   title="Previous video"
                   onClick={() => onAdvance?.("prev")}
                 >
@@ -796,6 +817,7 @@ export function VideoPlayer({
                   className="video-player-ctrl-btn"
                   aria-label="Rewind 10 seconds"
                   title="Rewind 10s (Left Arrow)"
+                  disabled={controlsLocked}
                   onClick={() => handleSkipSeconds(-10)}
                 >
                   <FontAwesomeIcon icon={faArrowRotateLeft} />
@@ -806,6 +828,7 @@ export function VideoPlayer({
                   className="video-player-ctrl-btn"
                   aria-label="Forward 10 seconds"
                   title="Forward 10s (Right Arrow)"
+                  disabled={controlsLocked}
                   onClick={() => handleSkipSeconds(10)}
                 >
                   <FontAwesomeIcon icon={faArrowRotateRight} />
@@ -815,7 +838,7 @@ export function VideoPlayer({
                   type="button"
                   className="video-player-ctrl-btn"
                   aria-label="Next"
-                  disabled={!hasNext}
+                  disabled={controlsLocked || !hasNext}
                   title="Next video"
                   onClick={() => onAdvance?.("next")}
                 >
@@ -979,6 +1002,14 @@ export function VideoPlayer({
           </button>
         </div>
       )}
+
+      {/* Spotify Connect Bar */}
+      <SpotifyConnectBar
+        className="video-player-connect-bar"
+        conflict={conflict}
+        canTakeOver={canTakeOver}
+        onTakeOver={onTakeOver}
+      />
     </div>
   );
 }

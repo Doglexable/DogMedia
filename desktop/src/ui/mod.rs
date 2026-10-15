@@ -1,4 +1,5 @@
 mod kit;
+mod lyrics_card;
 pub mod menubar;
 #[cfg(target_os = "linux")]
 mod system_theme;
@@ -25,7 +26,7 @@ use crate::{
         BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, LocalKind,
         LocalTrack, Media, MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality,
         QueueItem, QueueOrder, QueueWindow, SessionHolder, SubtitleTrack, Volume,
-        scan_local_folder, load_local_lyrics,
+        scan_local_folder, load_local_lyrics_segments, LyricSegment,
     },
     integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
@@ -235,7 +236,7 @@ pub(crate) struct NativeApp {
     socket_last_signature: Option<String>,
     socket_last_report_at: Option<Instant>,
     socket_last_revision: Option<u64>,
-    lyrics: String,
+    lyrics: Vec<LyricSegment>,
     lyrics_visible: bool,
     subtitles: Vec<SubtitleTrack>,
     selected_subtitle: Option<usize>,
@@ -319,7 +320,7 @@ impl NativeApp {
             socket_last_signature: None,
             socket_last_report_at: None,
             socket_last_revision: None,
-            lyrics: String::new(),
+            lyrics: Vec::new(),
             lyrics_visible: true,
             subtitles: Vec::new(),
             selected_subtitle: None,
@@ -1000,6 +1001,7 @@ fn local_media(track: &LocalTrack, index: usize) -> Media {
         liked: false,
         source_version: None,
         created_at: None,
+        available_qualities: None,
     }
 }
 
@@ -1043,9 +1045,9 @@ fn play_local_at(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     };
     let media = local_media(&track, index);
     let local_lyrics = if track.kind == LocalKind::Audio {
-        load_local_lyrics(&track.path).unwrap_or_default()
+        load_local_lyrics_segments(&track.path)
     } else {
-        String::new()
+        Vec::new()
     };
     app.read().video_frames.clear();
     {
@@ -1419,6 +1421,9 @@ fn play_media_at(
     };
     let previous_session = app.write().session.take();
     let previous = app.read().coordinator.snapshot().media.clone();
+    let same_media = previous.as_ref().is_some_and(|current| {
+        current.id == media.id && current.source_version == media.source_version
+    });
     let previous_position = engine
         .read()
         .as_ref()
@@ -1443,19 +1448,22 @@ fn play_media_at(
             state.player_expanded = true;
         }
         state.artwork.clear_other_media(Some(&media));
-        state.lyrics.clear();
-        state.lyrics.shrink_to_fit();
-        state.subtitles.clear();
-        state.subtitles.shrink_to_fit();
-        state.selected_subtitle = None;
-        state.subtitle_cues.clear();
-        state.subtitle_cues.shrink_to_fit();
+        if !same_media {
+            state.lyrics.clear();
+            state.lyrics.shrink_to_fit();
+            state.subtitles.clear();
+            state.subtitles.shrink_to_fit();
+            state.selected_subtitle = None;
+            state.subtitle_cues.clear();
+            state.subtitle_cues.shrink_to_fit();
+        }
         state.photo_data_url = None;
         state.status = None;
     }
     trim_allocator();
     let sequence = app.read().coordinator.snapshot().sequence;
-    let quality = app.read().settings.quality;
+    let quality = media.playable_quality(app.read().settings.quality);
+    app.write().coordinator.set_quality(quality);
 
     if let Some(previous) = previous
         && previous.id != media.id
@@ -1482,7 +1490,9 @@ fn play_media_at(
     if auto_queue {
         auto_fill_queue(app, media.id);
     }
-    load_extras(app, media.id);
+    if !same_media {
+        load_extras(app, media.id);
+    }
     spawn(async move {
         if let Some(session) = previous_session {
             let _ = client.release(&session).await;
@@ -1728,6 +1738,10 @@ fn change_quality(
         return;
     }
     if app.read().coordinator.snapshot().quality == quality {
+        return;
+    }
+    if app.read().coordinator.snapshot().media.as_ref()
+        .is_some_and(|media| !media.supports_quality(quality)) {
         return;
     }
     let was_playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing
@@ -2805,14 +2819,7 @@ fn load_extras(app: Signal<NativeApp>, media_id: MediaId) {
             .await
             .ok()
             .flatten()
-            .map(|lyrics| {
-                lyrics
-                    .segments
-                    .into_iter()
-                    .map(|segment| segment.text)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
+            .map(|lyrics| lyrics.segments)
             .unwrap_or_default();
         let subtitles = client.subtitles(media_id).await.unwrap_or_default();
         apply_extras_if_current(app, media_id, lyrics, subtitles);
@@ -2822,7 +2829,7 @@ fn load_extras(app: Signal<NativeApp>, media_id: MediaId) {
 fn apply_extras_if_current(
     mut app: Signal<NativeApp>,
     media_id: MediaId,
-    lyrics: String,
+    lyrics: Vec<LyricSegment>,
     subtitles: Vec<SubtitleTrack>,
 ) {
     if app.read().local_mode {
@@ -3297,10 +3304,24 @@ mod tests {
                 state
             });
             use_hook(move || {
-                apply_extras_if_current(app, MediaId::new(7), "line".to_owned(), vec![]);
-                assert_eq!(app.read().lyrics, "line");
-                apply_extras_if_current(app, MediaId::new(8), "stale".to_owned(), vec![]);
-                assert_eq!(app.read().lyrics, "line");
+                let sample_lyrics = vec![LyricSegment {
+                    start: 0.0,
+                    end: None,
+                    text: "line".to_owned(),
+                }];
+                apply_extras_if_current(app, MediaId::new(7), sample_lyrics.clone(), vec![]);
+                assert_eq!(app.read().lyrics, sample_lyrics);
+                apply_extras_if_current(
+                    app,
+                    MediaId::new(8),
+                    vec![LyricSegment {
+                        start: 0.0,
+                        end: None,
+                        text: "stale".to_owned(),
+                    }],
+                    vec![],
+                );
+                assert_eq!(app.read().lyrics, sample_lyrics);
             });
             rsx! {}
         }
@@ -3691,6 +3712,7 @@ mod tests {
             liked: false,
             source_version: None,
             created_at: None,
+            available_qualities: None,
         };
         assert_eq!(super::media_folder(&media_with_path), "Absolution");
 
@@ -3714,6 +3736,7 @@ mod tests {
             liked: false,
             source_version: None,
             created_at: None,
+            available_qualities: None,
         };
         assert_eq!(super::media_folder(&media_empty), "Library");
     }
@@ -3755,7 +3778,11 @@ mod tests {
         }))
         .unwrap();
         app.library.items.push(med.clone());
-        app.lyrics = "Sample lyrics".to_owned();
+        app.lyrics = vec![LyricSegment {
+            start: 0.0,
+            end: None,
+            text: "Sample lyrics".to_owned(),
+        }];
         app.photo_data_url = Some(std::sync::Arc::new("data:image/jpeg;base64,...".to_owned()));
         app.socket_ready = true;
         app.socket_session_id = Some("sess-1".to_owned());
@@ -3865,6 +3892,105 @@ mod tests {
     }
 
     #[test]
+    fn full_player_share_lyrics_is_available_with_panel_closed() {
+        use super::views::FullPlayer;
+
+        fn harness() -> Element {
+            let app = use_signal(|| {
+                let mut state = NativeApp::boot();
+                let media: Media = serde_json::from_value(serde_json::json!({
+                    "id": 1,
+                    "title": "Test Song",
+                    "mime_type": "audio/flac"
+                }))
+                .unwrap();
+                state.coordinator.load(media);
+                state.lyrics_visible = false;
+                state
+            });
+            let engine = use_signal(|| None);
+            rsx! { FullPlayer { app, engine, video_source_id: 1 } }
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+
+        let mut share_visible = false;
+        let mut share_disabled = false;
+        document.inner.visit(|_, node| {
+            let Some(element) = node.element_data() else { return; };
+            if element.attrs.iter().any(|attr| attr.name.local.as_ref() == "class" && attr.value.contains("share-lyrics")) {
+                share_visible = true;
+                share_disabled = element.attrs.iter().any(|attr| attr.name.local.as_ref() == "disabled" && attr.value.as_str() != "false");
+            }
+        });
+        assert!(share_visible, "share button must be visible when the lyrics panel is closed");
+        assert!(!share_disabled, "share button must open the empty state when lyrics are unavailable");
+    }
+
+    #[test]
+    fn full_player_renders_body_and_conflict_card_when_session_unavailable() {
+        use super::views::FullPlayer;
+
+        fn harness() -> Element {
+            let app = use_signal(|| {
+                let mut state = NativeApp::boot();
+                let media: Media = serde_json::from_value(serde_json::json!({
+                    "id": 1,
+                    "title": "Conflict Track",
+                    "mime_type": "audio/flac"
+                }))
+                .unwrap();
+                state.coordinator.load(media);
+                state.coordinator.lease_lost();
+                state.coordinator.set_holder(Some(SessionHolder {
+                    platform: Some("web".to_owned()),
+                    device_label: Some("Dogmedia Web".to_owned()),
+                    media_id: Some(MediaId::new(1)),
+                    expires_in: Some(30),
+                    playback: None,
+                }));
+                state
+            });
+            let engine = use_signal(|| None);
+
+            rsx! {
+                FullPlayer {
+                    app,
+                    engine,
+                    video_source_id: 1,
+                }
+            }
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+
+        let mut found_body = false;
+        let mut found_conflict = false;
+        document.inner.visit(|_, node| {
+            let Some(element) = node.element_data() else {
+                return;
+            };
+            if let Some(class_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "class") {
+                if class_attr.value.contains("full-player-body") {
+                    found_body = true;
+                }
+            }
+            if let Some(name_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "data-name") {
+                if name_attr.value == "SessionConflictCard" {
+                    found_conflict = true;
+                }
+            }
+        });
+
+        assert!(found_body, "full-player-body container must wrap the player layout");
+        assert!(found_conflict, "SessionConflictCard must be present when session is unavailable");
+    }
+
+    #[test]
     fn stream_transition_purges_previous_media_state_and_resets_timing() {
         let mut app = NativeApp::boot();
         let media_1: Media = serde_json::from_value(serde_json::json!({
@@ -3885,7 +4011,11 @@ mod tests {
             key_1,
             ArtworkState::Ready(Arc::new("data:image/png;base64,TRACK1".to_owned())),
         );
-        app.lyrics = "Stale stream lyrics".to_owned();
+        app.lyrics = vec![LyricSegment {
+            start: 0.0,
+            end: None,
+            text: "Stale stream lyrics".to_owned(),
+        }];
         app.subtitle_cues.push(SubtitleCue {
             start: 0.0,
             end: 1.0,

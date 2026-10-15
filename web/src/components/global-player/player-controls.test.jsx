@@ -97,6 +97,23 @@ describe("SleepTimerControl", () => {
 });
 
 describe("QualityControl", () => {
+  it("hides renditions that are not ready and marks the rendition being played", () => {
+    const markup = renderToStaticMarkup(
+      <QualityControl
+        currentMedia={{ mime_type: "video/mp4", available_qualities: ["low", "med"] }}
+        quality="high"
+        actualQuality="med"
+        onChangeQuality={vi.fn()}
+      />
+    );
+    expect(markup).toContain("Quality: Medium");
+    expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain("480p");
+    expect(markup).toContain("720p");
+    expect(markup).not.toContain("1080p");
+    expect(markup).not.toContain("Very High");
+  });
+
   it("renders with popover closed by default and shows all options", () => {
     const onChangeQuality = vi.fn();
     const markup = renderToStaticMarkup(

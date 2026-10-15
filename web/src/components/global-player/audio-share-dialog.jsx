@@ -19,6 +19,7 @@ import {
 } from "./music-share-dialog";
 import {
   createLyricsSelection,
+  accessibleTextColor,
   getLyricsCandidateWindow,
   getLyricsShareIndex,
   getLyricsShareMetadata,
@@ -132,6 +133,9 @@ export function AudioShareDialog({
   const [sharingImage, setSharingImage] = useState(false);
   const [imageError, setImageError] = useState("");
   const [artworkFailed, setArtworkFailed] = useState(false);
+  const [paletteColors, setPaletteColors] = useState([]);
+  const [paletteIndex, setPaletteIndex] = useState(0);
+  const [paletteLoading, setPaletteLoading] = useState(Number.isInteger(mediaId) && mediaId > 0);
   const cardRef = useRef(null);
   const pickerRef = useRef(null);
   const pickerLineRefs = useRef([]);
@@ -140,6 +144,27 @@ export function AudioShareDialog({
     () => getLyricsShareMetadata(currentMedia, artworkUrl),
     [artworkUrl, currentMedia]
   );
+  const selectedBackground = paletteColors[paletteIndex]?.hex || "#202438";
+
+  useEffect(() => {
+    setPaletteColors([]);
+    setPaletteIndex(0);
+    setPaletteLoading(Number.isInteger(mediaId) && mediaId > 0);
+    if (!Number.isInteger(mediaId) || mediaId < 1) return undefined;
+    const controller = new AbortController();
+    api(`/api/media/${mediaId}/artwork-palette`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((palette) => {
+        if (controller.signal.aborted || !Array.isArray(palette?.colors)) return;
+        setPaletteColors(palette.colors.filter((color) => /^#[0-9a-f]{6}$/i.test(color?.hex)
+          && Number.isFinite(color?.percentage) && color.percentage >= 0 && color.percentage <= 100));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!controller.signal.aborted) setPaletteLoading(false);
+      });
+    return () => controller.abort();
+  }, [mediaId]);
   const selectedLyrics = useMemo(
     () => getSelectedLyrics(segments, selection),
     [segments, selection]
@@ -307,7 +332,7 @@ export function AudioShareDialog({
 
   // ── Share Lyric Image Handler ──
   const handleShareImage = useCallback(async () => {
-    if (!cardRef.current || selectedLyrics.length === 0 || sharingImage) return;
+    if (!cardRef.current || selectedLyrics.length === 0 || sharingImage || paletteLoading) return;
     setSharingImage(true);
     setImageError("");
     try {
@@ -334,7 +359,7 @@ export function AudioShareDialog({
     } finally {
       setSharingImage(false);
     }
-  }, [metadata.title, onClose, selectedLyrics.length, sharingImage]);
+  }, [metadata.title, onClose, paletteLoading, selectedLyrics.length, sharingImage]);
 
   // ── Keyboard & Body Overflow Trap ──
   useEffect(() => {
@@ -482,12 +507,34 @@ export function AudioShareDialog({
                   <div className="lyrics-share-preview-frame">
                     <LyricsShareCard
                       artworkFailed={artworkFailed}
+                      backgroundColor={selectedBackground}
                       cardRef={cardRef}
                       metadata={metadata}
                       onArtworkError={() => setArtworkFailed(true)}
                       selected={selectedLyrics}
                     />
                   </div>
+                  {paletteColors.length > 0 && (
+                    <div className="lyrics-share-colors" role="group" aria-label="Background color">
+                      <span>Background color</span>
+                      <div className="lyrics-share-color-options">
+                        {paletteColors.map((color, index) => (
+                          <button
+                            key={`${color.hex}-${index}`}
+                            type="button"
+                            className={`lyrics-share-color${paletteIndex === index ? " lyrics-share-color--selected" : ""}`}
+                            style={{ backgroundColor: color.hex, color: accessibleTextColor(color.hex) }}
+                            aria-label={`${color.hex}, ${color.percentage.toFixed(2)}% of artwork`}
+                            aria-pressed={paletteIndex === index}
+                            disabled={sharingImage}
+                            onClick={() => setPaletteIndex(index)}
+                          >
+                            {paletteIndex === index && <FontAwesomeIcon icon={faCheck} />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -502,11 +549,11 @@ export function AudioShareDialog({
               <span>{selectedLyrics.length}/5 lines selected</span>
               <button
                 type="button"
-                disabled={sharingImage || selectedLyrics.length === 0}
+                disabled={sharingImage || paletteLoading || selectedLyrics.length === 0}
                 onClick={handleShareImage}
               >
                 <FontAwesomeIcon icon={faShareNodes} />{" "}
-                {sharingImage ? "Creating card…" : "Share image"}
+                {sharingImage ? "Creating card…" : paletteLoading ? "Loading colors…" : "Share image"}
               </button>
             </footer>
           </div>

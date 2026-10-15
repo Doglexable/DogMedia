@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::{CategoryId, Cursor, Limit, MediaId};
+use super::{CategoryId, Cursor, Limit, MediaId, Quality};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -64,6 +64,8 @@ pub struct Media {
     pub source_version: Option<i64>,
     #[serde(default)]
     pub created_at: Option<String>,
+    #[serde(default)]
+    pub available_qualities: Option<Vec<Quality>>,
 }
 
 impl Media {
@@ -94,6 +96,40 @@ impl Media {
         self.mime_type
             .as_deref()
             .is_some_and(|value| value.starts_with("image/"))
+    }
+
+    pub fn supports_quality(&self, quality: Quality) -> bool {
+        self.available_qualities
+            .as_ref()
+            .is_none_or(|available| available.contains(&quality))
+    }
+
+    pub fn playable_quality(&self, preferred: Quality) -> Quality {
+        let Some(available) = &self.available_qualities else {
+            return preferred;
+        };
+        if available.contains(&preferred) || available.is_empty() {
+            return preferred;
+        }
+        if preferred == Quality::Ori {
+            return [Quality::High, Quality::Med, Quality::Low]
+                .into_iter()
+                .find(|quality| available.contains(quality))
+                .unwrap_or(preferred);
+        }
+        let tiers = [Quality::Low, Quality::Med, Quality::High];
+        let index = tiers
+            .iter()
+            .position(|quality| *quality == preferred)
+            .unwrap_or(0);
+        tiers[..index]
+            .iter()
+            .rev()
+            .chain(tiers[index + 1..].iter())
+            .copied()
+            .find(|quality| available.contains(quality))
+            .or_else(|| available.contains(&Quality::Ori).then_some(Quality::Ori))
+            .unwrap_or(preferred)
     }
 }
 
@@ -186,5 +222,19 @@ mod tests {
             media.created_at.as_deref(),
             Some("2026-09-29T12:30:00.000Z")
         );
+    }
+
+    #[test]
+    fn quality_choices_follow_available_renditions() {
+        let media: Media = serde_json::from_value(serde_json::json!({
+            "id": 9,
+            "available_qualities": ["low", "med"]
+        }))
+        .unwrap();
+        assert!(media.supports_quality(Quality::Med));
+        assert!(!media.supports_quality(Quality::High));
+        assert_eq!(media.playable_quality(Quality::High), Quality::Med);
+        assert_eq!(media.playable_quality(Quality::Ori), Quality::Med);
+        assert_eq!(media.playable_quality(Quality::Low), Quality::Low);
     }
 }

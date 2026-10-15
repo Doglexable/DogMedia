@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { captureAndShareLyrics, createLyricsSelection, getLyricsCandidateWindow, getLyricsPickerOffset, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, updateLyricsSelection } from "./lyrics-share.js";
+import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsCandidateWindow, getLyricsPickerOffset, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "./lyrics-share.js";
 
 describe("mobile lyrics sharing", () => {
+  it("chooses readable black or white text for palette colors", () => {
+    expect(accessibleTextColor("#b6ae5d")).toBe("#000000");
+    expect(accessibleTextColor("#080807")).toBe("#ffffff");
+    expect(accessibleTextColor("#efefef")).toBe("#000000");
+  });
+
+  it("exports a 16:9 card at 1920×1080", () => {
+    expect(LYRICS_CARD_SIZE).toEqual({ width: 1920, height: 1080 });
+  });
+
   it("maintains a contiguous selection up to five lines", () => {
     let selection = createLyricsSelection(3, 9);
     selection = updateLyricsSelection(selection, 2, 9);

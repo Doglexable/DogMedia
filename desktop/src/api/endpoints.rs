@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{ApiClient, ApiError, Endpoint};
 use crate::domain::{
@@ -11,6 +11,17 @@ use crate::domain::{
 };
 
 const NORMAL_TIMEOUT: Duration = Duration::from_secs(20);
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ArtworkPalette {
+    pub colors: Vec<PaletteColor>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct PaletteColor {
+    pub hex: String,
+    pub percentage: f64,
+}
 
 #[derive(Serialize)]
 struct CreateSessionRequest {
@@ -100,6 +111,16 @@ impl ApiClient {
             super::transport::HttpMethod::Get,
             &Endpoint::MediaThumbnail(media_id).path(),
             None,
+        )
+        .await
+    }
+
+    pub async fn artwork_palette(&self, media_id: MediaId) -> Result<ArtworkPalette, ApiError> {
+        self.json_endpoint(
+            &Endpoint::ArtworkPalette(media_id),
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
         )
         .await
     }

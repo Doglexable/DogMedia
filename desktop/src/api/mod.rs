@@ -7,5 +7,6 @@ mod url;
 
 pub use client::{ApiClient, ApiError};
 pub use endpoint::Endpoint;
+pub use endpoints::{ArtworkPalette, PaletteColor};
 pub use transport::{HttpMethod, RawResponse, RequestSpec, Transport, TransportError};
 pub use url::{ServerUrl, ServerUrlError};

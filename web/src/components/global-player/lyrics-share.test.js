@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  accessibleTextColor,
   createLyricsSelection,
   getLyricsCandidateWindow,
   getLyricsShareMetadata,
   getLyricsShareIndex,
   getSelectedLyrics,
+  LYRICS_CARD,
   sanitizeLyricsFilename,
   shareLyricsBlob,
   updateLyricsSelection,
@@ -53,6 +55,18 @@ describe("lyrics share selection", () => {
 });
 
 describe("lyrics share metadata", () => {
+  it("chooses readable black or white text for palette colors", () => {
+    expect(accessibleTextColor("#b6ae5d")).toBe("#000000");
+    expect(accessibleTextColor("#080807")).toBe("#ffffff");
+    expect(accessibleTextColor("#efefef")).toBe("#000000");
+    expect(accessibleTextColor("invalid")).toBe("#ffffff");
+  });
+
+  it("exports a 16:9 card at 1920×1080", () => {
+    expect(LYRICS_CARD.cssWidth * LYRICS_CARD.pixelRatio).toBe(1920);
+    expect(LYRICS_CARD.cssHeight * LYRICS_CARD.pixelRatio).toBe(1080);
+  });
+
   it("normalizes metadata and filenames", () => {
     expect(getLyricsShareMetadata({ title: " Song ", artists: " Artist " }, "/cover")).toEqual({
       title: "Song", artists: "Artist", artworkUrl: "/cover",

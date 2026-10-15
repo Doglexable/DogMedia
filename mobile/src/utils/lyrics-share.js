@@ -1,5 +1,17 @@
 export const MAX_SHARED_LYRICS = 5;
-export const LYRICS_CARD_SIZE = Object.freeze({ width: 1080, height: 1920 });
+export const LYRICS_CARD_SIZE = Object.freeze({ width: 1920, height: 1080 });
+
+export function accessibleTextColor(backgroundHex) {
+  if (!/^#[0-9a-f]{6}$/i.test(backgroundHex || "")) return "#ffffff";
+  const channels = [1, 3, 5].map((index) => {
+    const value = Number.parseInt(backgroundHex.slice(index, index + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  const blackContrast = (luminance + 0.05) / 0.05;
+  const whiteContrast = 1.05 / (luminance + 0.05);
+  return blackContrast >= whiteContrast ? "#000000" : "#ffffff";
+}
 
 export function createLyricsSelection(index, segmentCount) {
   if (!Number.isInteger(index) || index < 0 || index >= segmentCount) return null;
