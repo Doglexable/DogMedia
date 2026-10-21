@@ -2,7 +2,7 @@ import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { AppState } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE, api, apiJson, mediaThumbnailUrl } from "../api";
+import { API_BASE, api, apiJson, mediaAccessHeaders, mediaThumbnailUrl } from "../api";
 import {
   clearStoredDownloads,
   createClientEventId,
@@ -230,7 +230,7 @@ export function OfflineProvider({ children }) {
     const download = FileSystem.createDownloadResumable(
       `${API_BASE}/api/offline/media/${item.id}/download?quality=${encodeURIComponent(item.quality || "high")}`,
       partUri,
-      {},
+      { headers: mediaAccessHeaders() },
       ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
         const progress = totalBytesExpectedToWrite > 0 ? totalBytesWritten / totalBytesExpectedToWrite : 0;
         patchStoredJob(job.mediaId, { progress }).then(refresh).catch(() => {});
@@ -252,7 +252,7 @@ export function OfflineProvider({ children }) {
       let thumbnailUri = null;
       const thumbTarget = `${THUMB_DIR}/${item.id}.image`;
       try {
-        const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget);
+        const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: mediaAccessHeaders() });
         if (thumb.status >= 200 && thumb.status < 300) thumbnailUri = thumb.uri;
       } catch {
         await deleteUris(thumbTarget);
@@ -362,7 +362,7 @@ export function OfflineProvider({ children }) {
     let lyrics = existing.lyrics;
     const thumbTarget = `${THUMB_DIR}/${item.id}.image`;
     try {
-      const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget);
+      const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: mediaAccessHeaders() });
       if (thumb.status >= 200 && thumb.status < 300) thumbnailUri = thumb.uri;
     } catch {
       // Artwork remains optional.

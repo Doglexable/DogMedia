@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Alert, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Image } from "expo-image";
-import { apiJson, mediaThumbnailUrl } from "../api";
+import { apiJson, mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { MediaTypePills } from "../components/media-type-pills";
 import { CategoryChips } from "../components/category-chips";
 import { MediaCard } from "../components/media-card";
@@ -64,7 +64,7 @@ function Featured({ colors, item, onPlay, styles }) {
       <Image
         cachePolicy="memory-disk"
         contentFit="cover"
-        source={{ uri: mediaThumbnailUrl(item.id) }}
+        source={protectedMediaSource(mediaThumbnailUrl(item.id))}
         style={styles.featuredImage}
       />
     </Pressable>

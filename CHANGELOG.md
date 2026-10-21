@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-10-16
+
+Feature and polish release adding fullscreen playback conflict states and session takeover across Web and Mobile, menubar keyboard shortcut styling and dynamic window titles on Desktop, synchronized lyrics autoscrolling with LRCLIB attribution, artwork color palette extraction for lyrics sharing cards, and further video/audio stream memory optimizations.
+
+### Added
+
+#### Fullscreen Playback Conflict & Takeover
+- **Web Fullscreen (`FullPlayer` & `VideoPlayer`)**:
+  - Reusable `SpotifyConnectBar` rendered in both audio and video fullscreen views when playback is active on another device.
+  - Interactive "Play here" takeover button allowing instant session retrieval.
+  - Locking of playback controls, transport buttons, scrubber slider, double-click stage actions, and keyboard shortcuts when playback is locked.
+  - Automatic layout padding adjustments preventing HUD controls from overlapping the pinned connect bar.
+- **Mobile Fullscreen (`full-player.jsx`)**:
+  - Spotify Connect pill indicator in fullscreen audio player with instant takeover action.
+  - Exclusive session notice and takeover banner on video playback canvas when remote conflict is active.
+  - Disabled transport controls, shuffle/loop buttons, and scrubber track during locked playback sessions.
+
+#### Desktop Client (`dogmedia-desktop`)
+- **Menubar Keyboard Badges**: Enhanced menu bar shortcuts with styled keyboard badges (`<kbd>`) for quick shortcut discovery.
+- **Dynamic Window Title**: Real-time window title updates displaying the current playing track (`{title} by {artist} - Dogmedia` or `{title} - Dogmedia`), triggered per media transition without periodic polling overhead.
+- **Synchronized Lyrics Autoscroll**: Smooth lyrics autoscroll in desktop fullscreen view matching web client behavior.
+- **LRCLIB Provider Attribution**: Added credit link for LRCLIB lyrics service across desktop and web lyrics views.
+- **Lyrics Card Sharing**: Visual lyrics card preview and clip sharing with extracted palette colors.
+- **Build & Packaging Cache Cleanup**: Automatic cleanup script (`clean-package-cache.sh`) to purge staging artifacts, Zig caches, and cross-compilation temp files after package builds.
+
+#### Server & Backend (`pfs-server`)
+- **Artwork Palette Extraction**: Database migration (`025_artwork_palettes.sql`) and backend worker extracting dominant artwork color palettes via flood-fill background exclusion for lyrics card sharing.
+- **Artwork Palette API**: `GET /api/media/:id/artwork-palette` endpoint delivering extracted colors and share card accent values.
+
+### Fixed
+- Fixed audio/video stream memory retention by clearing video frame buffers, shrinking vector capacities, evicting old artwork immediately, and trimming glibc memory arenas on media transitions.
+- Fixed argument forwarding and isolated Windows pkgconfig from the release directory in packaging scripts.
+
+---
+
 ## [0.5.0] - 2026-10-13
 
 Comprehensive multi-platform release introducing the native Rust desktop client, real-time WebSocket session synchronization, Spotify-style queue sidebars, unified Spotify Connect-style playback coordination, and extensive performance/memory optimizations.

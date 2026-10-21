@@ -187,7 +187,6 @@ export function SharedReelPlayer({ data, singleTrack }) {
             <a
               className="shared-reel-download-btn"
               href={apiUrl(data.downloadUrl)}
-              download
             >
               <FontAwesomeIcon icon={faDownload} />
               <span>Download MP4</span>

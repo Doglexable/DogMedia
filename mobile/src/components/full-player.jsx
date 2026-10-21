@@ -11,6 +11,7 @@ import {
   apiJson,
   heartbeatPlaybackLease,
   mediaThumbnailUrl,
+  protectedMediaSource,
   publicShareUrl,
   releasePlaybackLease,
 } from "../api";
@@ -737,7 +738,7 @@ export function FullPlayer({ navigation }) {
 
   return (
     <View style={[styles.shell, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
-      <Image source={{ uri: thumbnailUri }} style={styles.bg} blurRadius={34} />
+      <Image source={protectedMediaSource(thumbnailUri)} style={styles.bg} blurRadius={34} />
       <View style={styles.dim} />
       <View style={styles.header}>
         <PlayerIconButton
@@ -760,7 +761,7 @@ export function FullPlayer({ navigation }) {
       </View>
 
       <View style={styles.mediaZone}>
-        <Image source={{ uri: thumbnailUri }} style={[styles.cover, { width: coverSize, height: coverSize }]} />
+        <Image source={protectedMediaSource(thumbnailUri)} style={[styles.cover, { width: coverSize, height: coverSize }]} />
       </View>
 
       <View style={styles.trackInfoRow}>

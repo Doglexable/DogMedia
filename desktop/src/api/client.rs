@@ -118,6 +118,7 @@ impl From<ServerUrlError> for ApiError {
 pub struct ApiClient {
     base_url: ServerUrl,
     viewer_id: ViewerId,
+    media_access_key: String,
     transport: Arc<dyn Transport>,
 }
 
@@ -134,8 +135,30 @@ impl ApiClient {
         Ok(Self {
             base_url: ServerUrl::parse(base_url)?,
             viewer_id: viewer_id.into(),
+            media_access_key: String::new(),
             transport,
         })
+    }
+
+    pub fn with_media_access_key(mut self, key: &str) -> Self {
+        self.media_access_key = key.to_owned();
+        self
+    }
+
+    pub fn media_access_key(&self) -> &str {
+        &self.media_access_key
+    }
+
+    pub async fn verify_media_access(&self) -> Result<(), ApiError> {
+        self.raw(
+            HttpMethod::Get,
+            "api/media-access/status",
+            None::<&()>,
+            None,
+            Duration::from_millis(2_500),
+        )
+        .await?;
+        Ok(())
     }
 
     pub fn base_url(&self) -> &ServerUrl {
@@ -181,6 +204,10 @@ impl ApiClient {
                     url: url.clone(),
                     headers: BTreeMap::from([
                         ("Accept".to_owned(), "application/json".to_owned()),
+                        (
+                            "Authorization".to_owned(),
+                            format!("Bearer {}", self.media_access_key),
+                        ),
                         ("Range".to_owned(), "bytes=0-0".to_owned()),
                         ("X-Client-Platform".to_owned(), "desktop".to_owned()),
                         (
@@ -288,6 +315,12 @@ impl ApiClient {
             ("X-Client-Name".to_owned(), "Dogmedia Desktop".to_owned()),
             ("X-Viewer-ID".to_owned(), self.viewer_id.as_str().to_owned()),
         ]);
+        if !self.media_access_key.is_empty() {
+            headers.insert(
+                "Authorization".to_owned(),
+                format!("Bearer {}", self.media_access_key),
+            );
+        }
         if body.is_some() {
             headers.insert("Content-Type".to_owned(), "application/json".to_owned());
         }

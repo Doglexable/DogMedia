@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
 import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
 import { ensureArtworkPalette, sharePaletteAccent } from "../artwork-palette.js";
+import { isAllowedMediaBrowserRequest } from "../media-request-boundary.js";
 import { enqueueEncodingQuality, retryFailedEncoding } from "../encoding-queue.js";
 import { enqueueMediaFinalization } from "../media-finalization-queue.js";
 import { withActiveUpload } from "../upload-cleanup.js";
@@ -615,6 +616,15 @@ export async function processChunkedMediaUpload({ fastify, log, uploadId }) {
 export default async function (fastify, options = {}) {
   const scanMediaTags = options.probeMediaTags || probeMediaTags;
   const dataDir = options.dataDir || DATA_DIR;
+  const allowedOrigins = options.allowedOrigins || new Set();
+  fastify.addHook("onRequest", async (request, reply) => {
+    if (!isAllowedMediaBrowserRequest(request, allowedOrigins)) {
+      return reply.code(403).send({ error: "Media request blocked by browser boundary" });
+    }
+    if (options.mediaAccess && !await options.mediaAccess.authorized(request)) {
+      return reply.code(401).send({ error: "Media access key required", code: "MEDIA_ACCESS_REQUIRED" });
+    }
+  });
   fastify.get("/", async (request, reply) => {
     // Keep the array response; Admin walks ordered pages with limit and offset.
     const rawLimit = request.query?.limit ?? "100";

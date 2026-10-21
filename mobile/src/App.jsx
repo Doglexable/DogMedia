@@ -5,10 +5,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { StatusBar } from "expo-status-bar";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Image, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { apiJson } from "./api";
+import { apiJson, getMediaAccessKey, setMediaAccessKey } from "./api";
 import { PlayerProvider, usePlayer } from "./context/player-context";
 import { OfflineProvider, useOffline } from "./context/offline-context";
 import { AccessDeniedScreen } from "./screens/access-denied-screen";
@@ -88,10 +88,19 @@ function LoadingScreen() {
 function AccessGuard({ children }) {
   const offline = useOffline();
   const [status, setStatus] = useState("loading");
+  const [accessKey, setAccessKey] = useState("");
+  const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
     offline.validateAccess()
-      .then((data) => setStatus({
+      .then(async (data) => {
+        await getMediaAccessKey();
+        let mediaLoginRequired = false;
+        if (!data.offline) {
+          try { await apiJson("/api/media-access/status"); }
+          catch (error) { mediaLoginRequired = error.status === 401; if (!mediaLoginRequired) throw error; }
+        }
+        setStatus({
         ok: true,
         tier: data.tier,
         description: data.description,
@@ -99,7 +108,9 @@ function AccessGuard({ children }) {
         clientIp: data.ip,
         offline: Boolean(data.offline),
         managementOnly: Boolean(data.managementOnly),
-      }))
+        mediaLoginRequired,
+        });
+      })
       .catch((err) => {
         console.warn("Access validation failed:", err?.message || err);
         setStatus({ ok: false });
@@ -108,6 +119,25 @@ function AccessGuard({ children }) {
 
   if (status === "loading") return <LoadingScreen />;
   if (!status.ok) return <AccessDeniedScreen />;
+  if (status.mediaLoginRequired) return (
+    <View style={{ flex: 1, justifyContent: "center", padding: 28, backgroundColor: "#111219" }}>
+      <Text style={{ color: "white", fontSize: 24, fontWeight: "700", marginBottom: 12 }}>Unlock media library</Text>
+      <TextInput secureTextEntry autoCapitalize="none" autoCorrect={false} value={accessKey} onChangeText={setAccessKey} placeholder="Media access key" placeholderTextColor="#90919c" style={{ color: "white", borderColor: "#555", borderWidth: 1, borderRadius: 10, padding: 12 }} />
+      {loginError ? <Text style={{ color: "#ff7b88", marginTop: 12 }}>{loginError}</Text> : null}
+      <Pressable accessibilityRole="button" onPress={async () => {
+        setLoginError("");
+        try {
+          await setMediaAccessKey(accessKey);
+          await apiJson("/api/media-access/status");
+          setAccessKey("");
+          setStatus((current) => ({ ...current, mediaLoginRequired: false }));
+        } catch (error) {
+          await setMediaAccessKey("");
+          setLoginError(error.message || "Access denied");
+        }
+      }} style={{ marginTop: 16, backgroundColor: "#e11d48", borderRadius: 10, padding: 14 }}><Text style={{ color: "white", textAlign: "center", fontWeight: "700" }}>Unlock</Text></Pressable>
+    </View>
+  );
 
   return (
     <AccessContext.Provider value={status}>

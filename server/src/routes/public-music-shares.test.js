@@ -47,8 +47,31 @@ describe("public music reels", () => {
     expect(stream.headers["content-range"]).toBe("bytes 0-5/17");
     const download = await app.inject({ method: "GET", url: exchange.json().downloadUrl });
     expect(download.statusCode).toBe(200);
-    expect(download.headers["content-disposition"]).toBe('attachment; filename="dogmedia-favorite-reel.mp4"');
+    expect(download.headers["content-disposition"]).toMatch(/^attachment; filename="dogmedia-favorite-reel-\d{13}\.mp4"$/);
     expect(download.body).toBe("shared-reel-video");
+    await app.close();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("names a single-track clip with a timestamp on download", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "pfs-public-clip-"));
+    await mkdir(join(dataDir, "shares", "music-reels"), { recursive: true });
+    await writeFile(join(dataDir, "shares", "music-reels", "9.mp4"), "clip-video");
+    const app = Fastify();
+    app.decorate("redis", memoryRedis());
+    app.decorate("pg", { async query(sql) {
+      if (sql.includes("r.token_hash = $1")) return { rows: [{
+        id: 9, status: "ready", progress: 100, output_path: "shares/music-reels/9.mp4",
+        duration_seconds: 10, expires_at: new Date(Date.now() + 86_400_000),
+        tracks: [{ position: 1, title: "Night Drive", artists: "The Dogs" }],
+      }] };
+      return { rows: [{ output_path: "shares/music-reels/9.mp4", track_count: 1 }] };
+    } });
+    await app.register(publicMusicShareRoutes, { prefix: "/api/public", dataDir });
+    const exchange = await app.inject({ method: "POST", url: "/api/public/music/session", payload: { token: "c".repeat(43) } });
+    const download = await app.inject({ method: "GET", url: exchange.json().downloadUrl });
+    expect(download.statusCode).toBe(200);
+    expect(download.headers["content-disposition"]).toMatch(/^attachment; filename="dogmedia-music-clip-\d{13}\.mp4"$/);
     await app.close();
     await rm(dataDir, { recursive: true, force: true });
   });

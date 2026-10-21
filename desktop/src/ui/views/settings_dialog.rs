@@ -7,7 +7,8 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
     let snapshot = app.read();
     let can_close = snapshot.settings.configured && !snapshot.settings_connecting;
     let url_changed = snapshot.settings_url.trim().trim_end_matches('/')
-        != snapshot.settings.server_url.as_str().trim_end_matches('/');
+        != snapshot.settings.server_url.as_str().trim_end_matches('/')
+        || snapshot.settings_media_access_key != snapshot.settings.media_access_key;
     let save_label = if snapshot.settings_connecting {
         "Connecting…".to_owned()
     } else if url_changed || !snapshot.settings.configured {
@@ -72,6 +73,19 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                             }
                         }
                         small { "Dogmedia backend origin (e.g. http://127.0.0.1:3001/ or https://stream.example.com/)." }
+                    }
+                    label { class: "field",
+                        span { "Media access key" }
+                        Input {
+                            input_type: "password".to_owned(),
+                            value: snapshot.settings_media_access_key.clone(),
+                            placeholder: "Enter the server media access key".to_owned(),
+                            oninput: move |event: FormEvent| {
+                                app.write().settings_media_access_key = event.value();
+                                app.write().settings_error = None;
+                            }
+                        }
+                        small { "Required to browse and play protected media." }
                     }
                     label { class: "check-row",
                         input {

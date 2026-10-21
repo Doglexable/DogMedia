@@ -69,7 +69,12 @@ pub(crate) fn FullPlayer(
         .filter(|(id, version, _)| *id == media.id && *version == media.artwork_version && !snapshot.local_mode)
         .map(|(_, _, hex)| hex);
     let shadow_style = shadow_color.as_ref()
-        .map(|hex| format!("--full-art-shadow-color: {hex};"))
+        .and_then(|hex| crate::ui::lyrics_card::parse_hex(hex))
+        .map(|[red, green, blue]| {
+            format!(
+                "--full-art-shadow-color: rgba({red}, {green}, {blue}, 0.42); --full-art-shadow-light-color: rgba({red}, {green}, {blue}, 0.12);"
+            )
+        })
         .unwrap_or_default();
     let player_class = format!(
         "full-player{}{}",

@@ -56,7 +56,7 @@ export function getLyricsCandidateWindow(anchorIndex, segmentCount, maxLines = M
   return { start, end: start + size - 1 };
 }
 
-export function sanitizeLyricsFilename(title) {
+export function sanitizeLyricsFilename(title, timestamp = Date.now()) {
   const safeTitle = String(title || "lyrics")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -64,7 +64,7 @@ export function sanitizeLyricsFilename(title) {
     .replace(/^-+|-+$/g, "")
     .toLowerCase()
     .slice(0, 60);
-  return `${safeTitle || "lyrics"}-lyrics.png`;
+  return `${safeTitle || "lyrics"}-lyrics-${timestamp}.png`;
 }
 
 export function getLyricsShareMetadata(media, artworkUrl = null) {

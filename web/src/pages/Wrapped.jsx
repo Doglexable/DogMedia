@@ -9,11 +9,13 @@ import DepthCarousel from "../components/DepthCarousel/DepthCarousel";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import {
   buildWaveformPoints,
+  buildWrappedPaletteTheme,
   buildWrappedSlides,
   buildWrappedTimeline,
   collectWrappedSlideExports,
   getWrappedCopy,
   getWrappedSlideFilename,
+  getWrappedSlidePaletteStyle,
   getWrappedMediaTitle,
   getWrappedThumbnailUrl,
   isWrappedEmpty,
@@ -32,6 +34,7 @@ export default function Wrapped() {
   const [storyIndex, setStoryIndex] = useState(0);
   const [exportState, setExportState] = useState(null);
   const [exportError, setExportError] = useState("");
+  const [artworkPalette, setArtworkPalette] = useState(null);
   const exportRefs = useRef([]);
 
   const period = useMemo(() => {
@@ -76,6 +79,16 @@ export default function Wrapped() {
   );
   const slides = useMemo(() => buildWrappedSlides(data, timeline), [data, timeline]);
   const wrappedCopy = useMemo(() => getWrappedCopy(data), [data]);
+  const leadMediaId = Number(data?.topMedia?.[0]?.mediaId);
+  const artworkColors = artworkPalette?.mediaId === leadMediaId ? artworkPalette.colors : null;
+  const paletteTheme = useMemo(
+    () => buildWrappedPaletteTheme(artworkColors),
+    [artworkColors]
+  );
+  const storyTheme = paletteTheme || {
+    "--recap-accent": data?.persona?.palette?.accent || "#FF5A5F",
+    "--recap-secondary": data?.persona?.palette?.secondary || "#2DC7C9",
+  };
   const serverPeriodLabel = data?.periodStart && data?.periodEnd
     ? `${formatDateUtc(data.periodStart)} - ${formatDateUtc(data.periodEnd)}`
     : period.label;
@@ -84,13 +97,26 @@ export default function Wrapped() {
     if (player?.currentMedia) player.stopPlayback?.();
   }, [player?.currentMedia?.id, player?.stopPlayback]);
 
+  useEffect(() => {
+    if (!Number.isInteger(leadMediaId) || leadMediaId < 1) return undefined;
+    const controller = new AbortController();
+    api(`/api/media/${leadMediaId}/artwork-palette`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((palette) => {
+        if (!controller.signal.aborted) setArtworkPalette({ mediaId: leadMediaId, colors: palette?.colors });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setArtworkPalette({ mediaId: leadMediaId, colors: null });
+      });
+    return () => controller.abort();
+  }, [leadMediaId]);
+
   const captureSlide = useCallback(async (index) => {
     const node = exportRefs.current[index];
     if (!node) throw new Error("Slide export is not ready");
     await waitForExportAssets(node);
-    const rootBg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() || "#111318";
     const blob = await toBlob(node, {
-      backgroundColor: rootBg,
+      backgroundColor: paletteTheme?.["--recap-ink"] || "#111318",
       cacheBust: true,
       height: WRAPPED_STORY_EXPORT.cssHeight,
       pixelRatio: WRAPPED_STORY_EXPORT.pixelRatio,
@@ -98,7 +124,7 @@ export default function Wrapped() {
     });
     if (!blob) throw new Error("Image capture returned no data");
     return blob;
-  }, []);
+  }, [paletteTheme]);
 
   const exportCurrentSlide = useCallback(async () => {
     if (exportState) return;
@@ -206,6 +232,8 @@ export default function Wrapped() {
             periodLabel={serverPeriodLabel}
             slides={slides}
             timeline={timeline}
+            theme={storyTheme}
+            artworkColors={artworkColors}
             wrappedCopy={wrappedCopy}
           />
         </>
@@ -219,10 +247,7 @@ export default function Wrapped() {
             key={slide.id}
             ref={(node) => { exportRefs.current[index] = node; }}
             className="wrapped-export-slide"
-            style={{
-              "--recap-accent": data.persona?.palette?.accent || "#FF5A5F",
-              "--recap-secondary": data.persona?.palette?.secondary || "#2DC7C9",
-            }}
+            style={{ ...storyTheme, ...getWrappedSlidePaletteStyle(slide.id, artworkColors) }}
           >
             <StorySlide data={data} periodLabel={serverPeriodLabel} slide={slide} timeline={timeline} wrappedCopy={wrappedCopy} />
           </div>
@@ -243,19 +268,20 @@ function StoryViewer({
   periodLabel,
   slides,
   timeline,
+  theme,
+  artworkColors,
   wrappedCopy,
 }) {
   const lastIndex = slides.length - 1;
-  const palette = data.persona?.palette || { accent: "#FF5A5F", secondary: "#2DC7C9" };
 
   return (
-    <section className="wrapped-story-shell" style={{ "--recap-accent": palette.accent, "--recap-secondary": palette.secondary }}>
+    <section className="wrapped-story-shell" style={theme}>
       <div className="wrapped-depth-carousel-frame">
         <DepthCarousel
           ariaLabel="Wrapped story"
           items={slides}
           renderItem={(slide, slideIndex) => (
-            <div className="wrapped-depth-story-card">
+            <div className="wrapped-depth-story-card" style={getWrappedSlidePaletteStyle(slide.id, artworkColors)}>
               <StorySlide data={data} periodLabel={periodLabel} slide={slide} timeline={timeline} wrappedCopy={wrappedCopy} />
               <span className="wrapped-story-count">{String(slideIndex + 1).padStart(2, "0")} / {String(slides.length).padStart(2, "0")}</span>
             </div>

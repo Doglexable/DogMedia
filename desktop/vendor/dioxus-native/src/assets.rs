@@ -51,6 +51,24 @@ impl NetProvider<Resource> for DioxusNativeNetProvider {
                     tracing::warn!("fetching asset from file system error {request:#?}");
                 }
             }
+        } else if request.url.scheme() == "file" {
+            match request.url.to_file_path() {
+                Ok(path) => match std::fs::read(&path) {
+                    Ok(bytes) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::trace!("fetching file asset success {path:?}");
+                        handler.bytes(doc_id, bytes.into(), self.callback.clone())
+                    }
+                    Err(_err) => {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("reading file asset error {path:?}: {_err:?}");
+                    }
+                },
+                Err(_) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::warn!("invalid file url: {request:#?}");
+                }
+            }
         } else {
             #[cfg(feature = "net")]
             self.inner_net_provider.fetch(doc_id, request, handler);

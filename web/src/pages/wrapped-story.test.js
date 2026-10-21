@@ -1,17 +1,71 @@
 import { describe, expect, it } from "vitest";
 import {
   buildWaveformPoints,
+  buildWrappedPaletteTheme,
   buildWrappedSlides,
   buildWrappedTimeline,
   collectWrappedSlideExports,
   getWrappedCopy,
   getWrappedPeriodDays,
   getWrappedSlideFilename,
+  getWrappedSlidePaletteStyle,
   getWrappedMediaTitle,
   getWrappedThumbnailUrl,
   isWrappedEmpty,
   WRAPPED_STORY_EXPORT,
 } from "./wrapped-story";
+
+describe("Wrapped artwork theme", () => {
+  it("cycles the five exact colors across the five middle cards and mixes the final card", () => {
+    const colors = ["#b6ae5d", "#080807", "#efefef", "#a7a8a9", "#5f5f5b"];
+    const entries = colors.map((value) => ({ hex: value }));
+    expect(getWrappedSlidePaletteStyle("opening", entries)).toEqual({});
+    expect(["time", "top-media", "rhythm", "devices", "persona"]
+      .map((id) => getWrappedSlidePaletteStyle(id, entries)["--recap-slide-bg"])).toEqual(colors);
+    expect(getWrappedSlidePaletteStyle("time", entries)["--recap-slide-fg"]).toBe("#000000");
+    expect(getWrappedSlidePaletteStyle("top-media", entries)["--recap-slide-fg"]).toBe("#ffffff");
+    const mix = getWrappedSlidePaletteStyle("share", entries)["--recap-mix"];
+    expect(colors.every((color) => mix.includes(color))).toBe(true);
+  });
+
+  it("assigns all five artwork colors to distinct story roles", () => {
+    const colors = ["#f4b189", "#080807", "#92c9d5", "#f5ede2", "#d7a2cf"];
+    const theme = buildWrappedPaletteTheme(colors.map((value) => ({ hex: value })));
+    expect(new Set([
+      theme["--recap-ink"], theme["--recap-white"], theme["--recap-coral"],
+      theme["--recap-cyan"], theme["--recap-yellow"],
+    ])).toEqual(new Set(colors));
+  });
+
+  it("uses artwork colors and keeps every slide background readable", () => {
+    const theme = buildWrappedPaletteTheme([
+      { hex: "#a94636" }, { hex: "#351215" }, { hex: "#d89054" },
+      { hex: "#eee2d8" }, { hex: "#651d27" },
+    ]);
+    const channels = (color) => [1, 3, 5].map((index) => Number.parseInt(color.slice(index, index + 2), 16));
+    const luminance = (color) => channels(color).reduce((sum, channel, index) => {
+      const value = channel / 255;
+      return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+        * [0.2126, 0.7152, 0.0722][index];
+    }, 0);
+    const contrast = (a, b) => {
+      const values = [luminance(a), luminance(b)].sort((first, second) => first - second);
+      return (values[1] + 0.05) / (values[0] + 0.05);
+    };
+
+    expect(theme["--recap-ink"]).toBe("#351215");
+    expect(theme["--recap-white"]).toBe("#eee2d8");
+    for (const role of ["white", "coral", "cyan", "yellow", "accent"]) {
+      expect(contrast(theme[`--recap-${role}`], theme["--recap-ink"])).toBeGreaterThanOrEqual(7);
+    }
+    expect(theme["--recap-coral"]).not.toBe(theme["--recap-cyan"]);
+  });
+
+  it("ignores unusable palette entries and falls back when no colors remain", () => {
+    expect(buildWrappedPaletteTheme([{ hex: "red" }, { hex: "#fff" }])).toBeNull();
+    expect(buildWrappedPaletteTheme([{ hex: "#080807" }])["--recap-coral"]).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
 
 describe("buildWrappedSlides", () => {
   it("always produces the seven story chapters", () => {

@@ -1,6 +1,17 @@
 export const MAX_SHARED_LYRICS = 5;
 export const LYRICS_CARD_SIZE = Object.freeze({ width: 1920, height: 1080 });
 
+export function lyricsShareFilename(title, timestamp = Date.now()) {
+  const safeTitle = String(title || "lyrics")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, 60);
+  return `${safeTitle || "lyrics"}-lyrics-${timestamp}.png`;
+}
+
 export function accessibleTextColor(backgroundHex) {
   if (!/^#[0-9a-f]{6}$/i.test(backgroundHex || "")) return "#ffffff";
   const channels = [1, 3, 5].map((index) => {

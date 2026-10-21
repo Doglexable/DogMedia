@@ -4,10 +4,10 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import ViewShot, { captureRef } from "react-native-view-shot";
-import { api } from "../api";
+import { api, protectedMediaSource } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { buildLyricsDisplaySegments, findActiveLyricsIndex, findLyricsFocusIndex, normalizeLyricsResponse } from "../utils/lyrics";
-import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "../utils/lyrics-share";
+import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, lyricsShareFilename, updateLyricsSelection } from "../utils/lyrics-share";
 import { formatDuration } from "../utils/media";
 
 function useReducedMotion() {
@@ -45,7 +45,7 @@ function LyricsCard({ backgroundColor, artworkFailed, cardRef, cardWidth, metada
       </View>
       <View style={[styles.shareCardFooter, { borderTopColor: textColor }]}>
         {metadata.artworkUri && !artworkFailed
-          ? <Image source={{ uri: metadata.artworkUri }} onError={onArtworkError} style={styles.shareCardArtwork} />
+          ? <Image source={protectedMediaSource(metadata.artworkUri)} onError={onArtworkError} style={styles.shareCardArtwork} />
           : <View style={[styles.shareCardArtwork, styles.shareCardArtworkFallback, { backgroundColor: textColor === "#000000" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)" }]}><Ionicons name="reader" size={20} color={textColor} /></View>}
         <View style={styles.shareCardMeta}><Text numberOfLines={1} style={[styles.shareCardTitle, { color: textColor }]}>{metadata.title}</Text><Text numberOfLines={1} style={[styles.shareCardArtist, { color: textColor }]}>{metadata.artists}</Text></View>
       </View>
@@ -121,7 +121,17 @@ function LyricsShareModal({ activeIndex, artworkUri, media, onClose, position, s
     setError("");
     try {
       const result = await captureAndShareLyrics({
-        capture: () => captureRef(cardRef, { format: "png", quality: 1, ...LYRICS_CARD_SIZE }),
+        capture: async () => {
+          const capturedUri = await captureRef(cardRef, { format: "png", quality: 1, ...LYRICS_CARD_SIZE });
+          const namedUri = `${FileSystem.cacheDirectory}${lyricsShareFilename(metadata.title)}`;
+          try {
+            await FileSystem.moveAsync({ from: capturedUri, to: namedUri });
+            return namedUri;
+          } catch (error) {
+            await FileSystem.deleteAsync(capturedUri, { idempotent: true }).catch(() => {});
+            throw error;
+          }
+        },
         deleteFile: (uri) => FileSystem.deleteAsync(uri, { idempotent: true }),
         isAvailable: Sharing.isAvailableAsync,
         share: (uri) => Sharing.shareAsync(uri, { dialogTitle: `Share ${metadata.title} lyrics`, mimeType: "image/png", UTI: "public.png" }),

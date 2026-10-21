@@ -1,8 +1,7 @@
 # Dogmedia
 
 Self-hosted multimedia streaming server for photos, video, and audio. Access is
-controlled via an IP whitelist with access tiers — no user accounts, no login
-page.
+controlled via an IP whitelist with access tiers and a media access key.
 
 ## Stack
 
@@ -39,7 +38,8 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and replace `PFS_DB_PASSWORD=pfs_secret` with a strong password.
+Edit `.env`: replace `PFS_DB_PASSWORD=pfs_secret` with a strong password and
+set `PFS_MEDIA_ACCESS_KEY` to the output of `openssl rand -hex 32`.
 The Compose file supplies its own container addresses for PostgreSQL and Redis,
 so the development `DATABASE_URL` and `REDIS_URL` values in `.env` do not need
 to be changed for this setup.
@@ -243,7 +243,7 @@ Set `PFS_PUBLISH_DESKTOP_RELEASE=0` before a packaging command to build without
 publishing. To publish an already-built `.deb` without rebuilding, run:
 
 ```bash
-bash desktop/packaging/publish-release.sh linux-deb dist/packages/dogmedia-desktop_0.5.0_amd64.deb
+bash desktop/packaging/publish-release.sh linux-deb dist/packages/dogmedia-desktop_0.7.0_amd64.deb
 ```
 
 See [desktop/README.md](desktop/README.md) for Debian/Fedora prerequisites and
@@ -492,18 +492,16 @@ and [Fastify proxy trust](https://fastify.dev/docs/latest/Reference/Server/#trus
 
 ## IP Whitelist bootstrap
 
-On the **first ever request**, the middleware detects an empty whitelist table
-and auto-populates it with three tiers:
+On the **first request from localhost**, the middleware detects an empty
+whitelist table and adds the local administrator:
 
 | CIDR / IP | Tier | Description |
 |-----------|------|-------------|
-| Caller's exact IP | 999 | First-run auto-add (Admin) |
-| Host machine's LAN IPs | 999 | Host Machine LAN IP (Admin) |
-| `192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12` | 0 | Home Network (Standard) |
+| `127.0.0.1` | 999 | First-run auto-add (Admin) |
 
-This means the machine that initializes the server gets Admin (tier 999), and
-any device on the local network can watch content (tier 0). Additional entries
-can be added manually.
+Other devices must be added explicitly. Existing installations may still have
+the old broad subnet entries; see [API media access server configuration](API_MEDIA_ACCESS_SERVER_CONFIGURATION.md)
+for migration and the required `PFS_MEDIA_ACCESS_KEY` setting.
 
 ### Managing the whitelist
 
@@ -512,15 +510,16 @@ host:
 
 ```bash
 # list
-curl http://localhost:3001/api/whitelist
+curl -H 'Authorization: Bearer <media-access-key>' http://localhost:3001/api/whitelist
 
 # add
 curl -X POST http://localhost:3001/api/whitelist \
+  -H 'Authorization: Bearer <media-access-key>' \
   -H 'Content-Type: application/json' \
-  -d '{"cidr_range":"192.168.1.0/24","access_tier":50,"description":"Home LAN"}'
+  -d '{"cidr_range":"192.0.2.10/32","access_tier":50,"description":"Trusted laptop"}'
 
 # delete
-curl -X DELETE http://localhost:3001/api/whitelist/1
+curl -X DELETE -H 'Authorization: Bearer <media-access-key>' http://localhost:3001/api/whitelist/1
 ```
 
 Note: `ORDER BY masklen(cidr_range) DESC LIMIT 1` ensures more specific CIDR
@@ -789,11 +788,10 @@ rm -rf pfs-sdk/
 ## Security notes
 
 - Media files stored under `data/media/` (gitignored, bind-mounted by Podman)
-- All media access requires IP whitelist check + tier validation
+- Private API access requires an IP whitelist entry and a media access key or browser session
 - Streaming uses `Range` headers for seeking — no pre-signed URLs
 - Whitelist management is restricted to localhost only
-- First-run auto-bootstraps the whitelist: caller + host IPs get Admin,
-  common private subnets get Standard access
+- First-run whitelist bootstrap requires a localhost request and adds localhost only
 - CIDR matching prefers specific entries over broader ones (`ORDER BY masklen`)
 - Apache sanitizes and forwards the client address; Nginx accepts forwarded
   addresses only from host loopback, and Fastify trusts only local Nginx

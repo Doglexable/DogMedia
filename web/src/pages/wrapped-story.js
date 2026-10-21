@@ -8,6 +8,101 @@ export const WRAPPED_STORY_EXPORT = {
   pixelRatio: 2.5,
 };
 
+function rgb(hex) {
+  if (typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex)) return null;
+  return [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+}
+
+function luminance(channels) {
+  return channels.reduce((sum, channel, index) => {
+    const value = channel / 255;
+    const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    return sum + linear * [0.2126, 0.7152, 0.0722][index];
+  }, 0);
+}
+
+function contrast(a, b) {
+  const first = luminance(a);
+  const second = luminance(b);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+function blend(channels, target, amount) {
+  return channels.map((channel) => Math.round(channel + (target - channel) * amount));
+}
+
+function readableShade(channels, against, target, minimumContrast) {
+  for (let step = 0; step <= 20; step += 1) {
+    const shade = blend(channels, target, step / 20);
+    if (contrast(shade, against) >= minimumContrast) return shade;
+  }
+  return [target, target, target];
+}
+
+function hex(channels) {
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+}
+
+const COLORED_SLIDES = ["time", "top-media", "rhythm", "devices", "persona"];
+
+export function getWrappedSlidePaletteStyle(slideId, colors) {
+  const palette = (Array.isArray(colors) ? colors : [])
+    .slice(0, 5)
+    .map((entry) => entry?.hex)
+    .filter((color) => rgb(color));
+  if (!palette.length) return {};
+
+  const index = COLORED_SLIDES.indexOf(slideId);
+  if (index >= 0) {
+    const background = palette[index % palette.length];
+    const channels = rgb(background);
+    const foreground = contrast(channels, [0, 0, 0]) >= contrast(channels, [255, 255, 255])
+      ? "#000000" : "#ffffff";
+    return { "--recap-slide-bg": background, "--recap-slide-fg": foreground };
+  }
+
+  if (slideId === "share") {
+    const stops = Array.from({ length: 5 }, (_, position) => {
+      const color = palette[position % palette.length];
+      return `${color} ${position * 25}%`;
+    });
+    return { "--recap-mix": `linear-gradient(135deg, ${stops.join(", ")})` };
+  }
+
+  return {};
+}
+
+export function buildWrappedPaletteTheme(colors) {
+  const entries = (Array.isArray(colors) ? colors : [])
+    .slice(0, 5)
+    .map((entry) => rgb(entry?.hex))
+    .filter(Boolean);
+  if (!entries.length) return null;
+
+  const byBrightness = entries
+    .map((channels, index) => ({ channels, index }))
+    .sort((a, b) => luminance(a.channels) - luminance(b.channels));
+  const darkest = byBrightness[0];
+  const lightest = byBrightness.at(-1);
+  const ink = readableShade(darkest.channels, [255, 255, 255], 0, 10);
+  const paper = readableShade(lightest.channels, ink, 255, 10);
+  // Reserve the darkest and lightest colors, then give each of the other three
+  // artwork colors its own slide role in the API's dominance order.
+  const middle = entries.filter((_, index) => index !== darkest.index && index !== lightest.index);
+  const light = (channels) => hex(readableShade(channels, ink, 255, 7));
+  const accents = [0, 1, 2].map((index) => light(middle[index] || entries[index % entries.length]));
+
+  return {
+    "--recap-ink": hex(ink),
+    "--recap-white": hex(paper),
+    "--recap-coral": accents[0],
+    "--recap-cyan": accents[1],
+    "--recap-yellow": accents[2],
+    "--recap-accent": accents[0],
+    "--recap-secondary": accents[1],
+  };
+}
+
 export function getWrappedSlideFilename(slide, index) {
   const number = String(index + 1).padStart(2, "0");
   const id = typeof slide?.id === "string" && slide.id ? slide.id : "slide";

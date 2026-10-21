@@ -29,6 +29,7 @@ pub struct Settings {
     pub version: u8,
     pub configured: bool,
     pub server_url: ServerUrl,
+    pub media_access_key: String,
     pub viewer_id: ViewerId,
     pub quality: Quality,
     pub volume: Volume,
@@ -45,6 +46,7 @@ impl Default for Settings {
             version: VERSION,
             configured: false,
             server_url: ServerUrl::default(),
+            media_access_key: String::new(),
             viewer_id: ViewerId::new(Uuid::new_v4().to_string()),
             quality: Quality::High,
             volume: Volume::default(),
@@ -118,6 +120,11 @@ impl SettingsStore {
         fs::create_dir_all(parent)?;
         let temporary = self.path.with_extension("json.tmp");
         let mut file = fs::File::create(&temporary)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        }
         file.write_all(&serde_json::to_vec_pretty(settings)?)?;
         file.sync_all()?;
         fs::rename(temporary, &self.path)?;

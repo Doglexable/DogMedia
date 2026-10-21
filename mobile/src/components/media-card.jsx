@@ -3,7 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { mediaThumbnailUrl } from "../api";
+import { mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getMediaLabel, resolveMediaArtist } from "../utils/media";
 import { useOffline } from "../context/offline-context";
@@ -111,7 +111,7 @@ export function MediaCard({
             <Image
               cachePolicy="memory-disk"
               contentFit="cover"
-              source={{ uri: thumbnailUri }}
+              source={protectedMediaSource(thumbnailUri)}
               style={styles.rowCover}
             />
             {isCurrent && index == null && (
@@ -181,7 +181,7 @@ export function MediaCard({
             <Image
               cachePolicy="memory-disk"
               contentFit="cover"
-              source={{ uri: thumbnailUri }}
+              source={protectedMediaSource(thumbnailUri)}
               style={[styles.cover, compact && styles.compactCover]}
             />
             {isCurrent && (

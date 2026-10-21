@@ -40,20 +40,47 @@
   view-transition-name: none !important;
 }
 
+.category-view-transition .dashboard-header,
+.category-view-transition .app-header {
+  view-transition-name: app-header;
+}
+
+.category-view-transition .global-sidebar {
+  view-transition-name: app-sidebar;
+}
+
 .category-view-transition .web-mini-player,
 .category-view-transition .video-mini-player {
   view-transition-name: mini-player;
 }
 
+.category-view-transition::view-transition-group(app-header),
+.category-view-transition::view-transition-group(app-sidebar),
 .category-view-transition::view-transition-group(mini-player) {
   z-index: 1000;
   animation: none;
 }
 
+.category-view-transition::view-transition-old(app-header),
+.category-view-transition::view-transition-new(app-header),
+.category-view-transition::view-transition-old(app-sidebar),
+.category-view-transition::view-transition-new(app-sidebar),
 .category-view-transition::view-transition-old(mini-player),
-.category-view-transition::view-transition-new(mini-player) {
+.category-view-transition::view-transition-new(mini-player),
+.category-view-transition::view-transition-old(root),
+.category-view-transition::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
+}
+
+.category-view-transition::view-transition-group(library-content) {
+  z-index: 1;
+  animation: none;
+  overflow: clip;
+}
+
+.category-view-transition::view-transition-image-pair(library-content) {
+  overflow: clip;
 }
 
 .category-view-transition::view-transition-old(library-content) {
@@ -1152,11 +1179,11 @@ body.player-expanded .global-app-content {
   justify-self: center;
 }
 .wrapped-story-shell {
-  --recap-ink: var(--text);
-  --recap-coral: var(--primary);
-  --recap-cyan: color-mix(in srgb, var(--primary) 35%, var(--bg));
-  --recap-yellow: color-mix(in srgb, var(--primary) 22%, #ffd166);
-  --recap-white: var(--bg);
+  --recap-ink: #111318;
+  --recap-coral: #ff5a5f;
+  --recap-cyan: #2dc7c9;
+  --recap-yellow: #ffd166;
+  --recap-white: #f5f7f4;
   display: grid;
   width: 100%;
   min-height: 0;
@@ -1198,7 +1225,7 @@ body.player-expanded .global-app-content {
   right: 18px;
   bottom: 14px;
   z-index: 5;
-  color: color-mix(in srgb, var(--recap-white) 72%, transparent);
+  color: var(--recap-slide-fg, var(--recap-white));
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.68rem;
   font-weight: 800;
@@ -1266,8 +1293,8 @@ body.player-expanded .global-app-content {
 }
 .wrapped-slide-shade {
   position: absolute;
-  inset: 38% 0 0;
-  background: color-mix(in srgb, var(--recap-ink) 86%, transparent);
+  inset: 18% 0 0;
+  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--recap-ink) 55%, transparent) 38%, color-mix(in srgb, var(--recap-ink) 94%, transparent) 78%, var(--recap-ink) 100%);
 }
 .wrapped-slide-copy {
   position: relative;
@@ -1303,8 +1330,8 @@ body.player-expanded .global-app-content {
 .wrapped-slide--time {
   display: flex;
   flex-direction: column;
-  background: var(--recap-yellow);
-  color: var(--recap-ink);
+  background: var(--recap-slide-bg, var(--recap-yellow));
+  color: var(--recap-slide-fg, var(--recap-ink));
 }
 .wrapped-big-number {
   margin-top: 76px;
@@ -1339,7 +1366,7 @@ body.player-expanded .global-app-content {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   margin: 24px 0 30px;
-  border-top: 1px solid color-mix(in srgb, var(--recap-ink) 32%, transparent);
+  border-top: 1px solid color-mix(in srgb, currentColor 32%, transparent);
 }
 .wrapped-slide-stats div {
   min-width: 0;
@@ -1364,8 +1391,8 @@ body.player-expanded .global-app-content {
 .wrapped-slide--top {
   display: flex;
   flex-direction: column;
-  background: var(--recap-cyan);
-  color: var(--recap-ink);
+  background: var(--recap-slide-bg, var(--recap-cyan));
+  color: var(--recap-slide-fg, var(--recap-ink));
 }
 .wrapped-slide--top h2 {
   max-width: 320px;
@@ -1385,7 +1412,7 @@ body.player-expanded .global-app-content {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 2px solid var(--recap-ink);
+  border: 2px solid currentColor;
   background: var(--recap-white);
 }
 .wrapped-contact--lead {
@@ -1426,8 +1453,8 @@ body.player-expanded .global-app-content {
   white-space: nowrap;
 }
 .wrapped-slide--rhythm {
-  background: var(--recap-coral);
-  color: var(--recap-ink);
+  background: var(--recap-slide-bg, var(--recap-coral));
+  color: var(--recap-slide-fg, var(--recap-ink));
 }
 .wrapped-clock-value {
   max-width: 100%;
@@ -1442,8 +1469,8 @@ body.player-expanded .global-app-content {
   gap: 1px;
   margin-top: auto;
   margin-bottom: 44px;
-  border: 1px solid color-mix(in srgb, var(--recap-ink) 55%, transparent);
-  background: color-mix(in srgb, var(--recap-ink) 55%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
+  background: color-mix(in srgb, currentColor 55%, transparent);
 }
 .wrapped-rhythm-grid div {
   display: grid;
@@ -1452,7 +1479,7 @@ body.player-expanded .global-app-content {
   align-content: space-between;
   gap: 12px;
   padding: 14px;
-  background: var(--recap-coral);
+  background: var(--recap-slide-bg, var(--recap-coral));
 }
 .wrapped-rhythm-grid span {
   font-size: 0.64rem;
@@ -1467,8 +1494,8 @@ body.player-expanded .global-app-content {
 .wrapped-slide--devices {
   display: flex;
   flex-direction: column;
-  background: var(--recap-ink);
-  color: var(--recap-white);
+  background: var(--recap-slide-bg, var(--recap-ink));
+  color: var(--recap-slide-fg, var(--recap-white));
 }
 .wrapped-slide--devices::after {
   position: absolute;
@@ -1488,7 +1515,7 @@ body.player-expanded .global-app-content {
 .wrapped-slide--devices h2 {
   max-width: 340px;
   margin: 54px 0 0;
-  color: var(--recap-cyan);
+  color: var(--recap-slide-fg, var(--recap-cyan));
   font-size: 3.35rem;
   line-height: 0.88;
 }
@@ -1505,10 +1532,10 @@ body.player-expanded .global-app-content {
   gap: 10px;
   align-items: center;
   min-height: 62px;
-  border-top: 1px solid color-mix(in srgb, var(--recap-white) 24%, transparent);
+  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
 }
 .wrapped-device-story-rank {
-  color: var(--recap-coral);
+  color: var(--recap-slide-fg, var(--recap-coral));
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.72rem;
   font-weight: 900;
@@ -1529,7 +1556,8 @@ body.player-expanded .global-app-content {
   font-weight: 900;
 }
 .wrapped-device-story-list small {
-  color: color-mix(in srgb, var(--recap-white) 58%, transparent);
+  color: var(--recap-slide-fg, var(--recap-white));
+  opacity: 0.72;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.56rem;
 }
@@ -1542,17 +1570,18 @@ body.player-expanded .global-app-content {
   display: block;
   height: 3px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--recap-white) 14%, transparent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .wrapped-device-story-bar > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--recap-cyan), var(--recap-coral));
+  background: var(--recap-slide-fg, linear-gradient(90deg, var(--recap-cyan), var(--recap-coral)));
 }
 .wrapped-device-story-more,
 .wrapped-device-story-empty {
   margin: 14px 0 28px;
-  color: color-mix(in srgb, var(--recap-white) 62%, transparent);
+  color: var(--recap-slide-fg, var(--recap-white));
+  opacity: 0.72;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.65rem;
   font-weight: 800;
@@ -1560,14 +1589,14 @@ body.player-expanded .global-app-content {
 .wrapped-device-story-empty {
   margin-top: auto;
   padding: 18px 0;
-  border-top: 1px solid color-mix(in srgb, var(--recap-white) 24%, transparent);
+  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
   line-height: 1.6;
 }
 .wrapped-slide--persona {
   display: flex;
   flex-direction: column;
-  background: var(--recap-accent);
-  color: var(--recap-ink);
+  background: var(--recap-slide-bg, var(--recap-accent));
+  color: var(--recap-slide-fg, var(--recap-ink));
 }
 .wrapped-persona-mark {
   display: grid;
@@ -1605,7 +1634,7 @@ body.player-expanded .global-app-content {
   font-weight: 850;
 }
 .wrapped-slide--final {
-  background: var(--recap-ink);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.68)), var(--recap-mix, var(--recap-ink));
   color: var(--recap-white);
 }
 .wrapped-final-art {
@@ -4722,8 +4751,8 @@ body {
   color: color-mix(in srgb, var(--text) 72%, var(--muted));
   font-size: 4rem;
   object-fit: cover;
-  box-shadow: 0 34px 90px color-mix(in srgb, var(--artwork-shadow-color, var(--text)) 28%, transparent),
-    0 10px 28px color-mix(in srgb, var(--artwork-shadow-color, var(--text)) 20%, transparent);
+  box-shadow: 0 34px 90px rgba(0, 0, 0, 0.28),
+    0 10px 28px rgba(0, 0, 0, 0.20);
   transform: translateZ(0);
 }
 .fullscreen-player-artwork--fallback {

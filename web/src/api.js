@@ -31,8 +31,15 @@ export function categoryThumbnailUrl(categoryOrId) {
 
 import { normalizeHolderSession } from "./components/global-player/exclusive-session";
 
-export function api(path, options = {}) {
-  return fetch(apiUrl(path), { ...options, credentials: "include" });
+export async function api(path, options = {}) {
+  const response = await fetch(apiUrl(path), { ...options, credentials: "include" });
+  if (path.startsWith("/api/") && !path.startsWith("/api/media-access/") && response.status === 401 && typeof window !== "undefined") {
+    const error = await response.clone().json().catch(() => null);
+    if (error?.code === "MEDIA_ACCESS_REQUIRED") {
+      window.dispatchEvent(new Event("dogmedia:media-access-required"));
+    }
+  }
+  return response;
 }
 
 export async function requestPlaybackSocketTicket() {

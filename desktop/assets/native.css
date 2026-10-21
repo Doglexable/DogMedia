@@ -1261,10 +1261,10 @@ select:focus-visible {
 .full-primary { display: grid; min-width: 0; gap: 16px; }
 .full-stage { display: flex; min-width: 0; align-items: center; justify-content: center; }
 .full-art { width: min(100%, min(460px, 46vh)); aspect-ratio: 1 / 1; border-radius: var(--radius-lg); box-shadow: 0 28px 80px var(--shadow); }
-.full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px color-mix(in srgb, var(--full-art-shadow-color) 42%, transparent); }
-.vault-shell.light .full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px color-mix(in srgb, var(--full-art-shadow-color) 12%, transparent); }
+.full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px var(--full-art-shadow-color); }
+.vault-shell.light .full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px var(--full-art-shadow-light-color); }
 @media (prefers-color-scheme: light) {
-  .vault-shell.system .full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px color-mix(in srgb, var(--full-art-shadow-color) 12%, transparent); }
+  .vault-shell.system .full-player.has-palette-shadow .full-art { box-shadow: 0 28px 80px var(--full-art-shadow-light-color); }
 }
 .full-photo { display: block; width: min(100%, 760px); max-height: 62vh; border-radius: var(--radius-lg); object-fit: contain; background: #000000; }
 .video-stage { position: relative; width: min(100%, 1040px); overflow: hidden; background: #000000; aspect-ratio: 16 / 9; }

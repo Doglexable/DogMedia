@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { mediaThumbnailUrl } from "../api";
+import { mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, getPlaybackProgress, resolveMediaArtist } from "../utils/media";
 import { usePlayer } from "../context/player-context";
@@ -42,7 +42,7 @@ export function MiniPlayer({ navigation }) {
         style={[styles.surface, player.controlsLocked && styles.surfaceWithConnect]}
       >
         <Image
-          source={{ uri: offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id) }}
+          source={protectedMediaSource(offline.resolveThumbnailUri(media.id) || mediaThumbnailUrl(media.id))}
           style={styles.cover}
         />
         <View style={styles.copy}>

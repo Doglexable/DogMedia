@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsCandidateWindow, getLyricsPickerOffset, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, updateLyricsSelection } from "./lyrics-share.js";
+import { accessibleTextColor, captureAndShareLyrics, createLyricsSelection, getLyricsCandidateWindow, getLyricsPickerOffset, getLyricsShareIndex, getLyricsShareMetadata, getSelectedLyrics, LYRICS_CARD_SIZE, lyricsShareFilename, updateLyricsSelection } from "./lyrics-share.js";
 
 describe("mobile lyrics sharing", () => {
   it("chooses readable black or white text for palette colors", () => {
@@ -10,6 +10,10 @@ describe("mobile lyrics sharing", () => {
 
   it("exports a 16:9 card at 1920×1080", () => {
     expect(LYRICS_CARD_SIZE).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("includes the share timestamp in the PNG name", () => {
+    expect(lyricsShareFilename("Beyoncé / Halo?!", 1792396800123)).toBe("beyonce-halo-lyrics-1792396800123.png");
   });
 
   it("maintains a contiguous selection up to five lines", () => {

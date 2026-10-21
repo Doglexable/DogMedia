@@ -40,6 +40,10 @@ fn update_selection(current: Option<(usize, usize)>, index: usize) -> Option<(us
 }
 
 fn filename(title: &str) -> String {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
     let mut slug = String::new();
     for ch in title.chars().flat_map(char::to_lowercase) {
         if ch.is_ascii_alphanumeric() {
@@ -53,7 +57,7 @@ fn filename(title: &str) -> String {
     }
     let slug = slug.trim_matches('-');
     format!(
-        "{}-lyrics.png",
+        "{}-lyrics-{timestamp}.png",
         if slug.is_empty() { "lyrics" } else { slug }
     )
 }

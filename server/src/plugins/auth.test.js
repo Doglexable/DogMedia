@@ -70,6 +70,25 @@ describe("getClientIp", () => {
 });
 
 describe("auth cache and spoofing prevention", () => {
+  it("bootstraps only localhost and does not create broad LAN grants", async () => {
+    const inserts = [];
+    const app = Fastify();
+    app.decorate("pg", { async query(sql, params) {
+      if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 0 }] };
+      if (sql.startsWith("INSERT")) { inserts.push(params[0]); return { rows: [] }; }
+      return { rows: [] };
+    } });
+    await authPlugin(app);
+    app.get("/api/check-access", async (request) => ({ tier: request.accessTier }));
+    const external = await app.inject({ url: "/api/check-access", headers: { "x-forwarded-for": "203.0.113.10" } });
+    expect(external.statusCode).toBe(403);
+    expect(inserts).toEqual([]);
+    const local = await app.inject("/api/check-access");
+    expect(local.statusCode).toBe(200);
+    expect(inserts).toEqual(["127.0.0.1"]);
+    await app.close();
+  });
+
   it("does not repeat whitelist lookups for a cached IP and can be invalidated", async () => {
     let accessQueries = 0;
     const app = Fastify({ logger: false });

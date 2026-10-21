@@ -247,6 +247,7 @@ pub(crate) struct NativeApp {
     queue_open: bool,
     settings_open: bool,
     settings_url: String,
+    settings_media_access_key: String,
     settings_error: Option<String>,
     settings_connecting: bool,
     session_takeover_pending: bool,
@@ -268,7 +269,7 @@ impl NativeApp {
         let (client, access, status) = if settings.configured {
             let server_url = settings.server_url.to_string();
             match ApiClient::new(&server_url, settings.viewer_id.clone()) {
-                Ok(client) => (Some(client), AccessView::Checking, None),
+                Ok(client) => (Some(client.with_media_access_key(&settings.media_access_key)), AccessView::Checking, None),
                 Err(error) => (None, AccessView::Unreachable(error.user_message()), None),
             }
         } else {
@@ -284,6 +285,7 @@ impl NativeApp {
         coordinator.set_quality(settings.quality);
         let settings_open = !settings.configured;
         let settings_url = settings.server_url.to_string();
+        let settings_media_access_key = settings.media_access_key.clone();
         #[cfg(target_os = "linux")]
         let system_color_scheme = system_theme::read_gsettings_scheme();
         #[cfg(not(target_os = "linux"))]
@@ -331,6 +333,7 @@ impl NativeApp {
             queue_open: false,
             settings_open,
             settings_url,
+            settings_media_access_key,
             settings_error: None,
             settings_connecting: false,
             session_takeover_pending: false,
@@ -830,6 +833,13 @@ fn connect(mut app: Signal<NativeApp>) {
     spawn(async move {
         match client.check_access().await {
             Ok(status) => {
+                if let Err(error) = client.verify_media_access().await {
+                    let mut state = app.write();
+                    state.library.access = AccessView::Denied;
+                    state.settings_open = true;
+                    state.settings_error = Some(format!("Media access key rejected: {}", error.user_message()));
+                    return;
+                }
                 exit_local_mode(app);
                 {
                     let mut state = app.write();
@@ -1318,18 +1328,10 @@ fn artwork_extension(bytes: &[u8]) -> &'static str {
 }
 
 fn artwork_file_url(key: &str, bytes: &[u8]) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = (key, bytes);
-        None
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let ext = artwork_extension(bytes);
-        let path = artwork_cache_path(key, ext).ok()?;
-        std::fs::write(&path, bytes).ok()?;
-        url::Url::from_file_path(&path).ok().map(|u| u.to_string())
-    }
+    let ext = artwork_extension(bytes);
+    let path = artwork_cache_path(key, ext).ok()?;
+    std::fs::write(&path, bytes).ok()?;
+    url::Url::from_file_path(&path).ok().map(|u| u.to_string())
 }
 
 fn artwork_source_url(key: &str, bytes: Vec<u8>) -> String {
@@ -1557,7 +1559,7 @@ fn play_media_at(
             Ok(()) => match ensure_playback_engine(app, engine) {
                 Ok(()) => engine.read().as_ref().map(|engine| {
                     engine
-                        .open(&session, &stream)
+                        .open_with_key(&session, &stream, client.media_access_key())
                         .and_then(|_| {
                             if autoplay {
                                 engine.play()
@@ -3049,6 +3051,7 @@ pub(crate) fn set_color_scheme(mut app: Signal<NativeApp>, scheme: ColorScheme) 
 fn save_settings(mut app: Signal<NativeApp>) {
     let mut candidate = app.read().settings.clone();
     let settings_url = app.read().settings_url.clone();
+    candidate.media_access_key = app.read().settings_media_access_key.clone();
     let allow_http = app.read().allow_http;
     let previous_url = app.read().settings.server_url.clone();
     let is_connected = app.read().library.access == AccessView::Ready;
@@ -3062,7 +3065,8 @@ fn save_settings(mut app: Signal<NativeApp>) {
         Ok(_) => {
             let url_changed = candidate.server_url != previous_url;
             let current_client_is_connected =
-                !url_changed && is_connected && app.read().client.is_some();
+                !url_changed && is_connected && app.read().client.is_some()
+                    && candidate.media_access_key == app.read().settings.media_access_key;
             if current_client_is_connected {
                 let _ = app.read().store.save(&candidate);
                 app.write().settings = candidate;
@@ -3080,6 +3084,7 @@ fn save_settings(mut app: Signal<NativeApp>) {
                 candidate.viewer_id.clone(),
             ) {
                 Ok(client) => {
+                    let client = client.with_media_access_key(&candidate.media_access_key);
                     let save_result = app.read().store.save(&candidate);
                     if let Err(error) = save_result {
                         let msg = format!("Failed to save settings: {error}");
@@ -3099,6 +3104,14 @@ fn save_settings(mut app: Signal<NativeApp>) {
                     spawn(async move {
                         match client.check_access().await {
                             Ok(status) => {
+                                if let Err(error) = client.verify_media_access().await {
+                                    let mut state = app.write();
+                                    state.library.access = AccessView::Denied;
+                                    state.settings_open = true;
+                                    state.settings_connecting = false;
+                                    state.settings_error = Some(format!("Media access key rejected: {}", error.user_message()));
+                                    return;
+                                }
                                 exit_local_mode(app);
                                 {
                                     let mut state = app.write();
@@ -3478,27 +3491,19 @@ mod tests {
         let key = "media:999:test_version";
         let url = artwork_source_url(key, test_bytes.to_vec());
 
-        #[cfg(not(target_os = "windows"))]
-        {
-            assert!(url.starts_with("file://"));
-            let parsed = url::Url::parse(&url).unwrap();
-            let file_path = parsed.to_file_path().unwrap();
-            assert!(file_path.exists());
-            assert_eq!(std::fs::read(&file_path).unwrap(), test_bytes);
+        assert!(url.starts_with("file://"));
+        let parsed = url::Url::parse(&url).unwrap();
+        let file_path = parsed.to_file_path().unwrap();
+        assert!(file_path.exists());
+        assert_eq!(std::fs::read(&file_path).unwrap(), test_bytes);
 
-            // When evicted from ArtworkCache, file should be removed from disk
-            let mut cache = ArtworkCache::default();
-            cache
-                .entries
-                .insert(key.to_string(), ArtworkState::Ready(Arc::new(url)));
-            cache.evict(key);
-            assert!(!file_path.exists());
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            assert!(url.starts_with("data:image/png;base64,"));
-        }
+        // When evicted from ArtworkCache, file should be removed from disk
+        let mut cache = ArtworkCache::default();
+        cache
+            .entries
+            .insert(key.to_string(), ArtworkState::Ready(Arc::new(url)));
+        cache.evict(key);
+        assert!(!file_path.exists());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  artworkShadowStyle,
   getArtistLabel,
   getAutoQueueEndpoint,
   getCompletionAction,
@@ -23,6 +24,15 @@ import {
   shouldHandleSpaceKey,
   shouldSuggestSiblingMedia,
 } from "./player-utils";
+
+describe("artworkShadowStyle", () => {
+  it("uses the selected palette color without color-mix", () => {
+    expect(artworkShadowStyle("#b6ae5d")).toBe(
+      "0 34px 90px rgba(182, 174, 93, 0.28), 0 10px 28px rgba(182, 174, 93, 0.20)"
+    );
+    expect(artworkShadowStyle("invalid")).toBeNull();
+  });
+});
 
 describe("seekAndMaybePlay", () => {
   it("seeks to the observed handoff position before starting playback", () => {

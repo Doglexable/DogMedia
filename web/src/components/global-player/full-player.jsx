@@ -23,7 +23,7 @@ import { resolveMediaArtist } from "./media-artists";
 import { VideoPlayer } from "./video-player";
 import { SpotifyConnectBar } from "./spotify-connect-bar";
 import { playerStyles as styles } from "./player-styles";
-import { formatDuration, getLoopButtonTitle, getMediaFolderName, isEditableTarget } from "./player-utils";
+import { artworkShadowStyle, formatDuration, getLoopButtonTitle, getMediaFolderName, isEditableTarget } from "./player-utils";
 import { mediaViewTransitionName, runViewTransition } from "../../utils/view-transitions";
 import { api } from "../../api";
 
@@ -89,6 +89,7 @@ export function FullPlayer({
   const mediaId = Number(currentMedia?.id);
   const artworkShadowColor = shadowPalette?.mediaId === mediaId && shadowPalette?.thumbSrc === thumbSrc
     ? shadowPalette.hex : null;
+  const artworkBoxShadow = artworkShadowStyle(artworkShadowColor);
 
   useEffect(() => {
     if (!isAudio || !thumbSrc || !Number.isInteger(mediaId) || mediaId < 1) return undefined;
@@ -306,7 +307,7 @@ export function FullPlayer({
                       src={effectiveArtworkSrc}
                       alt={currentMedia.title}
                       className="fullscreen-player-artwork"
-                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id), ...(artworkShadowColor ? { "--artwork-shadow-color": artworkShadowColor } : {}) }}
+                      style={{ viewTransitionName: mediaViewTransitionName(currentMedia.id), ...(artworkBoxShadow ? { boxShadow: artworkBoxShadow } : {}) }}
                       draggable={false}
                       onContextMenu={onPreventMenu}
                       onError={onThumbError}

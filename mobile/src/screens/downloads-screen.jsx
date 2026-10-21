@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { MINI_PLAYER_CLEARANCE, MiniPlayer } from "../components/mini-player";
 import { useOffline } from "../context/offline-context";
 import { usePlayer } from "../context/player-context";
-import { mediaThumbnailUrl } from "../api";
+import { mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { formatDuration, resolveMediaArtist } from "../utils/media";
 
@@ -19,7 +19,7 @@ function formatBytes(value) {
 function DownloadRow({ item, onPlay, onRefreshAssets, onRemove, onRedownload, styles, colors }) {
   return (
     <Pressable onPress={() => item.status === "stale" ? onRedownload(item.mediaId) : onPlay(item)} style={styles.row}>
-      <Image source={{ uri: item.thumbnailUri || mediaThumbnailUrl(item.mediaId) }} style={styles.cover} />
+      <Image source={protectedMediaSource(item.thumbnailUri || mediaThumbnailUrl(item.mediaId))} style={styles.cover} />
       <View style={styles.rowCopy}>
         <Text numberOfLines={1} style={styles.title}>{item.title}</Text>
         <Text numberOfLines={1} style={styles.meta}>{resolveMediaArtist(item)} · {formatDuration(item.duration)}</Text>

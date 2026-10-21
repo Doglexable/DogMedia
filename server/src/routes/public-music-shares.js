@@ -26,8 +26,9 @@ function parseByteRange(value, fileSize) {
   return { start, end: Math.min(requestedEnd, fileSize - 1) };
 }
 
-function mediaHeaders(reply, { download = false } = {}) {
-  reply.header("Content-Disposition", download ? 'attachment; filename="dogmedia-favorite-reel.mp4"' : "inline");
+function mediaHeaders(reply, { download = false, trackCount = 0 } = {}) {
+  const kind = trackCount === 1 ? "music-clip" : "favorite-reel";
+  reply.header("Content-Disposition", download ? `attachment; filename="dogmedia-${kind}-${Date.now()}.mp4"` : "inline");
   reply.header("Cache-Control", "private, no-store, max-age=0");
   reply.header("Pragma", "no-cache");
   reply.header("Referrer-Policy", "no-referrer");
@@ -52,7 +53,9 @@ async function loadSessionReel(fastify, sessionId) {
   const session = await readPublicMusicSession(fastify.redis, sessionId);
   if (!session) return null;
   const { rows } = await fastify.pg.query(
-    `SELECT output_path FROM music_share_reels
+    `SELECT output_path,
+       (SELECT COUNT(*)::int FROM music_share_reel_items WHERE reel_id = $1) AS track_count
+     FROM music_share_reels
      WHERE id = $1 AND status = 'ready' AND revoked_at IS NULL AND expires_at > NOW()
        AND created_at > NOW() - INTERVAL '1 day'`,
     [session.shareId]
@@ -70,7 +73,7 @@ async function sendReelFile({ dataDir, fastify, request, reply, download = false
   } catch {
     return reply.code(404).send({ error: "Shared music reel not found" });
   }
-  mediaHeaders(reply, { download });
+  mediaHeaders(reply, { download, trackCount: Number(reel.track_count) });
   reply.header("Accept-Ranges", "bytes");
   reply.type("video/mp4");
   if (request.headers.range) {

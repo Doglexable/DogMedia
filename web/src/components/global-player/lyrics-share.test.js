@@ -71,12 +71,13 @@ describe("lyrics share metadata", () => {
     expect(getLyricsShareMetadata({ title: " Song ", artists: " Artist " }, "/cover")).toEqual({
       title: "Song", artists: "Artist", artworkUrl: "/cover",
     });
-    expect(sanitizeLyricsFilename("Beyoncé / Halo?!")).toBe("beyonce-halo-lyrics.png");
+    expect(sanitizeLyricsFilename("Beyoncé / Halo?!", 1792396800123)).toBe("beyonce-halo-lyrics-1792396800123.png");
+    expect(sanitizeLyricsFilename("Beyoncé / Halo?!", 1792396800124)).not.toBe(sanitizeLyricsFilename("Beyoncé / Halo?!", 1792396800123));
   });
 
   it("provides safe fallbacks", () => {
     expect(getLyricsShareMetadata({})).toMatchObject({ title: "Untitled track", artists: "Unknown artist", artworkUrl: null });
-    expect(sanitizeLyricsFilename("")).toBe("lyrics-lyrics.png");
+    expect(sanitizeLyricsFilename("", 1792396800123)).toBe("lyrics-lyrics-1792396800123.png");
   });
 });
 

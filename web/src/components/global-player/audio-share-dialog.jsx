@@ -339,7 +339,7 @@ export function AudioShareDialog({
       await waitForCardAssets(cardRef.current);
       const { toBlob } = await import("html-to-image");
       const blob = await toBlob(cardRef.current, {
-        backgroundColor: "#12131a",
+        backgroundColor: selectedBackground,
         cacheBust: true,
         width: LYRICS_CARD.cssWidth,
         height: LYRICS_CARD.cssHeight,
@@ -359,7 +359,7 @@ export function AudioShareDialog({
     } finally {
       setSharingImage(false);
     }
-  }, [metadata.title, onClose, paletteLoading, selectedLyrics.length, sharingImage]);
+  }, [metadata.title, onClose, paletteLoading, selectedBackground, selectedLyrics.length, sharingImage]);
 
   // ── Keyboard & Body Overflow Trap ──
   useEffect(() => {

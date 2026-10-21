@@ -5,6 +5,13 @@ import { faVideo } from "@fortawesome/free-solid-svg-icons/faVideo";
 
 export const LOOP_MODES = ["none", "queue", "media"];
 
+export function artworkShadowStyle(hex) {
+  if (typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex)) return null;
+  const [red, green, blue] = [1, 3, 5]
+    .map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
+  return `0 34px 90px rgba(${red}, ${green}, ${blue}, 0.28), 0 10px 28px rgba(${red}, ${green}, ${blue}, 0.20)`;
+}
+
 export function seekAndMaybePlay(mediaElement, position, autoplay) {
   if (!mediaElement) return;
   if (Number.isFinite(position) && position >= 0

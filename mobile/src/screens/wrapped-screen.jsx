@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api, mediaThumbnailUrl } from "../api";
+import { api, mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { alpha, spacing, useTheme } from "../theme";
 import {
   buildWrappedSlides,
@@ -163,7 +163,7 @@ function Artwork({ media, style, fallbackStyle, fallbackTextStyle }) {
       </View>
     );
   }
-  return <Image source={{ uri: mediaThumbnailUrl(mediaId) }} resizeMode="cover" style={style} onError={() => setFailed(true)} />;
+  return <Image source={protectedMediaSource(mediaThumbnailUrl(mediaId))} resizeMode="cover" style={style} onError={() => setFailed(true)} />;
 }
 
 function StoryProgress({ current, dark, total }) {

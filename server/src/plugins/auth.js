@@ -1,18 +1,4 @@
-import os from "os";
 import { isIP } from "net";
-
-function getHostIps() {
-  const interfaces = os.networkInterfaces();
-  const ips = [];
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === "IPv4" && !iface.internal) {
-        ips.push(iface.address);
-      }
-    }
-  }
-  return ips;
-}
 
 function stripPortOrBrackets(value) {
   const trimmed = value.trim();
@@ -112,21 +98,6 @@ export default async function (fastify) {
           [clientIp]
         );
 
-        const hostIps = getHostIps();
-        for (const ip of hostIps) {
-          await fastify.pg.query(
-            "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 999, 'Host Machine LAN IP (Admin)') ON CONFLICT DO NOTHING",
-            [ip]
-          );
-        }
-
-        const privateSubnets = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"];
-        for (const subnet of privateSubnets) {
-          await fastify.pg.query(
-            "INSERT INTO ip_whitelist (cidr_range, access_tier, description) VALUES ($1, 0, 'Home Network (Standard)') ON CONFLICT DO NOTHING",
-            [subnet]
-          );
-        }
         whitelistEmpty = false;
         clearAuthCache();
       })().finally(() => {
@@ -160,6 +131,9 @@ export default async function (fastify) {
     }
 
     if (whitelistEmpty) {
+      if (!isLoopbackIp(clientIp)) {
+        return reply.code(403).send({ error: "Initialize the whitelist from localhost" });
+      }
       const initializedByThisRequest = firstRunPromise === null;
       await initializeWhitelist(clientIp);
       if (initializedByThisRequest) {

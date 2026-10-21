@@ -6,7 +6,38 @@ const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
 const envWebBase = process.env.EXPO_PUBLIC_WEB_URL?.trim();
 export const API_REACHABILITY_TIMEOUT_MS = 2500;
 const VIEWER_ID_STORAGE_KEY = "pfs_viewer_id";
+const MEDIA_ACCESS_KEY_STORAGE_KEY = "pfs_media_access_key";
 let cachedViewerId;
+let cachedMediaAccessKey;
+
+export async function getMediaAccessKey() {
+  if (cachedMediaAccessKey !== undefined) return cachedMediaAccessKey;
+  cachedMediaAccessKey = await SecureStore.getItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY) || "";
+  return cachedMediaAccessKey;
+}
+
+export async function setMediaAccessKey(key) {
+  cachedMediaAccessKey = String(key || "");
+  if (cachedMediaAccessKey) await SecureStore.setItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY, cachedMediaAccessKey);
+  else await SecureStore.deleteItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY);
+}
+
+export function mediaAccessHeaders() {
+  return cachedMediaAccessKey ? { Authorization: `Bearer ${cachedMediaAccessKey}` } : {};
+}
+
+export function protectedMediaSource(uri) {
+  try {
+    const target = new URL(uri);
+    const apiBase = new URL(API_BASE);
+    if (target.origin === apiBase.origin && target.pathname.startsWith("/api/")) {
+      return { uri, headers: mediaAccessHeaders() };
+    }
+  } catch {
+    // Local file URIs do not need an HTTP access header.
+  }
+  return { uri };
+}
 
 async function getViewerId() {
   if (cachedViewerId !== undefined) return cachedViewerId;
@@ -75,6 +106,7 @@ export async function createPlaybackSessionSource(mediaId, quality = "high") {
     headers: {
       "X-Playback-Session": data.sessionId,
       "X-Viewer-ID": data.viewerId,
+      ...mediaAccessHeaders(),
     },
     sessionId: data.sessionId,
     viewerId: data.viewerId,
@@ -138,10 +170,12 @@ export function forceReleasePlaybackLease() {
 
 export async function api(path, options = {}) {
   const storedViewerId = await getViewerId();
+  await getMediaAccessKey();
   const headers = {
     Accept: "application/json",
     ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
     ...(storedViewerId ? { "X-Viewer-ID": storedViewerId } : {}),
+    ...mediaAccessHeaders(),
     ...options.headers,
   };
 

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Image } from "expo-image";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { mediaThumbnailUrl } from "../api";
+import { mediaThumbnailUrl, protectedMediaSource } from "../api";
 import { alpha, radii, spacing, useTheme } from "../theme";
 
 export function QuickAccessTile({ isCurrent = false, isPaused = false, item, onPress }) {
@@ -25,7 +25,7 @@ export function QuickAccessTile({ isCurrent = false, isPaused = false, item, onP
       <Image
         cachePolicy="memory-disk"
         contentFit="cover"
-        source={{ uri: mediaThumbnailUrl(item.id) }}
+        source={protectedMediaSource(mediaThumbnailUrl(item.id))}
         style={styles.thumbnail}
       />
       <View style={styles.copy}>

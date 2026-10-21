@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  api,
   categoryThumbnailUrl,
   createPlaybackSession,
   forceReleasePlaybackLease,
@@ -31,6 +32,21 @@ describe("readJsonArray", () => {
     await expect(readJsonArray(new Response(JSON.stringify({ items: [] }), {
       headers: { "Content-Type": "application/json" }, status: 200,
     }), "Could not load media")).rejects.toThrow("expected an array response");
+  });
+});
+
+describe("media access expiry", () => {
+  it("opens the key prompt only for a missing media access key", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "PLAYBACK_SESSION_INVALID" }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "MEDIA_ACCESS_REQUIRED" }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api("/api/media/42/stream");
+    expect(dispatchEvent).not.toHaveBeenCalled();
+    await api("/api/media/42/thumbnail");
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
   });
 });
 

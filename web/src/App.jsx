@@ -13,6 +13,14 @@ const ProtectedApp = lazyWithRetry(() => import("./components/protected-app"));
 
 function AccessGuard({ children }) {
   const [status, setStatus] = useState("loading");
+  const [accessKey, setAccessKey] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  useEffect(() => {
+    const requireLogin = () => setStatus((current) => current?.ok ? { ...current, mediaLoginRequired: true } : current);
+    window.addEventListener("dogmedia:media-access-required", requireLogin);
+    return () => window.removeEventListener("dogmedia:media-access-required", requireLogin);
+  }, []);
 
   useEffect(() => {
     api("/api/check-access")
@@ -20,9 +28,10 @@ function AccessGuard({ children }) {
         if (!res.ok) throw new Error("Forbidden");
         return res.json();
       })
-      .then((data) =>
-        setStatus({ ok: true, tier: data.tier, description: data.description, firstRun: data.firstRun, clientIp: data.ip })
-      )
+      .then(async (data) => {
+        const mediaStatus = await api("/api/media-access/status");
+        setStatus({ ok: true, tier: data.tier, description: data.description, firstRun: data.firstRun, clientIp: data.ip, mediaLoginRequired: mediaStatus.status === 401 });
+      })
       .catch((error) => setStatus({ ok: false, offline: error instanceof TypeError || navigator.onLine === false }));
   }, []);
 
@@ -42,6 +51,29 @@ function AccessGuard({ children }) {
     <Suspense fallback={null}>
       <AccessDenied />
     </Suspense>
+  );
+  if (status.mediaLoginRequired) return (
+    <div className="premium-app-shell grid min-h-screen place-items-center bg-background px-4 text-content">
+      <form className="w-full max-w-sm rounded-2xl border border-white/10 bg-surface p-6 shadow-2xl" onSubmit={async (event) => {
+        event.preventDefault();
+        setLoginError("");
+        try {
+          const response = await api("/api/media-access/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: accessKey }) });
+          if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || "Access denied");
+          setAccessKey("");
+          setStatus((current) => ({ ...current, mediaLoginRequired: false }));
+        } catch (error) {
+          setLoginError(error.message);
+        }
+      }}>
+        <h1 className="text-xl font-bold">Unlock media library</h1>
+        <p className="mt-2 text-sm text-muted">Enter the access key configured on the server.</p>
+        <label className="mt-6 block text-sm font-semibold" htmlFor="media-access-key">Access key</label>
+        <input id="media-access-key" type="password" autoComplete="current-password" required value={accessKey} onChange={(event) => setAccessKey(event.target.value)} className="mt-2 w-full rounded-lg border border-white/20 bg-transparent px-3 py-2 text-content" />
+        {loginError && <p role="alert" className="mt-3 text-sm text-red-400">{loginError}</p>}
+        <button type="submit" className="mt-5 w-full rounded-lg bg-primary px-4 py-2 font-semibold text-white">Unlock</button>
+      </form>
+    </div>
   );
 
   return (

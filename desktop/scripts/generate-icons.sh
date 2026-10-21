@@ -5,10 +5,17 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 desktop_dir=$(cd -- "$script_dir/.." && pwd)
 repo_dir=$(cd -- "$desktop_dir/.." && pwd)
 
-source_master="$repo_dir/web/public/web-app-manifest-512x512.png"
+source_master="${1:-}"
+if [[ -z "$source_master" ]]; then
+  if [[ -f "$repo_dir/icon-dogmedia.png" ]]; then
+    source_master="$repo_dir/icon-dogmedia.png"
+  else
+    source_master="$repo_dir/web/public/web-app-manifest-512x512.png"
+  fi
+fi
 
 if [[ ! -f "$source_master" ]]; then
-  echo "error: source web icon not found at $source_master" >&2
+  echo "error: source icon not found at $source_master" >&2
   exit 1
 fi
 

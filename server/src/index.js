@@ -7,7 +7,7 @@ import { join } from "path";
 import { createRequire } from "module";
 
 const _require = createRequire(import.meta.url);
-const SERVER_VERSION = _require("../package.json").version || "0.5.0";
+const SERVER_VERSION = _require("../package.json").version || "0.7.0";
 
 import redisPlugin from "./plugins/redis.js";
 import authPlugin from "./plugins/auth.js";
@@ -32,6 +32,7 @@ import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 import { hasActiveUpload, startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
 import { uploadCompletionStatusKey } from "./upload-completion-queue.js";
 import { createPlaybackSocketHub } from "./playback-socket.js";
+import { createMediaAccess, requirePrivateApiAccess } from "./media-access.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
@@ -116,6 +117,11 @@ if (process.env.RUN_CLEANUP_IN_SERVER === "true") {
   });
 }
 await redisPlugin(app);
+const mediaAccess = createMediaAccess({
+  redis: app.redis,
+  secret: process.env.PFS_MEDIA_ACCESS_KEY,
+  allowedOrigins: ALLOWED_ORIGINS,
+});
 app.decorate("playbackSocketHub", createPlaybackSocketHub(app, { allowedOrigins: ALLOWED_ORIGINS }));
 startIncompleteUploadCleanupScheduler({
   log: app.log,
@@ -136,9 +142,17 @@ await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
 await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
 await app.register(async function (instance) {
   await authPlugin(instance);
+  instance.addHook("onRequest", requirePrivateApiAccess(mediaAccess));
+  instance.post("/media-access/login", mediaAccess.login);
+  instance.post("/media-access/logout", mediaAccess.logout);
+  instance.get("/media-access/status", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!await mediaAccess.authorized(request)) return reply.code(401).send({ error: "Media access key required" });
+    return { ok: true };
+  });
   await instance.register(checkAccessRoutes);
   await instance.register(categoriesRoutes, { prefix: "/categories" });
-  await instance.register(mediaRoutes, { prefix: "/media" });
+  await instance.register(mediaRoutes, { prefix: "/media", allowedOrigins: ALLOWED_ORIGINS, mediaAccess });
   await instance.register(musicShareRoutes, { prefix: "/music-shares" });
   await instance.register(whitelistRoutes, { prefix: "/whitelist" });
   await instance.register(queueRoutes, { prefix: "/queue" });
