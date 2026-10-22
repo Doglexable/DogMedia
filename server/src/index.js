@@ -27,6 +27,7 @@ import subtitlesRoutes from "./routes/subtitles.js";
 import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import desktopReleaseRoutes from "./routes/desktop-release.js";
+import contentSignalsRoutes from "./routes/content-signals.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 import { hasActiveUpload, startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
@@ -135,6 +136,7 @@ startIncompleteUploadCleanupScheduler({
 await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
 await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
 await app.register(profilePicturesRoutes, { prefix: "/api/profile-pictures", dataDir: DATA_DIR });
+await app.register(contentSignalsRoutes, { version: SERVER_VERSION });
 await app.register(async function (instance) {
   await authPlugin(instance, { allowedOrigins: ALLOWED_ORIGINS });
   await instance.register(checkAccessRoutes);

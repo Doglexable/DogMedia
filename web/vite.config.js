@@ -21,6 +21,23 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       react(),
       {
+        name: "markdown-negotiation",
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            const accept = req.headers.accept || "";
+            if (accept.includes("text/markdown") && (!req.url || req.url === "/" || req.url.startsWith("/index.html") || !req.url.includes("."))) {
+              const mdPath = fileURLToPath(new URL("./public/index.md", import.meta.url));
+              if (fs.existsSync(mdPath)) {
+                res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+                res.setHeader("Vary", "Accept");
+                return res.end(fs.readFileSync(mdPath, "utf-8"));
+              }
+            }
+            next();
+          });
+        },
+      },
+      {
         name: "html-version-transform",
         transformIndexHtml(html) {
           return html
