@@ -62,29 +62,18 @@ Server backend yang dituju harus mengimplementasikan kontrak API Dogmedia (`priv
 
 ---
 
-## 3. Sistem Autentikasi: Kontrol Akses Berbasis IP (IP Whitelist)
+## 3. Sistem Autentikasi: Akun
 
-Dogmedia **tidak menggunakan username atau password**. Keamanan dikontrol melalui pencocokan alamat IP klien di tabel database PostgreSQL `ip_whitelist`.
+Dogmedia menggunakan username dan password. Akun administrator dibuat oleh migrasi dari `PFS_ADMIN_USERNAME` dan
+`PFS_ADMIN_PASSWORD` dengan tier 999. Akun berikutnya dibuat melalui aplikasi
+dan memperoleh tier 0. Desktop
+menyimpan token sesi dan mengirimkannya sebagai Bearer token.
 
-### Tingkatan Akses (Access Tiers):
-- **Tier 0 (Guest / Belum Terdaftar)**: Akses ditolak (`403 Forbidden`). Desktop client akan menampilkan error *"Server Access Denied"*.
-- **Tier 100 (Whitelisted Client)**: Akses penuh untuk melihat pustaka, metadata, thumbnail, lirik, dan memutar media streaming kualitas High.
-- **Tier 999 (Localhost Administrator)**: Hak akses tertinggi untuk kontrol server lokal dan streaming kualitas Original/Lossless.
+### Tingkatan akses
 
-### Cara Mendaftarkan IP Desktop ke Server:
-1. Temukan alamat IP komputer desktop Anda:
-   ```bash
-   # Di Linux:
-   ip -4 addr show
-   ```
-2. Daftarkan IP tersebut ke database PostgreSQL server:
-   ```sql
-   INSERT INTO ip_whitelist (ip_cidr, label, access_tier)
-   VALUES ('192.168.1.15/32', 'Linux Desktop Workstation', 100)
-   ON CONFLICT (ip_cidr) DO UPDATE SET access_tier = 100;
-   ```
-   *(Atau masukkan range subnet seperti `192.168.1.0/24` untuk mengizinkan seluruh jaringan lokal).*
-3. Alternatif: Tambahkan melalui antarmuka **Admin Web** pada browser yang memiliki akses admin (`http://localhost:3000/admin`).
+- **Tier 0**: Dapat melihat dan memutar media sesuai batas kategori.
+- **Tier 100+**: Hak administrasi media.
+- **Tier 999**: Administrator yang dibuat oleh migrasi.
 
 ### Header Khusus yang Dikirim Desktop:
 - `X-Viewer-ID`: UUID unik persisten yang dibuat pada pertama kali instalasi desktop (disimpan di `~/.config/dogmedia/Desktop/settings.json`).
@@ -106,7 +95,7 @@ flowchart TD
     C -- "Aman / Tercentang" --> D["Simpan Pengaturan & Tes Koneksi (GET /api/check-access)"]
     D --> F{"Status Respons Server"}
     F -- "200 OK (Tier >= 100)" --> S["Koneksi Berhasil:\nDialog Tertutup & Muat Pustaka Media"]
-    F -- "403 Forbidden (Tier < 100)" --> E3["Tampilkan Callout Error:\n'Access Denied: This computer's IP is not whitelisted'"]
+    F -- "401 Unauthorized (Login required)" --> E3["Tampilkan Callout Error:\n'Access denied: log in with a valid account'"]
     F -- "Connection Refused / Timeout / DNS Error" --> E4["Tampilkan Callout Error:\n'Cannot connect to server: Unable to reach server...'"]
 ```
 
@@ -117,7 +106,7 @@ flowchart TD
 | **`Invalid URL: Protocol must be http:// or https://`** | Pengguna memasukkan alamat tanpa `http://` atau `https://`, atau menggunakan skema lain seperti `ftp://`. | Awali URL dengan protokol yang benar, misalnya `http://127.0.0.1:3001/`. |
 | **`Invalid URL: Please specify a valid host`** | Kolom URL kosong atau hanya berisi tanda slash tanpa nama host/IP. | Cantumkan hostname atau alamat IP, misalnya `localhost` atau `192.168.1.100`. |
 | **`Plain HTTP to a remote server requires checking 'Trust plain HTTP for a remote server'`** | Pengguna memasukkan alamat HTTP biasa ke IP publik atau domain internet tanpa enkripsi. | Centang kotak *"Trust plain HTTP for a remote server"* pada dialog, atau ganti protokol menjadi `https://`. |
-| **`Access Denied: Server reached, but this computer's IP address is not whitelisted`** | Server berhasil dihubungi, namun alamat IP desktop Anda memiliki tier < 100 (belum terdaftar). | Daftarkan IP mesin desktop Anda di tabel `ip_whitelist` server PostgreSQL dengan `access_tier = 100`. |
+| **`Access denied: log in with a valid account`** | Server berhasil dihubungi, namun sesi akun tidak valid. | Masuk kembali dengan username dan password di Settings. |
 | **`Cannot connect to server: Connection refused`** | Layanan backend Fastify mati, atau port yang dimasukkan keliru. | Pastikan backend server aktif (`npm run dev:server` atau container menyala) dan periksa nomor port (default: 3001). |
 | **`Cannot connect to server: Connection timed out / No route to host`** | Server tidak dapat dijangkau melalui jaringan, atau terblokir firewall (UFW/iptables). | Periksa koneksi jaringan, pastikan IP server dapat di-ping, dan buka port yang bersangkutan di firewall server. |
 
@@ -127,8 +116,8 @@ flowchart TD
 
 Jika aplikasi dibuka saat server dalam kondisi mati atau IP terblokir, layar utama tidak lagi menampilkan *"Nothing here yet"*, melainkan kartu status interaktif:
 1. **Server Access Denied**:
-   - Memberikan penjelasan bahwa IP komputer tidak terdaftar pada whitelist server.
-   - Menyediakan tombol **Open Settings** untuk meninjau URL dan tombol **Retry Connection** untuk mencoba ulang setelah IP didaftarkan.
+   - Memberikan penjelasan bahwa sesi akun tidak valid atau sudah kedaluwarsa.
+   - Menyediakan tombol **Open Settings** untuk meninjau URL dan tombol **Retry Connection** untuk mencoba ulang setelah login kembali.
 2. **Cannot Connect to Server**:
    - Menampilkan alamat URL server yang bermasalah beserta pesan error jaringan teknis (*Connection refused*, *Network unreachable*).
    - Menyediakan tombol **Edit Server in Settings** dan **Retry Connection**.

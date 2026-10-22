@@ -5,8 +5,8 @@ const SHARE_MIN_TIER = Math.max(0, Number.parseInt(process.env.MEDIA_SHARE_MIN_T
 const MAX_TRACKS = 10;
 const REEL_RETENTION_DAYS = 1;
 
-function ownerIp(request) {
-  return request.clientIp || request.ip;
+function ownerId(request) {
+  return request.user.id;
 }
 
 function hashToken(token) {
@@ -65,7 +65,7 @@ const CURRENT_REEL_SQL = `
          COALESCE(array_agg(i.media_id ORDER BY i.position) FILTER (WHERE i.media_id IS NOT NULL), '{}') AS media_ids
   FROM music_share_reels r
   LEFT JOIN music_share_reel_items i ON i.reel_id = r.id
-  WHERE r.owner_ip = $1::inet AND r.revoked_at IS NULL AND r.expires_at > NOW()
+  WHERE r.user_id = $1 AND r.revoked_at IS NULL AND r.expires_at > NOW()
     AND r.created_at > NOW() - INTERVAL '1 day'
   GROUP BY r.id
   ORDER BY r.created_at DESC LIMIT 1
@@ -85,7 +85,7 @@ const SELECTED_LIKES_SQL = `
   SELECT m.id, m.title, m.artists, m.source_version, m.duration, requested.position,
          ml.segments AS lyrics_segments
   FROM requested
-  LEFT JOIN liked_music l ON l.media_id = requested.media_id AND l.client_ip = $2::inet
+  LEFT JOIN liked_music l ON l.media_id = requested.media_id AND l.user_id = $2
   JOIN media_assets m ON m.id = requested.media_id AND m.mime_type LIKE 'audio/%'
   JOIN accessible_categories ac ON ac.id = m.category_id
   LEFT JOIN media_lyrics ml ON ml.media_id = m.id
@@ -95,7 +95,7 @@ const SELECTED_LIKES_SQL = `
 
 export default async function (fastify) {
   fastify.get("/current", async (request) => {
-    const { rows } = await fastify.pg.query(CURRENT_REEL_SQL, [ownerIp(request)]);
+    const { rows } = await fastify.pg.query(CURRENT_REEL_SQL, [ownerId(request)]);
     return serializeReel(rows[0]);
   });
 
@@ -109,7 +109,7 @@ export default async function (fastify) {
     if (clipStarts === undefined) {
       return reply.code(400).send({ error: "clipStarts must contain one non-negative time for each track" });
     }
-    const { rows: selected } = await fastify.pg.query(SELECTED_LIKES_SQL, [request.accessTier, ownerIp(request), mediaIds]);
+    const { rows: selected } = await fastify.pg.query(SELECTED_LIKES_SQL, [request.accessTier, ownerId(request), mediaIds]);
     if (selected.length !== mediaIds.length) {
       return reply.code(400).send({
         error: mediaIds.length === 1
@@ -124,14 +124,14 @@ export default async function (fastify) {
     try {
       await client.query("BEGIN");
       await client.query(
-        "UPDATE music_share_reels SET revoked_at = NOW(), updated_at = NOW() WHERE owner_ip = $1::inet AND revoked_at IS NULL",
-        [ownerIp(request)]
+        "UPDATE music_share_reels SET revoked_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+        [ownerId(request)]
       );
       const created = await client.query(
-        `INSERT INTO music_share_reels (owner_ip, token_hash, expires_at)
-         VALUES ($1::inet, $2, NOW() + ($3 * INTERVAL '1 day'))
+        `INSERT INTO music_share_reels (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 day'))
          RETURNING *`,
-        [ownerIp(request), hashToken(token), REEL_RETENTION_DAYS]
+        [ownerId(request), hashToken(token), REEL_RETENTION_DAYS]
       );
       reel = created.rows[0];
       const reelItems = [];
@@ -192,7 +192,7 @@ export default async function (fastify) {
       `WITH updated AS (
          UPDATE music_share_reels
          SET token_hash = $2, updated_at = NOW()
-         WHERE owner_ip = $1::inet AND revoked_at IS NULL AND expires_at > NOW()
+         WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
            AND created_at > NOW() - INTERVAL '1 day'
            AND status = 'ready'
          RETURNING *
@@ -206,7 +206,7 @@ export default async function (fastify) {
          FROM music_share_reel_items i
          WHERE i.reel_id = updated.id
        ) items ON TRUE`,
-      [ownerIp(request), hashToken(token)]
+      [ownerId(request), hashToken(token)]
     );
     if (!rows[0]) return reply.code(409).send({ error: "The reel is not ready to share" });
     return {
@@ -218,8 +218,8 @@ export default async function (fastify) {
 
   fastify.delete("/current", async (request) => {
     await fastify.pg.query(
-      "UPDATE music_share_reels SET revoked_at = NOW(), updated_at = NOW() WHERE owner_ip = $1::inet AND revoked_at IS NULL",
-      [ownerIp(request)]
+      "UPDATE music_share_reels SET revoked_at = NOW(), updated_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
+      [ownerId(request)]
     );
     return { enabled: false };
   });

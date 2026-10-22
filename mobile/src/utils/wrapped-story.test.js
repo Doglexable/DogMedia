@@ -26,7 +26,7 @@ describe("mobile wrapped story model", () => {
   });
 
   it("limits the device chapter to the five leading contributors", () => {
-    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ ip: `192.168.0.${index + 1}` }));
+    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ userId: index + 1 }));
     const devices = buildWrappedSlides({ deviceContributions }, []).find((slide) => slide.id === "devices");
 
     expect(devices.items).toHaveLength(5);

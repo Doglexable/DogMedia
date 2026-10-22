@@ -75,7 +75,7 @@ describe("buildWrappedSlides", () => {
   });
 
   it("caps the device story at five contributions while preserving the total count", () => {
-    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ ip: `192.168.0.${index + 1}` }));
+    const deviceContributions = Array.from({ length: 7 }, (_, index) => ({ userId: index + 1 }));
     const devices = buildWrappedSlides({ deviceContributions }, []).find((slide) => slide.id === "devices");
 
     expect(devices.items).toHaveLength(5);

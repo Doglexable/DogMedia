@@ -33,13 +33,16 @@ use crate::{
         EngineEvent, PlaybackCoordinator, PlaybackEngine, PlaybackStatus, RedrawCallback,
         RepeatMode, VideoFrameReceiver,
     },
-    store::{ColorScheme, Settings, SettingsError, SettingsStore, artwork_cache_path},
+    store::{
+        ColorScheme, ServerEnvironmentUrls, Settings, SettingsError, SettingsStore,
+        artwork_cache_path,
+    },
 };
 
 pub(crate) use kit::{
-    Artwork, Button, Chip, Draggable, DraggableItem, DraggableZone, Icon, IconButton, IconName,
-    Input, MediaListSkeleton, MusicProgress, Notice, Popover, PopoverContent, PopoverTrigger,
-    Select, Skeleton, Slider, StatusBadge, ThemeToggle, VolumeSlider,
+    Artwork, Button, Chip, Draggable, DraggableItem, DraggableZone, EnvironmentToggle, Icon,
+    IconButton, IconName, Input, MediaListSkeleton, MusicProgress, Notice, Popover, PopoverContent,
+    PopoverTrigger, Select, Skeleton, Slider, StatusBadge, ThemeToggle, VolumeSlider,
 };
 use video_surface::VideoPaintSource;
 use views::Shell;
@@ -246,13 +249,14 @@ pub(crate) struct NativeApp {
     quality_popover_open: bool,
     queue_open: bool,
     settings_open: bool,
+    server_environments: ServerEnvironmentUrls,
     settings_url: String,
-    settings_media_access_key: String,
+    settings_password: String,
+    settings_username: String,
     settings_error: Option<String>,
     settings_connecting: bool,
     session_takeover_pending: bool,
     access_tier: i32,
-    allow_http: bool,
     status: Option<String>,
 }
 
@@ -266,10 +270,21 @@ impl NativeApp {
             tracing::warn!(%error, "using default native settings");
             Settings::default()
         });
+        let server_environments = ServerEnvironmentUrls::load();
+        #[cfg(not(debug_assertions))]
+        let mut settings = settings;
+        #[cfg(not(debug_assertions))]
+        {
+            if !settings.configured || settings.server_url.is_local() {
+                if let Ok(prod_url) = crate::api::ServerUrl::parse(&server_environments.prod) {
+                    settings.server_url = prod_url;
+                }
+            }
+        }
         let (client, access, status) = if settings.configured {
             let server_url = settings.server_url.to_string();
             match ApiClient::new(&server_url, settings.viewer_id.clone()) {
-                Ok(client) => (Some(client.with_media_access_key(&settings.media_access_key)), AccessView::Checking, None),
+                Ok(client) => (Some(client.with_account_token(&settings.account_token)), AccessView::Checking, None),
                 Err(error) => (None, AccessView::Unreachable(error.user_message()), None),
             }
         } else {
@@ -285,7 +300,8 @@ impl NativeApp {
         coordinator.set_quality(settings.quality);
         let settings_open = !settings.configured;
         let settings_url = settings.server_url.to_string();
-        let settings_media_access_key = settings.media_access_key.clone();
+        let settings_password = String::new();
+        let settings_username = settings.username.clone();
         #[cfg(target_os = "linux")]
         let system_color_scheme = system_theme::read_gsettings_scheme();
         #[cfg(not(target_os = "linux"))]
@@ -332,13 +348,14 @@ impl NativeApp {
             quality_popover_open: false,
             queue_open: false,
             settings_open,
+            server_environments,
             settings_url,
-            settings_media_access_key,
+            settings_password,
+            settings_username,
             settings_error: None,
             settings_connecting: false,
             session_takeover_pending: false,
             access_tier: 0,
-            allow_http: false,
             status,
         }
     }
@@ -833,11 +850,11 @@ fn connect(mut app: Signal<NativeApp>) {
     spawn(async move {
         match client.check_access().await {
             Ok(status) => {
-                if let Err(error) = client.verify_media_access().await {
+                if let Err(error) = client.verify_account_session().await {
                     let mut state = app.write();
                     state.library.access = AccessView::Denied;
                     state.settings_open = true;
-                    state.settings_error = Some(format!("Media access key rejected: {}", error.user_message()));
+                    state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
                     return;
                 }
                 exit_local_mode(app);
@@ -862,12 +879,13 @@ fn connect(mut app: Signal<NativeApp>) {
                 load_queue(app);
             }
             Err(ApiError::AccessDenied) => {
-                let msg = "Access Denied: Server reached, but this computer's IP is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
+                let msg = "Access denied: log in with a valid account.".to_owned();
                 let mut state = app.write();
                 state.on_server_disconnected();
                 state.library.access = AccessView::Denied;
                 state.settings_connecting = false;
                 state.status = Some(msg);
+                state.settings_open = true;
             }
             Err(error) => {
                 let user_msg = error.user_message();
@@ -1559,7 +1577,7 @@ fn play_media_at(
             Ok(()) => match ensure_playback_engine(app, engine) {
                 Ok(()) => engine.read().as_ref().map(|engine| {
                     engine
-                        .open_with_key(&session, &stream, client.media_access_key())
+                        .open_with_token(&session, &stream, client.account_token())
                         .and_then(|_| {
                             if autoplay {
                                 engine.play()
@@ -3051,65 +3069,104 @@ pub(crate) fn set_color_scheme(mut app: Signal<NativeApp>, scheme: ColorScheme) 
 fn save_settings(mut app: Signal<NativeApp>) {
     let mut candidate = app.read().settings.clone();
     let settings_url = app.read().settings_url.clone();
-    candidate.media_access_key = app.read().settings_media_access_key.clone();
-    let allow_http = app.read().allow_http;
+    candidate.username = app.read().settings_username.clone();
+    let password = app.read().settings_password.clone();
     let previous_url = app.read().settings.server_url.clone();
     let is_connected = app.read().library.access == AccessView::Ready;
 
-    match candidate.set_server_url(&settings_url) {
-        Ok(true) if !allow_http => {
-            let msg = "Plain HTTP to a remote server requires checking 'Trust plain HTTP for a remote server' below.".to_owned();
-            app.write().settings_error = Some(msg.clone());
-            app.write().status = Some(msg);
-        }
-        Ok(_) => {
-            let url_changed = candidate.server_url != previous_url;
-            let current_client_is_connected =
-                !url_changed && is_connected && app.read().client.is_some()
-                    && candidate.media_access_key == app.read().settings.media_access_key;
-            if current_client_is_connected {
-                let _ = app.read().store.save(&candidate);
-                app.write().settings = candidate;
-                app.write().settings_error = None;
-                app.write().settings_open = false;
+    if let Err(error) = candidate.set_server_url(&settings_url) {
+        let msg = match &error {
+            SettingsError::InvalidUrl(ServerUrlError::UnsupportedScheme) => {
+                "Invalid URL: Protocol must be http:// or https:// (e.g. http://127.0.0.1:3000/)".to_owned()
+            }
+            SettingsError::InvalidUrl(ServerUrlError::MissingHost) => {
+                "Invalid URL: Please specify a valid host (e.g. 127.0.0.1 or stream.dogmedia.example.com)".to_owned()
+            }
+            other => format!("Invalid server URL: {other}"),
+        };
+        app.write().settings_error = Some(msg.clone());
+        app.write().status = Some(msg);
+        return;
+    }
+
+    let url_changed = candidate.server_url != previous_url;
+    let username_changed = candidate.username != app.read().settings.username;
+    if (url_changed || username_changed) && password.is_empty() {
+        app.write().settings_error = Some("Enter the account password to connect to a different server or account.".to_owned());
+        return;
+    }
+    let current_client_is_connected =
+        !url_changed && is_connected && app.read().client.is_some()
+            && password.is_empty() && candidate.username == app.read().settings.username;
+    if current_client_is_connected {
+        let _ = app.read().store.save(&candidate);
+        app.write().settings = candidate;
+        app.write().settings_error = None;
+        app.write().settings_open = false;
+        return;
+    }
+
+    if url_changed || (!password.is_empty() && is_connected) {
+        app.write().on_server_disconnected();
+    }
+
+    match ApiClient::new(
+        &candidate.server_url.to_string(),
+        candidate.viewer_id.clone(),
+    ) {
+        Ok(client) => {
+            let client = if password.is_empty() { client.with_account_token(&candidate.account_token) } else { client };
+            let save_result = app.read().store.save(&candidate);
+            if let Err(error) = save_result {
+                let msg = format!("Failed to save settings: {error}");
+                app.write().settings_error = Some(msg.clone());
+                app.write().status = Some(msg);
                 return;
             }
 
-            if url_changed {
-                app.write().on_server_disconnected();
-            }
+            app.write().settings = candidate.clone();
+            app.write().client = Some(client.clone());
+            app.write().settings_error = None;
+            app.write().settings_connecting = true;
+            app.write().access_tier = 0;
+            app.write().library.access = AccessView::Checking;
+            app.write().status = Some("Verifying server connection…".to_owned());
 
-            match ApiClient::new(
-                &candidate.server_url.to_string(),
-                candidate.viewer_id.clone(),
-            ) {
-                Ok(client) => {
-                    let client = client.with_media_access_key(&candidate.media_access_key);
-                    let save_result = app.read().store.save(&candidate);
-                    if let Err(error) = save_result {
-                        let msg = format!("Failed to save settings: {error}");
-                        app.write().settings_error = Some(msg.clone());
-                        app.write().status = Some(msg);
-                        return;
-                    }
-
-                    app.write().settings = candidate;
-                    app.write().client = Some(client.clone());
-                    app.write().settings_error = None;
-                    app.write().settings_connecting = true;
-                    app.write().access_tier = 0;
-                    app.write().library.access = AccessView::Checking;
-                    app.write().status = Some("Verifying server connection…".to_owned());
-
-                    spawn(async move {
+            spawn(async move {
+                let client = if !password.is_empty() {
+                    match client.account_session(&candidate.username, &password, false).await {
+                        Ok(token) => {
+                            candidate.account_token = token;
+                            let authenticated = client.with_account_token(&candidate.account_token);
+                            let save_result = app.read().store.save(&candidate);
+                            if let Err(error) = save_result {
+                                app.write().settings_error = Some(format!("Failed to save account session: {error}"));
+                                app.write().settings_connecting = false;
+                                return;
+                            }
+                            app.write().settings = candidate;
+                            app.write().settings_password.clear();
+                            app.write().client = Some(authenticated.clone());
+                            authenticated
+                        }
+                                Err(error) => {
+                                    let mut state = app.write();
+                                    state.settings_error = Some(format!("Account login failed: {}", error.user_message()));
+                                    state.settings_connecting = false;
+                                    state.library.access = AccessView::Denied;
+                                    state.settings_open = true;
+                                    return;
+                                }
+                            }
+                        } else { client };
                         match client.check_access().await {
                             Ok(status) => {
-                                if let Err(error) = client.verify_media_access().await {
+                                if let Err(error) = client.verify_account_session().await {
                                     let mut state = app.write();
                                     state.library.access = AccessView::Denied;
                                     state.settings_open = true;
                                     state.settings_connecting = false;
-                                    state.settings_error = Some(format!("Media access key rejected: {}", error.user_message()));
+                                    state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
                                     return;
                                 }
                                 exit_local_mode(app);
@@ -3138,7 +3195,7 @@ fn save_settings(mut app: Signal<NativeApp>) {
                                 load_queue(app);
                             }
                             Err(ApiError::AccessDenied) => {
-                                let msg = "Access Denied: The server received the request, but this computer's IP address is not whitelisted (tier < 100). Please add this IP in the server whitelist.".to_owned();
+                                let msg = "Access denied: log in with a valid account.".to_owned();
                                 let mut state = app.write();
                                 state.on_server_disconnected();
                                 state.library.access = AccessView::Denied;
@@ -3173,21 +3230,6 @@ fn save_settings(mut app: Signal<NativeApp>) {
                     state.status = Some(msg);
                 }
             }
-        }
-        Err(error) => {
-            let msg = match &error {
-                SettingsError::InvalidUrl(ServerUrlError::UnsupportedScheme) => {
-                    "Invalid URL: Protocol must be http:// or https:// (e.g. http://127.0.0.1:3001/)".to_owned()
-                }
-                SettingsError::InvalidUrl(ServerUrlError::MissingHost) => {
-                    "Invalid URL: Please specify a valid host (e.g. 127.0.0.1 or media.example.com)".to_owned()
-                }
-                other => format!("Invalid server URL: {other}"),
-            };
-            app.write().settings_error = Some(msg.clone());
-            app.write().status = Some(msg);
-        }
-    }
 }
 
 fn media_kind(media: &crate::domain::Media) -> &str {

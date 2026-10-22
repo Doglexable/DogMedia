@@ -67,7 +67,7 @@ async function buildApp(dataDir, { accessTier = 0, variants = [{
   });
   app.addHook("onRequest", async (request) => {
     request.accessTier = accessTier;
-    request.clientIp = "127.0.0.1";
+    request.clientIp = "127.0.0.1"; request.user = { id: 1 };
   });
   await app.register(offlineRoutes, { prefix: "/api/offline", dataDir });
   return { app, queries, redisCommands };
@@ -137,7 +137,7 @@ describe("offline routes", () => {
     expect(queries[0].sql).toContain("ORDER BY ac.order_parts");
     expect(queries[0].sql).toContain("COALESCE(m.track_order, 0)");
     expect(queries[0].sql).not.toContain("lower(m.title)");
-    expect(queries[0].params).toEqual([0, "127.0.0.1", 7]);
+    expect(queries[0].params).toEqual([0, 1, 7]);
     await app.close();
   });
 

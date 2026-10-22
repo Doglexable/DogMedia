@@ -40,6 +40,7 @@ vi.mock("expo-sqlite", () => ({
 import {
   _resetOfflineDatabaseForTesting,
   clearStoredDownloads,
+  clearAccountOfflineState,
   createClientEventId,
   deletePlaybackOutbox,
   deleteStoredDownload,
@@ -76,6 +77,16 @@ describe("mobile offline-store", () => {
       activeDb = null;
     }
     _resetOfflineDatabaseForTesting();
+  });
+
+  it("clears account-specific lease and unsynced playback when switching accounts", async () => {
+    await saveStoredLease({ expiresAt: "2026-12-31T00:00:00.000Z" });
+    await saveLocalResume(501, 30, 100);
+    await queuePlaybackEvent({ mediaId: 501, action: "start", positionMs: 0 });
+    await clearAccountOfflineState();
+    expect(await getStoredLease()).toBeNull();
+    expect(await listDirtyResumes()).toEqual([]);
+    expect(await listPlaybackOutbox()).toEqual([]);
   });
 
   describe("createClientEventId", () => {

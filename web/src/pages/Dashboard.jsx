@@ -365,7 +365,7 @@ const styles = {
 };
 
 export default function Dashboard() {
-  const { tier, firstRun } = useAccess();
+  const { tier } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
   const player = useGlobalPlayerLibrary();
   const [searchParams] = useSearchParams();
@@ -616,24 +616,11 @@ export default function Dashboard() {
             <h2 style={{ marginTop: 0, fontSize: 20, fontWeight: 700 }}>
               Start Your Multimedia Collection
             </h2>
-            {firstRun && (
-              <p style={{ background: "var(--warning-bg)", color: "var(--warning-text)", padding: "8px 12px", borderRadius: 6, marginTop: 8 }}>
-                Your IP has been auto-whitelisted with admin access.
-              </p>
-            )}
             <p style={{ marginTop: 12 }}>No categories or media found yet. This server is a blank slate.</p>
             {tier >= 100 ? (
               <>
-                <p style={{ marginTop: 12 }}><strong>Create a category from the server host:</strong></p>
-                <pre style={{ background: "var(--code-bg)", border: "1px solid var(--code-border)", borderRadius: 6, padding: "10px 14px", fontSize: 12, overflowX: "auto", marginTop: 6 }}>
-                  curl -X POST http://localhost:3001/api/categories \<br />
-                  {"  "}-H 'Content-Type: application/json' \<br />
-                  {"  "}-d '{`{"name":"Movies","min_access_tier":0}`}'
-                </pre>
                 <p style={{ marginTop: 12 }}>
-                  Or use the{" "}
-                  <Link to="/admin" style={{ color: "var(--primary)" }}>Admin page</Link>{" "}
-                  to upload via the web UI.
+                  Open the <Link to="/admin" style={{ color: "var(--primary)" }}>Admin page</Link> to create a category and upload media.
                 </p>
               </>
             ) : (
@@ -669,12 +656,6 @@ export default function Dashboard() {
             <button type="button" onClick={() => setNotice("")} style={{ float: "right", border: "none", background: "transparent", color: "inherit", cursor: "pointer" }}>×</button>
           </div>
         )}
-        {firstRun && (
-          <div style={styles.warningBanner}>
-            <strong>First-time setup:</strong> Your IP has been automatically whitelisted with admin access.
-          </div>
-        )}
-
         <MediaTypePills value={mediaType} onChange={setMediaType} />
 
         {libraryView === "liked" && (

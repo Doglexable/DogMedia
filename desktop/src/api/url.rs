@@ -63,7 +63,10 @@ pub enum ServerUrlError {
 pub struct ServerUrl(Url);
 
 impl ServerUrl {
-    pub const DEFAULT: &str = "http://localhost:3001/";
+    #[cfg(debug_assertions)]
+    pub const DEFAULT: &str = "http://127.0.0.1:3000/";
+    #[cfg(not(debug_assertions))]
+    pub const DEFAULT: &str = "https://stream.dogmedia.example.com/";
 
     pub fn parse(input: &str) -> Result<Self, ServerUrlError> {
         let mut url = Url::parse(input.trim()).map_err(|error| match error {
@@ -108,6 +111,10 @@ impl ServerUrl {
     /// link-local, overlay-network, and conventional LAN hostnames are local.
     pub fn is_insecure_remote(&self) -> bool {
         self.0.scheme() == "http" && self.0.host_str().is_some_and(|host| !is_local_host(host))
+    }
+
+    pub fn is_local(&self) -> bool {
+        self.0.host_str().is_some_and(is_local_host)
     }
 }
 

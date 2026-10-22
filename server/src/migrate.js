@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, realpathSync } from "fs";
 import { join, dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,7 @@ export async function runMigrations(client, migrationsDir = defaultMigrationsDir
   `);
 
   const files = readdirSync(migrationsDir)
-    .filter((f) => f.endsWith(".sql"))
+    .filter((f) => /^\d+_[a-z0-9_-]+\.(sql|js)$/.test(f))
     .sort();
 
   for (const file of files) {
@@ -26,11 +26,15 @@ export async function runMigrations(client, migrationsDir = defaultMigrationsDir
       continue;
     }
 
-    const sql = readFileSync(join(migrationsDir, file), "utf8");
     console.log(`Running ${file}...`);
     try {
       await client.query("BEGIN");
-      await client.query(sql);
+      if (file.endsWith(".sql")) {
+        await client.query(readFileSync(join(migrationsDir, file), "utf8"));
+      } else {
+        const migration = await import(pathToFileURL(join(migrationsDir, file)).href);
+        await migration.up(client);
+      }
       await client.query("INSERT INTO _migrations (name) VALUES ($1)", [file]);
       await client.query("COMMIT");
       console.log(`Done ${file}`);

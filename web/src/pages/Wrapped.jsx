@@ -341,7 +341,7 @@ function getStoryChapterLabel(id) {
     time: "Time in motion",
     "top-media": "Your rotation",
     rhythm: "Listening clock",
-    devices: "Device contributions",
+    devices: "Account contributions",
     persona: "Playback character",
     share: "Final recap",
   })[id] || "Wrapped story";
@@ -470,26 +470,26 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
             height="20"
             crossOrigin="anonymous"
           />
-          <span className="wrapped-slide-kicker">All-device contribution</span>
+          <span className="wrapped-slide-kicker">All-account contribution</span>
         </div>
         <h2>One library.<br />Every screen.</h2>
-        <p className="wrapped-slide-lede">Listening time ranked across your network.</p>
+        <p className="wrapped-slide-lede">Listening time ranked across accounts.</p>
         {slide.items?.length ? (
           <ol className="wrapped-device-story-list">
             {slide.items.map((device) => (
-              <li key={device.ip}>
+              <li key={device.userId}>
                 <span className="wrapped-device-story-rank">{String(device.rank).padStart(2, "0")}</span>
                 <div>
-                  <strong>{device.label || device.ip}</strong>
-                  <small>{device.ip} · {formatNumber(device.playCount)} plays</small>
+                  <strong>{device.label || `User ${device.userId}`}</strong>
+                  <small>Account #{device.userId} · {formatNumber(device.playCount)} plays</small>
                   <span className="wrapped-device-story-bar"><span style={{ width: `${Math.max((device.share || 0) * 100, 3)}%` }} /></span>
                 </div>
                 <b>{fmtTime(device.totalTime)}</b>
               </li>
             ))}
           </ol>
-        ) : <p className="wrapped-device-story-empty">Device contributions will appear after a complete playback session.</p>}
-        {remainingDevices > 0 && <p className="wrapped-device-story-more">+{remainingDevices} more {remainingDevices === 1 ? "device" : "devices"} in the full report</p>}
+        ) : <p className="wrapped-device-story-empty">Account contributions will appear after a complete playback session.</p>}
+        {remainingDevices > 0 && <p className="wrapped-device-story-more">+{remainingDevices} more {remainingDevices === 1 ? "account" : "accounts"} in the full report</p>}
       </article>
     );
   }
@@ -582,7 +582,7 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
               width="24"
               height="24"
             />
-            <p className="wrapped-eyebrow">All devices · {periodLabel}</p>
+            <p className="wrapped-eyebrow">All accounts · {periodLabel}</p>
           </div>
           <h1>Your playback pulse</h1>
           <p className="wrapped-subtitle">{wrappedCopy.storyDescription}</p>
@@ -617,7 +617,7 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
         <aside className="wrapped-panel"><div className="wrapped-section-heading"><div><h2>Top folders</h2><p>Ranked by tracked time</p></div></div><CategoryList categories={data.topCategories || []} /></aside>
         <section className="wrapped-panel wrapped-panel--main"><div className="wrapped-section-heading"><div><h2>Top media</h2><p>Ranked by tracked time</p></div></div><TopMediaList media={topMedia} maxMediaTime={maxMediaTime} /></section>
         <aside className="wrapped-panel"><div className="wrapped-section-heading"><div><h2>Milestones</h2><p>Moments from this recap</p></div></div><dl className="wrapped-summary-list"><SummaryItem label="First play" value={data.milestones?.firstPlayAt ? formatLongDate(data.milestones.firstPlayAt) : "None"} /><SummaryItem label="Biggest day" value={busiestDay?.date ? formatLongDate(busiestDay.date) : "None"} /><SummaryItem label="Media explored" value={formatNumber(data.totals?.distinctMedia)} /><SummaryItem label="After dark" value={`${Math.round((data.rhythm?.nightShare || 0) * 100)}%`} /></dl></aside>
-        <section className="wrapped-panel wrapped-panel--devices"><div className="wrapped-section-heading"><div><h2>Device contributions</h2><p>Combined listening time across your network</p></div><span>{formatNumber(deviceContributions.length)} active devices</span></div><DeviceContributionList devices={deviceContributions} maxDeviceTime={maxDeviceTime} /></section>
+        <section className="wrapped-panel wrapped-panel--devices"><div className="wrapped-section-heading"><div><h2>Account contributions</h2><p>Combined listening time across accounts</p></div><span>{formatNumber(deviceContributions.length)} active accounts</span></div><DeviceContributionList devices={deviceContributions} maxDeviceTime={maxDeviceTime} /></section>
       </div>
     </div>
   );
@@ -643,8 +643,8 @@ function CategoryList({ categories }) {
 }
 
 function DeviceContributionList({ devices, maxDeviceTime }) {
-  if (!devices.length) return <p className="wrapped-empty-note">Device contributions will appear after a complete playback session.</p>;
-  return <ol className="wrapped-device-list">{devices.map((device) => <li key={device.ip}><span className="wrapped-rank">{device.rank}</span><div><div className="wrapped-device-heading"><strong title={device.label || device.ip}>{device.label || device.ip}</strong><b>{fmtTime(device.totalTime)}</b></div><small>{device.label && device.label !== device.ip ? `${device.ip} · ` : ""}{formatNumber(device.playCount)} plays · {Math.round((device.share || 0) * 100)}%</small><div className="wrapped-device-bar"><span style={{ width: `${Math.max((device.totalTime / maxDeviceTime) * 100, 3)}%` }} /></div></div></li>)}</ol>;
+  if (!devices.length) return <p className="wrapped-empty-note">Account contributions will appear after a complete playback session.</p>;
+  return <ol className="wrapped-device-list">{devices.map((device) => <li key={device.userId}><span className="wrapped-rank">{device.rank}</span><div><div className="wrapped-device-heading"><strong title={device.label || `User ${device.userId}`}>{device.label || `User ${device.userId}`}</strong><b>{fmtTime(device.totalTime)}</b></div><small>Account #{device.userId} · {formatNumber(device.playCount)} plays · {Math.round((device.share || 0) * 100)}%</small><div className="wrapped-device-bar"><span style={{ width: `${Math.max((device.totalTime / maxDeviceTime) * 100, 3)}%` }} /></div></div></li>)}</ol>;
 }
 
 function PageShell({ children, fullscreen = false, wide = false }) {

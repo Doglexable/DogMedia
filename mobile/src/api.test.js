@@ -6,7 +6,7 @@ import {
   forceReleasePlaybackLease,
   getPlaybackLease,
   protectedMediaSource,
-  setMediaAccessKey,
+  setAccountToken,
 } from "./api.js";
 
 vi.mock("expo-secure-store", () => ({
@@ -16,7 +16,7 @@ vi.mock("expo-secure-store", () => ({
 }));
 
 afterEach(async () => {
-  await setMediaAccessKey("");
+  await setAccountToken("");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -54,10 +54,10 @@ describe("API reachability", () => {
 });
 
 describe("protected playback", () => {
-  it("attaches the saved key to native artwork and stream requests", async () => {
-    await setMediaAccessKey("test-media-access-key");
+  it("attaches the account token to native artwork and stream requests", async () => {
+    await setAccountToken("test-account-token");
     expect(protectedMediaSource("http://localhost:3001/api/media/9/thumbnail").headers)
-      .toEqual({ Authorization: "Bearer test-media-access-key" });
+      .toEqual({ Authorization: "Bearer test-account-token" });
     expect(protectedMediaSource("file:///offline/cover.jpg")).toEqual({ uri: "file:///offline/cover.jpg" });
     expect(protectedMediaSource("http://localhost:3001.evil.test/api/media/9/thumbnail"))
       .toEqual({ uri: "http://localhost:3001.evil.test/api/media/9/thumbnail" });
@@ -68,8 +68,8 @@ describe("protected playback", () => {
     }), { headers: { "Content-Type": "application/json" }, status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const source = await createPlaybackSessionSource(9, "med");
-    expect(source.headers.Authorization).toBe("Bearer test-media-access-key");
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer test-media-access-key");
+    expect(source.headers.Authorization).toBe("Bearer test-account-token");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer test-account-token");
   });
 
   it("returns a native media source with the opaque session header", async () => {

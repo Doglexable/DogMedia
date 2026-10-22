@@ -47,7 +47,7 @@ describe("music reel owner routes", () => {
       },
       async connect() { return client; },
     });
-    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "192.168.1.20"; });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "192.168.1.20"; request.user = { id: 1 }; });
     await app.register(musicShareRoutes, { prefix: "/api/music-shares" });
 
     const response = await app.inject({ method: "POST", url: "/api/music-shares", payload: { mediaIds: [4, 8], expiresInDays: 7 } });
@@ -74,7 +74,7 @@ describe("music reel owner routes", () => {
       async query() { return { rows: [], rowCount: 0 }; },
       async connect() { throw new Error("should not connect"); },
     });
-    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; request.user = { id: 1 }; });
     await app.register(musicShareRoutes, { prefix: "/api/music-shares" });
     expect((await app.inject({ method: "POST", url: "/api/music-shares", payload: { mediaIds: [4, 4] } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: "/api/music-shares", payload: { mediaIds: Array.from({ length: 11 }, (_, index) => index + 1) } })).statusCode).toBe(400);
@@ -107,7 +107,7 @@ describe("music reel owner routes", () => {
         };
       },
     });
-    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; request.user = { id: 1 }; });
     await app.register(musicShareRoutes, { prefix: "/api/music-shares" });
     const response = await app.inject({ method: "POST", url: "/api/music-shares", payload: { mediaIds: [12], clipStarts: [40] } });
     expect(response.statusCode).toBe(202);
@@ -128,7 +128,7 @@ describe("music reel owner routes", () => {
         return { rows: [], rowCount: 0 };
       },
     });
-    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; });
+    app.addHook("onRequest", async (request) => { request.accessTier = 100; request.clientIp = "127.0.0.1"; request.user = { id: 1 }; });
     await app.register(musicShareRoutes, { prefix: "/api/music-shares" });
     const response = await app.inject({ method: "POST", url: "/api/music-shares/current/link" });
     expect(response.statusCode).toBe(200);

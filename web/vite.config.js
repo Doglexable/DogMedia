@@ -27,6 +27,18 @@ export default defineConfig(({ mode }) => {
             .replaceAll("%APP_VERSION%", versionLabel)
             .replaceAll("%APP_RAW_VERSION%", appVersion);
         },
+        closeBundle() {
+          const swDist = fileURLToPath(new URL("./dist/sw.js", import.meta.url));
+          if (fs.existsSync(swDist)) {
+            const content = fs.readFileSync(swDist, "utf-8");
+            fs.writeFileSync(
+              swDist,
+              content
+                .replaceAll("%APP_VERSION%", versionLabel)
+                .replaceAll("%APP_RAW_VERSION%", appVersion)
+            );
+          }
+        },
       },
     ],
     resolve: {

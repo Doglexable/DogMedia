@@ -63,10 +63,10 @@ npm run test:mobile  # mobile tests only
 
 - **File naming**: `kebab-case` for files, `camelCase` for variables/functions, `PascalCase` for React components.
 - **API routes**: `server/src/routes/` — one file per resource, Fastify plugin pattern.
-- **DB migrations**: `server/src/migrations/` — numbered plain SQL files run sequentially via custom runner `node server/src/migrate.js`.
+- **DB migrations**: `server/src/migrations/` — numbered SQL and JavaScript migrations run sequentially via custom runner `node server/src/migrate.js`.
 - **Media storage**: Local files under `data/` (gitignored). In production, mount a Podman volume.
 - **Streaming endpoints**: Return `fastify.reply.type()` + `pipe()` for media; use `Range` header support for video seeking.
-- **Auth**: IP-based access control via PostgreSQL `ip_whitelist` table and CIDR matching (`server/src/plugins/auth.js`). Access tiers: 0 (guest), 100 (whitelisted media/admin access), 999 (localhost administrator). No user accounts or passwords.
+- **Auth**: username/password accounts in PostgreSQL `users`, with Redis-backed sessions (`server/src/plugins/auth.js`). PostgreSQL media activity belongs to `users.id`; migration `029` archives IP-only records under disabled accounts. Access tiers: 0 (standard user), 100+ (admin access), 999 (administrator seeded by migration from `PFS_ADMIN_USERNAME` and `PFS_ADMIN_PASSWORD`).
 - **Component style**: Functional components + hooks. Tailwind CSS v4 utilities
   plus feature-level CSS (decision recorded in `web/README.md`).
 
@@ -96,10 +96,10 @@ podman exec -it pfs-server sh
 
 ## Redis usage
 
-- **Queue** — per-IP media queue via Redis lists. Auto-filled from category when clicking media. Next/prev navigation via atomic operations.
+- **Queue** — per-account media queue via Redis lists. Auto-filled from category when clicking media. Next/prev navigation via atomic operations.
 - **Playback events** — sorted set (`playback:events`) for wrapped timeline/stats.
-- **Active sessions** — per-IP string with 5min TTL (`playback:active:<ip>`), polled for now-playing dashboard.
-- **Resume positions** — per-IP+media string with 15m TTL (`playback:resume:<ip>:<mediaId>`, see `RESUME_TTL_SECONDS`).
+- **Active sessions** — per-account string with 5min TTL (`playback:active:<ip>`), polled for now-playing dashboard.
+- **Resume positions** — per-account+media string with 15m TTL (`playback:resume:<ip>:<mediaId>`, see `RESUME_TTL_SECONDS`).
 - Compose Redis is exposed at `127.0.0.1:16379`; standalone development uses
   `localhost:6379` by default, or the `REDIS_URL` environment variable.
 

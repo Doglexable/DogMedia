@@ -24,7 +24,7 @@ pub fn produced_frames() -> u64 {
 struct ProtectedHeaders {
     session_id: SessionId,
     viewer_id: ViewerId,
-    media_access_key: String,
+    account_token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,7 +342,7 @@ impl PlaybackEngine {
                         .field("X-Viewer-ID", headers.viewer_id.as_str())
                         .field(
                             "Authorization",
-                            format!("Bearer {}", headers.media_access_key),
+                            format!("Bearer {}", headers.account_token),
                         )
                         .field("X-Client-Platform", "desktop")
                         .build();
@@ -372,14 +372,14 @@ impl PlaybackEngine {
         session: &PlaybackSession,
         stream_url: &url::Url,
     ) -> Result<(), EngineError> {
-        self.open_with_key(session, stream_url, "")
+        self.open_with_token(session, stream_url, "")
     }
 
-    pub fn open_with_key(
+    pub fn open_with_token(
         &self,
         session: &PlaybackSession,
         stream_url: &url::Url,
-        media_access_key: &str,
+        account_token: &str,
     ) -> Result<(), EngineError> {
         if !matches!(stream_url.scheme(), "http" | "https") {
             return Err(EngineError::InvalidStreamUrl);
@@ -388,7 +388,7 @@ impl PlaybackEngine {
             *headers = Some(ProtectedHeaders {
                 session_id: session.session_id.clone(),
                 viewer_id: session.viewer_id.clone(),
-                media_access_key: media_access_key.to_owned(),
+                account_token: account_token.to_owned(),
             });
         }
         if let Ok(mut pending) = self.pending_seek.lock() {

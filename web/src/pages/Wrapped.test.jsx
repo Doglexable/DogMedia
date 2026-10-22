@@ -36,7 +36,7 @@ describe("Wrapped StorySlide branding", () => {
       { id: "time", expectedKicker: "Time in motion" },
       { id: "top-media", expectedKicker: "Your rotation" },
       { id: "rhythm", expectedKicker: "Your listening clock" },
-      { id: "devices", expectedKicker: "All-device contribution" },
+      { id: "devices", expectedKicker: "All-account contribution" },
       { id: "persona", expectedKicker: "Your playback character" },
     ];
 

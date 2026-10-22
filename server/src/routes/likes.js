@@ -11,8 +11,8 @@ const ACCESSIBLE_MEDIA_SQL = `
   )
 `;
 
-function ownerIp(request) {
-  return request.clientIp || request.ip;
+function ownerId(request) {
+  return request.user.id;
 }
 
 function normalizeMediaId(value) {
@@ -33,10 +33,10 @@ export default async function (fastify) {
        JOIN media_assets m ON m.id = l.media_id
        JOIN accessible_categories ac ON ac.id = m.category_id
        JOIN categories c ON c.id = m.category_id
-       WHERE l.client_ip = $2::inet
+       WHERE l.user_id = $2
          AND m.mime_type LIKE 'audio/%'
        ORDER BY l.liked_at DESC`,
-      [request.accessTier, ownerIp(request)]
+      [request.accessTier, ownerId(request)]
     );
     return rows;
   });
@@ -59,11 +59,11 @@ export default async function (fastify) {
     }
 
     const result = await fastify.pg.query(
-      `INSERT INTO liked_music (client_ip, media_id)
-       VALUES ($1::inet, $2)
-       ON CONFLICT (client_ip, media_id) DO UPDATE SET liked_at = liked_music.liked_at
+      `INSERT INTO liked_music (user_id, media_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, media_id) DO UPDATE SET liked_at = liked_music.liked_at
        RETURNING media_id, liked_at`,
-      [ownerIp(request), mediaId]
+      [ownerId(request), mediaId]
     );
     return result.rows[0];
   });
@@ -72,16 +72,16 @@ export default async function (fastify) {
     const mediaId = normalizeMediaId(request.params.mediaId);
     if (mediaId === null) return reply.code(400).send({ error: "Invalid media ID" });
     await fastify.pg.query(
-      "DELETE FROM liked_music WHERE client_ip = $1::inet AND media_id = $2",
-      [ownerIp(request), mediaId]
+      "DELETE FROM liked_music WHERE user_id = $1 AND media_id = $2",
+      [ownerId(request), mediaId]
     );
     return { ok: true };
   });
 
   fastify.get("/share", async (request) => {
     const { rowCount } = await fastify.pg.query(
-      "SELECT 1 FROM liked_music_shares WHERE client_ip = $1::inet",
-      [ownerIp(request)]
+      "SELECT 1 FROM liked_music_shares WHERE user_id = $1",
+      [ownerId(request)]
     );
     return { enabled: rowCount > 0 };
   });
@@ -89,19 +89,19 @@ export default async function (fastify) {
   fastify.post("/share", async (request) => {
     const token = randomBytes(32).toString("base64url");
     await fastify.pg.query(
-      `INSERT INTO liked_music_shares (client_ip, token_hash)
-       VALUES ($1::inet, $2)
-       ON CONFLICT (client_ip) DO UPDATE
+      `INSERT INTO liked_music_shares (user_id, token_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE
        SET token_hash = EXCLUDED.token_hash, created_at = NOW()`,
-      [ownerIp(request), hashToken(token)]
+      [ownerId(request), hashToken(token)]
     );
     return { enabled: true, token };
   });
 
   fastify.delete("/share", async (request) => {
     await fastify.pg.query(
-      "DELETE FROM liked_music_shares WHERE client_ip = $1::inet",
-      [ownerIp(request)]
+      "DELETE FROM liked_music_shares WHERE user_id = $1",
+      [ownerId(request)]
     );
     return { enabled: false };
   });

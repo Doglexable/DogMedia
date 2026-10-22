@@ -6,24 +6,34 @@ const envApiBase = process.env.EXPO_PUBLIC_API_URL?.trim();
 const envWebBase = process.env.EXPO_PUBLIC_WEB_URL?.trim();
 export const API_REACHABILITY_TIMEOUT_MS = 2500;
 const VIEWER_ID_STORAGE_KEY = "pfs_viewer_id";
-const MEDIA_ACCESS_KEY_STORAGE_KEY = "pfs_media_access_key";
+const ACCOUNT_TOKEN_STORAGE_KEY = "pfs_account_token";
+const ACCOUNT_ID_STORAGE_KEY = "pfs_account_id";
 let cachedViewerId;
-let cachedMediaAccessKey;
+let cachedAccountToken;
 
-export async function getMediaAccessKey() {
-  if (cachedMediaAccessKey !== undefined) return cachedMediaAccessKey;
-  cachedMediaAccessKey = await SecureStore.getItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY) || "";
-  return cachedMediaAccessKey;
+export async function getAccountToken() {
+  if (cachedAccountToken !== undefined) return cachedAccountToken;
+  cachedAccountToken = await SecureStore.getItemAsync(ACCOUNT_TOKEN_STORAGE_KEY) || "";
+  return cachedAccountToken;
 }
 
-export async function setMediaAccessKey(key) {
-  cachedMediaAccessKey = String(key || "");
-  if (cachedMediaAccessKey) await SecureStore.setItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY, cachedMediaAccessKey);
-  else await SecureStore.deleteItemAsync(MEDIA_ACCESS_KEY_STORAGE_KEY);
+export async function setAccountToken(key) {
+  cachedAccountToken = String(key || "");
+  if (cachedAccountToken) await SecureStore.setItemAsync(ACCOUNT_TOKEN_STORAGE_KEY, cachedAccountToken);
+  else await SecureStore.deleteItemAsync(ACCOUNT_TOKEN_STORAGE_KEY);
 }
 
-export function mediaAccessHeaders() {
-  return cachedMediaAccessKey ? { Authorization: `Bearer ${cachedMediaAccessKey}` } : {};
+export async function getStoredAccountId() {
+  return await SecureStore.getItemAsync(ACCOUNT_ID_STORAGE_KEY);
+}
+
+export async function setStoredAccountId(id) {
+  if (id) await SecureStore.setItemAsync(ACCOUNT_ID_STORAGE_KEY, String(id));
+  else await SecureStore.deleteItemAsync(ACCOUNT_ID_STORAGE_KEY);
+}
+
+export function accountAuthHeaders() {
+  return cachedAccountToken ? { Authorization: `Bearer ${cachedAccountToken}` } : {};
 }
 
 export function protectedMediaSource(uri) {
@@ -31,7 +41,7 @@ export function protectedMediaSource(uri) {
     const target = new URL(uri);
     const apiBase = new URL(API_BASE);
     if (target.origin === apiBase.origin && target.pathname.startsWith("/api/")) {
-      return { uri, headers: mediaAccessHeaders() };
+      return { uri, headers: accountAuthHeaders() };
     }
   } catch {
     // Local file URIs do not need an HTTP access header.
@@ -106,7 +116,7 @@ export async function createPlaybackSessionSource(mediaId, quality = "high") {
     headers: {
       "X-Playback-Session": data.sessionId,
       "X-Viewer-ID": data.viewerId,
-      ...mediaAccessHeaders(),
+      ...accountAuthHeaders(),
     },
     sessionId: data.sessionId,
     viewerId: data.viewerId,
@@ -170,12 +180,12 @@ export function forceReleasePlaybackLease() {
 
 export async function api(path, options = {}) {
   const storedViewerId = await getViewerId();
-  await getMediaAccessKey();
+  await getAccountToken();
   const headers = {
     Accept: "application/json",
     ...(options.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
     ...(storedViewerId ? { "X-Viewer-ID": storedViewerId } : {}),
-    ...mediaAccessHeaders(),
+    ...accountAuthHeaders(),
     ...options.headers,
   };
 

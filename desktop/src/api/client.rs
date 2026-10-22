@@ -53,7 +53,7 @@ impl ApiError {
     pub fn user_message(&self) -> String {
         match self {
             Self::AccessDenied => {
-                "This computer's IP address is not allowed by the server.".to_owned()
+                "This account is not allowed by the server.".to_owned()
             }
             Self::PlaybackInUse { holder, .. } | Self::PlaybackLeaseLost { holder, .. } => {
                 let label = holder
@@ -118,7 +118,7 @@ impl From<ServerUrlError> for ApiError {
 pub struct ApiClient {
     base_url: ServerUrl,
     viewer_id: ViewerId,
-    media_access_key: String,
+    account_token: String,
     transport: Arc<dyn Transport>,
 }
 
@@ -135,24 +135,36 @@ impl ApiClient {
         Ok(Self {
             base_url: ServerUrl::parse(base_url)?,
             viewer_id: viewer_id.into(),
-            media_access_key: String::new(),
+            account_token: String::new(),
             transport,
         })
     }
 
-    pub fn with_media_access_key(mut self, key: &str) -> Self {
-        self.media_access_key = key.to_owned();
+    pub fn with_account_token(mut self, key: &str) -> Self {
+        self.account_token = key.to_owned();
         self
     }
 
-    pub fn media_access_key(&self) -> &str {
-        &self.media_access_key
+    pub fn account_token(&self) -> &str {
+        &self.account_token
     }
 
-    pub async fn verify_media_access(&self) -> Result<(), ApiError> {
+    pub async fn account_session(&self, username: &str, password: &str, register: bool) -> Result<String, ApiError> {
+        #[derive(serde::Deserialize)]
+        struct Session { token: String }
+        let path = if register { "api/auth/register" } else { "api/auth/login" };
+        let session: Session = self.json(
+            HttpMethod::Post, path,
+            Some(&serde_json::json!({ "username": username, "password": password })),
+            None, Duration::from_secs(20),
+        ).await?;
+        Ok(session.token)
+    }
+
+    pub async fn verify_account_session(&self) -> Result<(), ApiError> {
         self.raw(
             HttpMethod::Get,
-            "api/media-access/status",
+            "api/check-access",
             None::<&()>,
             None,
             Duration::from_millis(2_500),
@@ -206,7 +218,7 @@ impl ApiClient {
                         ("Accept".to_owned(), "application/json".to_owned()),
                         (
                             "Authorization".to_owned(),
-                            format!("Bearer {}", self.media_access_key),
+                            format!("Bearer {}", self.account_token),
                         ),
                         ("Range".to_owned(), "bytes=0-0".to_owned()),
                         ("X-Client-Platform".to_owned(), "desktop".to_owned()),
@@ -315,10 +327,10 @@ impl ApiClient {
             ("X-Client-Name".to_owned(), "Dogmedia Desktop".to_owned()),
             ("X-Viewer-ID".to_owned(), self.viewer_id.as_str().to_owned()),
         ]);
-        if !self.media_access_key.is_empty() {
+        if !self.account_token.is_empty() {
             headers.insert(
                 "Authorization".to_owned(),
-                format!("Bearer {}", self.media_access_key),
+                format!("Bearer {}", self.account_token),
             );
         }
         if body.is_some() {
@@ -375,7 +387,7 @@ fn map_status(response: RawResponse) -> ApiError {
         .and_then(|value| serde_json::from_value::<SessionHolder>(value.clone()).ok())
         .map(SessionHolder::normalized);
     match (response.status, code.as_deref()) {
-        (403, _) => ApiError::AccessDenied,
+        (403, _) | (401, Some("LOGIN_REQUIRED")) => ApiError::AccessDenied,
         (409, Some("PLAYBACK_IN_USE")) => ApiError::PlaybackInUse {
             retry_after,
             holder,

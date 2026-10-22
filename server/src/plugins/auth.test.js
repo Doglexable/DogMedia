@@ -1,179 +1,162 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import authPlugin, { getClientIp } from "./auth.js";
+import { hashPassword } from "../password.js";
 
-describe("getClientIp", () => {
-  it("uses x-forwarded-for when nginx provides a client IP", () => {
-    const ip = getClientIp({
-      headers: { "x-forwarded-for": "192.168.1.42" },
-      ip: "127.0.0.1",
-      raw: { socket: { remoteAddress: "127.0.0.1" } },
-    });
-
-    expect(ip).toBe("192.168.1.42");
-  });
-
-  it("uses the last address from a forwarded chain to prevent spoofing", () => {
-    const ip = getClientIp({
-      headers: { "x-forwarded-for": "127.0.0.1, 203.0.113.195" },
-      ip: "127.0.0.1",
-      raw: { socket: { remoteAddress: "127.0.0.1" } },
-    });
-
-    expect(ip).toBe("203.0.113.195");
-  });
-
-  it("normalizes IPv4-mapped IPv6 addresses to IPv4", () => {
-    const ipFromHeader = getClientIp({
-      headers: { "x-forwarded-for": "::ffff:192.168.1.5" },
-      ip: "127.0.0.1",
-      raw: { socket: { remoteAddress: "127.0.0.1" } },
-    });
-    expect(ipFromHeader).toBe("192.168.1.5");
-
-    const ipDirect = getClientIp({
-      ip: "::ffff:192.168.1.5",
-      raw: { socket: { remoteAddress: "::ffff:192.168.1.5" } },
-    });
-    expect(ipDirect).toBe("192.168.1.5");
-  });
-
-  it("falls back to request.ip when the forwarded header is absent or invalid", () => {
-    const ip = getClientIp({
-      headers: { "x-forwarded-for": "unknown" },
-      ip: "127.0.0.1",
-      raw: { socket: { remoteAddress: "127.0.0.1" } },
-    });
-
-    expect(ip).toBe("127.0.0.1");
-  });
-
-  it("uses x-real-ip when the forwarded header is missing", () => {
-    const ip = getClientIp({
-      headers: { "x-real-ip": "192.168.0.213" },
-      ip: "127.0.0.1",
-      raw: { socket: { remoteAddress: "127.0.0.1" } },
-    });
-
-    expect(ip).toBe("192.168.0.213");
-  });
-
-  it("ignores x-forwarded-for from direct non-local clients", () => {
-    const ip = getClientIp({
-      headers: { "x-forwarded-for": "192.168.1.99" },
-      ip: "10.0.0.50",
-      raw: { socket: { remoteAddress: "10.0.0.50" } },
-    });
-
-    expect(ip).toBe("10.0.0.50");
-  });
-});
-
-describe("auth cache and spoofing prevention", () => {
-  it("bootstraps only localhost and does not create broad LAN grants", async () => {
-    const inserts = [];
-    const app = Fastify();
-    app.decorate("pg", { async query(sql, params) {
-      if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 0 }] };
-      if (sql.startsWith("INSERT")) { inserts.push(params[0]); return { rows: [] }; }
+function createApp() {
+  const users = [];
+  const sessions = new Map();
+  const app = Fastify();
+  const query = async (sql, params = []) => {
+    if (sql.includes("INSERT INTO users")) {
+      if (users.some((user) => user.username.toLowerCase() === params[0].toLowerCase())) {
+        const error = new Error("duplicate"); error.code = "23505"; throw error;
+      }
+      const user = { id: users.length + 1, username: params[0], password_hash: params[1], access_tier: 0, profile_picture: "fine" };
+      users.push(user);
+      return { rows: [user] };
+    }
+    if (sql.includes("lower(username)")) return { rows: users.filter((user) => user.username.toLowerCase() === params[0].toLowerCase()) };
+    if (sql.includes("FROM users WHERE id")) return { rows: users.filter((user) => String(user.id) === String(params[0])) };
+    if (sql.includes("UPDATE users")) {
+      const idParam = params.length >= 4 ? params[3] : params[2];
+      const duplicate = users.some((u) => u.username.toLowerCase() === params[0].toLowerCase() && String(u.id) !== String(idParam));
+      if (duplicate) {
+        const error = new Error("duplicate"); error.code = "23505"; throw error;
+      }
+      const user = users.find((u) => String(u.id) === String(idParam));
+      if (user) {
+        user.username = params[0];
+        user.password_hash = params[1];
+        if (params.length >= 4) user.profile_picture = params[2];
+        return { rows: [user] };
+      }
       return { rows: [] };
-    } });
-    await authPlugin(app);
-    app.get("/api/check-access", async (request) => ({ tier: request.accessTier }));
-    const external = await app.inject({ url: "/api/check-access", headers: { "x-forwarded-for": "203.0.113.10" } });
-    expect(external.statusCode).toBe(403);
-    expect(inserts).toEqual([]);
-    const local = await app.inject("/api/check-access");
-    expect(local.statusCode).toBe(200);
-    expect(inserts).toEqual(["127.0.0.1"]);
+    }
+    throw new Error(`Unexpected query: ${sql}`);
+  };
+  app.decorate("pg", { query, async connect() { return { query, release() {} }; } });
+  app.decorate("redis", {
+    async get(key) { return sessions.get(key) || null; },
+    async set(key, value) { sessions.set(key, value); },
+    async del(key) { sessions.delete(key); },
+    async incr(key) { const count = Number(sessions.get(key) || 0) + 1; sessions.set(key, count); return count; },
+    async expire() {},
+  });
+  return { app, users };
+}
+
+describe("account authentication", () => {
+  it("trusts forwarded IP only from the local proxy", () => {
+    expect(getClientIp({ ip: "127.0.0.1", raw: { socket: { remoteAddress: "127.0.0.1" } }, headers: { "x-forwarded-for": "127.0.0.1, 203.0.113.8" } })).toBe("203.0.113.8");
+    expect(getClientIp({ ip: "203.0.113.8", raw: { socket: { remoteAddress: "203.0.113.8" } }, headers: { "x-forwarded-for": "127.0.0.1" } })).toBe("203.0.113.8");
+  });
+
+  it("uses the seeded administrator and isolates registered accounts", async () => {
+    const { app, users } = createApp();
+    users.push({ id: 1, username: "admin", password_hash: await hashPassword("a secure password"), access_tier: 999 });
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+      instance.get("/check-access", async (request) => ({ username: request.user.username, tier: request.accessTier, identity: request.clientIp, networkIp: request.networkIp }));
+    }, { prefix: "/api" });
+    expect((await app.inject("/api/check-access")).statusCode).toBe(401);
+    const admin = await app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "admin", password: "a secure password" } });
+    expect(admin.statusCode).toBe(200);
+    expect(admin.json().user.tier).toBe(999);
+    expect(admin.headers["set-cookie"]).toContain("HttpOnly");
+    const user = await app.inject({ method: "POST", url: "/api/auth/register", headers: { "x-forwarded-for": "203.0.113.8" }, payload: { username: "viewer", password: "another secure password" } });
+    expect(user.statusCode).toBe(201);
+    expect(user.json().user.tier).toBe(0);
+    expect(users).toHaveLength(2);
+    const adminAccess = await app.inject({ url: "/api/check-access", headers: { Authorization: `Bearer ${admin.json().token}` }, remoteAddress: "203.0.113.5" });
+    const userAccess = await app.inject({ url: "/api/check-access", headers: { Authorization: `Bearer ${user.json().token}` }, remoteAddress: "203.0.113.5" });
+    expect(adminAccess.json()).toMatchObject({ username: "admin", tier: 999, identity: "fd50::1" });
+    expect(userAccess.json()).toMatchObject({ username: "viewer", tier: 0, identity: "fd50::2" });
     await app.close();
   });
 
-  it("does not repeat whitelist lookups for a cached IP and can be invalidated", async () => {
-    let accessQueries = 0;
-    const app = Fastify({ logger: false });
-    app.decorate("pg", {
-      async query(sql) {
-        if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 1 }] };
-        if (sql.includes("masklen")) {
-          accessQueries += 1;
-          return { rows: [{ access_tier: 5, description: "LAN" }] };
-        }
-        return { rows: [] };
-      },
-    });
-    await authPlugin(app);
-    app.get("/api/test", async (request) => ({ tier: request.accessTier }));
-
-    expect((await app.inject("/api/test")).json()).toEqual({ tier: 5 });
-    expect((await app.inject("/api/test")).json()).toEqual({ tier: 5 });
-    expect(accessQueries).toBe(1);
-    app.clearAuthCache();
-    await app.inject("/api/test");
-    expect(accessQueries).toBe(2);
+  it("accepts the HttpOnly cookie on same-origin requests and blocks cross-site use", async () => {
+    const { app } = createApp();
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+      instance.get("/private", async () => ({ ok: true }));
+    }, { prefix: "/api" });
+    const created = await app.inject({ method: "POST", url: "/api/auth/register", payload: { username: "admin", password: "a secure password" } });
+    const cookie = created.headers["set-cookie"].split(";", 1)[0];
+    expect((await app.inject({ url: "/api/private", headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/private", headers: { cookie, origin: "https://evil.example" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/auth/logout", headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/private", headers: { cookie } })).statusCode).toBe(401);
     await app.close();
   });
 
-  it("does not grant admin tier 999 when remote client spoofs X-Forwarded-For: 127.0.0.1", async () => {
-    const app = Fastify({ logger: false });
-    app.decorate("pg", {
-      async query(sql, params) {
-        if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 1 }] };
-        if (sql.includes("masklen")) {
-          if (params?.[0] === "127.0.0.1") {
-            return { rows: [{ access_tier: 999, description: "Admin" }] };
-          }
-          if (params?.[0] === "203.0.113.195") {
-            return { rows: [{ access_tier: 0, description: "External Guest" }] };
-          }
-        }
-        return { rows: [] };
-      },
-    });
-    await authPlugin(app);
-    app.get("/api/test", async (request) => ({
-      tier: request.accessTier,
-      clientIp: request.clientIp,
-    }));
-
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/test",
-      headers: {
-        "x-forwarded-for": "127.0.0.1, 203.0.113.195",
-        "x-real-ip": "203.0.113.195",
-      },
-    });
-
-    const body = res.json();
-    expect(body.clientIp).toBe("203.0.113.195");
-    expect(body.tier).toBe(0);
-    expect(body.tier).not.toBe(999);
+  it("rejects bad credentials and expires a session on logout", async () => {
+    const { app } = createApp();
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+      instance.get("/private", async () => ({ ok: true }));
+    }, { prefix: "/api" });
+    await app.inject({ method: "POST", url: "/api/auth/register", payload: { username: "admin", password: "a secure password" } });
+    expect((await app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "admin", password: "wrong password" } })).statusCode).toBe(401);
+    const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { username: "ADMIN", password: "a secure password" } });
+    expect(login.statusCode).toBe(200);
+    const headers = { Authorization: `Bearer ${login.json().token}` };
+    expect((await app.inject({ url: "/api/private", headers })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/auth/logout", headers })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/private", headers })).statusCode).toBe(401);
     await app.close();
   });
 
-  it("blocks access to /api/whitelist when client spoofs 127.0.0.1 in X-Forwarded-For", async () => {
-    const app = Fastify({ logger: false });
-    app.decorate("pg", {
-      async query(sql) {
-        if (sql.includes("COUNT(*)")) return { rows: [{ cnt: 1 }] };
-        return { rows: [] };
-      },
-    });
-    await authPlugin(app);
-    app.get("/api/whitelist", async () => ({ ok: true }));
+  it("updates user profile including username and password", async () => {
+    const { app } = createApp();
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+    }, { prefix: "/api" });
+    const reg = await app.inject({ method: "POST", url: "/api/auth/register", payload: { username: "userone", password: "initial password 123" } });
+    const token = reg.json().token;
+    const headers = { Authorization: `Bearer ${token}` };
 
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/whitelist",
-      headers: {
-        "x-forwarded-for": "127.0.0.1, 203.0.113.195",
-        "x-real-ip": "203.0.113.195",
-      },
-    });
+    const profileRes = await app.inject({ url: "/api/auth/profile", headers });
+    expect(profileRes.statusCode).toBe(200);
+    expect(profileRes.json().user.username).toBe("userone");
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ error: "Only accessible from localhost" });
+    // Updating username and profile picture
+    const updateUsername = await app.inject({
+      method: "PUT",
+      url: "/api/auth/profile",
+      headers,
+      payload: { username: "userupdated", profile_picture: "monoco_good" },
+    });
+    expect(updateUsername.statusCode).toBe(200);
+    expect(updateUsername.json().user.username).toBe("userupdated");
+    expect(updateUsername.json().user.profile_picture).toBe("monoco_good");
+
+    // Updating password with wrong current password should fail
+    const wrongPass = await app.inject({
+      method: "PUT",
+      url: "/api/auth/profile",
+      headers,
+      payload: { password: "new super secret password", currentPassword: "wrong" },
+    });
+    expect(wrongPass.statusCode).toBe(400);
+
+    // Updating password with correct current password succeeds
+    const correctPass = await app.inject({
+      method: "PUT",
+      url: "/api/auth/profile",
+      headers,
+      payload: { password: "new super secret password", currentPassword: "initial password 123" },
+    });
+    expect(correctPass.statusCode).toBe(200);
+
+    // Can log in with new password
+    const newLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "userupdated", password: "new super secret password" },
+    });
+    expect(newLogin.statusCode).toBe(200);
+
     await app.close();
   });
 });

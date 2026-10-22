@@ -13,15 +13,9 @@ export default async function (fastify) {
     }
 
     const { rows: shareRows } = await fastify.pg.query(
-      `SELECT s.client_ip, access.access_tier
+      `SELECT s.user_id, u.access_tier
        FROM liked_music_shares s
-       JOIN LATERAL (
-         SELECT w.access_tier
-         FROM ip_whitelist w
-         WHERE s.client_ip <<= w.cidr_range
-         ORDER BY masklen(w.cidr_range) DESC
-         LIMIT 1
-       ) access ON TRUE
+       JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = $1`,
       [hashToken(token)]
     );
@@ -43,10 +37,10 @@ export default async function (fastify) {
        FROM liked_music l
        JOIN media_assets m ON m.id = l.media_id
        JOIN accessible_categories ac ON ac.id = m.category_id
-       WHERE l.client_ip = $2::inet
+       WHERE l.user_id = $2
          AND m.mime_type LIKE 'audio/%'
        ORDER BY l.liked_at DESC`,
-      [share.access_tier, share.client_ip]
+      [share.access_tier, share.user_id]
     );
     return { titles: rows.map((row) => row.title) };
   });

@@ -51,7 +51,7 @@ describe("media browsing and ranges", () => {
     let sql = "";
     const app = Fastify();
     app.decorate("pg", { async query(query) { sql = query; return { rows: [] }; } });
-    app.addHook("onRequest", async (request) => { request.accessTier = 0; request.clientIp = "127.0.0.1"; });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; request.clientIp = "127.0.0.1"; request.user = { id: 1 }; });
     await app.register(mediaRoutes, { prefix: "/api/media" });
     const result = await app.inject({ method: "GET", url: "/api/media/browse?q=Anime" });
     expect(result.statusCode).toBe(200);
@@ -124,7 +124,7 @@ describe("media browsing and ranges", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media" });
 
@@ -156,7 +156,7 @@ describe("media browsing and ranges", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media" });
 
@@ -179,7 +179,7 @@ describe("media browsing and ranges", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 3;
-      request.clientIp = "192.168.1.5";
+      request.clientIp = "192.168.1.5"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media" });
     const response = await app.inject({ method: "GET", url: "/api/media/browse?view=liked&category_id=7&q=rock%25_&limit=10" });
@@ -192,7 +192,7 @@ describe("media browsing and ranges", () => {
     );
     expect(captured.sql).toContain("SELECT id FROM categories");
     expect(captured.sql).toContain("lower(name) LIKE lower($4) ESCAPE '\\'");
-    expect(captured.params).toEqual([3, "192.168.1.5", 7, "%rock\\%\\_%", 11]);
+    expect(captured.params).toEqual([3, 1, 7, "%rock\\%\\_%", 11]);
     await app.close();
   });
 
@@ -207,7 +207,7 @@ describe("media browsing and ranges", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media" });
 
@@ -446,7 +446,7 @@ describe("quality-aware streaming", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media", dataDir });
 
@@ -534,7 +534,7 @@ describe("quality-aware streaming", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(mediaRoutes, { prefix: "/api/media" });
 

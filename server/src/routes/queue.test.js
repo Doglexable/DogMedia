@@ -30,7 +30,7 @@ async function autoQueueSql(url) {
   app.decorate("redis", redisMock());
   app.addHook("onRequest", async (request) => {
     request.accessTier = 0;
-    request.clientIp = "127.0.0.1";
+    request.clientIp = "127.0.0.1"; request.user = { id: 1 };
   });
   await app.register(queueRoutes, { prefix: "/api/queue" });
   const response = await app.inject({ method: "POST", url });
@@ -51,11 +51,11 @@ describe("automatic queue ordering", () => {
     }
   );
 
-  it("orders /api/queue/auto/likes by liked_at DESC and filters by client_ip", async () => {
+  it("orders /api/queue/auto/likes by liked_at DESC and filters by user ID", async () => {
     const sql = await autoQueueSql("/api/queue/auto/likes?start=8");
     expect(sql).toContain("FROM liked_music l");
     expect(sql).toContain("ORDER BY l.liked_at DESC");
-    expect(sql).toContain("l.client_ip = $2::inet");
+    expect(sql).toContain("l.user_id = $2");
   });
 });
 
@@ -111,7 +111,7 @@ describe("playlist completion suggestions", () => {
     app.decorate("redis", redis);
     app.addHook("onRequest", async (request) => {
       request.accessTier = 1;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
 
@@ -200,7 +200,7 @@ describe("category queue append", () => {
     app.decorate("redis", redis);
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
 
@@ -256,7 +256,7 @@ describe("category queue append", () => {
     app.decorate("redis", redis);
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
 
@@ -315,7 +315,7 @@ describe("queue windows", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
     const response = await app.inject({ method: "GET", url: "/api/queue/window" });
@@ -331,7 +331,7 @@ describe("queue windows", () => {
     app.decorate("pg", { query: async () => ({ rows: [] }) });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
     const response = await app.inject({ method: "PUT", url: "/api/queue/window/order", payload: { offset: 0, mediaIds: [1, 2], revision: 6 } });
@@ -348,7 +348,7 @@ describe("queue windows", () => {
     });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
     const reordered = await app.inject({ method: "PUT", url: "/api/queue/window/order", payload: { offset: 70, mediaIds: [72, 71], revision: 7 } });
@@ -389,7 +389,7 @@ describe("queue next/prev trigger tracking", () => {
     app.decorate("pg", { query: async () => ({ rows: [] }) });
     app.addHook("onRequest", async (request) => {
       request.accessTier = 0;
-      request.clientIp = "127.0.0.1";
+      request.clientIp = "127.0.0.1"; request.user = { id: 1 };
     });
     await app.register(queueRoutes, { prefix: "/api/queue" });
 

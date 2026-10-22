@@ -122,8 +122,8 @@ describe("wrapped child writes", () => {
 function createLockClient(now, locks = new Map()) {
   return {
     locks,
-    async query(_sql, [clientIp]) {
-      const existing = locks.get(clientIp);
+    async query(_sql, [userId]) {
+      const existing = locks.get(userId);
       if (!existing || new Date(existing.next_open_at).getTime() <= now.getTime()) {
         const lastOpenedAt = now.toISOString();
         const nextOpenAt = new Date(now.getTime() + LOCK_MS).toISOString();
@@ -132,7 +132,7 @@ function createLockClient(now, locks = new Map()) {
           next_open_at: nextOpenAt,
         };
 
-        locks.set(clientIp, lock);
+        locks.set(userId, lock);
         return { rows: [{ allowed: true, ...lock }] };
       }
 
@@ -150,27 +150,27 @@ function createStatusClient(rows) {
 }
 
 describe("acquireWrappedAccessLock", () => {
-  it("allows the first request from an IP and writes a lock", async () => {
+  it("allows the first request from an user ID and writes a lock", async () => {
     const now = new Date("2026-08-04T00:00:00.000Z");
     const client = createLockClient(now);
 
-    const access = await acquireWrappedAccessLock(client, "192.168.1.10");
+    const access = await acquireWrappedAccessLock(client, 10);
 
     expect(access).toEqual({
       allowed: true,
       lastOpenedAt: "2026-08-04T00:00:00.000Z",
       nextOpenAt: "2026-09-03T00:00:00.000Z",
     });
-    expect(client.locks.has("192.168.1.10")).toBe(true);
+    expect(client.locks.has(10)).toBe(true);
   });
 
-  it("locks the same IP before 30 days have passed", async () => {
+  it("locks the same user ID before 30 days have passed", async () => {
     const firstOpen = new Date("2026-08-04T00:00:00.000Z");
     const locks = new Map();
-    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), "192.168.1.10");
+    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), 10);
 
     const nextOpen = new Date("2026-08-20T00:00:00.000Z");
-    const access = await acquireWrappedAccessLock(createLockClient(nextOpen, locks), "192.168.1.10");
+    const access = await acquireWrappedAccessLock(createLockClient(nextOpen, locks), 10);
 
     expect(access).toEqual({
       allowed: false,
@@ -179,13 +179,13 @@ describe("acquireWrappedAccessLock", () => {
     });
   });
 
-  it("allows the same IP after next_open_at and refreshes the lock", async () => {
+  it("allows the same user ID after next_open_at and refreshes the lock", async () => {
     const firstOpen = new Date("2026-08-04T00:00:00.000Z");
     const locks = new Map();
-    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), "192.168.1.10");
+    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), 10);
 
     const unlockedAt = new Date("2026-09-03T00:00:00.000Z");
-    const access = await acquireWrappedAccessLock(createLockClient(unlockedAt, locks), "192.168.1.10");
+    const access = await acquireWrappedAccessLock(createLockClient(unlockedAt, locks), 10);
 
     expect(access).toEqual({
       allowed: true,
@@ -194,13 +194,13 @@ describe("acquireWrappedAccessLock", () => {
     });
   });
 
-  it("keeps locks independent by IP", async () => {
+  it("keeps locks independent by user ID", async () => {
     const firstOpen = new Date("2026-08-04T00:00:00.000Z");
     const locks = new Map();
-    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), "192.168.1.10");
+    await acquireWrappedAccessLock(createLockClient(firstOpen, locks), 10);
 
     const nextOpen = new Date("2026-08-20T00:00:00.000Z");
-    const access = await acquireWrappedAccessLock(createLockClient(nextOpen, locks), "192.168.1.11");
+    const access = await acquireWrappedAccessLock(createLockClient(nextOpen, locks), 11);
 
     expect(access.allowed).toBe(true);
     expect(access.lastOpenedAt).toBe("2026-08-20T00:00:00.000Z");
@@ -209,8 +209,8 @@ describe("acquireWrappedAccessLock", () => {
 });
 
 describe("getWrappedAccessStatus", () => {
-  it("reports available without creating a lock when the IP has not opened Wrapped", async () => {
-    const status = await getWrappedAccessStatus(createStatusClient([]), "192.168.1.10");
+  it("reports available without creating a lock when the user ID has not opened Wrapped", async () => {
+    const status = await getWrappedAccessStatus(createStatusClient([]), 10);
 
     expect(status).toEqual({
       available: true,
@@ -220,7 +220,7 @@ describe("getWrappedAccessStatus", () => {
     });
   });
 
-  it("reports unavailable lock metadata for an IP inside the cooldown", async () => {
+  it("reports unavailable lock metadata for an user ID inside the cooldown", async () => {
     const status = await getWrappedAccessStatus(
       createStatusClient([
         {
@@ -230,7 +230,7 @@ describe("getWrappedAccessStatus", () => {
           retry_after_seconds: 2592000,
         },
       ]),
-      "192.168.1.10"
+      10
     );
 
     expect(status).toEqual({
@@ -298,7 +298,7 @@ function playbackEvent(id, action, position, occurredAt, overrides = {}) {
     action,
     position,
     duration: overrides.duration ?? 3600,
-    client_ip: overrides.clientIp,
+    user_id: overrides.userId ?? 1,
     device_label: overrides.deviceLabel,
     occurred_at: occurredAt,
   };
@@ -360,37 +360,37 @@ describe("aggregateWrappedEvents", () => {
     expect(report.period.timezoneOffset).toBe(-420);
   });
 
-  it("keeps overlapping playback of the same media isolated by IP", () => {
+  it("keeps overlapping playback of the same media isolated by user", () => {
     const report = aggregateWrappedEvents([
-      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { clientIp: "192.168.0.10", deviceLabel: "Living room" }),
-      playbackEvent(2, "play", 0, "2026-07-10T10:00:10.000Z", { clientIp: "192.168.0.20", deviceLabel: "Bedroom" }),
-      playbackEvent(3, "pause", 60, "2026-07-10T10:01:00.000Z", { clientIp: "192.168.0.10", deviceLabel: "Living room" }),
-      playbackEvent(4, "pause", 90, "2026-07-10T10:01:40.000Z", { clientIp: "192.168.0.20", deviceLabel: "Bedroom" }),
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { userId: 10, deviceLabel: "Living room" }),
+      playbackEvent(2, "play", 0, "2026-07-10T10:00:10.000Z", { userId: 20, deviceLabel: "Bedroom" }),
+      playbackEvent(3, "pause", 60, "2026-07-10T10:01:00.000Z", { userId: 10, deviceLabel: "Living room" }),
+      playbackEvent(4, "pause", 90, "2026-07-10T10:01:40.000Z", { userId: 20, deviceLabel: "Bedroom" }),
     ], from, to);
 
     expect(report.totalPlayTime).toBe(150);
     expect(report.deviceContributions).toEqual([
-      { rank: 1, ip: "192.168.0.20", label: "Bedroom", playCount: 1, totalTime: 90, share: 0.6 },
-      { rank: 2, ip: "192.168.0.10", label: "Living room", playCount: 1, totalTime: 60, share: 0.4 },
+      { rank: 1, userId: 20, label: "Bedroom", playCount: 1, totalTime: 90, share: 0.6 },
+      { rank: 2, userId: 10, label: "Living room", playCount: 1, totalTime: 60, share: 0.4 },
     ]);
     expect(report.deviceContributions.reduce((total, device) => total + device.totalTime, 0)).toBe(report.totalPlayTime);
   });
 
-  it("ranks equal device time by plays then IP and excludes zero-time devices", () => {
+  it("ranks equal account time by plays then user ID and excludes zero-time accounts", () => {
     const report = aggregateWrappedEvents([
-      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { clientIp: "192.168.0.30" }),
-      playbackEvent(2, "pause", 60, "2026-07-10T10:01:00.000Z", { clientIp: "192.168.0.30" }),
-      playbackEvent(3, "play", 0, "2026-07-10T11:00:00.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
-      playbackEvent(4, "pause", 30, "2026-07-10T11:00:30.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
-      playbackEvent(5, "play", 30, "2026-07-10T11:01:00.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
-      playbackEvent(6, "pause", 60, "2026-07-10T11:01:30.000Z", { clientIp: "192.168.0.20", deviceLabel: "Office" }),
-      playbackEvent(7, "pause", 50, "2026-07-10T12:00:00.000Z", { clientIp: "192.168.0.40" }),
-      playbackEvent(8, "play", 0, "2026-07-10T13:00:00.000Z", { clientIp: "192.168.0.50" }),
+      playbackEvent(1, "play", 0, "2026-07-10T10:00:00.000Z", { userId: 30 }),
+      playbackEvent(2, "pause", 60, "2026-07-10T10:01:00.000Z", { userId: 30 }),
+      playbackEvent(3, "play", 0, "2026-07-10T11:00:00.000Z", { userId: 20, deviceLabel: "Office" }),
+      playbackEvent(4, "pause", 30, "2026-07-10T11:00:30.000Z", { userId: 20, deviceLabel: "Office" }),
+      playbackEvent(5, "play", 30, "2026-07-10T11:01:00.000Z", { userId: 20, deviceLabel: "Office" }),
+      playbackEvent(6, "pause", 60, "2026-07-10T11:01:30.000Z", { userId: 20, deviceLabel: "Office" }),
+      playbackEvent(7, "pause", 50, "2026-07-10T12:00:00.000Z", { userId: 40 }),
+      playbackEvent(8, "play", 0, "2026-07-10T13:00:00.000Z", { userId: 50 }),
     ], from, to);
 
-    expect(report.deviceContributions.map((device) => device.ip)).toEqual(["192.168.0.20", "192.168.0.30"]);
+    expect(report.deviceContributions.map((device) => device.userId)).toEqual([20, 30]);
     expect(report.deviceContributions[0]).toMatchObject({ label: "Office", playCount: 2, totalTime: 60 });
-    expect(report.deviceContributions[1]).toMatchObject({ label: "192.168.0.30", playCount: 1, totalTime: 60 });
+    expect(report.deviceContributions[1]).toMatchObject({ label: "User 30", playCount: 1, totalTime: 60 });
   });
 
   it("can describe an annual Wrapped period", () => {
@@ -425,7 +425,7 @@ describe("aggregateWrappedEvents", () => {
 });
 
 describe("getCurrentWrapped", () => {
-  it("queries every IP and resolves the most specific whitelist description", async () => {
+  it("queries every account and resolves its username", async () => {
     let capturedSql = "";
     let capturedParams = [];
     const fastify = {
@@ -440,13 +440,13 @@ describe("getCurrentWrapped", () => {
     const from = new Date("2026-07-01T00:00:00.000Z");
     const to = new Date("2026-07-30T23:59:59.000Z");
 
-    const report = await getCurrentWrapped(fastify, { clientIp: "192.168.0.99" }, from, to);
+    const report = await getCurrentWrapped(fastify, { user: { id: 99 } }, from, to);
 
     expect(capturedParams).toEqual([from.toISOString(), to.toISOString()]);
-    expect(capturedSql).toContain("pe.client_ip::text AS client_ip");
-    expect(capturedSql).toContain("ORDER BY masklen(iw.cidr_range) DESC");
-    expect(capturedSql).not.toContain("pe.client_ip =");
-    expect(report).toMatchObject({ clientIp: "192.168.0.99", scope: "all-devices", deviceContributions: [] });
+    expect(capturedSql).toContain("pe.user_id");
+    expect(capturedSql).toContain("JOIN users u");
+    expect(capturedSql).toContain("u.id = pe.user_id");
+    expect(report).toMatchObject({ userId: 99, scope: "all-accounts", deviceContributions: [] });
   });
 });
 

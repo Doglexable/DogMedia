@@ -1,5 +1,6 @@
 const CACHE_PREFIX = "dogmedia-static-";
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_VERSION = "%APP_VERSION%";
+const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION.startsWith("%") ? "v0.7.0" : CACHE_VERSION}`;
 const APP_SHELL = [
   "/site.webmanifest",
   "/favicon.ico",
@@ -24,6 +25,17 @@ async function precacheAppShell() {
   await cache.put("/index.html", indexResponse);
   await cache.addAll([...APP_SHELL, ...new Set(assetUrls)]);
 }
+
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+  if (event.data === "CLEAR_CACHE") {
+    event.waitUntil(
+      caches.keys().then((names) => Promise.all(names.map((name) => caches.delete(name))))
+    );
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

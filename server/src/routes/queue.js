@@ -471,17 +471,16 @@ export default async function (fastify) {
   });
 
   fastify.post("/items/likes", async (request, reply) => {
-    const ip = request.clientIp || request.ip;
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
        SELECT m.id
        FROM liked_music l
        JOIN media_assets m ON m.id = l.media_id
        JOIN accessible_categories ac ON ac.id = m.category_id
-       WHERE l.client_ip = $2::inet
+       WHERE l.user_id = $2
          AND m.mime_type LIKE 'audio/%'
        ORDER BY l.liked_at DESC, m.id`,
-      [request.accessTier, ip]
+      [request.accessTier, request.user.id]
     );
 
     if (rows.length === 0) {
@@ -617,7 +616,6 @@ export default async function (fastify) {
 
   fastify.post("/auto/likes", async (request, reply) => {
     const startId = normalizeStartId(request.query.start);
-    const ip = request.clientIp || request.ip;
 
     const { rows } = await fastify.pg.query(
       `${ACCESSIBLE_CATEGORY_TREE_SQL}
@@ -625,10 +623,10 @@ export default async function (fastify) {
        FROM liked_music l
        JOIN media_assets m ON m.id = l.media_id
        JOIN accessible_categories ac ON ac.id = m.category_id
-       WHERE l.client_ip = $2::inet
+       WHERE l.user_id = $2
          AND m.mime_type LIKE 'audio/%'
        ORDER BY l.liked_at DESC, m.id`,
-      [request.accessTier, ip]
+      [request.accessTier, request.user.id]
     );
 
     if (rows.length === 0) {

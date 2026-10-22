@@ -139,6 +139,11 @@ export async function clearStoredDownloads() {
   await database.execAsync("DELETE FROM downloads; DELETE FROM download_jobs;");
 }
 
+export async function clearAccountOfflineState() {
+  const database = await getOfflineDatabase();
+  await database.execAsync("DELETE FROM offline_lease; DELETE FROM playback_outbox; DELETE FROM local_resumes;");
+}
+
 export async function listStoredJobs() {
   const database = await getOfflineDatabase();
   const rows = await database.getAllAsync("SELECT * FROM download_jobs ORDER BY updated_at DESC");

@@ -2213,13 +2213,13 @@ select:focus-visible {
 .field { display: grid; gap: 7px; color: var(--text-secondary); font-size: 12px; }
 .field > span { color: var(--text); font-weight: 650; }
 .field small { color: var(--text-tertiary); }
-.theme-toggle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 4px; background: var(--surface-soft); }
-.theme-toggle-option { position: relative; display: flex; min-height: 44px; appearance: none; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; padding: 0 10px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-.theme-toggle-option:hover { background: var(--hover); color: var(--text); }
-.theme-toggle-option.active { border-color: var(--border); background: var(--surface-elevated); color: var(--text); box-shadow: 0 2px 8px var(--shadow); }
-.theme-toggle-option.active::after { position: absolute; right: 12px; bottom: -1px; left: 12px; height: 2px; border-radius: 2px; background: var(--signal); content: ""; }
-.theme-toggle-icon { width: 16px; height: 16px; color: var(--text-tertiary); }
-.theme-toggle-option.active .theme-toggle-icon { color: var(--signal); }
+.theme-toggle, .env-toggle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 4px; background: var(--surface-soft); }
+.theme-toggle-option, .env-toggle-option { position: relative; display: flex; min-height: 44px; appearance: none; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; padding: 0 10px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; }
+.theme-toggle-option:hover, .env-toggle-option:hover { background: var(--hover); color: var(--text); }
+.theme-toggle-option.active, .env-toggle-option.active { border-color: var(--border); background: var(--surface-elevated); color: var(--text); box-shadow: 0 2px 8px var(--shadow); }
+.theme-toggle-option.active::after, .env-toggle-option.active::after { position: absolute; right: 12px; bottom: -1px; left: 12px; height: 2px; border-radius: 2px; background: var(--signal); content: ""; }
+.theme-toggle-icon, .env-toggle-icon { width: 16px; height: 16px; color: var(--text-tertiary); }
+.theme-toggle-option.active .theme-toggle-icon, .env-toggle-option.active .env-toggle-icon { color: var(--signal); }
 .check-row { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; }
 .check-row span { display: grid; gap: 3px; }
 .check-row strong { font-size: 12px; }

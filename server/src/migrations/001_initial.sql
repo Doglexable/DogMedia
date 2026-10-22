@@ -18,13 +18,3 @@ CREATE TABLE IF NOT EXISTS media_assets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_assets_category ON media_assets(category_id);
-
-CREATE TABLE IF NOT EXISTS ip_whitelist (
-    id          SERIAL PRIMARY KEY,
-    cidr_range  CIDR NOT NULL UNIQUE,
-    access_tier INTEGER NOT NULL DEFAULT 0,
-    description TEXT,
-    created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_ip_whitelist_cidr ON ip_whitelist USING gist (cidr_range inet_ops);

@@ -54,8 +54,8 @@ function serializeMedia(row, stats, quality = "ori") {
   };
 }
 
-async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId = null, mediaIds = null } = {}) {
-  const params = [accessTier, clientIp];
+async function accessibleAudioRows(fastify, accessTier, userId, { categoryId = null, mediaIds = null } = {}) {
+  const params = [accessTier, userId];
   let filter = "";
   if (categoryId) {
     params.push(categoryId);
@@ -76,7 +76,7 @@ async function accessibleAudioRows(fastify, accessTier, clientIp, { categoryId =
               FROM media_encoding_variants v WHERE v.media_id = m.id AND v.source_version = m.source_version), '{}'::jsonb) AS encoding_status,
             array_to_string(ac.path_parts, ' / ') AS category_path,
             (ml.media_id IS NOT NULL) AS has_lyrics,
-            EXISTS (SELECT 1 FROM liked_music lm WHERE lm.media_id = m.id AND lm.client_ip = $2::inet) AS liked
+            EXISTS (SELECT 1 FROM liked_music lm WHERE lm.media_id = m.id AND lm.user_id = $2) AS liked
      FROM media_assets m
      JOIN accessible_categories ac ON ac.id = m.category_id
      LEFT JOIN media_lyrics ml ON ml.media_id = m.id
@@ -191,7 +191,7 @@ export default async function offlineRoutes(fastify, options = {}) {
     const categoryId = normalizeOfflineMediaId(request.query?.category_id);
     const mediaId = normalizeOfflineMediaId(request.query?.media_id);
     if (!categoryId && !mediaId) return reply.code(400).send({ error: "category_id or media_id is required" });
-    const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, mediaId ? { mediaIds: [mediaId] } : { categoryId });
+    const rows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, mediaId ? { mediaIds: [mediaId] } : { categoryId });
     if (mediaId && rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
     const manifestVariants = requestedQuality === "ori" ? new Map() : await fetchVariantsBatch(fastify.pg, rows.map((row) => Number(row.id)));
     const pending = requestedQuality !== "ori"
@@ -209,7 +209,7 @@ export default async function offlineRoutes(fastify, options = {}) {
     if (!requestedQuality) return reply.code(400).send({ error: "quality must be low, med, high, or ori" });
     const mediaId = normalizeOfflineMediaId(request.params.id);
     if (!mediaId) return reply.code(400).send({ error: "Invalid media ID" });
-    const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: [mediaId] });
+    const rows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, { mediaIds: [mediaId] });
     if (rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
     const media = rows[0];
     const canAccessOriginal = request.accessTier >= ORIGINAL_QUALITY_MIN_TIER;
@@ -254,7 +254,7 @@ export default async function offlineRoutes(fastify, options = {}) {
       return reply.code(400).send({ error: `items must contain at most ${MAX_BATCH_ITEMS} entries` });
     }
     const ids = [...new Set(requested.map((item) => normalizeOfflineMediaId(item?.mediaId)).filter(Boolean))];
-    const rows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: ids });
+    const rows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, { mediaIds: ids });
     const rowById = new Map(rows.map((row) => [Number(row.id), row]));
     const accessible = new Map();
     const itemsByQuality = new Map();
@@ -310,7 +310,7 @@ export default async function offlineRoutes(fastify, options = {}) {
       return reply.code(400).send({ error: "Invalid synchronization payload" });
     }
     const ids = [...new Set([...events, ...resumes].map((item) => item.mediaId))];
-    const allowedRows = await accessibleAudioRows(fastify, request.accessTier, request.clientIp || request.ip, { mediaIds: ids });
+    const allowedRows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, { mediaIds: ids });
     const allowed = new Set(allowedRows.map((row) => Number(row.id)));
     const clientIp = request.clientIp || request.ip;
     const acceptedEvents = events.filter((event) => allowed.has(event.mediaId));
@@ -320,8 +320,8 @@ export default async function offlineRoutes(fastify, options = {}) {
     if (acceptedEvents.length > 0) {
       const { rows: inserted } = await fastify.pg.query(
         `INSERT INTO playback_events
-         (media_id, client_ip, action, position, duration, title, occurred_at, client_event_id)
-         SELECT event.media_id, $2::inet, event.action, event.position, event.duration,
+         (media_id, user_id, action, position, duration, title, occurred_at, client_event_id)
+         SELECT event.media_id, $2, event.action, event.position, event.duration,
                 event.title, event.occurred_at, event.client_event_id
          FROM jsonb_to_recordset($1::jsonb) AS event(
            media_id int, action text, position int, duration int, title text,
@@ -337,7 +337,7 @@ export default async function offlineRoutes(fastify, options = {}) {
           title: event.title,
           occurred_at: event.occurredAt,
           client_event_id: event.clientEventId,
-        }))), clientIp]
+        }))), request.user.id]
       );
       insertedIds = new Set(inserted.map((row) => String(row.client_event_id)));
     }
@@ -347,7 +347,7 @@ export default async function offlineRoutes(fastify, options = {}) {
       for (const event of insertedEvents) {
         pipeline.zadd("playback:events", new Date(event.occurredAt).getTime(), JSON.stringify({
           mediaId: event.mediaId, title: event.title, action: event.action,
-          position: event.position, duration: event.duration, ip: clientIp, timestamp: event.occurredAt,
+          position: event.position, duration: event.duration, ip: clientIp, userId: request.user.id, timestamp: event.occurredAt,
           clientEventId: event.clientEventId,
         }));
       }

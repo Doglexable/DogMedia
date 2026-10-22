@@ -5,13 +5,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { StatusBar } from "expo-status-bar";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { apiJson, getMediaAccessKey, setMediaAccessKey } from "./api";
+import { apiJson, getAccountToken, setAccountToken, getStoredAccountId, setStoredAccountId } from "./api";
 import { PlayerProvider, usePlayer } from "./context/player-context";
 import { OfflineProvider, useOffline } from "./context/offline-context";
-import { AccessDeniedScreen } from "./screens/access-denied-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
 import { DownloadsScreen } from "./screens/downloads-screen";
 import { FavoritesScreen } from "./screens/favorites-screen";
@@ -88,61 +87,364 @@ function LoadingScreen() {
 function AccessGuard({ children }) {
   const offline = useOffline();
   const [status, setStatus] = useState("loading");
-  const [accessKey, setAccessKey] = useState("");
+  const [mode, setMode] = useState("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    offline.validateAccess()
+    getAccountToken()
+      .then(() => offline.validateAccess())
       .then(async (data) => {
-        await getMediaAccessKey();
-        let mediaLoginRequired = false;
-        if (!data.offline) {
-          try { await apiJson("/api/media-access/status"); }
-          catch (error) { mediaLoginRequired = error.status === 401; if (!mediaLoginRequired) throw error; }
+        if (!data.offline && data.id) {
+          if (await getStoredAccountId() !== String(data.id)) {
+            await offline.clearAccountData();
+            data = await offline.validateAccess();
+          }
+          await setStoredAccountId(data.id);
         }
-        setStatus({
-        ok: true,
-        tier: data.tier,
-        description: data.description,
-        firstRun: data.firstRun,
-        clientIp: data.ip,
-        offline: Boolean(data.offline),
-        managementOnly: Boolean(data.managementOnly),
-        mediaLoginRequired,
-        });
+        setStatus({ ok: true, ...data });
       })
-      .catch((err) => {
-        console.warn("Access validation failed:", err?.message || err);
+      .catch((error) => {
+        console.warn("Access validation failed:", error?.message || error);
         setStatus({ ok: false });
       });
-  }, [offline.validateAccess]);
+  }, [offline.validateAccess, offline.clearAccountData]);
 
   if (status === "loading") return <LoadingScreen />;
-  if (!status.ok) return <AccessDeniedScreen />;
-  if (status.mediaLoginRequired) return (
+  if (!status.ok) return (
     <View style={{ flex: 1, justifyContent: "center", padding: 28, backgroundColor: "#111219" }}>
-      <Text style={{ color: "white", fontSize: 24, fontWeight: "700", marginBottom: 12 }}>Unlock media library</Text>
-      <TextInput secureTextEntry autoCapitalize="none" autoCorrect={false} value={accessKey} onChangeText={setAccessKey} placeholder="Media access key" placeholderTextColor="#90919c" style={{ color: "white", borderColor: "#555", borderWidth: 1, borderRadius: 10, padding: 12 }} />
+      <Text style={{ color: "white", fontSize: 24, fontWeight: "700", marginBottom: 12 }}>{mode === "login" ? "Log in to Dogmedia" : "Create account"}</Text>
+      <TextInput autoCapitalize="none" autoCorrect={false} value={username} onChangeText={setUsername} placeholder="Username" placeholderTextColor="#90919c" style={{ color: "white", borderColor: "#555", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12 }} />
+      <TextInput secureTextEntry autoCapitalize="none" autoCorrect={false} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#90919c" style={{ color: "white", borderColor: "#555", borderWidth: 1, borderRadius: 10, padding: 12 }} />
       {loginError ? <Text style={{ color: "#ff7b88", marginTop: 12 }}>{loginError}</Text> : null}
-      <Pressable accessibilityRole="button" onPress={async () => {
+      <Pressable accessibilityRole="button" disabled={submitting} onPress={async () => {
         setLoginError("");
+        setSubmitting(true);
         try {
-          await setMediaAccessKey(accessKey);
-          await apiJson("/api/media-access/status");
-          setAccessKey("");
-          setStatus((current) => ({ ...current, mediaLoginRequired: false }));
-        } catch (error) {
-          await setMediaAccessKey("");
-          setLoginError(error.message || "Access denied");
-        }
-      }} style={{ marginTop: 16, backgroundColor: "#e11d48", borderRadius: 10, padding: 14 }}><Text style={{ color: "white", textAlign: "center", fontWeight: "700" }}>Unlock</Text></Pressable>
+          const result = await apiJson(`/api/auth/${mode}`, { method: "POST", body: JSON.stringify({ username, password }) });
+          if (await getStoredAccountId() !== String(result.user.id)) await offline.clearAccountData();
+          await setAccountToken(result.token);
+          await setStoredAccountId(result.user.id);
+          setPassword("");
+          const access = await offline.validateAccess();
+          setStatus({ ok: true, ...access });
+        } catch (error) { setLoginError(error.message || "Authentication failed"); }
+        finally { setSubmitting(false); }
+      }} style={{ marginTop: 16, backgroundColor: "#e11d48", borderRadius: 10, padding: 14 }}><Text style={{ color: "white", textAlign: "center", fontWeight: "700" }}>{mode === "login" ? "Log in" : "Create account"}</Text></Pressable>
+      <Pressable accessibilityRole="button" onPress={() => { setMode(mode === "login" ? "register" : "login"); setLoginError(""); }} style={{ marginTop: 18 }}><Text style={{ color: "#22b8ff", textAlign: "center" }}>{mode === "login" ? "Create an account" : "Already have an account? Log in"}</Text></Pressable>
     </View>
   );
 
+  return <AccessContext.Provider value={{ ...status, logout: async () => {
+    await apiJson("/api/auth/logout", { method: "POST" }).catch(() => {});
+    try { await offline.clearAccountData(); }
+    finally {
+      await setAccountToken("");
+      await setStoredAccountId(null);
+      setStatus({ ok: false });
+    }
+  }, updateUser: (user) => {
+    setStatus((prev) => ({ ...prev, ...user, username: user?.username || prev.username, description: user?.username || prev.description }));
+  } }}>{children}</AccessContext.Provider>;
+}
+
+function AccountScreen() {
+  const access = useAccess();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const currentUsername = access?.username || access?.description || "";
+  const tier = access?.tier ?? 0;
+  const [username, setUsername] = useState(currentUsername);
+  const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  useEffect(() => {
+    setUsername(currentUsername);
+    setPassword("");
+    setCurrentPassword("");
+    setError("");
+    setSuccess("");
+  }, [currentUsername]);
+
+  const handleUpdate = async () => {
+    setError("");
+    setSuccess("");
+    const hasNewUsername = username.trim() !== currentUsername;
+    const hasNewPassword = password.length > 0;
+
+    if (!hasNewUsername && !hasNewPassword) {
+      setError("No changes requested.");
+      return;
+    }
+    if (hasNewPassword && password.length < 12) {
+      setError("New password must be at least 12 characters.");
+      return;
+    }
+    if (hasNewPassword && !currentPassword) {
+      setError("Enter your current password to verify this change.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const payload = { username: username.trim() };
+      if (hasNewPassword) {
+        payload.password = password;
+        payload.currentPassword = currentPassword;
+      }
+      const data = await apiJson("/api/auth/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (data?.user) {
+        access?.updateUser?.(data.user);
+      }
+      setSuccess("Profile updated successfully!");
+      setPassword("");
+      setCurrentPassword("");
+    } catch (err) {
+      setError(err.message || "Failed to update profile.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setUsername(currentUsername);
+    setPassword("");
+    setCurrentPassword("");
+    setError("");
+    setSuccess("");
+  };
+
   return (
-    <AccessContext.Provider value={status}>
-      {children}
-    </AccessContext.Provider>
+    <ScrollView
+      contentContainerStyle={{
+        paddingHorizontal: 20,
+        paddingTop: Math.max(insets.top, 24) + 16,
+        paddingBottom: Math.max(insets.bottom, 24) + 32,
+      }}
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={{ color: colors.text, fontSize: 24, fontWeight: "800", marginBottom: 18 }}>
+        Profile
+      </Text>
+
+      {/* User Card */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 14,
+          padding: 16,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.cardBorder,
+          borderRadius: 14,
+          marginBottom: 20,
+        }}
+      >
+        <Ionicons name="person-circle-outline" size={48} color={colors.primary} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
+            {currentUsername || "User"}
+          </Text>
+          <View
+            style={{
+              alignSelf: "flex-start",
+              marginTop: 4,
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderRadius: 9999,
+              backgroundColor: "rgba(225, 29, 72, 0.15)",
+              borderWidth: 1,
+              borderColor: "rgba(225, 29, 72, 0.3)",
+            }}
+          >
+            <Text
+              style={{
+                color: colors.primary,
+                fontSize: 10,
+                fontWeight: "800",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              {tier >= 100 ? "Administrator" : "Standard User"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Form Fields */}
+      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+        Username
+      </Text>
+      <TextInput
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={username}
+        onChangeText={setUsername}
+        placeholder="Username"
+        placeholderTextColor={colors.muted}
+        editable={!submitting}
+        style={{
+          color: colors.text,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          padding: 12,
+          backgroundColor: colors.surface,
+          marginBottom: 16,
+        }}
+      />
+
+      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+        New Password
+      </Text>
+      <TextInput
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Leave blank to keep current"
+        placeholderTextColor={colors.muted}
+        editable={!submitting}
+        style={{
+          color: colors.text,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          padding: 12,
+          backgroundColor: colors.surface,
+          marginBottom: 16,
+        }}
+      />
+
+      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+        Current Password
+      </Text>
+      <TextInput
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        value={currentPassword}
+        onChangeText={setCurrentPassword}
+        placeholder={password ? "Required to confirm changes" : "Optional verification"}
+        placeholderTextColor={colors.muted}
+        editable={!submitting}
+        style={{
+          color: colors.text,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          padding: 12,
+          backgroundColor: colors.surface,
+          marginBottom: 16,
+        }}
+      />
+
+      {error ? (
+        <View
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            backgroundColor: "rgba(239, 68, 68, 0.15)",
+            borderWidth: 1,
+            borderColor: "rgba(239, 68, 68, 0.3)",
+            marginBottom: 16,
+          }}
+        >
+          <Text style={{ color: "#f87171", fontSize: 13, fontWeight: "600" }}>{error}</Text>
+        </View>
+      ) : null}
+
+      {success ? (
+        <View
+          style={{
+            padding: 12,
+            borderRadius: 10,
+            backgroundColor: "rgba(34, 197, 94, 0.15)",
+            borderWidth: 1,
+            borderColor: "rgba(34, 197, 94, 0.3)",
+            marginBottom: 16,
+          }}
+        >
+          <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "600" }}>{success}</Text>
+        </View>
+      ) : null}
+
+      {/* Action Buttons: Update user & Batal */}
+      <View style={{ flexDirection: "row", gap: 10, marginBottom: 24 }}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={submitting}
+          onPress={handleUpdate}
+          style={{
+            flex: 1,
+            backgroundColor: colors.primary,
+            borderRadius: 10,
+            padding: 14,
+            opacity: submitting ? 0.6 : 1,
+          }}
+        >
+          <Text style={{ color: "white", textAlign: "center", fontWeight: "700" }}>
+            {submitting ? "Updating…" : "Update user"}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={submitting}
+          onPress={handleCancel}
+          style={{
+            flex: 1,
+            backgroundColor: "transparent",
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            borderRadius: 10,
+            padding: 14,
+            opacity: submitting ? 0.6 : 1,
+          }}
+        >
+          <Text style={{ color: colors.text, textAlign: "center", fontWeight: "700" }}>
+            Batal
+          </Text>
+        </Pressable>
+      </View>
+
+      <View
+        style={{
+          height: 1,
+          backgroundColor: colors.cardBorder,
+          marginBottom: 20,
+        }}
+      />
+
+      {/* Log out at the very bottom */}
+      <Pressable
+        accessibilityRole="button"
+        disabled={submitting}
+        onPress={() => access?.logout?.()}
+        style={{
+          backgroundColor: "rgba(239, 68, 68, 0.12)",
+          borderColor: "rgba(239, 68, 68, 0.28)",
+          borderWidth: 1,
+          borderRadius: 10,
+          padding: 14,
+        }}
+      >
+        <Text style={{ color: "#f87171", textAlign: "center", fontWeight: "700" }}>Log out</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
@@ -224,6 +526,7 @@ function Tabs() {
           {(props) => <WrappedScreen {...props} onAccessChanged={loadWrappedAccess} />}
         </Tab.Screen>
       )}
+      <Tab.Screen name="Account" component={AccountScreen} options={{ tabBarIcon: (props) => <TabIcon {...props} name="person" outlineName="person-outline" /> }} />
       <Tab.Screen
         name="Theme"
         component={ThemeToggle}

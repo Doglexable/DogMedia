@@ -8,7 +8,8 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
     let can_close = snapshot.settings.configured && !snapshot.settings_connecting;
     let url_changed = snapshot.settings_url.trim().trim_end_matches('/')
         != snapshot.settings.server_url.as_str().trim_end_matches('/')
-        || snapshot.settings_media_access_key != snapshot.settings.media_access_key;
+        || !snapshot.settings_password.is_empty()
+        || snapshot.settings_username != snapshot.settings.username;
     let save_label = if snapshot.settings_connecting {
         "Connecting…".to_owned()
     } else if url_changed || !snapshot.settings.configured {
@@ -16,6 +17,8 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
     } else {
         "Save".to_owned()
     };
+    let env_urls = snapshot.server_environments.clone();
+    let active_env = env_urls.match_environment(&snapshot.settings_url);
 
     rsx! {
         div { class: "dialog-backdrop",
@@ -61,45 +64,42 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                             }
                         }
                     }
-                    label { class: "field",
+                    div { class: "field",
                         span { "Server URL" }
-                        Input {
-                            input_type: "url".to_owned(),
-                            value: snapshot.settings_url.clone(),
-                            placeholder: "http://127.0.0.1:3001/".to_owned(),
-                            oninput: move |event: FormEvent| {
-                                app.write().settings_url = event.value();
+                        EnvironmentToggle {
+                            value: active_env,
+                            urls: env_urls,
+                            onchange: move |env| {
+                                let url = app.read().server_environments.url_for(env).to_owned();
+                                app.write().settings_url = url;
                                 app.write().settings_error = None;
                             }
                         }
-                        small { "Dogmedia backend origin (e.g. http://127.0.0.1:3001/ or https://stream.example.com/)." }
                     }
                     label { class: "field",
-                        span { "Media access key" }
+                        span { "Username" }
+                        Input {
+                            input_type: "text".to_owned(),
+                            value: snapshot.settings_username.clone(),
+                            placeholder: "Account username".to_owned(),
+                            oninput: move |event: FormEvent| {
+                                app.write().settings_username = event.value();
+                                app.write().settings_error = None;
+                            }
+                        }
+                    }
+                    label { class: "field",
+                        span { "Password" }
                         Input {
                             input_type: "password".to_owned(),
-                            value: snapshot.settings_media_access_key.clone(),
-                            placeholder: "Enter the server media access key".to_owned(),
+                            value: snapshot.settings_password.clone(),
+                            placeholder: "Enter account password".to_owned(),
                             oninput: move |event: FormEvent| {
-                                app.write().settings_media_access_key = event.value();
+                                app.write().settings_password = event.value();
                                 app.write().settings_error = None;
                             }
                         }
-                        small { "Required to browse and play protected media." }
-                    }
-                    label { class: "check-row",
-                        input {
-                            r#type: "checkbox",
-                            checked: snapshot.allow_http,
-                            onchange: move |event| {
-                                app.write().allow_http = event.checked();
-                                app.write().settings_error = None;
-                            }
-                        }
-                        span {
-                            strong { "Trust plain HTTP for a remote server" }
-                            small { "Private LAN and loopback addresses are recognized automatically. Enable this only for a public host you control." }
-                        }
+                        small { "Enter a password to log in, or leave it blank to reuse this device's session." }
                     }
                     div { class: "field",
                         span { "Appearance" }

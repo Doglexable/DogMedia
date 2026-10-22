@@ -29,14 +29,23 @@ export function categoryThumbnailUrl(categoryOrId) {
   return apiUrl(`/api/categories/${categoryId}/thumbnail${query}`);
 }
 
+export function profilePictureUrl(avatarId, size = "s") {
+  const cleanId = String(avatarId || "fine")
+    .replace(/\.(webp|gif)$/i, "")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_(s|l|m|f)$/i, "");
+  const targetSize = String(size || "").toLowerCase() === "l" ? "l" : "s";
+  return apiUrl(`/api/profile-pictures/${encodeURIComponent(cleanId || "fine")}?size=${targetSize}`);
+}
+
 import { normalizeHolderSession } from "./components/global-player/exclusive-session";
 
 export async function api(path, options = {}) {
   const response = await fetch(apiUrl(path), { ...options, credentials: "include" });
-  if (path.startsWith("/api/") && !path.startsWith("/api/media-access/") && response.status === 401 && typeof window !== "undefined") {
+  if (path.startsWith("/api/") && !path.startsWith("/api/auth/") && response.status === 401 && typeof window !== "undefined") {
     const error = await response.clone().json().catch(() => null);
-    if (error?.code === "MEDIA_ACCESS_REQUIRED") {
-      window.dispatchEvent(new Event("dogmedia:media-access-required"));
+    if (error?.code === "LOGIN_REQUIRED") {
+      window.dispatchEvent(new Event("dogmedia:login-required"));
     }
   }
   return response;

@@ -190,7 +190,8 @@ The Phase 0 renderer spike is an isolated binary that feeds the existing
 GStreamer RGBA appsink frames into a persistent Blitz/WGPU texture. The
 preferred real-stream test creates, renews, and releases its own protected
 playback session. Run it in a graphical
-session with the server origin and a 1080p24 video media ID:
+session with the server origin and a 1080p24 video media ID. Set
+`PFS_ACCOUNT_TOKEN` to the token returned by `/api/auth/login` first:
 
 ```bash
 cargo run --release --manifest-path desktop/Cargo.toml \
@@ -198,7 +199,7 @@ cargo run --release --manifest-path desktop/Cargo.toml \
   --media 'https://media.example.com/' 42 ori
 ```
 
-Quality defaults to `ori`; use `high` if the client IP does not have very high
+Quality defaults to `ori`; use `high` if the account does not have original
 quality access. A random viewer ID is generated for the benchmark, or a stable
 one can be supplied after the quality argument. The legacy form accepting a
 stream URL, session ID, and viewer ID remains available for diagnosing a
@@ -354,17 +355,17 @@ This is a developer/local-build manifest, not a published Flathub package.
 
 ## First launch and use
 
-1. Start Dogmedia and confirm this computer's IP is allowed by the server.
+1. Start Dogmedia and create an account, or use an existing one.
 2. Open Dogmedia Desktop and enter the origin that exposes the Dogmedia API,
    for example `https://media.example.com/` or `http://192.168.1.20:3001/`.
 3. Private LAN and loopback HTTP addresses are accepted automatically. Public
    HTTP hosts require explicit confirmation; prefer HTTPS outside your LAN.
 4. Search or filter the library, then select an item to begin playback.
 
-For complete requirements on valid server URLs, Fastify API endpoints, IP whitelisting tiers, and Settings error diagnostics, see the [Server Source Guide](docs/SERVER_SOURCE_GUIDE.md).
+For complete requirements on valid server URLs, Fastify API endpoints, account access tiers, and Settings error diagnostics, see the [Server Source Guide](docs/SERVER_SOURCE_GUIDE.md).
 
-The client creates a persistent viewer ID on first launch. It is not a login
-credential: the server's PostgreSQL IP whitelist remains the access control.
+The client creates a persistent viewer ID on first launch. Account login is
+required to access the server.
 The ID associates playback leases, queues, reporting, and resume positions
 with this installation. Settings live in the platform's XDG configuration
 directory (normally `~/.config/dogmedia/Desktop/settings.json`); downloaded
@@ -398,9 +399,8 @@ RUST_LOG=dogmedia_desktop=debug dogmedia-desktop
 
 If video is blank or a codec is reported missing, verify the GStreamer
 installation with `gst-inspect-1.0 playbin3` and install the codec/plugin
-package for the media format. An access-denied screen means the computer's IP
-does not have the required server whitelist tier; it is not fixed by changing
-the local viewer ID.
+package for the media format. An access-denied screen means the account session
+is missing or expired; log in again from Settings.
 
 MPRIS requires the user session D-Bus. If that bus is unavailable, Dogmedia
 logs one warning and keeps the in-app playback controls working normally.

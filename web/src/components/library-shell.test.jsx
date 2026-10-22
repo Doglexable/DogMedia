@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import { CategoryIcon, CategorySidebarItem } from "./library-shell";
+import { BottomNavTab, CategoryIcon, CategorySidebarItem } from "./library-shell";
+import { faCircleUser } from "@fortawesome/free-solid-svg-icons/faCircleUser";
 
 describe("CategoryIcon", () => {
   it("renders a thumbnail image when cover_path exists on category", () => {
@@ -94,5 +95,35 @@ describe("CategorySidebarItem", () => {
 
     expect(withMedia).toContain("Open actions for Showbiz");
     expect(empty).not.toContain("Open actions for Empty");
+  });
+});
+
+describe("BottomNavTab", () => {
+  it("renders with avatar image when avatarUrl is provided", () => {
+    const markup = renderToStaticMarkup(
+      <BottomNavTab
+        icon={faCircleUser}
+        avatarUrl="/api/profile-pictures/fine?size=s"
+        onClick={() => {}}
+      >
+        Profile
+      </BottomNavTab>
+    );
+
+    expect(markup).toContain('class="mobile-nav-tab-avatar"');
+    expect(markup).toContain('src="/api/profile-pictures/fine?size=s"');
+    expect(markup).toContain("Profile</span>");
+  });
+
+  it("renders with icon when avatarUrl is absent", () => {
+    const markup = renderToStaticMarkup(
+      <BottomNavTab icon={faCircleUser} onClick={() => {}}>
+        Profile
+      </BottomNavTab>
+    );
+
+    expect(markup).not.toContain('class="mobile-nav-tab-avatar"');
+    expect(markup).toContain("mobile-nav-tab-icon");
+    expect(markup).toContain("Profile</span>");
   });
 });

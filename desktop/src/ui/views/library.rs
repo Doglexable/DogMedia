@@ -193,7 +193,7 @@ pub(crate) fn Library(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     div { class: "empty-state",
                                         div { class: "empty-mark", Icon { name: IconName::Close } }
                                         h3 { "Server Access Denied" }
-                                        p { "This computer's IP address is not whitelisted by the server (requires tier 100 or higher). Add this IP in the server administration or PostgreSQL 'ip_whitelist' table." }
+                                        p { "Log in with an account that has access to this library." }
                                         div { class: "empty-actions",
                                             Button { label: "Open Settings".to_owned(), class: "secondary".to_owned(), onclick: move |_| {
                                                 let current_url = app.read().settings.server_url.to_string();

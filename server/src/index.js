@@ -14,13 +14,13 @@ import authPlugin from "./plugins/auth.js";
 import checkAccessRoutes from "./routes/check-access.js";
 import categoriesRoutes from "./routes/categories.js";
 import mediaRoutes from "./routes/media.js";
-import whitelistRoutes from "./routes/whitelist.js";
 import queueRoutes from "./routes/queue.js";
 import playbackRoutes from "./routes/playback.js";
 import wrappedRoutes from "./routes/wrapped.js";
 import likesRoutes from "./routes/likes.js";
 import publicLikedMusicRoutes from "./routes/public-liked-music.js";
 import publicMusicShareRoutes from "./routes/public-music-shares.js";
+import profilePicturesRoutes from "./routes/profile-pictures.js";
 import musicShareRoutes from "./routes/music-shares.js";
 import lyricsRoutes from "./routes/lyrics.js";
 import subtitlesRoutes from "./routes/subtitles.js";
@@ -32,7 +32,6 @@ import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
 import { hasActiveUpload, startIncompleteUploadCleanupScheduler } from "./upload-cleanup.js";
 import { uploadCompletionStatusKey } from "./upload-completion-queue.js";
 import { createPlaybackSocketHub } from "./playback-socket.js";
-import { createMediaAccess, requirePrivateApiAccess } from "./media-access.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const UPLOAD_TMP_DIR = process.env.UPLOAD_TMP_DIR || join(DATA_DIR, "tmp");
@@ -53,7 +52,7 @@ await app.register(cors, {
     callback(null, !origin || ALLOWED_ORIGINS.has(origin));
   },
   credentials: true,
-  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name"],
+  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name", "Authorization"],
   exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
 });
 await app.register(websocket, { options: { maxPayload: 8192 } });
@@ -117,11 +116,6 @@ if (process.env.RUN_CLEANUP_IN_SERVER === "true") {
   });
 }
 await redisPlugin(app);
-const mediaAccess = createMediaAccess({
-  redis: app.redis,
-  secret: process.env.PFS_MEDIA_ACCESS_KEY,
-  allowedOrigins: ALLOWED_ORIGINS,
-});
 app.decorate("playbackSocketHub", createPlaybackSocketHub(app, { allowedOrigins: ALLOWED_ORIGINS }));
 startIncompleteUploadCleanupScheduler({
   log: app.log,
@@ -140,21 +134,13 @@ startIncompleteUploadCleanupScheduler({
 });
 await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
 await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
+await app.register(profilePicturesRoutes, { prefix: "/api/profile-pictures", dataDir: DATA_DIR });
 await app.register(async function (instance) {
-  await authPlugin(instance);
-  instance.addHook("onRequest", requirePrivateApiAccess(mediaAccess));
-  instance.post("/media-access/login", mediaAccess.login);
-  instance.post("/media-access/logout", mediaAccess.logout);
-  instance.get("/media-access/status", async (request, reply) => {
-    reply.header("Cache-Control", "no-store");
-    if (!await mediaAccess.authorized(request)) return reply.code(401).send({ error: "Media access key required" });
-    return { ok: true };
-  });
+  await authPlugin(instance, { allowedOrigins: ALLOWED_ORIGINS });
   await instance.register(checkAccessRoutes);
   await instance.register(categoriesRoutes, { prefix: "/categories" });
-  await instance.register(mediaRoutes, { prefix: "/media", allowedOrigins: ALLOWED_ORIGINS, mediaAccess });
+  await instance.register(mediaRoutes, { prefix: "/media", allowedOrigins: ALLOWED_ORIGINS });
   await instance.register(musicShareRoutes, { prefix: "/music-shares" });
-  await instance.register(whitelistRoutes, { prefix: "/whitelist" });
   await instance.register(queueRoutes, { prefix: "/queue" });
   await instance.register(playbackRoutes, { prefix: "/playback" });
   await instance.register(wrappedRoutes, { prefix: "/wrapped" });

@@ -621,9 +621,6 @@ export default async function (fastify, options = {}) {
     if (!isAllowedMediaBrowserRequest(request, allowedOrigins)) {
       return reply.code(403).send({ error: "Media request blocked by browser boundary" });
     }
-    if (options.mediaAccess && !await options.mediaAccess.authorized(request)) {
-      return reply.code(401).send({ error: "Media access key required", code: "MEDIA_ACCESS_REQUIRED" });
-    }
   });
   fastify.get("/", async (request, reply) => {
     // Keep the array response; Admin walks ordered pages with limit and offset.
@@ -701,7 +698,7 @@ export default async function (fastify, options = {}) {
     }
     const type = ["audio", "music", "video", "photo", "image"].includes(rawType) ? rawType : "all";
 
-    const params = [request.accessTier, request.clientIp || request.ip];
+    const params = [request.accessTier, request.user.id];
     const clauses = [];
     if (categoryId !== null) {
       params.push(categoryId);
@@ -751,7 +748,7 @@ export default async function (fastify, options = {}) {
        FROM media_assets m
        JOIN accessible_categories ac ON ac.id = m.category_id
        LEFT JOIN liked_music lm
-         ON lm.media_id = m.id AND lm.client_ip = $2::inet
+         ON lm.media_id = m.id AND lm.user_id = $2
        ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
        ORDER BY ac.order_parts,
                 ac.id,

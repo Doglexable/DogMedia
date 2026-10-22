@@ -1,7 +1,7 @@
 # Dogmedia
 
 Self-hosted multimedia streaming server for photos, video, and audio. Access is
-controlled via an IP whitelist with access tiers and a media access key.
+controlled by username/password accounts with access tiers.
 
 ## Stack
 
@@ -38,8 +38,10 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env`: replace `PFS_DB_PASSWORD=pfs_secret` with a strong password and
-set `PFS_MEDIA_ACCESS_KEY` to the output of `openssl rand -hex 32`.
+Edit `.env`: replace `PFS_DB_PASSWORD=pfs_secret` with a strong password,
+then set `PFS_ADMIN_USERNAME` and a unique `PFS_ADMIN_PASSWORD` (12–256 characters).
+Migration `027` uses these values only when no administrator exists. Remove the
+admin password from `.env` after the migration succeeds.
 The Compose file supplies its own container addresses for PostgreSQL and Redis,
 so the development `DATABASE_URL` and `REDIS_URL` values in `.env` do not need
 to be changed for this setup.
@@ -56,7 +58,7 @@ podman compose up -d server worker web
 # Confirm that all five services are running.
 podman compose ps
 
-# Test Nginx and Fastify locally. The first request bootstraps the IP whitelist.
+# Test Nginx and Fastify locally. An unauthenticated request returns 401.
 curl -i http://127.0.0.1:8030/api/check-access
 ```
 
@@ -76,19 +78,22 @@ podman compose exec server npm run migrate --workspace=server
 
 ### Upgrading an existing deployment
 
-When updating an existing installation to include the background worker and category cover flow:
+When updating an existing installation to account-based access, set
+`PFS_ADMIN_USERNAME` and `PFS_ADMIN_PASSWORD` in `.env` before migrating.
 
 ```bash
-# 1. Pull latest code and rebuild containers (starts the new worker service)
-podman compose up --build -d
+# 1. Build the updated images and start the backing services
+podman compose build
+podman compose up -d db redis
 
-# 2. Run database migrations (applies every pending migration, including music sharing)
-podman compose exec server npm run migrate --workspace=server
+# 2. Create the admin account and remove the obsolete IP whitelist table
+podman compose run --rm server npm run migrate --workspace=server
 
-# 3. Consolidate category covers and backfill media encoding jobs
-#    Inspect proposed actions first (dry-run):
+# 3. Start the updated application
+podman compose up -d server worker web
+
+# 4. Consolidate category covers and backfill media encoding jobs if needed
 podman compose exec server npm run backfill:media --workspace=server -- --dry-run
-#    Run actual backfill:
 podman compose exec server npm run backfill:media --workspace=server
 ```
 
@@ -166,7 +171,7 @@ Node watch mode, and serves Vite on port 5173:
 
 ```bash
 cp .env.example .env
-# Set a strong PFS_DB_PASSWORD in .env before continuing.
+# Set strong PFS_DB_PASSWORD and PFS_ADMIN_PASSWORD values in .env before continuing.
 
 podman compose -f compose.yml -f compose.dev.yml up --build
 ```
@@ -182,7 +187,8 @@ Open `http://localhost:5173`. Database, Redis, media, and temporary-file state
 is shared with the production Compose setup under `data/`.
 
 For development without containers, install Node.js 22, PostgreSQL, Redis, and ffmpeg;
-run `npm ci`, update `.env` with reachable database/cache URLs, then run:
+run `npm ci`, update `.env` with reachable database/cache URLs and an admin
+password, then run:
 
 ```bash
 npm run migrate --workspace=server
@@ -208,11 +214,11 @@ Debian, Fedora, Arch, Flatpak, and cross-build prerequisites are documented in
 [desktop/README.md](desktop/README.md). Debian and Fedora packages are written
 to `dist/packages/` by the packaging commands below.
 
-The first launch asks for the Dogmedia server URL. The server continues to
-authorize the computer by IP; the desktop app creates and retains a viewer ID
-for playback leases and resume state. Audio and video playback is protected by
-a single global IP lease: another IP cannot start playback until the active
-client releases its lease or the lease expires. Use HTTPS outside a trusted LAN.
+The first launch asks for the Dogmedia server URL and account credentials.
+The desktop app retains a viewer ID for playback leases and resume state.
+Audio and video playback is protected by a single global lease: another
+viewer cannot start playback until the active client releases its lease or it
+expires. Use HTTPS outside a trusted LAN.
 
 Build and publish native Debian or Fedora packages with:
 
@@ -366,7 +372,7 @@ client-supplied `X-Forwarded-For` value and adds the address of its direct
 client. Nginx accepts that header only when the connection comes from loopback,
 then sends a single normalized address to Fastify. Fastify trusts forwarding
 headers only from its local Nginx peer. Consequently, `request.ip` is suitable
-for the whitelist, per-IP queues, likes, resume state, and playback reporting.
+for rate limiting; authenticated queues, likes, resume state, and playback reports use a stable account identity.
 
 ### Apache reverse proxy and real client IP
 
@@ -391,7 +397,7 @@ WebSocket requests through `mod_proxy_http` with the `ProxyPass` rule below.
 For older Apache versions, enable `proxy_wstunnel` and add a more specific
 `ProxyPass /api/playback/socket ws://127.0.0.1:8030/api/playback/socket`
 before the general `ProxyPass /` rule. Keep Apache and Nginx on the same host
-so whitelist identity is consistent for HTTP and WebSocket.
+so client address handling is consistent for HTTP and WebSocket.
 
 If the public entry point is Nginx, its WebSocket location also needs to pass
 the upgrade headers. Add this exact location to the public `server` block that
@@ -478,10 +484,10 @@ ports 3001, 5440, 8030, or 16379 to untrusted networks.
 Verify from a different client machine, not from the server itself:
 
 ```bash
-curl https://media.example.com/api/check-access
+curl -i https://media.example.com/api/check-access
 ```
 
-The JSON `ip` value should match that client's address. If Apache is itself
+An unauthenticated request should return `401 Login required`. If Apache is itself
 behind a CDN, load balancer, or router proxy, configure Apache `mod_remoteip`
 for only that proxy's documented address ranges before relying on the value.
 
@@ -490,40 +496,22 @@ References: [Apache reverse-proxy headers](https://httpd.apache.org/docs/2.4/mod
 [Nginx real-IP module](https://nginx.org/en/docs/http/ngx_http_realip_module.html),
 and [Fastify proxy trust](https://fastify.dev/docs/latest/Reference/Server/#trustproxy).
 
-## IP Whitelist bootstrap
+## Accounts and first setup
 
-On the **first request from localhost**, the middleware detects an empty
-whitelist table and adds the local administrator:
+Set `PFS_ADMIN_USERNAME` and `PFS_ADMIN_PASSWORD` in the local `.env` file, then
+run migrations before starting the server. Migration `027_seed_admin.js` creates
+a tier-999 administrator if none exists, using a salted scrypt password hash.
+It leaves an existing administrator unchanged. Migration `028` removes the old
+IP whitelist table. Migration `029` replaces PostgreSQL IP ownership columns
+with `user_id`; data with no matching account is kept under disabled archive
+accounts. Remove `PFS_ADMIN_PASSWORD` from `.env` after migration.
 
-| CIDR / IP | Tier | Description |
-|-----------|------|-------------|
-| `127.0.0.1` | 999 | First-run auto-add (Admin) |
-
-Other devices must be added explicitly. Existing installations may still have
-the old broad subnet entries; see [API media access server configuration](API_MEDIA_ACCESS_SERVER_CONFIGURATION.md)
-for migration and the required `PFS_MEDIA_ACCESS_KEY` setting.
-
-### Managing the whitelist
-
-Whitelist management routes are restricted to localhost only. From the server
-host:
-
-```bash
-# list
-curl -H 'Authorization: Bearer <media-access-key>' http://localhost:3001/api/whitelist
-
-# add
-curl -X POST http://localhost:3001/api/whitelist \
-  -H 'Authorization: Bearer <media-access-key>' \
-  -H 'Content-Type: application/json' \
-  -d '{"cidr_range":"192.0.2.10/32","access_tier":50,"description":"Trusted laptop"}'
-
-# delete
-curl -X DELETE -H 'Authorization: Bearer <media-access-key>' http://localhost:3001/api/whitelist/1
-```
-
-Note: `ORDER BY masklen(cidr_range) DESC LIMIT 1` ensures more specific CIDR
-entries (e.g. `/32` for a single IP) take priority over broader ranges (`/16`).
+Log in through the web, mobile, or desktop client. Later registrations receive
+tier 0 and can be made from any address that can reach the server. Browser
+sessions use an HttpOnly cookie; native clients use the returned Bearer token.
+`POST /api/auth/logout` revokes the current session. Existing favorites and
+playback history from IP-only access is preserved under disabled archive
+accounts. Account activity is stored under `users.id`.
 
 ## Fastify v5 encapsulation
 
@@ -544,7 +532,7 @@ a parent are **not** inherited by routes created with `register` + `prefix`.
   player folder labels
 - **media_encoding_variants** — low/medium/high derivatives and their durable
   queue status; originals remain untouched and are always the final fallback
-- **ip_whitelist** — CIDR ranges mapped to access tiers + description
+- **users** — username, password hash, and access tier
 - **music_shares** — hashed, expiring, revocable links for individual audio tracks
 
 ## Redis
@@ -574,7 +562,7 @@ prints conflicts and categories for which no usable cover could be found.
 
 | Key | Type | TTL | Purpose |
 |-----|------|-----|---------|
-| `queue:<ip>` | List | — | Per-IP media queue (auto-filled from category) |
+| `queue:<account-identity>` | List | — | Per-account media queue (auto-filled from category) |
 | `queue:index:<ip>` | String | — | Current position in queue |
 | `playback:events` | Sorted set | — | Timestamped event log for Wrapped |
 | `playback:active:<ip>` | String | 5 min | Active session for now-playing dashboard, including loop/shuffle state |
@@ -588,40 +576,42 @@ prints conflicts and categories for which no usable cover could be found.
 
 | Route | Auth | Description |
 |-------|------|-------------|
-| `GET /api/check-access` | None | Returns `{ tier, description, firstRun, ip }` |
-| `GET /api/categories` | Whitelist | Lists categories visible to your tier |
-| `GET /api/media` | Whitelist | Lists media visible to your tier, including category folder metadata |
-| `GET /api/media/:id/stream` | Whitelist | Streams file with Range support |
+| `GET /api/check-access` | Account | Returns `{ tier, description, username, id }` |
+| `GET /api/categories` | Account | Lists categories visible to your tier |
+| `GET /api/media` | Account | Lists media visible to your tier, including category folder metadata |
+| `GET /api/media/:id/stream` | Account | Streams file with Range support |
 | `POST /api/media` | Tier ≥ 100 | Upload media file (multipart) |
 | `PUT /api/media/:id` | Tier ≥ 100 | Update media metadata |
 | `DELETE /api/media/:id` | Tier ≥ 100 | Delete media |
-| `GET /api/music-shares/current` | Whitelist | Read the current IP's favorite-reel render status |
+| `GET /api/music-shares/current` | Account | Read the current account's favorite-reel render status |
 | `POST /api/music-shares` | Tier ≥ `MEDIA_SHARE_MIN_TIER` | Queue a lyric-aware 4:3 clip for one accessible track, or a reel from up to 10 favorites |
-| `DELETE /api/music-shares/current` | Whitelist | Revoke the current favorite reel |
+| `DELETE /api/music-shares/current` | Account | Revoke the current favorite reel |
 | `POST /api/public/music/session` | Public token | Read reel progress or exchange a ready token for a temporary video session |
 | `GET /api/public/music/session/:sessionId/stream` | Public session | Stream the rendered MP4 reel with Range support |
 | `GET /api/public/music/session/:sessionId/download` | Public session | Download the rendered MP4 reel as an attachment |
 | `GET/POST/PUT/DELETE /api/categories/:id` | Tier ≥ 100 | CRUD categories |
-| `GET/POST/DELETE /api/whitelist` | localhost | Manage whitelist entries |
-| `POST /api/queue/auto/:categoryId` | Whitelist | Fill queue with category media |
-| `POST /api/queue/next` | Whitelist | Advance queue, return next mediaId |
-| `POST /api/queue/prev` | Whitelist | Go back, return prev mediaId |
-| `POST /api/queue/select` | Whitelist | Jump queue index to a chosen mediaId |
-| `POST /api/queue/items` | Whitelist | Append one accessible, unique media item |
-| `PUT /api/queue/order` | Whitelist | Atomically reorder the current queue |
-| `DELETE /api/queue/items/:mediaId` | Whitelist | Remove one queue item |
-| `DELETE /api/queue` | Whitelist | Clear the current queue |
-| `GET /api/likes` | Whitelist | List the current IP's liked music |
-| `PUT /api/likes/:mediaId` | Whitelist | Like an accessible audio item |
-| `DELETE /api/likes/:mediaId` | Whitelist | Remove an audio item from likes |
-| `GET /api/likes/share` | Whitelist | Check whether secret-link sharing is enabled |
-| `POST /api/likes/share` | Whitelist | Generate or rotate a titles-only secret link |
-| `DELETE /api/likes/share` | Whitelist | Revoke the current secret link |
+| `POST /api/auth/register` | Public | Create tier-0 account |
+| `POST /api/auth/login` | Public | Log in |
+| `POST /api/auth/logout` | Account | Revoke current session |
+| `POST /api/queue/auto/:categoryId` | Account | Fill queue with category media |
+| `POST /api/queue/next` | Account | Advance queue, return next mediaId |
+| `POST /api/queue/prev` | Account | Go back, return prev mediaId |
+| `POST /api/queue/select` | Account | Jump queue index to a chosen mediaId |
+| `POST /api/queue/items` | Account | Append one accessible, unique media item |
+| `PUT /api/queue/order` | Account | Atomically reorder the current queue |
+| `DELETE /api/queue/items/:mediaId` | Account | Remove one queue item |
+| `DELETE /api/queue` | Account | Clear the current queue |
+| `GET /api/likes` | Account | List the current account's liked music |
+| `PUT /api/likes/:mediaId` | Account | Like an accessible audio item |
+| `DELETE /api/likes/:mediaId` | Account | Remove an audio item from likes |
+| `GET /api/likes/share` | Account | Check whether secret-link sharing is enabled |
+| `POST /api/likes/share` | Account | Generate or rotate a titles-only secret link |
+| `DELETE /api/likes/share` | Account | Revoke the current secret link |
 | `GET /api/public/liked-music/:token` | Public token | Read shared music titles only |
-| `POST /api/playback/event` | Whitelist | Log play/pause/end/skip event and update active session |
-| `POST /api/playback/active` | Whitelist | Update now-playing state without adding a Wrapped event |
-| `GET /api/playback/active` | Whitelist | Return the caller's active playback session for hard-refresh restore |
-| `GET /api/playback/resume/:mediaId` | Whitelist | Get saved resume position |
+| `POST /api/playback/event` | Account | Log play/pause/end/skip event and update active session |
+| `POST /api/playback/active` | Account | Update now-playing state without adding a Wrapped event |
+| `GET /api/playback/active` | Account | Return the caller's active playback session for hard-refresh restore |
+| `GET /api/playback/resume/:mediaId` | Account | Get saved resume position |
 | `GET /api/playback/now-playing` | Tier ≥ 100 | Active sessions across server |
 | `GET /api/playback/wrapped` | Tier ≥ 100 | Aggregated stats + timeline |
 
@@ -689,7 +679,7 @@ theme before paint — zero FOUC.
 
 ## Queue behaviour
 
-- Clicking a media item inside a selected category auto-fills a per-IP queue
+- Clicking a media item inside a selected category auto-fills an account queue
   with all media in that category and starts playback
 - **Next/Prev** buttons navigate within the queue
 - The queue panel lists queued media and lets the user jump to an item; the
@@ -788,11 +778,9 @@ rm -rf pfs-sdk/
 ## Security notes
 
 - Media files stored under `data/media/` (gitignored, bind-mounted by Podman)
-- Private API access requires an IP whitelist entry and a media access key or browser session
+- Private API access requires an account session
 - Streaming uses `Range` headers for seeking — no pre-signed URLs
-- Whitelist management is restricted to localhost only
-- First-run whitelist bootstrap requires a localhost request and adds localhost only
-- CIDR matching prefers specific entries over broader ones (`ORDER BY masklen`)
+- The administrator is seeded by migration from local environment variables
 - Apache sanitizes and forwards the client address; Nginx accepts forwarded
   addresses only from host loopback, and Fastify trusts only local Nginx
 

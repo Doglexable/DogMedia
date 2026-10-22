@@ -131,6 +131,7 @@ function buildPlaybackEvent(request, body = {}) {
     trigger: resolvedTrigger,
     pausedAt: action === "pause" ? (pausedAt || nowIso) : null,
     ip: request.clientIp || request.ip,
+    userId: request.user.id,
     timestamp: nowIso,
   };
 }
@@ -188,15 +189,15 @@ async function hydrateSessionTitles(fastify, sessions) {
   return sessions;
 }
 
-async function storePlaybackEvent(fastify, event) {
+async function storePlaybackEvent(fastify, event, userId) {
   try {
     await fastify.pg.query(
       `INSERT INTO playback_events
-       (media_id, client_ip, action, position, duration, title, occurred_at)
+       (media_id, user_id, action, position, duration, title, occurred_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         event.mediaId,
-        event.ip,
+        userId,
         event.action,
         event.position,
         event.duration,
@@ -218,13 +219,7 @@ function standardUserPlaybackEventsSql(selectSql) {
     WITH standard_user_events AS (
       SELECT pe.*
       FROM playback_events pe
-      LEFT JOIN LATERAL (
-        SELECT access_tier
-        FROM ip_whitelist
-        WHERE pe.client_ip <<= cidr_range
-        ORDER BY masklen(cidr_range) DESC
-        LIMIT 1
-      ) access ON true
+      JOIN users access ON access.id = pe.user_id
       WHERE pe.occurred_at >= $1
         AND pe.occurred_at <= $2
         AND access.access_tier < 100
@@ -233,27 +228,12 @@ function standardUserPlaybackEventsSql(selectSql) {
   `;
 }
 
-async function standardUserIps(fastify, ips) {
-  const uniqueIps = [...new Set(ips.filter(Boolean))];
-  if (uniqueIps.length === 0) return new Set();
-
-  const values = uniqueIps.map((_, index) => `($${index + 1}::inet)`).join(", ");
+async function standardUserIds(fastify) {
   const { rows } = await fastify.pg.query(
-    `WITH event_ips(ip) AS (VALUES ${values})
-     SELECT event_ips.ip::text AS ip,
-            access.access_tier::int AS access_tier
-     FROM event_ips
-     LEFT JOIN LATERAL (
-       SELECT access_tier
-       FROM ip_whitelist
-       WHERE event_ips.ip <<= cidr_range
-       ORDER BY masklen(cidr_range) DESC
-       LIMIT 1
-     ) access ON true`,
-    uniqueIps
+    "SELECT id FROM users WHERE access_tier < 100"
   );
 
-  return new Set(rows.filter((row) => Number.isFinite(row.access_tier) && row.access_tier < 100).map((row) => row.ip));
+  return new Set(rows.map((row) => Number(row.id)));
 }
 
 async function getWrappedFromDb(fastify, from, to) {
@@ -319,8 +299,8 @@ async function getWrappedFromRedis(fastify, from, to) {
   );
 
   const allEvents = raw.map((s) => JSON.parse(s));
-  const allowedIps = await standardUserIps(fastify, allEvents.map((event) => event.ip));
-  const events = allEvents.filter((event) => allowedIps.has(event.ip));
+  const allowedUsers = await standardUserIds(fastify);
+  const events = allEvents.filter((event) => allowedUsers.has(Number(event.userId)));
   const mediaMap = {};
   const dayBuckets = {};
 
@@ -402,8 +382,8 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
   let whereSql = "";
 
   if (view === "liked") {
-    params.push(request.clientIp || request.ip);
-    likedJoin = `JOIN liked_music lm ON lm.media_id = m.id AND lm.client_ip = $${params.length}::inet`;
+    params.push(request.user.id);
+    likedJoin = `JOIN liked_music lm ON lm.media_id = m.id AND lm.user_id = $${params.length}`;
     whereSql += " AND m.mime_type LIKE 'audio/%'";
   }
 
@@ -615,7 +595,7 @@ export default async function (fastify) {
     }
 
     await multi.exec();
-    await storePlaybackEvent(fastify, event);
+    await storePlaybackEvent(fastify, event, request.user.id);
 
     return { ok: true };
   });

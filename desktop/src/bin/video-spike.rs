@@ -37,12 +37,14 @@ enum SpikeConfig {
         stream_url: url::Url,
         session_id: SessionId,
         viewer_id: ViewerId,
+        account_token: String,
     },
     Media {
         server_url: String,
         media_id: MediaId,
         quality: Quality,
         viewer_id: ViewerId,
+        account_token: String,
     },
     Synthetic,
 }
@@ -116,6 +118,7 @@ impl FrameSource {
                 stream_url,
                 session_id,
                 viewer_id,
+                account_token,
             } => {
                 let engine =
                     PlaybackEngine::new().expect("failed to initialize the GStreamer engine");
@@ -128,7 +131,7 @@ impl FrameSource {
                     expires_at: None,
                 };
                 engine
-                    .open(&session, stream_url)
+                    .open_with_token(&session, stream_url, account_token)
                     .expect("failed to open the video stream");
                 engine.play().expect("failed to start video playback");
                 Self::Engine {
@@ -142,22 +145,24 @@ impl FrameSource {
                 media_id,
                 quality,
                 viewer_id,
+                account_token,
             } => {
                 let runtime = tokio::runtime::Runtime::new()
                     .expect("failed to initialize the playback API runtime");
                 let client = ApiClient::new(server_url, viewer_id.clone())
-                    .expect("failed to initialize the playback API client");
+                    .expect("failed to initialize the playback API client")
+                    .with_account_token(account_token);
                 let session = runtime
                     .block_on(client.create_playback_session(*media_id, *quality))
                     .expect("failed to create a protected playback session");
                 let stream_url = client
                     .absolute_url(&session.stream_url)
                     .expect("server returned an invalid stream URL");
-                probe_protected_stream(&runtime, &session, &stream_url);
+                probe_protected_stream(&runtime, &session, &stream_url, account_token);
                 let engine =
                     PlaybackEngine::new().expect("failed to initialize the GStreamer engine");
                 engine
-                    .open(&session, &stream_url)
+                    .open_with_token(&session, &stream_url, account_token)
                     .expect("failed to open the video stream");
                 engine.play().expect("failed to start video playback");
                 let lease = SessionLease::spawn(runtime, client, session);
@@ -525,7 +530,7 @@ fn app() -> Element {
     }
 }
 
-fn validate_video_media(server_url: &str, media_id: MediaId, viewer_id: &ViewerId) {
+fn validate_video_media(server_url: &str, media_id: MediaId, viewer_id: &ViewerId, account_token: &str) {
     let runtime = tokio::runtime::Runtime::new().unwrap_or_else(|error| {
         eprintln!("video-spike: failed to initialize the playback API runtime: {error}");
         std::process::exit(1);
@@ -533,7 +538,7 @@ fn validate_video_media(server_url: &str, media_id: MediaId, viewer_id: &ViewerI
     let client = ApiClient::new(server_url, viewer_id.clone()).unwrap_or_else(|error| {
         eprintln!("video-spike: failed to initialize the playback API client: {error}");
         std::process::exit(2);
-    });
+    }).with_account_token(account_token);
     let media = runtime
         .block_on(client.media(media_id))
         .unwrap_or_else(|error| {
@@ -573,6 +578,7 @@ fn probe_protected_stream(
     runtime: &tokio::runtime::Runtime,
     session: &PlaybackSession,
     stream_url: &url::Url,
+    account_token: &str,
 ) {
     let result = runtime.block_on(async {
         let mut response = reqwest::Client::new()
@@ -581,6 +587,7 @@ fn probe_protected_stream(
             .header("X-Playback-Session", session.session_id.as_str())
             .header("X-Viewer-ID", session.viewer_id.as_str())
             .header("X-Client-Platform", "desktop")
+            .bearer_auth(account_token)
             .send()
             .await?;
         let status = response.status();
@@ -626,6 +633,7 @@ fn main() {
         .init();
 
     let mut args = env::args().skip(1);
+    let account_token = env::var("PFS_ACCOUNT_TOKEN").unwrap_or_default();
     let Some(raw_url) = args.next() else {
         eprintln!(
             "usage: video-spike --synthetic\n       video-spike --media <server-url> <media-id> [quality] [viewer-id]\n       video-spike <stream-url> [session-id] [viewer-id]"
@@ -663,12 +671,17 @@ fn main() {
             args.next()
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         );
-        validate_video_media(&server_url, media_id, &viewer_id);
+        if account_token.is_empty() {
+            eprintln!("video-spike: set PFS_ACCOUNT_TOKEN to a valid account session token");
+            std::process::exit(2);
+        }
+        validate_video_media(&server_url, media_id, &viewer_id, &account_token);
         SpikeConfig::Media {
             server_url,
             media_id,
             quality,
             viewer_id,
+            account_token,
         }
     } else {
         let stream_url = url::Url::parse(&raw_url).unwrap_or_else(|error| {
@@ -681,6 +694,7 @@ fn main() {
             stream_url,
             session_id,
             viewer_id,
+            account_token,
         }
     };
     CONFIG

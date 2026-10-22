@@ -23,13 +23,177 @@ pub enum ColorScheme {
     System,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerEnvironment {
+    Local,
+    Staging,
+    Prod,
+}
+
+impl ServerEnvironment {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::Staging => "Staging",
+            Self::Prod => "Prod",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerEnvironmentUrls {
+    pub local: String,
+    pub staging: String,
+    pub prod: String,
+}
+
+impl Default for ServerEnvironmentUrls {
+    fn default() -> Self {
+        Self {
+            local: "http://127.0.0.1:3000/".to_owned(),
+            staging: "https://staging.dogmedia.example.com/".to_owned(),
+            prod: "https://stream.dogmedia.example.com/".to_owned(),
+        }
+    }
+}
+
+impl ServerEnvironmentUrls {
+    pub fn default_environment() -> ServerEnvironment {
+        if cfg!(debug_assertions) {
+            ServerEnvironment::Local
+        } else {
+            ServerEnvironment::Prod
+        }
+    }
+
+    pub fn load() -> Self {
+        let mut local = None;
+        let mut staging = None;
+        let mut prod = None;
+
+        Self::check_env(&mut local, &mut staging, &mut prod);
+
+        if local.is_none() || staging.is_none() || prod.is_none() {
+            let search_paths = [
+                PathBuf::from(".env"),
+                PathBuf::from("../.env"),
+                PathBuf::from("../../.env"),
+            ];
+            for path in &search_paths {
+                if let Ok(content) = fs::read_to_string(path) {
+                    Self::parse_env_content(&content, &mut local, &mut staging, &mut prod);
+                    if local.is_some() && staging.is_some() && prod.is_some() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let defaults = Self::default();
+        Self {
+            local: local.unwrap_or(defaults.local),
+            staging: staging.unwrap_or(defaults.staging),
+            prod: prod.unwrap_or(defaults.prod),
+        }
+    }
+
+    fn check_env(
+        local: &mut Option<String>,
+        staging: &mut Option<String>,
+        prod: &mut Option<String>,
+    ) {
+        if local.is_none() {
+            *local = std::env::var("DOGMEDIA_SERVER_URL_LOCAL")
+                .or_else(|_| std::env::var("PFS_SERVER_URL_LOCAL"))
+                .or_else(|_| std::env::var("SERVER_URL_LOCAL"))
+                .ok();
+        }
+        if staging.is_none() {
+            *staging = std::env::var("DOGMEDIA_SERVER_URL_STAGING")
+                .or_else(|_| std::env::var("PFS_SERVER_URL_STAGING"))
+                .or_else(|_| std::env::var("SERVER_URL_STAGING"))
+                .ok();
+        }
+        if prod.is_none() {
+            *prod = std::env::var("DOGMEDIA_SERVER_URL_PROD")
+                .or_else(|_| std::env::var("PFS_SERVER_URL_PROD"))
+                .or_else(|_| std::env::var("SERVER_URL_PROD"))
+                .ok();
+        }
+    }
+
+    pub fn parse_env_content(
+        content: &str,
+        local: &mut Option<String>,
+        staging: &mut Option<String>,
+        prod: &mut Option<String>,
+    ) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, val)) = line.split_once('=') {
+                let key = key.trim();
+                let val = val.trim().trim_matches('"').trim_matches('\'').trim();
+                if val.is_empty() {
+                    continue;
+                }
+                match key {
+                    "DOGMEDIA_SERVER_URL_LOCAL" | "PFS_SERVER_URL_LOCAL" | "SERVER_URL_LOCAL" => {
+                        if local.is_none() {
+                            *local = Some(val.to_owned());
+                        }
+                    }
+                    "DOGMEDIA_SERVER_URL_STAGING"
+                    | "PFS_SERVER_URL_STAGING"
+                    | "SERVER_URL_STAGING" => {
+                        if staging.is_none() {
+                            *staging = Some(val.to_owned());
+                        }
+                    }
+                    "DOGMEDIA_SERVER_URL_PROD" | "PFS_SERVER_URL_PROD" | "SERVER_URL_PROD" => {
+                        if prod.is_none() {
+                            *prod = Some(val.to_owned());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn url_for(&self, env: ServerEnvironment) -> &str {
+        match env {
+            ServerEnvironment::Local => &self.local,
+            ServerEnvironment::Staging => &self.staging,
+            ServerEnvironment::Prod => &self.prod,
+        }
+    }
+
+    pub fn match_environment(&self, url: &str) -> Option<ServerEnvironment> {
+        let clean = url.trim().trim_end_matches('/');
+        if !clean.is_empty() && clean == self.local.trim().trim_end_matches('/') {
+            Some(ServerEnvironment::Local)
+        } else if !clean.is_empty() && clean == self.staging.trim().trim_end_matches('/') {
+            Some(ServerEnvironment::Staging)
+        } else if !clean.is_empty() && clean == self.prod.trim().trim_end_matches('/') {
+            Some(ServerEnvironment::Prod)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub version: u8,
     pub configured: bool,
     pub server_url: ServerUrl,
-    pub media_access_key: String,
+    pub account_token: String,
+    pub username: String,
     pub viewer_id: ViewerId,
     pub quality: Quality,
     pub volume: Volume,
@@ -46,7 +210,8 @@ impl Default for Settings {
             version: VERSION,
             configured: false,
             server_url: ServerUrl::default(),
-            media_access_key: String::new(),
+            account_token: String::new(),
+            username: String::new(),
             viewer_id: ViewerId::new(Uuid::new_v4().to_string()),
             quality: Quality::High,
             volume: Volume::default(),
@@ -194,5 +359,34 @@ mod tests {
                 .set_server_url("http://media.example.test")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn server_environment_urls_parses_env_content_and_matches() {
+        let env_content = r#"
+            # Server config
+            DOGMEDIA_SERVER_URL_LOCAL="http://127.0.0.1:3000/"
+            DOGMEDIA_SERVER_URL_STAGING=https://staging.example.com
+            DOGMEDIA_SERVER_URL_PROD='https://stream.example.com/'
+        "#;
+        let mut local = None;
+        let mut staging = None;
+        let mut prod = None;
+        ServerEnvironmentUrls::parse_env_content(env_content, &mut local, &mut staging, &mut prod);
+        assert_eq!(local.as_deref(), Some("http://127.0.0.1:3000/"));
+        assert_eq!(staging.as_deref(), Some("https://staging.example.com"));
+        assert_eq!(prod.as_deref(), Some("https://stream.example.com/"));
+
+        let urls = ServerEnvironmentUrls {
+            local: local.unwrap(),
+            staging: staging.unwrap(),
+            prod: prod.unwrap(),
+        };
+
+        assert_eq!(urls.match_environment("http://127.0.0.1:3000"), Some(ServerEnvironment::Local));
+        assert_eq!(urls.match_environment("http://127.0.0.1:3000/"), Some(ServerEnvironment::Local));
+        assert_eq!(urls.match_environment("https://staging.example.com/"), Some(ServerEnvironment::Staging));
+        assert_eq!(urls.match_environment("https://stream.example.com"), Some(ServerEnvironment::Prod));
+        assert_eq!(urls.match_environment("https://other.com"), None);
     }
 }

@@ -294,25 +294,25 @@ function StorySlide({ cardHeight, cardWidth, current, data, slide, total, wrappe
     const remainingDevices = Math.max((slide.totalCount || 0) - slide.items.length, 0);
     content = (
       <View style={[cardStyle, styles.devicesSlide, { padding: 26 * scale }]}>
-        <Text style={styles.devicesKicker}>All-device contribution</Text>
+        <Text style={styles.devicesKicker}>All-account contribution</Text>
         <Text style={[styles.devicesTitle, { fontSize: 46 * scale, lineHeight: 42 * scale }]}>One library. Every screen.</Text>
-        <Text style={styles.devicesLede}>Listening time ranked across your network.</Text>
+        <Text style={styles.devicesLede}>Listening time ranked across accounts.</Text>
         {slide.items.length ? (
           <View style={styles.deviceStoryList}>
             {slide.items.map((device) => (
-              <View key={device.ip} style={styles.deviceStoryRow}>
+              <View key={device.userId} style={styles.deviceStoryRow}>
                 <Text style={styles.deviceStoryRank}>{String(device.rank).padStart(2, "0")}</Text>
                 <View style={styles.deviceStoryCopy}>
-                  <Text style={styles.deviceStoryTitle} numberOfLines={1}>{device.label || device.ip}</Text>
-                  <Text style={styles.deviceStoryMeta} numberOfLines={1}>{device.ip} / {formatNumber(device.playCount)} plays</Text>
+                  <Text style={styles.deviceStoryTitle} numberOfLines={1}>{device.label || `User ${device.userId}`}</Text>
+                  <Text style={styles.deviceStoryMeta} numberOfLines={1}>Account #{device.userId} / {formatNumber(device.playCount)} plays</Text>
                   <View style={styles.deviceStoryTrack}><View style={[styles.deviceStoryFill, { width: `${Math.max((device.share || 0) * 100, 3)}%` }]} /></View>
                 </View>
                 <Text style={styles.deviceStoryTime}>{fmtTime(device.totalTime)}</Text>
               </View>
             ))}
           </View>
-        ) : <Text style={styles.deviceStoryEmpty}>Device contributions will appear after a complete playback session.</Text>}
-        {remainingDevices > 0 && <Text style={styles.deviceStoryMore}>+{remainingDevices} more {remainingDevices === 1 ? "device" : "devices"} in the full report</Text>}
+        ) : <Text style={styles.deviceStoryEmpty}>Account contributions will appear after a complete playback session.</Text>}
+        {remainingDevices > 0 && <Text style={styles.deviceStoryMore}>+{remainingDevices} more {remainingDevices === 1 ? "account" : "accounts"} in the full report</Text>}
       </View>
     );
   } else if (slide.id === "persona") {
@@ -382,7 +382,7 @@ function storyChapter(id) {
     time: "Time in motion",
     "top-media": "Your rotation",
     rhythm: "Listening clock",
-    devices: "Device contributions",
+    devices: "Account contributions",
     persona: "Playback character",
     final: "Final recap",
   })[id] || "Recap";
@@ -586,20 +586,20 @@ function CategoryList({ categories }) {
 
 function DeviceContributionList({ devices, maxDeviceTime }) {
   const { styles } = useWrappedTheme();
-  if (!devices.length) return <Text style={styles.emptyNote}>Device contributions will appear after a complete playback session.</Text>;
+  if (!devices.length) return <Text style={styles.emptyNote}>Account contributions will appear after a complete playback session.</Text>;
   return (
     <View style={styles.deviceList}>
       {devices.map((device) => {
         const pct = Math.max(((device.totalTime || 0) / maxDeviceTime) * 100, 3);
         return (
-          <View key={device.ip} style={styles.deviceRow}>
+          <View key={device.userId} style={styles.deviceRow}>
             <Text style={styles.rank}>{device.rank}</Text>
             <View style={styles.deviceCopy}>
               <View style={styles.deviceHeading}>
-                <Text style={styles.deviceTitle} numberOfLines={1}>{device.label || device.ip}</Text>
+                <Text style={styles.deviceTitle} numberOfLines={1}>{device.label || `User ${device.userId}`}</Text>
                 <Text style={styles.deviceTime}>{fmtTime(device.totalTime)}</Text>
               </View>
-              <Text style={styles.deviceMeta} numberOfLines={1}>{device.label && device.label !== device.ip ? `${device.ip} / ` : ""}{formatNumber(device.playCount)} plays / {Math.round((device.share || 0) * 100)}%</Text>
+              <Text style={styles.deviceMeta} numberOfLines={1}>Account #{device.userId} / {formatNumber(device.playCount)} plays / {Math.round((device.share || 0) * 100)}%</Text>
               <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${pct}%` }]} /></View>
             </View>
           </View>
@@ -629,7 +629,7 @@ function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) 
       <View style={styles.summaryHero}>
         <View style={styles.summaryHeroMeta}>
           <Image source={require("../../assets/logo.png")} style={styles.summaryHeroLogo} />
-          <Text style={styles.summaryEyebrow}>All devices / {periodLabel}</Text>
+          <Text style={styles.summaryEyebrow}>All accounts / {periodLabel}</Text>
         </View>
         <Text style={styles.summaryHeroTitle}>Your playback pulse</Text>
         <Text style={styles.summaryHeroSubtitle}>{wrappedCopy.storyDescription}</Text>
@@ -669,7 +669,7 @@ function SummaryDashboard({ data, insets, periodLabel, timeline, wrappedCopy }) 
       </View>
 
       <View style={styles.panel}>
-        <SectionHeading title="Device contributions" detail="Combined listening time across your network" value={`${formatNumber(deviceContributions.length)} active`} />
+        <SectionHeading title="Account contributions" detail="Combined listening time across accounts" value={`${formatNumber(deviceContributions.length)} active`} />
         <DeviceContributionList devices={deviceContributions} maxDeviceTime={maxDeviceTime} />
       </View>
 

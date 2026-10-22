@@ -54,5 +54,5 @@ Included:
 Not included in this first mobile version:
 
 - Admin upload/management
-- Whitelist management
+- Account management
 - Public shared favorites route

@@ -196,18 +196,17 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
   };
 
   const getDevice = (event) => {
-    const rawIp = eventValue(event, "clientIp", "client_ip");
-    const ip = typeof rawIp === "string" ? rawIp.trim() : String(rawIp || "").trim();
-    if (!ip) return { key: "unknown", stats: null };
+    const userId = Number(eventValue(event, "userId", "user_id"));
+    if (!Number.isInteger(userId) || userId < 1) return { key: "unknown", stats: null };
 
     const rawLabel = eventValue(event, "deviceLabel", "device_label");
-    const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim() : ip;
-    if (!deviceStats.has(ip)) {
-      deviceStats.set(ip, { ip, label, playCount: 0, totalTime: 0 });
-    } else if (deviceStats.get(ip).label === ip && label !== ip) {
-      deviceStats.get(ip).label = label;
+    const label = typeof rawLabel === "string" && rawLabel.trim() ? rawLabel.trim() : `User ${userId}`;
+    if (!deviceStats.has(userId)) {
+      deviceStats.set(userId, { userId, label, playCount: 0, totalTime: 0 });
+    } else if (deviceStats.get(userId).label === `User ${userId}` && label !== `User ${userId}`) {
+      deviceStats.get(userId).label = label;
     }
-    return { key: ip, stats: deviceStats.get(ip) };
+    return { key: userId, stats: deviceStats.get(userId) };
   };
 
   for (const event of sortedEvents) {
@@ -244,7 +243,7 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
         position: normalizeNonNegativeInt(eventValue(event, "position")),
         duration: normalizeNonNegativeInt(eventValue(event, "duration")),
         categoryKey,
-        deviceIp: device.stats?.ip || null,
+        deviceUserId: device.stats?.userId || null,
       });
       continue;
     }
@@ -264,8 +263,8 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
     totalPlayTime += listened;
     segmentCount += 1;
     media.totalTime += listened;
-    if (start.deviceIp && deviceStats.has(start.deviceIp)) {
-      deviceStats.get(start.deviceIp).totalTime += listened;
+    if (start.deviceUserId && deviceStats.has(start.deviceUserId)) {
+      deviceStats.get(start.deviceUserId).totalTime += listened;
     }
     const startParts = shiftedDateParts(start.occurredAt, timezoneOffset);
     const hour = startParts.hour;
@@ -309,7 +308,7 @@ export function aggregateWrappedEvents(events = [], from = new Date(0), to = new
   const persona = deriveWrappedPersona({ averageSession, distinctMedia, leadShare, nightShare, totalPlayTime });
   const deviceContributions = [...deviceStats.values()]
     .filter((device) => device.totalTime > 0)
-    .sort((a, b) => b.totalTime - a.totalTime || b.playCount - a.playCount || a.ip.localeCompare(b.ip))
+    .sort((a, b) => b.totalTime - a.totalTime || b.playCount - a.playCount || a.userId - b.userId)
     .map((device, index) => ({
       ...device,
       rank: index + 1,
@@ -499,13 +498,13 @@ async function withTransaction(fastify, fn) {
   }
 }
 
-export async function acquireWrappedAccessLock(client, clientIp) {
+export async function acquireWrappedAccessLock(client, userId) {
   const { rows } = await client.query(
     `WITH upsert AS (
        INSERT INTO wrapped_access_locks
-         (client_ip, last_opened_at, next_open_at, updated_at)
-       VALUES ($1::inet, NOW(), NOW() + INTERVAL '30 days', NOW())
-       ON CONFLICT (client_ip) DO UPDATE
+         (user_id, last_opened_at, next_open_at, updated_at)
+       VALUES ($1, NOW(), NOW() + INTERVAL '30 days', NOW())
+       ON CONFLICT (user_id) DO UPDATE
        SET last_opened_at = NOW(),
            next_open_at = NOW() + INTERVAL '30 days',
            updated_at = NOW()
@@ -516,16 +515,16 @@ export async function acquireWrappedAccessLock(client, clientIp) {
      UNION ALL
      SELECT FALSE AS allowed, last_opened_at, next_open_at
      FROM wrapped_access_locks
-     WHERE client_ip = $1::inet
+     WHERE user_id = $1
        AND NOT EXISTS (SELECT 1 FROM upsert)
      LIMIT 1`,
-    [clientIp]
+    [userId]
   );
 
   return rows[0] ? mapWrappedAccessLock(rows[0]) : null;
 }
 
-export async function getWrappedAccessStatus(client, clientIp) {
+export async function getWrappedAccessStatus(client, userId) {
   const { rows } = await client.query(
     `SELECT
        last_opened_at,
@@ -533,15 +532,15 @@ export async function getWrappedAccessStatus(client, clientIp) {
        next_open_at <= NOW() AS available,
        GREATEST(CEIL(EXTRACT(EPOCH FROM (next_open_at - NOW()))), 0)::int AS retry_after_seconds
      FROM wrapped_access_locks
-     WHERE client_ip = $1::inet`,
-    [clientIp]
+     WHERE user_id = $1`,
+    [userId]
   );
 
   return mapWrappedAccessStatus(rows[0]);
 }
 
 export async function getCurrentWrapped(fastify, request, from, to, timezoneOffset = 0, options = {}) {
-  const clientIp = request.clientIp || request.ip;
+  const userId = request.user.id;
   const params = [from.toISOString(), to.toISOString()];
   const { rows } = await fastify.pg.query(
     `SELECT
@@ -552,21 +551,15 @@ export async function getCurrentWrapped(fastify, request, from, to, timezoneOffs
        pe.duration,
        pe.title,
        pe.occurred_at,
-       pe.client_ip::text AS client_ip,
-       COALESCE(NULLIF(BTRIM(device.description), ''), pe.client_ip::text) AS device_label,
+       pe.user_id,
+       u.username AS device_label,
        ma.title AS media_title,
        ma.category_id,
        c.name AS category_name
      FROM playback_events pe
      LEFT JOIN media_assets ma ON ma.id = pe.media_id
      LEFT JOIN categories c ON c.id = ma.category_id
-     LEFT JOIN LATERAL (
-       SELECT iw.description
-       FROM ip_whitelist iw
-       WHERE pe.client_ip <<= iw.cidr_range
-       ORDER BY masklen(iw.cidr_range) DESC
-       LIMIT 1
-     ) device ON true
+     JOIN users u ON u.id = pe.user_id
      WHERE pe.occurred_at >= $1
        AND pe.occurred_at <= $2
      ORDER BY pe.occurred_at, pe.id`,
@@ -575,8 +568,8 @@ export async function getCurrentWrapped(fastify, request, from, to, timezoneOffs
   const wrapped = aggregateWrappedEvents(rows, from, to, { timezoneOffset, ...options });
 
   return {
-    clientIp,
-    scope: "all-devices",
+    userId,
+    scope: "all-accounts",
     periodStart: wrapped.period.start,
     periodEnd: wrapped.period.end,
     wrappedKind: options.wrappedKind || "monthly",
@@ -588,7 +581,7 @@ export default async function (fastify) {
   fastify.get("/access", async (request) => {
     const annual = getAnnualWrappedAvailability(new Date());
     if (annual) return annual;
-    return getWrappedAccessStatus(fastify.pg, request.clientIp || request.ip);
+    return getWrappedAccessStatus(fastify.pg, request.user.id);
   });
 
   fastify.get("/current", async (request, reply) => {
@@ -631,8 +624,7 @@ export default async function (fastify) {
     const from = normalizeDateTime(request.query.from, subDays(now, 30));
     const to = normalizeDateTime(request.query.to, now);
 
-    const clientIp = request.clientIp || request.ip;
-    const access = await acquireWrappedAccessLock(fastify.pg, clientIp);
+    const access = await acquireWrappedAccessLock(fastify.pg, request.user.id);
 
     if (!access?.allowed) {
       const retryAfterSeconds = getRetryAfterSeconds(access?.nextOpenAt, now);

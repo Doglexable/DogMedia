@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import pg from "pg";
 import { runMigrations, migrate } from "./migrate.js";
+import { up as seedAdmin } from "./migrations/027_seed_admin.js";
+import { matchesPassword } from "./password.js";
 
 vi.mock("pg", () => {
   const Client = vi.fn();
@@ -133,6 +135,44 @@ describe("database migrations", () => {
     expect(queryCalls).toContain("BEGIN");
     expect(queryCalls).toContain("ROLLBACK");
     expect(queryCalls).not.toContain("COMMIT");
+  });
+
+  it("runs a numbered JavaScript migration in the same transaction", async () => {
+    writeFileSync(join(tempDir, "027_script.js"), "export async function up(client) { await client.query('SCRIPT_RAN'); }");
+    const client = { query: vi.fn(async (sql) => {
+      if (String(sql).includes("SELECT 1 FROM _migrations")) return { rows: [] };
+      return { rows: [] };
+    }) };
+    await runMigrations(client, tempDir);
+    const calls = client.query.mock.calls.map(([sql]) => sql);
+    expect(calls.indexOf("BEGIN")).toBeLessThan(calls.indexOf("SCRIPT_RAN"));
+    expect(calls.indexOf("SCRIPT_RAN")).toBeLessThan(calls.indexOf("COMMIT"));
+    expect(client.query).toHaveBeenCalledWith("INSERT INTO _migrations (name) VALUES ($1)", ["027_script.js"]);
+  });
+
+  it("seeds one admin with a salted password hash and skips existing administrators", async () => {
+    const inserts = [];
+    const client = { query: vi.fn(async (sql, params) => {
+      if (sql.includes("SELECT EXISTS")) return { rows: [{ has_admin: inserts.length > 0 }] };
+      if (sql.includes("INSERT INTO users")) inserts.push(params);
+      return { rows: [] };
+    }) };
+    await seedAdmin(client, { PFS_ADMIN_USERNAME: "owner", PFS_ADMIN_PASSWORD: "a long secure password" });
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][0]).toBe("owner");
+    expect(inserts[0][1]).not.toContain("a long secure password");
+    expect(await matchesPassword("a long secure password", inserts[0][1])).toBe(true);
+    await seedAdmin(client, {});
+    expect(inserts).toHaveLength(1);
+  });
+
+  it("rejects an unset admin password before inserting any account", async () => {
+    const client = { query: vi.fn(async (sql) => {
+      if (sql.includes("SELECT EXISTS")) return { rows: [{ has_admin: false }] };
+      return { rows: [] };
+    }) };
+    await expect(seedAdmin(client, {})).rejects.toThrow("PFS_ADMIN_PASSWORD");
+    expect(client.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO users"))).toBe(false);
   });
 
   it("ensures client connection and cleanup in migrate()", async () => {

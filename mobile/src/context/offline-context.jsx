@@ -2,9 +2,10 @@ import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { AppState } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE, api, apiJson, mediaAccessHeaders, mediaThumbnailUrl } from "../api";
+import { API_BASE, api, apiJson, accountAuthHeaders, mediaThumbnailUrl } from "../api";
 import {
   clearStoredDownloads,
+  clearAccountOfflineState,
   createClientEventId,
   deletePlaybackOutbox,
   deleteStoredDownload,
@@ -127,6 +128,7 @@ export function OfflineProvider({ children }) {
       setLease(nextLease);
       return { ...data, offline: false };
     } catch (error) {
+      if (error?.status === 401) throw error;
       if (error?.status === 403) {
         const lockedLease = { ...(await getStoredLease()), locked: true, validatedAt: new Date().toISOString() };
         await saveStoredLease(lockedLease);
@@ -230,7 +232,7 @@ export function OfflineProvider({ children }) {
     const download = FileSystem.createDownloadResumable(
       `${API_BASE}/api/offline/media/${item.id}/download?quality=${encodeURIComponent(item.quality || "high")}`,
       partUri,
-      { headers: mediaAccessHeaders() },
+      { headers: accountAuthHeaders() },
       ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
         const progress = totalBytesExpectedToWrite > 0 ? totalBytesWritten / totalBytesExpectedToWrite : 0;
         patchStoredJob(job.mediaId, { progress }).then(refresh).catch(() => {});
@@ -252,7 +254,7 @@ export function OfflineProvider({ children }) {
       let thumbnailUri = null;
       const thumbTarget = `${THUMB_DIR}/${item.id}.image`;
       try {
-        const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: mediaAccessHeaders() });
+        const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: accountAuthHeaders() });
         if (thumb.status >= 200 && thumb.status < 300) thumbnailUri = thumb.uri;
       } catch {
         await deleteUris(thumbTarget);
@@ -362,7 +364,7 @@ export function OfflineProvider({ children }) {
     let lyrics = existing.lyrics;
     const thumbTarget = `${THUMB_DIR}/${item.id}.image`;
     try {
-      const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: mediaAccessHeaders() });
+      const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: accountAuthHeaders() });
       if (thumb.status >= 200 && thumb.status < 300) thumbnailUri = thumb.uri;
     } catch {
       // Artwork remains optional.
@@ -391,6 +393,12 @@ export function OfflineProvider({ children }) {
     await refresh();
   }, [cancelDownload, refresh]);
 
+  const clearAccountData = useCallback(async () => {
+    await removeAll();
+    await clearAccountOfflineState();
+    setLease(null);
+  }, [removeAll]);
+
   const downloadsById = useMemo(() => new Map(downloads.map((item) => [item.mediaId, item])), [downloads]);
   const leaseState = evaluateOfflineLease(lease);
   const resolveMediaUri = useCallback((mediaId) => resolveOfflineSource(mediaId, downloadsById, lease), [downloadsById, lease]);
@@ -400,12 +408,12 @@ export function OfflineProvider({ children }) {
   const saveResume = useCallback((mediaId, position, duration) => saveLocalResume(mediaId, position, duration), []);
 
   const value = useMemo(() => ({
-    cancelDownload, downloadCategory, downloadMedia, downloads, downloadsById, flushSync,
+    cancelDownload, clearAccountData, downloadCategory, downloadMedia, downloads, downloadsById, flushSync,
     getLocalResume, getOfflineLyrics, isConnected: Boolean(network.isConnected), jobs, lease,
     leaseState, networkType: network.type, ready, recordPlaybackEvent, removeAll, removeDownload,
     resolveMediaUri, resolveThumbnailUri, retryAssets, retryDownload, saveResume, storage, syncing, validateAccess,
   }), [
-    cancelDownload, downloadCategory, downloadMedia, downloads, downloadsById, flushSync, getOfflineLyrics,
+    cancelDownload, clearAccountData, downloadCategory, downloadMedia, downloads, downloadsById, flushSync, getOfflineLyrics,
     jobs, lease, leaseState, network, ready, recordPlaybackEvent, removeAll, removeDownload,
     resolveMediaUri, resolveThumbnailUri, retryAssets, retryDownload, saveResume, storage, syncing, validateAccess,
   ]);

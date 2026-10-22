@@ -11,12 +11,13 @@ import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { faHouse } from "@fortawesome/free-solid-svg-icons/faHouse";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
-import { faNetworkWired } from "@fortawesome/free-solid-svg-icons/faNetworkWired";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
+import { faCircleUser } from "@fortawesome/free-solid-svg-icons/faCircleUser";
+import { ProfileModal } from "./profile-modal";
 import { ThemeToggle } from "./theme-toggle";
 import { Link, useLocation } from "react-router-dom";
-import { api, apiUrl, categoryThumbnailUrl, readJsonArray } from "../api";
+import { api, apiUrl, categoryThumbnailUrl, profilePictureUrl, readJsonArray } from "../api";
 import { SiteFooter } from "./site-footer";
 import { DesktopDownload } from "./desktop-download";
 import { APP_VERSION_LABEL } from "../version";
@@ -147,10 +148,25 @@ export function CategorySidebarItem({ active, category, close, onOpenMenu }) {
 }
 
 /** Bottom nav tab used only on mobile (≤640px) */
-function BottomNavTab({ active, children, icon, onClick, to }) {
+export function BottomNavTab({ active, avatarUrl, children, icon, onClick, to }) {
   const content = (
     <>
-      <FontAwesomeIcon icon={icon} className="mobile-nav-tab-icon" />
+      {avatarUrl ? (
+        <span className="mobile-nav-tab-avatar-wrap">
+          <img
+            src={avatarUrl}
+            alt=""
+            className="mobile-nav-tab-avatar"
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+              if (e.currentTarget.nextSibling) e.currentTarget.nextSibling.style.display = "inline-block";
+            }}
+          />
+          <FontAwesomeIcon icon={icon} className="mobile-nav-tab-icon" style={{ display: "none" }} />
+        </span>
+      ) : (
+        <FontAwesomeIcon icon={icon} className="mobile-nav-tab-icon" />
+      )}
       <span className="mobile-nav-tab-label">{children}</span>
     </>
   );
@@ -176,23 +192,6 @@ function BottomNavTab({ active, children, icon, onClick, to }) {
   );
 }
 
-function AccessBadge({ access }) {
-  if (!access) return null;
-
-  const { clientIp, description, tier } = access;
-  const label = description || `Tier ${tier}`;
-
-  return (
-    <div className="global-sidebar-access">
-      <FontAwesomeIcon icon={faNetworkWired} className="global-sidebar-access-icon" />
-      <span className="global-sidebar-access-text">
-        <strong>{label}</strong>
-        {clientIp && <small>{clientIp}</small>}
-      </span>
-    </div>
-  );
-}
-
 function AndroidDownloadLink({ mobile = false }) {
   return (
     <a
@@ -214,6 +213,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   const tier = access?.tier ?? 0;
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [wrappedAvailable, setWrappedAvailable] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -322,15 +322,17 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   return (
     <>
       {/* ── Hamburger toggle (tablet 641–900px only, hidden on mobile) ── */}
-      <button
-        type="button"
-        className="global-sidebar-toggle"
-        aria-label={open ? "Close navigation" : "Open navigation"}
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <FontAwesomeIcon icon={open ? faXmark : faBars} />
-      </button>
+      {!open && (
+        <button
+          type="button"
+          className="global-sidebar-toggle"
+          aria-label="Open navigation"
+          aria-expanded={false}
+          onClick={() => setOpen(true)}
+        >
+          <FontAwesomeIcon icon={faBars} />
+        </button>
+      )}
 
       {/* ── Backdrop ── */}
       {(open || categoriesOpen) && (
@@ -347,20 +349,30 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 
       {/* ── Main sidebar (desktop always visible, tablet slide-out) ── */}
       <aside className={`global-sidebar${open ? " global-sidebar--open" : ""}`} aria-label="Library navigation">
-        <Link to="/" className="global-sidebar-brand" onClick={close}>
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt=""
-            className="global-sidebar-brand-mark"
-            width="42"
-            height="42"
-            aria-hidden="true"
-          />
-          <span className="min-w-0">
-            <strong>Dogmedia</strong>
-            <small title="Your media. Your space. Your story. Your rhythm.">Your media. Your space. Your story. Your rhythm.</small>
-          </span>
-        </Link>
+        <div className="global-sidebar-header">
+          <Link to="/" className="global-sidebar-brand" onClick={close}>
+            <img
+              src="/web-app-manifest-192x192.png"
+              alt=""
+              className="global-sidebar-brand-mark"
+              width="42"
+              height="42"
+              aria-hidden="true"
+            />
+            <span className="min-w-0">
+              <strong>Dogmedia</strong>
+              <small title="Your media. Your space. Your story. Your rhythm.">Your media. Your space. Your story. Your rhythm.</small>
+            </span>
+          </Link>
+          <button
+            type="button"
+            className="global-sidebar-close"
+            aria-label="Close navigation"
+            onClick={close}
+          >
+            <FontAwesomeIcon icon={faXmark} />
+          </button>
+        </div>
 
         <nav className="global-sidebar-nav" aria-label="Main navigation">
           <SidebarLink to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory} onClick={close}>All media</SidebarLink>
@@ -390,11 +402,36 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           </nav>
         </div>
 
-        {/* Sidebar footer: theme toggle */}
+        {/* Sidebar footer: profile & theme */}
         <div className="global-sidebar-footer">
           <DesktopDownload />
           <AndroidDownloadLink />
-          <AccessBadge access={access} />
+          <button
+            type="button"
+            className="global-sidebar-profile-btn"
+            onClick={() => {
+              close();
+              setProfileOpen(true);
+            }}
+            aria-label="Open profile modal"
+          >
+            <span className="global-sidebar-profile-avatar">
+              <img
+                src={profilePictureUrl(access?.profile_picture || access?.user?.profile_picture || "fine", "s")}
+                alt=""
+                className="global-sidebar-profile-avatar-img"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  if (e.currentTarget.nextSibling) e.currentTarget.nextSibling.style.display = "inline-block";
+                }}
+              />
+              <FontAwesomeIcon icon={faCircleUser} style={{ display: "none" }} />
+            </span>
+            <span className="global-sidebar-profile-info">
+              <strong className="global-sidebar-profile-name">{access?.username || "Account"}</strong>
+              <small className="global-sidebar-profile-tier">{access?.description || (tier >= 100 ? "Administrator" : "Standard User")}</small>
+            </span>
+          </button>
           <ThemeToggle className="global-sidebar-theme-btn" />
           <div className="global-sidebar-version" title={`Dogmedia Web ${APP_VERSION_LABEL}`}>
             <span>Web Client</span>
@@ -421,6 +458,18 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         {tier >= 100 && (
           <BottomNavTab to="/admin" icon={faGear} active={location.pathname === "/admin"}>Admin</BottomNavTab>
         )}
+
+        <BottomNavTab
+          avatarUrl={profilePictureUrl(access?.profile_picture || access?.user?.profile_picture || "fine", "s")}
+          icon={faCircleUser}
+          active={profileOpen}
+          onClick={() => {
+            closeCategories();
+            setProfileOpen(true);
+          }}
+        >
+          Profile
+        </BottomNavTab>
 
         {/* Theme toggle as last tab on mobile */}
         <ThemeToggle className="mobile-nav-tab mobile-nav-theme-tab" />
@@ -476,6 +525,11 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         onAddToQueue={addCategoryToQueue}
         onClose={closeCategoryMenu}
         onPlay={playCategory}
+      />
+      <ProfileModal
+        isOpen={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        access={access}
       />
       {queueNotice && <div className="global-sidebar-queue-notice" role="status">{queueNotice}</div>}
     </>

@@ -33,7 +33,7 @@ const MODAL_DATA = {
     body: `Dogmedia is an independent, personal media library system intended for lawful self-hosted media playback.
 
 • Personal Collection: For organizing and playing audio, video, and photos you lawfully own or have rights to stream.
-• Self-Hosted Responsibility: You maintain server access controls, network whitelist rules, and data preservation.
+• Self-Hosted Responsibility: You maintain server access controls, account security, and data preservation.
 • Free & Independent: Provided as open software for independent media enthusiasts.`,
   },
   license: {

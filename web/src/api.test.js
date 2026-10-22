@@ -7,6 +7,7 @@ import {
   getPlaybackLease,
   heartbeatPlaybackLease,
   mediaThumbnailUrl,
+  profilePictureUrl,
   readJsonArray,
 } from "./api";
 
@@ -35,13 +36,13 @@ describe("readJsonArray", () => {
   });
 });
 
-describe("media access expiry", () => {
-  it("opens the key prompt only for a missing media access key", async () => {
+describe("account session expiry", () => {
+  it("opens login only when the account session expires", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ code: "PLAYBACK_SESSION_INVALID" }), { status: 401 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "MEDIA_ACCESS_REQUIRED" }), { status: 401 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "LOGIN_REQUIRED" }), { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
     await api("/api/media/42/stream");
     expect(dispatchEvent).not.toHaveBeenCalled();
@@ -173,5 +174,25 @@ describe("mediaThumbnailUrl", () => {
     expect(mediaThumbnailUrl({})).toBe("");
     expect(mediaThumbnailUrl(0)).toBe("");
     expect(mediaThumbnailUrl(-1)).toBe("");
+  });
+});
+
+describe("profilePictureUrl", () => {
+  it("builds profile picture URL with size parameter", () => {
+    expect(profilePictureUrl("fine", "s")).toBe("/api/profile-pictures/fine?size=s");
+    expect(profilePictureUrl("fine", "l")).toBe("/api/profile-pictures/fine?size=l");
+    expect(profilePictureUrl("monoco_good", "s")).toBe("/api/profile-pictures/monoco_good?size=s");
+    expect(profilePictureUrl("monoco_good", "l")).toBe("/api/profile-pictures/monoco_good?size=l");
+  });
+
+  it("normalizes filenames with underscores or webp extension", () => {
+    expect(profilePictureUrl("_fine_s_.webp", "l")).toBe("/api/profile-pictures/fine?size=l");
+    expect(profilePictureUrl("_monoco_good_l_.webp", "s")).toBe("/api/profile-pictures/monoco_good?size=s");
+  });
+
+  it("defaults to fine avatar and s size when not specified", () => {
+    expect(profilePictureUrl()).toBe("/api/profile-pictures/fine?size=s");
+    expect(profilePictureUrl(null)).toBe("/api/profile-pictures/fine?size=s");
+    expect(profilePictureUrl("fine")).toBe("/api/profile-pictures/fine?size=s");
   });
 });

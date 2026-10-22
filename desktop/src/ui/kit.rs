@@ -13,6 +13,7 @@ pub enum IconName {
     Compress,
     Expand,
     Folder,
+    Globe,
     Grid,
     GripVertical,
     Heart,
@@ -33,6 +34,7 @@ pub enum IconName {
     RotateCcw,
     RotateCw,
     Search,
+    Server,
     Settings,
     Share,
     Shuffle,
@@ -69,6 +71,10 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         IconName::Folder => {
             rsx! { path { d: "M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" } }
         }
+        IconName::Globe => rsx! {
+            circle { cx: "12", cy: "12", r: "9" }
+            path { d: "M12 3a13 13 0 0 0 0 18M12 3a13 13 0 0 1 0 18M3 12h18" }
+        },
         IconName::Grid => rsx! {
             rect { x: "3", y: "3", width: "7", height: "7", rx: "1" }
             rect { x: "14", y: "3", width: "7", height: "7", rx: "1" }
@@ -144,6 +150,12 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         IconName::Search => rsx! {
             circle { cx: "11", cy: "11", r: "7" }
             path { d: "m20 20-4-4" }
+        },
+        IconName::Server => rsx! {
+            rect { x: "3", y: "4", width: "18", height: "6", rx: "2" }
+            rect { x: "3", y: "14", width: "18", height: "6", rx: "2" }
+            circle { cx: "7", cy: "7", r: "1", fill: "currentColor" }
+            circle { cx: "7", cy: "17", r: "1", fill: "currentColor" }
         },
         IconName::Settings => rsx! {
             circle { cx: "12", cy: "12", r: "3" }
@@ -319,6 +331,48 @@ pub fn ThemeToggle(value: ColorScheme, onchange: EventHandler<ColorScheme>) -> E
                 onclick: move |_| onchange.call(ColorScheme::Dark),
                 Icon { name: IconName::Moon, class: "theme-toggle-icon".to_owned() }
                 span { "Dark" }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn EnvironmentToggle(
+    value: Option<crate::store::ServerEnvironment>,
+    urls: crate::store::ServerEnvironmentUrls,
+    onchange: EventHandler<crate::store::ServerEnvironment>,
+) -> Element {
+    rsx! {
+        div { class: "theme-toggle env-toggle", role: "radiogroup", "aria-label": "Server environment",
+            button {
+                class: if value == Some(crate::store::ServerEnvironment::Local) { "theme-toggle-option active" } else { "theme-toggle-option" },
+                r#type: "button",
+                role: "radio",
+                "aria-checked": value == Some(crate::store::ServerEnvironment::Local),
+                title: "Local environment ({urls.local})",
+                onclick: move |_| onchange.call(crate::store::ServerEnvironment::Local),
+                Icon { name: IconName::Monitor, class: "theme-toggle-icon".to_owned() }
+                span { "Local" }
+            }
+            button {
+                class: if value == Some(crate::store::ServerEnvironment::Staging) { "theme-toggle-option active" } else { "theme-toggle-option" },
+                r#type: "button",
+                role: "radio",
+                "aria-checked": value == Some(crate::store::ServerEnvironment::Staging),
+                title: "Staging environment ({urls.staging})",
+                onclick: move |_| onchange.call(crate::store::ServerEnvironment::Staging),
+                Icon { name: IconName::Server, class: "theme-toggle-icon".to_owned() }
+                span { "Staging" }
+            }
+            button {
+                class: if value == Some(crate::store::ServerEnvironment::Prod) { "theme-toggle-option active" } else { "theme-toggle-option" },
+                r#type: "button",
+                role: "radio",
+                "aria-checked": value == Some(crate::store::ServerEnvironment::Prod),
+                title: "Production environment ({urls.prod})",
+                onclick: move |_| onchange.call(crate::store::ServerEnvironment::Prod),
+                Icon { name: IconName::Globe, class: "theme-toggle-icon".to_owned() }
+                span { "Prod" }
             }
         }
     }

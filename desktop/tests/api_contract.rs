@@ -6,7 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use dogmedia_desktop::{
-    api::{ApiClient, ApiError, RawResponse, RequestSpec, Transport, TransportError},
+    api::{ApiClient, ApiError, HttpMethod, RawResponse, RequestSpec, Transport, TransportError},
     domain::{
         BrowseQuery, CategoryId, Cursor, DashboardQuery, Limit, MediaFilter, MediaId, Quality,
         SubtitleId,
@@ -54,7 +54,7 @@ async fn access_request_preserves_prefix_and_sends_desktop_identity() {
     let transport = FakeTransport::scripted([FakeTransport::json(
         200,
         serde_json::json!({
-            "tier": 100, "firstRun": false, "ip": "127.0.0.1"
+            "tier": 100, "username": "admin", "description": "admin"
         }),
     )]);
     let client = ApiClient::with_transport(
@@ -77,6 +77,28 @@ async fn access_request_preserves_prefix_and_sends_desktop_identity() {
         "viewer_abcdefghijklmnopqrst"
     );
     assert_eq!(request.timeout, Duration::from_millis(2_500));
+}
+
+#[tokio::test]
+async fn account_login_and_registration_send_credentials_to_the_expected_routes() {
+    let token = "a".repeat(64);
+    let transport = FakeTransport::scripted([
+        FakeTransport::json(200, serde_json::json!({ "token": token })),
+        FakeTransport::json(201, serde_json::json!({ "token": token })),
+    ]);
+    let client = ApiClient::with_transport(
+        "https://example.test/dogmedia",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    ).unwrap();
+    assert_eq!(client.account_session("alice", "long secret password", false).await.unwrap(), token);
+    assert_eq!(client.account_session("bob", "another long secret", true).await.unwrap(), token);
+    let requests = transport.requests.lock().unwrap();
+    assert_eq!(requests[0].method, HttpMethod::Post);
+    assert_eq!(requests[0].url.path(), "/dogmedia/api/auth/login");
+    assert_eq!(requests[0].json.as_ref().unwrap()["username"], "alice");
+    assert_eq!(requests[1].url.path(), "/dogmedia/api/auth/register");
+    assert_eq!(requests[1].json.as_ref().unwrap()["password"], "another long secret");
 }
 
 #[tokio::test]
