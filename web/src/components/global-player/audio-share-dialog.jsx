@@ -339,12 +339,15 @@ export function AudioShareDialog({
       await waitForCardAssets(cardRef.current);
       const { toBlob } = await import("html-to-image");
       const blob = await toBlob(cardRef.current, {
-        backgroundColor: selectedBackground,
         cacheBust: true,
         width: LYRICS_CARD.cssWidth,
         height: LYRICS_CARD.cssHeight,
         pixelRatio: LYRICS_CARD.pixelRatio,
-        style: { transform: "none", borderRadius: "0" },
+        style: {
+          transform: "none",
+          borderRadius: "40px",
+          overflow: "hidden",
+        },
       });
       if (!blob) throw new Error("Image capture returned no data");
       await shareLyricsBlob(blob, {
