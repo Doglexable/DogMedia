@@ -77,6 +77,9 @@
 - Actions:
   - `<button type="submit">Update user</button>`
   - `<button type="button" onClick={onClose}>Batal</button>`
+- Utilities Section (moved from per-media settings panel):
+  - App version label pill (`Dogmedia Web v0.7.0`).
+  - `<button type="button" className="profile-modal-clear-cache-btn">Clear cache</button>` to unregister service workers, clear Cache Storage, and reload page.
 - Bottom Section:
   - Divider.
   - `<button type="button" className="profile-modal-logout-btn" onClick={handleLogout}>Log out</button>`.

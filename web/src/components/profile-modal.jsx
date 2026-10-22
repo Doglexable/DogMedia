@@ -5,7 +5,9 @@ import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFro
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons/faChevronDown";
+import { faRotateRight } from "@fortawesome/free-solid-svg-icons/faRotateRight";
 import { api, profilePictureUrl } from "../api";
+import { APP_VERSION_LABEL } from "../version";
 
 export function ProfileModal({ isOpen, onClose, access }) {
   const currentUsername = access?.username || "";
@@ -21,6 +23,7 @@ export function ProfileModal({ isOpen, onClose, access }) {
   const [password, setPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -35,8 +38,28 @@ export function ProfileModal({ isOpen, onClose, access }) {
       setAvatarsOpen(false);
       setPasswordOpen(false);
       setShowCreditsRaw(false);
+      setClearingCache(false);
     }
   }, [isOpen, currentUsername, currentAvatar]);
+
+  const handleClearCache = async () => {
+    if (clearingCache) return;
+    setClearingCache(true);
+    try {
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) await reg.unregister();
+      }
+      if (typeof window !== "undefined" && "caches" in window) {
+        const keys = await caches.keys();
+        for (const key of keys) await caches.delete(key);
+      }
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -414,12 +437,28 @@ export function ProfileModal({ isOpen, onClose, access }) {
 
           <div className="profile-modal-divider" />
 
+          <div className="profile-modal-utility-section">
+            <span className="profile-modal-app-version">Dogmedia Web {APP_VERSION_LABEL}</span>
+            <button
+              type="button"
+              className="profile-modal-clear-cache-btn"
+              title="Clear cached app data and reload"
+              onClick={handleClearCache}
+              disabled={submitting || clearingCache}
+            >
+              <FontAwesomeIcon icon={faRotateRight} spin={clearingCache} />
+              <span>{clearingCache ? "Clearing…" : "Clear cache"}</span>
+            </button>
+          </div>
+
+          <div className="profile-modal-divider" />
+
           <div className="profile-modal-logout-section">
             <button
               type="button"
               className="profile-modal-logout-btn"
               onClick={handleLogout}
-              disabled={submitting}
+              disabled={submitting || clearingCache}
             >
               <FontAwesomeIcon icon={faRightFromBracket} />
               <span>Log out</span>

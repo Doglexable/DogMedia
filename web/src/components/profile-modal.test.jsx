@@ -33,6 +33,9 @@ describe("ProfileModal", () => {
     expect(markup).toContain("Change Password</strong>");
     expect(markup).toContain(">Update user</button>");
     expect(markup).toContain(">Batal</button>");
+    expect(markup).toContain("profile-modal-clear-cache-btn");
+    expect(markup).toContain("Clear cache</span>");
+    expect(markup).toContain("Dogmedia Web");
     expect(markup).toContain("profile-modal-logout-section");
     expect(markup).toContain(">Log out</span></button>");
   });

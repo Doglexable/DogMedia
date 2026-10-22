@@ -345,29 +345,6 @@ export function SettingsControl({
           </div>
           <div className="settings-panel-footer">
             <span className="settings-panel-version">Dogmedia Web {APP_VERSION_LABEL}</span>
-            {"caches" in window && (
-              <button
-                type="button"
-                className="settings-panel-clear-cache"
-                title="Clear cached app data and reload"
-                onClick={async () => {
-                  try {
-                    if ("serviceWorker" in navigator) {
-                      const registrations = await navigator.serviceWorker.getRegistrations();
-                      for (const reg of registrations) await reg.unregister();
-                    }
-                    if ("caches" in window) {
-                      const keys = await caches.keys();
-                      for (const key of keys) await caches.delete(key);
-                    }
-                  } finally {
-                    window.location.reload();
-                  }
-                }}
-              >
-                Clear cache
-              </button>
-            )}
           </div>
         </div>
       )}
