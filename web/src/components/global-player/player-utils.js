@@ -322,3 +322,41 @@ export function shouldHandleMediaHotkeys(event) {
   if (event.ctrlKey || event.metaKey || event.altKey) return false;
   return !isEditableTarget(event.target);
 }
+
+export function shouldPreventPageUnload({ currentMedia, paused, isImage } = {}) {
+  return Boolean(currentMedia && !paused && !isImage);
+}
+
+export function handlePlaybackBeforeUnload(event) {
+  if (!event) return "";
+  event.preventDefault();
+  event.returnValue = "";
+  return "";
+}
+
+const RECENT_MEDIA_STORAGE_KEY = "pfs:recently-played";
+
+export function getStoredRecentMediaIds(storage = typeof window !== "undefined" ? window.localStorage : globalThis.localStorage) {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(RECENT_MEDIA_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isFinite) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addStoredRecentMediaId(id, storage = typeof window !== "undefined" ? window.localStorage : globalThis.localStorage) {
+  if (!storage) return;
+  try {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId)) return;
+    const current = getStoredRecentMediaIds(storage);
+    const next = [numericId, ...current.filter((item) => item !== numericId)].slice(0, 20);
+    storage.setItem(RECENT_MEDIA_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage quota or access errors
+  }
+}

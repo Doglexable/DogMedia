@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faHeart } from "@fortawesome/free-solid-svg-icons/faHeart";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
@@ -22,7 +21,13 @@ import {
 import { formatDuration, getMediaFolderName } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
-import { buildQuickAccessItems, getGreeting, shouldShowBrowse } from "./dashboard-utils";
+import {
+  addStoredRecentMediaId,
+  buildQuickAccessItems,
+  getGreeting,
+  getStoredRecentMediaIds,
+  shouldShowBrowse,
+} from "./dashboard-utils";
 import { runViewTransition } from "../utils/view-transitions";
 
 const NOW_PLAYING_POLL_MS = 10000;
@@ -331,41 +336,6 @@ function QuickAccessCard({
   );
 }
 
-function QuickAccessLikedCard({ onClick, onPlay }) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="quick-access-card"
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-    >
-      <div className="quick-access-cover quick-access-cover--liked">
-        <FontAwesomeIcon icon={faHeart} className="quick-access-liked-icon" />
-      </div>
-      <span className="quick-access-copy">
-        <strong>Liked Songs</strong>
-      </span>
-      <button
-        type="button"
-        className="quick-access-play-btn"
-        aria-label="Play Liked Songs"
-        onClick={(event) => {
-          event.stopPropagation();
-          onPlay();
-        }}
-      >
-        <FontAwesomeIcon icon={faPlay} />
-      </button>
-    </div>
-  );
-}
-
 function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -511,7 +481,6 @@ const styles = {
 };
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const { tier } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
   const player = useGlobalPlayerLibrary();
@@ -731,7 +700,13 @@ export default function Dashboard() {
     mediaCount: visibleMedia.length,
   });
 
+  const [localRecentIds, setLocalRecentIds] = useState(getStoredRecentMediaIds);
+
   const playMedia = useCallback((item) => {
+    if (item?.id) {
+      addStoredRecentMediaId(item.id);
+      setLocalRecentIds(getStoredRecentMediaIds());
+    }
     runViewTransition(() => {
       playMediaAction?.(
         item,
@@ -742,35 +717,31 @@ export default function Dashboard() {
   }, [libraryView, playMediaAction, selectedCategory]);
 
   const isAllMedia = !selectedCategory && libraryView !== "liked" && !normalizedSearch && (!mediaType || mediaType === "all");
-  const recentlyPlayedIds = dashboardSummary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
+  const serverRecentIds = useMemo(() => {
+    if (Array.isArray(dashboardSummary?.recentIds) && dashboardSummary.recentIds.length > 0) {
+      return dashboardSummary.recentIds;
+    }
+    const playedMedia = (dashboardSummary?.media || []).filter((m) => m.last_played_at || m.play_count > 0);
+    return playedMedia.map((m) => Number(m.id)).filter(Number.isFinite);
+  }, [dashboardSummary?.media, dashboardSummary?.recentIds]);
+
+  const allRealRecentIds = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    for (const id of [...localRecentIds, ...serverRecentIds]) {
+      const num = Number(id);
+      if (!Number.isFinite(num) || seen.has(num)) continue;
+      seen.add(num);
+      result.push(num);
+    }
+    return result;
+  }, [localRecentIds, serverRecentIds]);
 
   const quickAccessItems = useMemo(() => buildQuickAccessItems({
-    recentIds: recentlyPlayedIds || dashboardSummary?.quickAccessIds || [],
+    recentIds: allRealRecentIds,
     mediaById: visibleMediaById,
-    fallbackMedia: visibleMedia,
     limit: 8,
-  }), [dashboardSummary?.quickAccessIds, recentlyPlayedIds, visibleMedia, visibleMediaById]);
-
-  const firstLikedItem = useMemo(() => {
-    if (!player?.likedIds || player.likedIds.size === 0) return null;
-    for (const id of player.likedIds) {
-      const item = visibleMediaById.get(Number(id));
-      if (item) return item;
-    }
-    return null;
-  }, [player?.likedIds, visibleMediaById]);
-
-  const handleLikedSongsClick = useCallback(() => {
-    navigate("/?view=liked");
-  }, [navigate]);
-
-  const handleLikedSongsPlay = useCallback(() => {
-    if (firstLikedItem) {
-      playMediaAction?.(firstLikedItem, "liked", { context: "liked" });
-    } else {
-      navigate("/?view=liked");
-    }
-  }, [firstLikedItem, navigate, playMediaAction]);
+  }), [allRealRecentIds, visibleMediaById]);
 
   return (
     <div className="premium-app-shell" style={styles.page}>
@@ -850,7 +821,7 @@ export default function Dashboard() {
 
         {mediaLoading ? (
           !normalizedSearch ? (
-            <DashboardHomeSkeleton showQuickAccess={isAllMedia} />
+            <DashboardHomeSkeleton showQuickAccess={isAllMedia && allRealRecentIds.length > 0} />
           ) : (
             <MediaGridSkeleton />
           )
@@ -866,15 +837,6 @@ export default function Dashboard() {
                 </div>
                 <div className="quick-access-section">
                   {quickAccessItems.map((entry) => {
-                    if (entry.isLikedTile) {
-                      return (
-                        <QuickAccessLikedCard
-                          key={entry.id}
-                          onClick={handleLikedSongsClick}
-                          onPlay={handleLikedSongsPlay}
-                        />
-                      );
-                    }
                     const isCurrent = Number(currentMediaId) === Number(entry.id);
                     const isPlaying = isCurrent && !paused;
                     return (

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildQuickAccessItems, getGreeting, shouldShowBrowse } from "./dashboard-utils";
+import {
+  addStoredRecentMediaId,
+  buildQuickAccessItems,
+  getGreeting,
+  getStoredRecentMediaIds,
+  shouldShowBrowse,
+} from "./dashboard-utils";
 
 describe("dashboard browse visibility", () => {
   it("shows Browse even when the media list has fewer than eight items", () => {
@@ -31,11 +37,30 @@ describe("dashboard greeting", () => {
 });
 
 describe("dashboard quick access items", () => {
-  it("returns an empty array when there are no media items", () => {
-    expect(buildQuickAccessItems({ recentIds: [], mediaById: new Map(), fallbackMedia: [] })).toEqual([]);
+  it("returns an empty array when there are no recently played media items", () => {
+    expect(buildQuickAccessItems({ recentIds: [], mediaById: new Map() })).toEqual([]);
   });
 
-  it("places Liked Songs at index 1 and limits total items to 8 in a 2x4 grid", () => {
+  it("returns only real recently played media without fabricating fake tiles or fillers", () => {
+    const mockItems = Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      title: `Song ${i + 1}`,
+    }));
+    const mediaById = new Map(mockItems.map((item) => [item.id, item]));
+
+    const result = buildQuickAccessItems({
+      recentIds: [5, 3, 1],
+      mediaById,
+      limit: 8,
+    });
+
+    // Exactly the 3 real played items, in order, without any fabricated Liked Songs card
+    expect(result).toHaveLength(3);
+    expect(result.map((m) => m.id)).toEqual([5, 3, 1]);
+    expect(result.every((m) => m.title.startsWith("Song "))).toBe(true);
+  });
+
+  it("caps recently played media at limit and excludes unknown or duplicate IDs", () => {
     const mockItems = Array.from({ length: 12 }, (_, i) => ({
       id: i + 1,
       title: `Song ${i + 1}`,
@@ -43,41 +68,31 @@ describe("dashboard quick access items", () => {
     const mediaById = new Map(mockItems.map((item) => [item.id, item]));
 
     const result = buildQuickAccessItems({
-      recentIds: [5, 4, 3, 2, 1],
+      recentIds: [1, 2, 2, 999, 3, 4, 5, 6, 7, 8, 9, 10],
       mediaById,
-      fallbackMedia: mockItems,
       limit: 8,
     });
 
     expect(result).toHaveLength(8);
-    expect(result[0].id).toBe(5);
-    expect(result[1]).toEqual({
-      isLikedTile: true,
-      id: "liked-songs",
-      title: "Liked Songs",
-    });
-    expect(result[2].id).toBe(4);
-    expect(result[3].id).toBe(3);
-    expect(result[4].id).toBe(2);
-    expect(result[5].id).toBe(1);
-    // 6th and 7th slots filled from fallbackMedia without duplicates
-    expect(result[6].id).toBe(6);
-    expect(result[7].id).toBe(7);
+    expect(result.map((m) => m.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   });
+});
 
-  it("handles when only a single media item is available", () => {
-    const mockItem = { id: 1, title: "Only Song" };
-    const mediaById = new Map([[1, mockItem]]);
+describe("recent media storage helpers", () => {
+  it("stores and retrieves recently played media IDs in MRU order", () => {
+    const map = new Map();
+    const mockStorage = {
+      getItem: (k) => map.get(k) ?? null,
+      setItem: (k, v) => map.set(k, String(v)),
+      removeItem: (k) => map.delete(k),
+    };
 
-    const result = buildQuickAccessItems({
-      recentIds: [1],
-      mediaById,
-      fallbackMedia: [mockItem],
-      limit: 8,
-    });
+    expect(getStoredRecentMediaIds(mockStorage)).toEqual([]);
 
-    expect(result).toHaveLength(2);
-    expect(result[0].id).toBe(1);
-    expect(result[1].isLikedTile).toBe(true);
+    addStoredRecentMediaId(10, mockStorage);
+    addStoredRecentMediaId(20, mockStorage);
+    addStoredRecentMediaId(10, mockStorage); // Re-playing 10 moves it to front
+
+    expect(getStoredRecentMediaIds(mockStorage)).toEqual([10, 20]);
   });
 });

@@ -3625,15 +3625,6 @@ body {
   display: block;
   user-select: none;
 }
-.quick-access-cover--liked {
-  background: linear-gradient(135deg, #450af5 0%, #8e8ee5 100%);
-  color: #ffffff;
-}
-.quick-access-liked-icon {
-  font-size: 1.25rem;
-  color: #ffffff;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
-}
 .quick-access-cover-fallback {
   font-size: 1.15rem;
   color: var(--muted);

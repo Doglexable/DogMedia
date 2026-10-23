@@ -518,6 +518,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
   );
   const referencedIds = new Set([
     summary.featuredId,
+    ...(summary.recentIds || []),
     ...(summary.quickAccessIds || []),
     ...(summary.rows || []).flatMap((row) => row.mediaIds || []),
   ].map(Number).filter(Number.isFinite));
@@ -535,6 +536,8 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
       duration: row.duration,
       mime_type: row.mime_type,
       artwork_version: row.artwork_version,
+      last_played_at: row.last_played_at,
+      play_count: row.play_count,
     })),
   };
 }

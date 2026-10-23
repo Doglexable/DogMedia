@@ -17,6 +17,7 @@ import { hiddenMediaStyle } from "./global-player/player-styles";
 import {
   LOOP_MODES,
   PAUSE_CACHE_TTL_MS,
+  addStoredRecentMediaId,
   getAutoQueueEndpoint,
   getCategoryQuery as categoryQuery,
   getCompletionAction,
@@ -24,12 +25,14 @@ import {
   getNextLoopMode as nextLoopMode,
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
+  handlePlaybackBeforeUnload,
   isPauseTimeoutExpired,
   isRangeTarget,
   seekAndMaybePlay,
   shouldCompleteSleepTimer,
   shouldHandleMediaHotkeys,
   shouldHandleSpaceKey,
+  shouldPreventPageUnload,
   shouldSuggestSiblingMedia,
 } from "./global-player/player-utils";
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
@@ -220,6 +223,15 @@ export function GlobalPlayerProvider({ children }) {
       document.title = DEFAULT_DOCUMENT_TITLE;
     };
   }, [currentMedia, isAudio]);
+
+  useEffect(() => {
+    if (!shouldPreventPageUnload({ currentMedia, paused, isImage })) return undefined;
+
+    window.addEventListener("beforeunload", handlePlaybackBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handlePlaybackBeforeUnload);
+    };
+  }, [currentMedia, isImage, paused]);
 
   useEffect(() => {
     window.localStorage.setItem(PLAYER_VOLUME_KEY, String(volume));
@@ -1610,6 +1622,9 @@ export function GlobalPlayerProvider({ children }) {
     }
     setPaused(false);
     setShouldAutoPlay(true);
+    if (currentMedia?.id) {
+      addStoredRecentMediaId(currentMedia.id);
+    }
     sendPlaybackEvent(currentMedia, "play", nextPosition, nextDuration);
     sendNowPlaying(currentMedia, "play", nextPosition, nextDuration, { trigger: lastTriggerRef.current || "user" });
   }, [currentMedia, duration, sendNowPlaying, sendPlaybackEvent]);

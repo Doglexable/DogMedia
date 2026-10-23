@@ -10,6 +10,7 @@ import {
   getPlaylistSuggestionRoute,
   getQueueBoundaryParams,
   getQueueItemSubtitle,
+  handlePlaybackBeforeUnload,
   isEditableTarget,
   isPauseTimeoutExpired,
   isPlayPauseElement,
@@ -22,6 +23,7 @@ import {
   shouldCompleteSleepTimer,
   shouldHandleMediaHotkeys,
   shouldHandleSpaceKey,
+  shouldPreventPageUnload,
   shouldSuggestSiblingMedia,
 } from "./player-utils";
 
@@ -551,5 +553,52 @@ describe("shouldHandleMediaHotkeys", () => {
 
   it("allows hotkeys on range inputs (slider logic checked separately)", () => {
     expect(shouldHandleMediaHotkeys({ key: "k", target: { tagName: "INPUT", type: "range" } })).toBe(true);
+  });
+});
+
+describe("page unload prevention during active playback", () => {
+  it("prevents page unload when media is actively playing", () => {
+    expect(shouldPreventPageUnload({
+      currentMedia: { id: 1, title: "Track 1" },
+      paused: false,
+      isImage: false,
+    })).toBe(true);
+  });
+
+  it("allows page unload when playback is paused", () => {
+    expect(shouldPreventPageUnload({
+      currentMedia: { id: 1, title: "Track 1" },
+      paused: true,
+      isImage: false,
+    })).toBe(false);
+  });
+
+  it("allows page unload when no media is loaded", () => {
+    expect(shouldPreventPageUnload({
+      currentMedia: null,
+      paused: false,
+      isImage: false,
+    })).toBe(false);
+  });
+
+  it("allows page unload when displaying an image", () => {
+    expect(shouldPreventPageUnload({
+      currentMedia: { id: 2, title: "Photo" },
+      paused: false,
+      isImage: true,
+    })).toBe(false);
+  });
+
+  it("handlePlaybackBeforeUnload prevents default and sets returnValue", () => {
+    let prevented = false;
+    const fakeEvent = {
+      preventDefault: () => { prevented = true; },
+      returnValue: undefined,
+    };
+
+    const res = handlePlaybackBeforeUnload(fakeEvent);
+    expect(prevented).toBe(true);
+    expect(fakeEvent.returnValue).toBe("");
+    expect(res).toBe("");
   });
 });

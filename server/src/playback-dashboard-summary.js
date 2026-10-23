@@ -82,6 +82,7 @@ export function buildDashboardSummary(items, options = {}) {
       lastPlayedAt,
     },
     featuredId,
+    recentIds,
     quickAccessIds: withFallback(recentIds, withFallback(playedIds, allFallback, 24), 8),
     rows: [
       {
