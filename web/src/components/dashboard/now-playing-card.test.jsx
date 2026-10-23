@@ -104,4 +104,39 @@ describe("NowPlayingCard component", () => {
     expect(markup).toContain("Media #99");
     expect(markup).toContain("magic-bento-now-playing__status--pause");
   });
+
+  it("renders username and profile avatar when present", () => {
+    const session = {
+      ip: "10.0.0.1",
+      userId: 3,
+      username: "alice",
+      profilePicture: "fine",
+      mediaId: 10,
+      action: "play",
+      title: "Song A",
+      duration: 100,
+      position: 20,
+    };
+
+    const markup = renderToStaticMarkup(<NowPlayingCard session={session} index={0} />);
+
+    expect(markup).toContain("alice");
+    expect(markup).toContain("/api/profile-pictures/fine?size=s");
+  });
+
+  it("renders User #ID when username is absent but userId is present", () => {
+    const session = {
+      ip: "10.0.0.1",
+      userId: 9,
+      mediaId: 10,
+      action: "play",
+      title: "Song A",
+      duration: 100,
+      position: 20,
+    };
+
+    const markup = renderToStaticMarkup(<NowPlayingCard session={session} index={0} />);
+
+    expect(markup).toContain("User #9");
+  });
 });

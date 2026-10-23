@@ -4,7 +4,8 @@ import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
 import { faCopy } from "@fortawesome/free-solid-svg-icons/faCopy";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
-import { mediaThumbnailUrl } from "../../api";
+import { faUser } from "@fortawesome/free-solid-svg-icons/faUser";
+import { mediaThumbnailUrl, profilePictureUrl } from "../../api";
 import "./now-playing.css";
 
 export const NOW_PLAYING_TICK_MS = 1000;
@@ -45,6 +46,7 @@ export function playbackStateLabels(session) {
 export function NowPlayingCard({ session, index }) {
   const [renderNow, setRenderNow] = useState(() => Date.now());
   const [imgFailed, setImgFailed] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const isPlaying = session?.action === "play";
@@ -70,11 +72,17 @@ export function NowPlayingCard({ session, index }) {
     };
   }, [isPlaying, session?.timestamp]);
 
-  const handleCopyIp = (e) => {
+  const userLabel = session?.username || (session?.userId ? `User #${session.userId}` : session?.ip || "Unknown");
+  const avatarUrl = session?.profilePicture
+    ? profilePictureUrl(session.profilePicture, "s")
+    : null;
+
+  const handleCopyUserOrIp = (e) => {
     e.stopPropagation();
-    if (!session?.ip) return;
+    const copyText = session?.username || (session?.userId ? String(session.userId) : session?.ip);
+    if (!copyText) return;
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(session.ip).catch(() => {});
+      navigator.clipboard.writeText(copyText).catch(() => {});
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
@@ -88,20 +96,31 @@ export function NowPlayingCard({ session, index }) {
 
   return (
     <article
-      key={session ? `${session.ip}-${session.mediaId}-${index}` : index}
+      key={session ? `${session.userId || session.ip}-${session.mediaId}-${index}` : index}
       className="magic-bento-now-playing now-playing-session-card"
       aria-label={`Now playing: ${title}`}
     >
-      {/* Top Header: IP Pill + Play/Pause Status */}
+      {/* Top Header: User / IP Pill + Play/Pause Status */}
       <div className="magic-bento-now-playing__top now-playing-session-card__header">
         <button
           type="button"
           className="magic-bento-now-playing__ip now-playing-session-card__ip-btn"
-          onClick={handleCopyIp}
-          title={copied ? "IP copied to clipboard!" : `Click to copy IP (${session?.ip})`}
-          aria-label={`Copy IP address ${session?.ip}`}
+          onClick={handleCopyUserOrIp}
+          title={copied ? "Copied to clipboard!" : `User: ${userLabel}${session?.ip ? ` (${session.ip})` : ""} · Click to copy`}
+          aria-label={`Copy user identifier ${userLabel}`}
         >
-          <span>{session?.ip}</span>
+          {avatarUrl && !avatarFailed ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="now-playing-session-card__user-avatar"
+              style={{ width: 14, height: 14, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+              onError={() => setAvatarFailed(true)}
+            />
+          ) : (session?.username || session?.userId) ? (
+            <FontAwesomeIcon icon={faUser} className="now-playing-session-card__user-icon" style={{ fontSize: 10, opacity: 0.8 }} />
+          ) : null}
+          <span>{userLabel}</span>
           <FontAwesomeIcon
             icon={copied ? faCheck : faCopy}
             className="now-playing-session-card__copy-icon"

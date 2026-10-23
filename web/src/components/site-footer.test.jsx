@@ -40,6 +40,8 @@ describe("SiteFooter", () => {
     expect(markup).toContain('href="/"');
     expect(markup).toContain('href="/?view=liked"');
     expect(markup).toContain('href="/wrapped"');
+    expect(markup).toContain("Desktop App");
+    expect(markup).toContain("Credits &amp; Artworks");
   });
 
   it("renders platform utility shortcuts row with icons and labels", () => {

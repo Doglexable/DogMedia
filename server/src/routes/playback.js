@@ -189,6 +189,42 @@ async function hydrateSessionTitles(fastify, sessions) {
   return sessions;
 }
 
+async function hydrateSessionUsers(fastify, sessions) {
+  const userIds = [
+    ...new Set(
+      sessions
+        .map((session) => Number(session.userId))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    ),
+  ];
+
+  if (userIds.length === 0) return sessions;
+
+  const placeholders = userIds.map((_, index) => `$${index + 1}`).join(", ");
+
+  try {
+    const { rows } = await fastify.pg.query(
+      `SELECT id, username, profile_picture FROM users WHERE id IN (${placeholders})`,
+      userIds
+    );
+    const userById = new Map(rows.map((row) => [Number(row.id), row]));
+
+    for (const session of sessions) {
+      if (session.userId) {
+        const user = userById.get(Number(session.userId));
+        if (user) {
+          session.username = user.username;
+          session.profilePicture = user.profile_picture || "fine";
+        }
+      }
+    }
+  } catch (err) {
+    fastify.log.warn(err, "failed to hydrate playback session users");
+  }
+
+  return sessions;
+}
+
 async function storePlaybackEvent(fastify, event, userId) {
   try {
     await fastify.pg.query(
@@ -544,6 +580,9 @@ export default async function (fastify) {
     const ticket = await issueSocketTicket(getRedis(fastify), {
       viewerId, clientIp, accessTier: request.accessTier,
       platform, deviceLabel: normalizeDeviceLabel(request.headers["x-client-name"], platform),
+      userId: request.user?.id || null,
+      username: request.user?.username || null,
+      profilePicture: request.user?.profile_picture || null,
     });
     setViewerCookie(request, reply, viewerId);
     reply.header("Cache-Control", "no-store");
@@ -796,6 +835,7 @@ export default async function (fastify) {
     }
 
     await hydrateSessionTitles(fastify, sessions);
+    await hydrateSessionUsers(fastify, sessions);
 
     return sessions;
   });

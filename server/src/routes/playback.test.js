@@ -451,6 +451,54 @@ describe("playback active cache routes", () => {
     await app.close();
   });
 
+  it("hydrates user account details on active playback sessions for GET /now-playing", async () => {
+    const now = Date.now();
+    const redis = createMockRedis({
+      "playback:active:192.168.1.50": JSON.stringify({
+        mediaId: 1,
+        title: "Track 1",
+        action: "play",
+        userId: 42,
+        trigger: "user",
+      }),
+    });
+    await redis.zadd("playback:active:index", now + 10000, "192.168.1.50");
+
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", {
+      async query(sql) {
+        if (sql.includes("FROM users")) {
+          return {
+            rows: [
+              { id: 42, username: "testuser", profile_picture: "monoco_good" },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 100;
+      request.clientIp = "127.0.0.1";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/playback/now-playing",
+    });
+
+    expect(res.statusCode).toBe(200);
+    const sessions = res.json();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].userId).toBe(42);
+    expect(sessions[0].username).toBe("testuser");
+    expect(sessions[0].profilePicture).toBe("monoco_good");
+
+    await app.close();
+  });
+
   it("returns empty array and does not invoke redis.scan when no active sessions exist", async () => {
     const scanSpy = vi.fn();
     const redis = {

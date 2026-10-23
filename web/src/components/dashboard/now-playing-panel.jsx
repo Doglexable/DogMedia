@@ -151,7 +151,7 @@ export function NowPlayingPanel({ sessions = [], onClose }) {
         ) : (
           sessions.map((session, index) => (
             <NowPlayingCard
-              key={`${session.ip}-${session.mediaId}-${index}`}
+              key={`${session.userId || session.ip}-${session.mediaId}-${index}`}
               session={session}
               index={index}
             />

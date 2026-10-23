@@ -25,6 +25,7 @@ const MODAL_DATA = {
 • Zero Telemetry: No behavioral logging, fingerprinting, or tracking scripts.
 • Local Storage: Media files, listening habits, and metadata stay strictly inside your storage volume.
 • Direct Streaming: Media chunks are served directly via HTTP Range requests without intermediary cloud proxies.
+• Secure Authentication: Scrypt password hashing, Redis-backed sessions, and access tier boundaries.
 • Private By Design: You own your collection, your stories, and your rhythm.`,
   },
   terms: {
@@ -52,27 +53,46 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 • HTTP 206 Partial Content: Instant timeline scrubbing and precise video seeking.
 • Zero Transcode Latency: Original audio and video bitstreams are preserved without destructive compression.
-• Redis Queue Sync: Atomic queue manipulation and persistent resume bookmarks across all your devices.`,
+• Redis Queue Sync: Atomic queue manipulation, WebSocket live state, and persistent resume bookmarks across all your devices.`,
   },
   "desktop-lan": {
     title: "Desktop & LAN Streaming",
-    subtitle: "Home Network Playback",
+    subtitle: "Native Client & Home Network Playback",
     body: `Access your personal media library anywhere on your home network:
 
+• Native Desktop App: Rust Dioxus & Blitz client available for Linux, Windows, and macOS with native media keys and MPRIS integration.
 • Cross-Device: Stream to any laptop, desktop, tablet, or Smart TV browser via your server's local IP address.
 • Progressive Web App: Install directly from your browser as a standalone desktop application.
-• Seamless Continuity: Playback positions and resume states sync seamlessly across your devices.`,
+• Seamless Continuity: Playback positions, resume states, and favorites sync seamlessly across all your devices.`,
   },
   "self-hosted": {
     title: "Self-Hosted Architecture",
     subtitle: "Independent Technology Stack",
     body: `Built for reliability, speed, and long-term ownership:
 
-• Backend: FastifyJS (Node.js 22 on Alpine Linux)
+• Backend: FastifyJS (Node.js 22 LTS on Alpine Linux)
 • Database: PostgreSQL 17 with automated migration pipelines
-• Cache & Queues: Redis 7 for high-speed queue operations and active playback state
+• Cache & Queues: Redis 7 for high-speed queue operations, active sessions, and live state
 • Frontend: React 19, Vite, and native CSS variables (Web ${APP_VERSION_LABEL})
+• Desktop: Rust Dioxus Native & Blitz desktop application
+• Mobile: React Native & Expo client (Android APK)
 • Deployment: Podman & Docker Compose rootless containerization`,
+  },
+  credits: {
+    title: "Credits & Artworks",
+    subtitle: "Community Artists & Creators",
+    body: `Dogmedia celebrates the talented community creators who crafted the avatar and emote collection:
+
+• comickergirl (Sarah Leuver) - https://x.com/comickergirl
+  Created Francois, Gustave Grave, Lune Journal, Maelle Hug, Monoco Good, Parry It, Sciel Approval, Simon, This Is Fine, Verso Good, Verso LMAO.
+
+• Bugyakis - https://x.com/bugyakis
+  Created E33 Flag, Gustave Absolute Cinema, Gustave For Those Who Come After, Lune Beach, Lune When One Falls, Monoco Cry, Monoco Void Baguette, Noco Treasure, Renoir Gommage, Sciel Laugh, Verso Stare.
+
+• IrunoArt - https://x.com/IrunoArt
+  Created Alicia Side Eye, Clea Pathetic, Esquie Wheee, Esquie Whooo, Gustave Dance Petals, Maelle Play The Piano, Monoco Feet, Monoco Owowow, Osquio Putain, Sciel Celebration, Verso Tired.
+
+Thank you to all community creators for their wonderful contributions!`,
   },
 };
 
@@ -252,6 +272,15 @@ export function SiteFooter({ access }) {
                   Android App
                 </a>
               </li>
+              <li>
+                <button
+                  type="button"
+                  className="site-footer-link"
+                  onClick={(event) => handleOpenModal(event, "desktop-lan")}
+                >
+                  Desktop App
+                </button>
+              </li>
               {isTierAdmin && (
                 <li>
                   <Link to="/admin" className="site-footer-link">
@@ -426,6 +455,15 @@ export function SiteFooter({ access }) {
                   onClick={(event) => handleOpenModal(event, "protocol")}
                 >
                   Direct Stream Protocol
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  className="site-footer-link"
+                  onClick={(event) => handleOpenModal(event, "credits")}
+                >
+                  Credits &amp; Artworks
                 </button>
               </li>
             </ul>

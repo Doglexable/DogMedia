@@ -58,6 +58,9 @@ export function reportIdentity(request) {
     clientIp: request.clientIp || request.ip,
     mediaId: request.body?.mediaId,
     mediaType: request.body?.mediaType,
+    userId: request.user?.id || null,
+    username: request.user?.username || null,
+    profilePicture: request.user?.profile_picture || null,
   };
 }
 
@@ -98,7 +101,11 @@ export async function writeActivePlayback(redis, identity, body) {
       ? body.trigger || body.nextTrigger || body.source
       : ["system", "user"].includes(queueTrigger) ? queueTrigger : existing?.trigger || "user",
     pausedAt,
-    ip: identity.clientIp, timestamp: now,
+    ip: identity.clientIp,
+    userId: identity.userId ?? existing?.userId ?? null,
+    username: identity.username ?? existing?.username ?? null,
+    profilePicture: identity.profilePicture ?? existing?.profilePicture ?? null,
+    timestamp: now,
   };
   const ttl = action === "pause" ? PAUSE_CACHE_TTL_SECONDS : ACTIVE_PLAYING_TTL_SECONDS;
   const multi = redis.multi();

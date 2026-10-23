@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faHeart } from "@fortawesome/free-solid-svg-icons/faHeart";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
+import { faPause } from "@fortawesome/free-solid-svg-icons/faPause";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { useAccess } from "../access-context";
 import { api, mediaThumbnailUrl, readJsonArray } from "../api";
-import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
+import { useGlobalPlayer, useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
 import { MediaTypePills } from "../components/dashboard/media-type-pills";
@@ -20,7 +22,7 @@ import {
 import { formatDuration, getMediaFolderName } from "../components/global-player/player-utils";
 import SpotlightCard from "../components/SpotlightCard";
 import { MusicReelDialog } from "../components/global-player/music-share-dialog";
-import { shouldShowBrowse } from "./dashboard-utils";
+import { buildQuickAccessItems, getGreeting, shouldShowBrowse } from "./dashboard-utils";
 import { runViewTransition } from "../utils/view-transitions";
 
 const NOW_PLAYING_POLL_MS = 10000;
@@ -55,9 +57,32 @@ function MediaGridSkeleton({ count = 8 }) {
   );
 }
 
-function DashboardHomeSkeleton() {
+function DashboardHomeSkeleton({ showQuickAccess = false }) {
   return (
     <div className="library-home" role="status" aria-label="Loading library" aria-busy="true">
+      {showQuickAccess && (
+        <section className="quick-access-block" aria-hidden="true">
+          <div className="library-section-header">
+            <div>
+              <span className="skeleton-shimmer inline-block h-3 w-28 rounded" />
+              <span className="skeleton-shimmer mt-2 block h-6 w-48 rounded" />
+            </div>
+          </div>
+          <div className="quick-access-section">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div
+                key={index}
+                className="quick-access-card skeleton-shimmer"
+                style={{
+                  height: 56,
+                  background: "color-mix(in srgb, var(--card-bg) 80%, var(--bg))",
+                  borderRadius: 6,
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
       <div
         className="library-featured library-featured-skeleton skeleton-shimmer"
         style={{
@@ -220,6 +245,127 @@ function openCardContextMenu(event, setMenu) {
   });
 }
 
+function QuickAccessThumbnail({ item }) {
+  const [failed, setFailed] = useState(false);
+  const meta = getMimeMeta(item?.mime_type);
+  const thumbnailSrc = mediaThumbnailUrl(item);
+
+  useEffect(() => setFailed(false), [thumbnailSrc]);
+
+  return (
+    <div className="quick-access-cover">
+      {!failed && item?.id ? (
+        <img
+          src={thumbnailSrc}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onContextMenu={(event) => event.preventDefault()}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className="quick-access-cover-fallback">{meta.icon}</span>
+      )}
+    </div>
+  );
+}
+
+function QuickAccessCard({
+  active,
+  isLiked,
+  isPlaying,
+  item,
+  onAddQueue,
+  onNotice,
+  onPlay,
+  onPlayNext,
+  onPlayToggle,
+  onToggleLike,
+}) {
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        className={`quick-access-card${active ? " quick-access-card--active" : ""}`}
+        onClick={() => onPlay(item)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onPlay(item);
+          }
+        }}
+        onContextMenu={(event) => openCardContextMenu(event, setMenu)}
+      >
+        <QuickAccessThumbnail item={item} />
+        <span className="quick-access-copy">
+          <strong title={item.title}>{item.title}</strong>
+        </span>
+        <button
+          type="button"
+          className="quick-access-play-btn"
+          aria-label={isPlaying ? `Pause ${item.title}` : `Play ${item.title}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onPlayToggle(item);
+          }}
+        >
+          <FontAwesomeIcon icon={isPlaying ? faPause : faPlay} />
+        </button>
+      </div>
+      <MediaContextMenu
+        isLiked={isLiked}
+        item={item}
+        menu={menu}
+        onAddQueue={onAddQueue}
+        onClose={closeMenu}
+        onNotice={onNotice}
+        onPlayNext={onPlayNext}
+        onToggleLike={onToggleLike}
+      />
+    </>
+  );
+}
+
+function QuickAccessLikedCard({ onClick, onPlay }) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="quick-access-card"
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <div className="quick-access-cover quick-access-cover--liked">
+        <FontAwesomeIcon icon={faHeart} className="quick-access-liked-icon" />
+      </div>
+      <span className="quick-access-copy">
+        <strong>Liked Songs</strong>
+      </span>
+      <button
+        type="button"
+        className="quick-access-play-btn"
+        aria-label="Play Liked Songs"
+        onClick={(event) => {
+          event.stopPropagation();
+          onPlay();
+        }}
+      >
+        <FontAwesomeIcon icon={faPlay} />
+      </button>
+    </div>
+  );
+}
+
 function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext, onToggleLike }) {
   const [menu, setMenu] = useState(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -365,9 +511,13 @@ const styles = {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const { tier } = useAccess();
   const { categories, categoriesLoading } = useLibrary();
   const player = useGlobalPlayerLibrary();
+  const globalPlayer = useGlobalPlayer() || {};
+  const paused = globalPlayer.paused;
+  const togglePlayback = globalPlayer.togglePlayback;
   const [searchParams] = useSearchParams();
   const [media, setMedia] = useState([]);
   const [mediaType, setMediaType] = useState("all");
@@ -591,6 +741,37 @@ export default function Dashboard() {
     }, { className: "player-view-transition" });
   }, [libraryView, playMediaAction, selectedCategory]);
 
+  const isAllMedia = !selectedCategory && libraryView !== "liked" && !normalizedSearch && (!mediaType || mediaType === "all");
+  const recentlyPlayedIds = dashboardSummary?.rows?.find((row) => row.key === "recently-played")?.mediaIds;
+
+  const quickAccessItems = useMemo(() => buildQuickAccessItems({
+    recentIds: recentlyPlayedIds || dashboardSummary?.quickAccessIds || [],
+    mediaById: visibleMediaById,
+    fallbackMedia: visibleMedia,
+    limit: 8,
+  }), [dashboardSummary?.quickAccessIds, recentlyPlayedIds, visibleMedia, visibleMediaById]);
+
+  const firstLikedItem = useMemo(() => {
+    if (!player?.likedIds || player.likedIds.size === 0) return null;
+    for (const id of player.likedIds) {
+      const item = visibleMediaById.get(Number(id));
+      if (item) return item;
+    }
+    return null;
+  }, [player?.likedIds, visibleMediaById]);
+
+  const handleLikedSongsClick = useCallback(() => {
+    navigate("/?view=liked");
+  }, [navigate]);
+
+  const handleLikedSongsPlay = useCallback(() => {
+    if (firstLikedItem) {
+      playMediaAction?.(firstLikedItem, "liked", { context: "liked" });
+    } else {
+      navigate("/?view=liked");
+    }
+  }, [firstLikedItem, navigate, playMediaAction]);
+
   return (
     <div className="premium-app-shell" style={styles.page}>
       {/* ── Empty Guide Modal ── */}
@@ -669,12 +850,59 @@ export default function Dashboard() {
 
         {mediaLoading ? (
           !normalizedSearch ? (
-            <DashboardHomeSkeleton />
+            <DashboardHomeSkeleton showQuickAccess={isAllMedia} />
           ) : (
             <MediaGridSkeleton />
           )
         ) : visibleMedia.length > 0 ? (
           <div className="library-home">
+            {isAllMedia && quickAccessItems.length > 0 && (
+              <section className="quick-access-block vault-reveal" aria-labelledby="quick-access-heading">
+                <div className="library-section-header">
+                  <div>
+                    <p className="library-section-kicker">Last played media</p>
+                    <h2 id="quick-access-heading">{getGreeting()}</h2>
+                  </div>
+                </div>
+                <div className="quick-access-section">
+                  {quickAccessItems.map((entry) => {
+                    if (entry.isLikedTile) {
+                      return (
+                        <QuickAccessLikedCard
+                          key={entry.id}
+                          onClick={handleLikedSongsClick}
+                          onPlay={handleLikedSongsPlay}
+                        />
+                      );
+                    }
+                    const isCurrent = Number(currentMediaId) === Number(entry.id);
+                    const isPlaying = isCurrent && !paused;
+                    return (
+                      <QuickAccessCard
+                        key={entry.id}
+                        active={isCurrent}
+                        isPlaying={isPlaying}
+                        item={entry}
+                        isLiked={player?.isLiked?.(entry.id) || false}
+                        onAddQueue={player?.addToQueue}
+                        onNotice={setNotice}
+                        onPlay={playMedia}
+                        onPlayNext={player?.playNext}
+                        onPlayToggle={(item) => {
+                          if (isCurrent) {
+                            togglePlayback?.();
+                          } else {
+                            playMedia(item);
+                          }
+                        }}
+                        onToggleLike={player?.toggleLike}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
             {!normalizedSearch && (
               <div className="vault-reveal">
                 <FeaturedPanel
