@@ -75,7 +75,7 @@ done.
 | [065](065-downscale-desktop-mini-player-video.md) | Downscale desktop video decode and texture upload for mini-player | P2 | S | 057, 059 | DONE — adaptive 640×360 mini-player vs unconstrained fullscreen caps negotiation; oversized pool drain; 74 tests pass |
 | [066](066-profile-modal-and-navigation-integration.md) | Profile modal and navigation integration (sidebar & bottom bar) | P1 | S | — | DONE — profile modal with profile picture picker (_s_/_l_.webp), CREDITS.txt, collapsible sections, user update, cancel, and bottom logout button wired to sidebar & bottom bar |
 | [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | TODO |
-| [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
+| [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | DONE — scoped PUT and DELETE lyrics endpoints to caller tier using accessible_categories CTE; 8 focused tests, 34 server files, 327 tests pass |
 | [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
 | [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |
 | [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | TODO |
