@@ -5,6 +5,15 @@ in the order below unless dependencies say otherwise. Each executor: read the
 plan fully before starting, honor its STOP conditions, and update your row when
 done.
 
+**Authentication baseline (2026-10-26):** Protected API requests require a
+username/password account with a Redis-backed session. Authorization uses
+`request.user.id` and `request.accessTier`. `request.networkIp` is the real
+network address for rate limits and proxy handling; `request.clientIp` is a
+synthetic account key retained by older Redis queue/playback contracts. Plans
+002, 012, 016, and 049 contain historical security work from the retired IP
+whitelist era; their files now explain how to interpret that work. Do not use
+the former whitelist route or localhost as an access-control template.
+
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
@@ -24,7 +33,7 @@ done.
 | [013](013-admin-integration-tests.md) | Add component and workflow tests for Admin workspace | P2 | M | — | DONE |
 | [014](014-decompose-admin-workspace.md) | Decompose monolithic Admin page into feature modules | P3 | L | 013 | SUPERSEDED (by 023) |
 | [015](015-fix-site-footer-rgb-tokens.md) | Replace hardcoded RGB fallbacks in site footer with design tokens | P1 | S | — | DONE |
-| [016](016-secure-whitelist-localhost-guard.md) | Secure IP whitelist routes with route-level localhost authorization | P1 | S | 015 | DONE |
+| [016](016-secure-whitelist-localhost-guard.md) | Historical whitelist route guard; current admin routes use account authorization | P1 | S | 015 | DONE — historical; route retired |
 | [017](017-encoding-worker-missing-source-retry.md) | Terminate infinite retry loop on missing source files in encoding worker | P1 | S | 015 | DONE |
 | [018](018-guard-upload-null-manifest-and-stream-drain.md) | Guard chunk upload null manifest and drain unconsumed streams | P1 | S | 015 | DONE |
 | [019](019-batch-offline-variant-queries.md) | Batch media variant and music reel queries to eliminate N+1 database calls | P2 | S | 015 | DONE |
@@ -56,7 +65,7 @@ done.
 | [046](046-restore-queue-ttl-on-write-paths.md) | Restore Redis TTL on queue items/next/prev/select write paths | P1 | S | — | DONE — item and navigation writes refresh queue/index TTL; 290 server tests pass |
 | [047](047-reject-truncated-direct-uploads.md) | Reject silently-truncated direct uploads over the size cap with 413 | P1 | S | — | DONE — oversized direct-upload parts return 413 and temp files are cleaned; 294 server tests pass |
 | [048](048-upgrade-multipart-past-busboy-advisory.md) | Upgrade @fastify/multipart past busboy CRLF-injection advisory | P1 | S | — | DONE — multipart 10.1.2 and patched busboy 3.2.2; 294 server tests pass; npm audit unavailable (registry DNS) |
-| [049](049-validate-whitelist-and-resource-ids.md) | Validate whitelist writes and numeric resource ids (400 not 500) | P2 | S | 045 | DONE — invalid CIDR, tiers, and route ids return 400; 298 server tests pass |
+| [049](049-validate-whitelist-and-resource-ids.md) | Validate numeric resource ids (400 not 500); historical whitelist portion retired | P2 | S | 045 | DONE — route id validation retained; former whitelist route retired |
 | [050](050-grouped-category-counts.md) | Replace correlated per-category counts with grouped aggregates | P2 | S | — | DONE — list/detail use grouped counts; 299 server tests pass |
 | [051](051-batch-wrapped-child-inserts.md) | Batch wrapped-report child writes into single INSERTs | P2 | S | — | DONE — top media and timeline use one INSERT each; 300 server tests pass |
 | [052](052-browse-search-index-and-list-pagination.md) | Index browse search and paginate media list with Admin compatibility | P2 | M | — | BLOCKED-needs-DB-verify — implementation and tests pass; migration/EXPLAIN require PostgreSQL |
@@ -96,7 +105,7 @@ done.
   already contains unrelated edits to Plan 066 and profile-picture files;
   preserve them.
 - **Plan 015** (`site-footer.css` color token fix) must be executed **first**: it repairs the failing `npm run test:web` assertion, unblocking the unified `npm run test` verification baseline across all packages.
-- **Plan 016** (whitelist localhost security guard) depends on Plan 015 for clean test verification.
+- **Plan 016** is completed security history; its former whitelist route no longer exists. New admin routes must use account session, tier, and resource-scope checks.
 - **Plans 017 & 018** (worker retry and upload stream cleanup) resolve backend worker and upload stability issues.
 - **Plan 023** (CategoryManager modular decomposition) supersedes Plan 014: commit `4a87fd5` extracted three small components but left `CategoryManager.jsx` at 2,446 lines; Plan 023 completes the modular decomposition into `<500` lines backed by tests from Plan 013.
 - **Plan 026**'s original GTK/libadwaita approach was superseded by the working
