@@ -74,13 +74,13 @@ done.
 | [064](064-verify-android-release-artifacts.md) | Verify Android release APKs before publishing | P1 | M | 062 | BLOCKED — operator has no trusted release signer fingerprint yet; local generated release build uses debug signing; establish release signing and provide its public SHA-256 fingerprint |
 | [065](065-downscale-desktop-mini-player-video.md) | Downscale desktop video decode and texture upload for mini-player | P2 | S | 057, 059 | DONE — adaptive 640×360 mini-player vs unconstrained fullscreen caps negotiation; oversized pool drain; 74 tests pass |
 | [066](066-profile-modal-and-navigation-integration.md) | Profile modal and navigation integration (sidebar & bottom bar) | P1 | S | — | DONE — profile modal with profile picture picker (_s_/_l_.webp), CREDITS.txt, collapsible sections, user update, cancel, and bottom logout button wired to sidebar & bottom bar |
-| [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | TODO |
-| [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
-| [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
-| [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |
-| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | TODO |
-| [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | TODO |
-| [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | TODO |
+| [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | DONE — reviewed isolated checkout commit `71cf5cf`; 15 focused tests, 332 server tests, and server lint pass; branch not merged |
+| [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | DONE — reviewed isolated checkout commit `47baba6`; 8 focused tests, 327 server tests, and server lint pass; branch not merged |
+| [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | DONE — reviewed isolated checkout commit `cab0dfc`; web, mobile, and desktop probe tests and lint pass; branch not merged |
+| [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | DONE — reviewed isolated checkout commit `006893c`; 13 focused tests, 33 server files, 323 tests pass; branch not merged |
+| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | DONE — reviewed isolated checkout commit `aa775ad`; 7 focused auth tests, migration runner, and full server suite pass; branch not merged |
+| [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | DONE — reviewed isolated checkout commit `cfc93c6`; createDashboardPaginationGate synchronizes loadMedia reset and loadMore in-flight state; all 148 mobile tests pass; branch not merged |
+| [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | DONE — reviewed isolated checkout commit `29d277d`; createLatestSummaryLoader ignores out-of-order summary responses and late failures; all 155 mobile tests pass; branch not merged |
 | [074](074-prevent-cancelled-download-resurrection.md) | Keep cancelled mobile downloads from reappearing | P1 | M | — | TODO |
 | [075](075-correct-readme-migration-command.md) | Show a runnable migration command in the README | P3 | S | — | TODO |
 
