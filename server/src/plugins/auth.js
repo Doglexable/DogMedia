@@ -40,6 +40,20 @@ function tokenKey(token) {
   return `auth:session:${createHash("sha256").update(token).digest("hex")}`;
 }
 
+export function formatSessionValue(userId, sessionVersion = 0) {
+  return `${userId}:${sessionVersion ?? 0}`;
+}
+
+export function parseSessionValue(value) {
+  if (typeof value !== "string" || !value) return null;
+  if (/^\d+$/.test(value)) {
+    return { userId: Number(value), sessionVersion: 0 };
+  }
+  const match = /^(\d+):(\d+)$/.exec(value);
+  if (!match) return null;
+  return { userId: Number(match[1]), sessionVersion: Number(match[2]) };
+}
+
 function cookieToken(header) {
   const entry = String(header || "").split(";").map((part) => part.trim())
     .find((part) => part.startsWith(`${COOKIE_NAME}=`));
@@ -68,7 +82,8 @@ function validCredentials(body) {
 export default async function authPlugin(fastify, { allowedOrigins = new Set() } = {}) {
   async function startSession(request, reply, user) {
     const token = randomBytes(32).toString("hex");
-    await fastify.redis.set(tokenKey(token), String(user.id), "EX", SESSION_SECONDS);
+    const sessionVersion = Number(user.session_version ?? 0);
+    await fastify.redis.set(tokenKey(token), formatSessionValue(user.id, sessionVersion), "EX", SESSION_SECONDS);
     setCookie(reply, request, token, SESSION_SECONDS);
     return { token, user: { id: user.id, username: user.username, tier: user.access_tier, profile_picture: user.profile_picture || "fine" } };
   }
@@ -85,10 +100,17 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     if (!bearer && !isAllowedMediaBrowserRequest(request, allowedOrigins)) {
       return reply.code(403).send({ error: "Origin denied" });
     }
-    const userId = await fastify.redis.get(tokenKey(token));
-    if (!userId) return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
-    const { rows } = await fastify.pg.query("SELECT id, username, access_tier, profile_picture FROM users WHERE id = $1", [userId]);
+    const rawSession = await fastify.redis.get(tokenKey(token));
+    if (!rawSession) return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
+    const parsed = parseSessionValue(rawSession);
+    if (!parsed) return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
+
+    const { rows } = await fastify.pg.query("SELECT id, username, access_tier, profile_picture, session_version FROM users WHERE id = $1", [parsed.userId]);
     if (!rows.length) return reply.code(401).send({ error: "Account unavailable", code: "LOGIN_REQUIRED" });
+    if (Number(rows[0].session_version ?? 0) !== parsed.sessionVersion) {
+      return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
+    }
+
     request.user = rows[0];
     request.authToken = token;
     request.accessTier = Number(rows[0].access_tier);
@@ -113,7 +135,7 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     let user;
     try {
       const { rows } = await fastify.pg.query(
-        "INSERT INTO users (username, password_hash, access_tier, profile_picture) VALUES ($1, $2, 0, 'fine') RETURNING id, username, access_tier, profile_picture",
+        "INSERT INTO users (username, password_hash, access_tier, profile_picture, session_version) VALUES ($1, $2, 0, 'fine', 0) RETURNING id, username, access_tier, profile_picture, session_version",
         [username, hash]
       );
       user = rows[0];
@@ -130,7 +152,7 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     if (Number(await fastify.redis.get(key)) >= 10) return reply.code(429).send({ error: "Too many attempts; retry later" });
     const { username, password } = request.body || {};
     if (typeof username !== "string" || typeof password !== "string") return reply.code(400).send({ error: "Username and password required" });
-    const { rows } = await fastify.pg.query("SELECT id, username, password_hash, access_tier, profile_picture FROM users WHERE lower(username) = lower($1)", [username]);
+    const { rows } = await fastify.pg.query("SELECT id, username, password_hash, access_tier, profile_picture, session_version FROM users WHERE lower(username) = lower($1)", [username]);
     if (!rows.length || !await matchesPassword(password, rows[0].password_hash)) {
       const attempts = await fastify.redis.incr(key);
       if (attempts === 1) await fastify.redis.expire(key, 300);
@@ -155,7 +177,7 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
   fastify.put("/auth/profile", async (request, reply) => {
     const { username, password, currentPassword, profile_picture } = request.body || {};
     const { rows } = await fastify.pg.query(
-      "SELECT id, username, password_hash, access_tier, profile_picture FROM users WHERE id = $1",
+      "SELECT id, username, password_hash, access_tier, profile_picture, session_version FROM users WHERE id = $1",
       [request.user.id]
     );
     if (!rows.length) return reply.code(404).send({ error: "Account not found" });
@@ -205,11 +227,24 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     }
 
     try {
+      const updateSql = hasNewPassword
+        ? "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3, session_version = session_version + 1 WHERE id = $4 RETURNING id, username, access_tier, profile_picture, session_version"
+        : "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3 WHERE id = $4 RETURNING id, username, access_tier, profile_picture, session_version";
       const { rows: updatedRows } = await fastify.pg.query(
-        "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3 WHERE id = $4 RETURNING id, username, access_tier, profile_picture",
+        updateSql,
         [nextUsername, nextHash, nextProfilePicture, user.id]
       );
       const updated = updatedRows[0];
+
+      if (hasNewPassword) {
+        try {
+          await fastify.redis.set(tokenKey(request.authToken), formatSessionValue(updated.id, updated.session_version), "KEEPTTL");
+        } catch (error) {
+          request.log?.error?.(error, "Failed to rebind session after password change");
+          return reply.code(500).send({ error: "Failed to refresh session; please log in again" });
+        }
+      }
+
       return {
         ok: true,
         user: {
