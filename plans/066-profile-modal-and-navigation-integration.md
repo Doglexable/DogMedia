@@ -30,7 +30,7 @@
    - **Mobile Bottom Navigation Bar**: Dedicated `Profile` tab with avatar (small variant `_s_.webp`) or `faCircleUser` fallback in `mobile-nav-bar`, opening the profile modal on tap.
 
 3. **User Profile Pictures & Attribution**:
-   - Avatars served from `data/media/profile-picture` (20 unique Expedition 33 emote characters).
+   - Avatars served from `server/assets/img/profile-picture` (or `asset/image/profile-picture`, with fallback to `data/media/profile-picture`).
    - High-resolution preview in modal user card: `_l_.webp` variant via `profilePictureUrl(avatar, "l")`.
    - Compact navigation preview in sidebar footer and bottom bar: `_s_.webp` variant via `profilePictureUrl(avatar, "s")`.
    - Collapsible sections in `ProfileModal` ("Profile Picture & Credits" and "Change Password") for compact, clean presentation.

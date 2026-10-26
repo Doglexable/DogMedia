@@ -1,9 +1,22 @@
 import { createReadStream, existsSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function getProfilePicturesDir(dataDir = "data") {
   const candidates = [
+    resolve(__dirname, "../../assets/img/profile-picture"),
+    resolve(__dirname, "../../assets/image/profile-picture"),
+    resolve(__dirname, "../../asset/image/profile-picture"),
+    resolve(__dirname, "../../asset/img/profile-picture"),
+    join(process.cwd(), "server", "assets", "img", "profile-picture"),
+    join(process.cwd(), "server", "assets", "image", "profile-picture"),
+    join(process.cwd(), "server", "asset", "image", "profile-picture"),
+    join(process.cwd(), "assets", "img", "profile-picture"),
+    join(process.cwd(), "assets", "image", "profile-picture"),
+    join(process.cwd(), "asset", "image", "profile-picture"),
     join(dataDir, "profile-picture"),
     join(dataDir, "media", "profile-picture"),
     join(process.cwd(), dataDir, "media", "profile-picture"),

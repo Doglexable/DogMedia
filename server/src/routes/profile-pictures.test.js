@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
-import profilePicturesRoutes from "./profile-pictures.js";
+import profilePicturesRoutes, { getProfilePicturesDir } from "./profile-pictures.js";
 
 describe("profile pictures routes", () => {
+  it("resolves the profile-picture directory in assets", () => {
+    const dir = getProfilePicturesDir();
+    expect(dir).toBeDefined();
+    expect(dir).toContain("profile-picture");
+  });
+
   it("lists available profile pictures with both small and large variants", async () => {
     const app = Fastify();
     await app.register(profilePicturesRoutes, { prefix: "/api/profile-pictures" });
