@@ -1,5 +1,11 @@
 # Plan 071: Revoke older account sessions when the password changes
 
+> **Account-socket handoff (2026-10-26):** This completed plan invalidates
+> previous Redis-backed sessions at the HTTP auth hook. An already-open
+> playback WebSocket retains ticket identity and needs its own revocation
+> check. Plan 041's Current continuation section owns that remaining work;
+> do not assume an established socket closes solely because this plan is DONE.
+
 > **Executor instructions**: Follow every step and gate. Update only this plan's status row in `plans/README.md` when done. Stop on the conditions below.
 >
 > **Drift check first**: `git diff --stat d436e4f..HEAD -- server/src/plugins/auth.js server/src/plugins/auth.test.js server/src/migrations/031_user_session_version.sql`. Compare changed files with the excerpts below and stop on a mismatch.
@@ -97,4 +103,4 @@ Model the test on `server/src/plugins/auth.test.js:110-160`. Exercise two tokens
 
 ## Maintenance notes
 
-Future ways to change passwords must increment the same session version. Keep legacy value parsing until all pre-migration sessions have expired (at most 30 days), then it can be removed in a separate cleanup. Review database/Redis failure ordering carefully; a failed rebind may require the initiating user to log in again but must never leave old tokens valid.
+Future ways to change passwords must increment the same session version. Keep legacy value parsing until all pre-migration sessions have expired (at most 30 days), then it can be removed in a separate cleanup. Review database/Redis failure ordering carefully; a failed rebind may require the initiating user to log in again but must never leave old tokens valid. The HTTP hook does not re-run on an established WebSocket; Plan 041 must revalidate before socket renewal or state writes.

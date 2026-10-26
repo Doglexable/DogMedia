@@ -251,5 +251,6 @@ Stop and report if:
 - Future takeover support on Web/Mobile should be a separate plan with explicit
   authorization and confirmation UX.
 - Reviewers should verify quality changes do not briefly show a false conflict
-  for the same viewer and IP.
+  for the same viewer and account-scoped playback key. The legacy `clientIp`
+  field carries a synthetic account identity on protected requests.
 

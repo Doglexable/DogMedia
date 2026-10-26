@@ -339,8 +339,8 @@ Implement an `adw::Application` and one `adw::ApplicationWindow` with:
 - cursor pagination from `/api/media/browse?limit=50` with a single guarded
   load-more request;
 - category tree navigation using `/api/categories` and `category_id` browse;
-- an access screen that distinguishes unreachable server, denied IP, and
-  first-run bootstrap;
+- an account screen that distinguishes unreachable server, missing or expired
+  login, insufficient account tier, and first-run registration;
 - a persistent bottom player and an optional right queue panel on wide windows;
 - light/dark/system preference using GTK/libadwaita settings.
 

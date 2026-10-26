@@ -25,7 +25,7 @@
 
 ## Why this matters
 
-When a user removes an item from their playback queue via `DELETE /api/queue/items/:mediaId`, the handler deletes and recreates the Redis list and index keys without re-applying the 7-day TTL (`QUEUE_TTL_SECONDS`). This makes the keys permanent (`TTL = -1`), causing them to persist in Redis indefinitely. Over time, every unique IP that ever mutated a queue item leaks two permanent keys, growing Redis memory without bound.
+When a user removes an item from their playback queue via `DELETE /api/queue/items/:mediaId`, the handler deletes and recreates the Redis list and index keys without re-applying the 7-day TTL (`QUEUE_TTL_SECONDS`). This makes the keys permanent (`TTL = -1`), causing them to persist in Redis indefinitely. Under the current account flow, every distinct account that mutates a queue item can leave two permanent keys. The legacy key builder uses a synthetic account value in `request.clientIp`; it is not the user's network address.
 
 The correct pattern already exists in the `replaceQueue` helper function (lines 131-145) which properly applies `expire` after `rpush`. The delete handler bypasses this helper.
 

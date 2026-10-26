@@ -57,7 +57,7 @@ the former whitelist route or localhost as an access-control template.
 | [037](037-bind-compose-ports-to-localhost.md) | Bind Compose database and cache ports to localhost with Redis authentication | P1 | S | — | DONE |
 | [039](039-exclusive-playback-holder-contract.md) | Make exclusive playback conflicts identify the active client safely | P1 | M | — | DONE |
 | [040](040-exclusive-session-ui-all-clients.md) | Show the exclusive session holder consistently on web, desktop, and mobile | P1 | L | 039 | DONE |
-| [041](041-realtime-playback-websocket.md) | Push exclusive playback ownership and position over WebSocket | P1 | L | 039, 040 | BLOCKED — isolated implementation needs revision: mobile force-release does not stop playback; executor limit reached |
+| [041](041-realtime-playback-websocket.md) | Finish account-bound realtime playback WebSocket lifecycle | P1 | L | 039, 040, 054, 071 | BLOCKED — socket code exists and mobile force-release is fixed; account-session revocation, background-audio acceptance, and remaining lifecycle gates pending |
 | [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | DONE |
 | [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | BLOCKED — release app and remembered offline folder confirmed; playback controls and reconnect walkthrough remain |
 | [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS (.dmg) and Windows (.exe) from Linux | P3 | L | 043 | BLOCKED at Windows link/install — macOS images and 350-DLL Windows runtime stage built; MSVC CRT/SDK cache and NSIS unavailable |
@@ -87,7 +87,7 @@ the former whitelist route or localhost as an access-control template.
 | [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | DONE — scoped PUT and DELETE lyrics endpoints to caller tier using accessible_categories CTE; 8 focused tests, 34 server files, 327 tests pass |
 | [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | DONE — web, mobile, and desktop readiness probes recognize only 200/206 as playable; 202/409 retry loop verified across clients |
 | [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | DONE — manifest and validate endpoints use effective quality matching download; 13 focused tests, 33 server files, 323 tests pass |
-| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | DONE — added migration 031 and session_version invalidation on password change; real-DB migration pending host db container; 33 server files pass |
+| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | DONE — HTTP session_version invalidation added; real-DB migration check pending; established WebSocket revocation follows in 041 |
 | [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | DONE — createDashboardPaginationGate synchronizes loadMedia reset and loadMore in-flight state; all mobile tests pass |
 | [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | DONE — createLatestSummaryLoader ignores out-of-order summary responses and late failures; all mobile tests pass |
 | [074](074-prevent-cancelled-download-resurrection.md) | Keep cancelled mobile downloads from reappearing | P1 | M | — | DONE — reviewed isolated checkout commit `d512c91`; attempt tokens isolate in-flight jobs; post-byte cancellation guards and cleanup prevent ready resurrection; 166 mobile tests pass; branch not merged |
@@ -143,6 +143,12 @@ the former whitelist route or localhost as an access-control template.
   Wrapped), whose ~12x-longer timelines are the reason batching matters.
 - **Plan 054** is the revision delta for BLOCKED plan 041 (depends on DONE
   plans 039/040); it does not replace the 041 spec — read both.
+- **Plan 041 continuation** follows Plan 071's session-version migration:
+  socket ticket redemption and ongoing socket writes must honor account
+  revocation. Its original build steps are historical; use its Current
+  continuation section for remaining work. Plan 054's mobile revocation fix
+  is already DONE and must be preserved. Deploy migration 031 before the
+  account-bound socket changes; the real-DB migration check is still pending.
 - **Plan 057** measures the reported ~500 MB desktop memory use, further growth
   after audio seeks, retained memory after Stop, and 150→180 MB after three
   short video play cycles. It compares local and connected playback before

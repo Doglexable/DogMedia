@@ -41,6 +41,8 @@ Facts verified 2026-10-06 (re-verify each before editing):
    and GStreamer … not an Electron/Tauri wrapper"); real reqs at
    `desktop/README.md:9-48` (Rust 1.88+, Vulkan/Mesa drivers).
 2. `README.md:479` Redis table: `playback:resume:<ip>:<mediaId>` TTL "7 days".
+   The `<ip>` segment is now a synthetic account key from `request.clientIp`,
+   not the caller's network address; this excerpt records the old docs.
    Reality: `server/src/routes/playback.js:24-26` defaults to `900` (15 min);
    `compose.yml` sets no override. `AGENTS.md:98` (15m) is correct.
 3. `.env.example:1-54` has no `PFS_REDIS_PASSWORD`, yet `compose.yml:21,47,76`

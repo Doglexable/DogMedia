@@ -1,4 +1,4 @@
-# Plan 041: Push exclusive playback ownership and position over WebSocket
+# Plan 041: Finish account-bound realtime playback over WebSocket
 
 > **Account migration note (2026-10-26):** Resume this blocked work against
 > username/password accounts and Redis-backed sessions. The protected route
@@ -13,31 +13,72 @@
 > report — do not improvise. When done, update the status row for this plan in
 > `plans/README.md` unless a reviewer told you they maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 9869988..HEAD -- server/package.json package-lock.json server/src/index.js server/src/playback-session.js server/src/routes/media.js server/src/routes/playback.js web/nginx.conf web/src/api.js web/src/components/GlobalPlayer.jsx mobile/src/api.js mobile/src/context/player-context.jsx mobile/src/components/full-player.jsx desktop/Cargo.toml desktop/Cargo.lock desktop/src/api/ desktop/src/domain/playback.rs desktop/src/playback/coordinator.rs desktop/src/ui/mod.rs README.md`
-> Plans 039 and 040 are currently present as working-tree changes on
-> `feat/040-exclusive-session-holder-ui`, so the commit-only drift command is
-> not sufficient by itself. Before editing, also run `git diff -- <in-scope
-> paths>` and confirm the current-state excerpts and the safe holder contract
-> below still match. This plan must be executed only after Plans 039 and 040
-> have landed or their exact changes are present in the executor's worktree.
+> **Drift check (run first)**: `git status --short` and
+> `git diff --stat HEAD -- server/src/plugins/auth.js server/src/playback-session.js server/src/playback-socket.js server/src/routes/playback.js mobile/src/context/player-context.jsx mobile/src/utils/playback-socket.js desktop/src/api/playback_socket.rs`.
+> Plans 039, 040, and 054 are DONE in the current tree. Re-read these files and
+> their tests before editing; the original implementation steps below describe
+> the 2026-10-05 baseline and must not be replayed blindly.
 
 ## Status
 
 - **Priority**: P1
 - **Effort**: L
 - **Risk**: HIGH
-- **Depends on**: Plans 039 and 040
+- **Depends on**: Plans 039, 040, 054, and 071 (code present; deploy migration
+  031 before relying on Plan 071's session-version checks)
 - **Category**: architecture / performance
 - **Planned at**: commit `9869988`, 2026-10-05
 
+## Current continuation (2026-10-26)
+
+The socket endpoint, one-use ticket, Web/Mobile/Desktop clients, and mobile
+`PLAYBACK_LEASE_LOST` handler now exist in the repository. Plan 054 records the
+mobile revocation repair and media-type correction as DONE. The original
+current-state excerpts and Steps 1–6 below are design history, not a fresh-build
+checklist. Continue only with these remaining gates:
+
+1. **Account-session binding and revocation:** `POST /api/playback/socket-ticket`
+   runs after the account auth hook and includes `userId`, but
+   `consumeSocketTicket()` currently compares only its legacy `clientIp` value,
+   and the socket hub retains ticket identity without checking a changed
+   `users.session_version`. Bind ticket redemption to the authenticated
+   `request.user.id` and session version, reject signed-out and cross-account
+   attempts, and stop renewing/publishing when the account session is revoked
+   or expires. Preserve the synthetic `clientIp` field only for the existing
+   Redis lease and protected-playback tuple. Do not bind tickets to network IP.
+   Add Fastify socket tests using actual account-session fixtures, including a
+   password change through `PUT /api/auth/profile` while a socket is open;
+   assert the old socket can no longer publish or renew. Reuse auth parsing
+   rather than adding a second password or session implementation.
+2. **Client lifecycle:** Verify mobile background audio on Android and iOS or
+   document and test an exclusive HTTP renewal fallback when the runtime
+   suspends the socket. Keep Web/Mobile/Desktop HTTP heartbeat and observer
+   polling active only while their socket is reconnecting. Confirm force
+   release pauses mobile audio/video and clears protected sources before a
+   following `available` state; preserve Plan 054's regression test.
+3. **Remaining regression and acceptance gates:** Add missing tests for
+   observer renewal exclusion, disconnect/TTL availability, reconnect fallback
+   exclusivity, and desktop reconnect/task shutdown. Run the focused and full
+   commands in the table below, then verify Nginx upgrade and owner takeover
+   on the deployed client platforms. Mark DONE only after background-audio
+   behavior and account revocation are demonstrated.
+
+**Scope for this continuation:** `server/src/plugins/auth.js` (only a small
+shared session validator if needed), `server/src/playback-session.js`,
+`server/src/playback-socket.js`, `server/src/routes/playback.js`, their focused
+tests, and the Web/Mobile/Desktop socket owner and tests where lifecycle fixes
+are required. Keep Redis lease duration, public holder shape, and HTTP
+fallback contract unchanged. If account revocation cannot be checked without
+exposing a bearer token to socket clients or logging it, stop and report a
+server-side design alternative. The original scope below remains background
+for the already shipped protocol.
+
 ## Why this matters
 
-Exclusive playback currently discovers takeover and remote position changes
-through independent five-second HTTP timers. Even with correct ownership
-validation, the previous owner may keep playing until its next heartbeat and
-an observer mini player can remain stale for the same interval. Moving only the
-heartbeat request onto a socket would not fix that delay; the server must push
-lease transitions and playback snapshots as events.
+Before the socket work shipped, exclusive playback discovered takeover and
+remote position changes through independent five-second HTTP timers. The
+existing socket implementation now pushes lease transitions and snapshots;
+the continuation above closes its account and lifecycle acceptance gaps.
 
 After this plan, one authenticated WebSocket channel per client carries lease
 liveness, immediate owner-revocation notices, and safe playback snapshots.
@@ -45,7 +86,7 @@ Web, mobile, and desktop stop their five-second heartbeat/status polling while
 the socket is healthy. Redis remains the source of truth, and the existing HTTP
 routes remain temporarily available as a reconnect/rolling-deployment fallback.
 
-## Current state
+## Original 2026-10-05 state (historical)
 
 Relevant files and behavior:
 
@@ -176,7 +217,7 @@ Liveness and renewal:
 | Desktop release | `npm run build:desktop` | optimized binary produced |
 | Proxy syntax | `podman run --rm -v "$PWD/web/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z" nginx:stable-alpine nginx -t` | syntax successful |
 
-## Scope
+## Original implementation scope (historical)
 
 **In scope** (the only implementation areas to modify):
 
@@ -229,7 +270,7 @@ Liveness and renewal:
 - Commit style: `feat(playback): push exclusive session state over websocket`
 - Do not push or open a PR unless the operator instructed it.
 
-## Steps
+## Original implementation steps (already present; reference only)
 
 ### Step 1: Add protocol primitives and one-use socket tickets
 
@@ -396,8 +437,9 @@ while the socket is healthy.
 
 ## Test plan
 
-- Server unit/integration tests: ticket security, handshake timeout, origin/IP
-  checks, message schema/size/rate limits, lease bind, renewal, expiry, release,
+- Server unit/integration tests: ticket security, handshake timeout, Origin
+  checks, account-session revocation, cross-account denial, message schema/size/rate
+  limits, lease bind, renewal, expiry, release,
   force takeover, stale sequence, backpressure, and shutdown cleanup.
 - Web: fake socket state machine plus GlobalPlayer regression tests for owner,
   observer, takeover, reconnect fallback, and Strict Mode cleanup.
@@ -459,16 +501,14 @@ Stop and report instead of improvising if:
 An uncommitted implementation is preserved at `/tmp/pfs-041-U6KqO7/repo`.
 It passed the full JavaScript test suite, JavaScript lint, Web build, Cargo
 format, full Cargo tests, and Cargo clippy after restoring local dependencies.
-It is **not approved**. Before merging or marking this plan DONE, a separate
-executor must address these review findings and rerun the gates:
+That isolated attempt was **not approved**. Plan 054 subsequently resolved its
+mobile lease-loss handler and media-type defect in the current repository. The
+remaining findings below must be read with the Current continuation section
+above; do not repeat the already completed mobile fix:
 
-- Mobile `PlayerProvider` registers `onLease` but not `onError` in its socket
-  service (`mobile/src/context/player-context.jsx`). On admin force release,
-  the server emits `PLAYBACK_LEASE_LOST` followed by `lease.state: available`.
-  Mobile currently clears conflict text without stopping its active player.
-  Handle revocation by pausing audio/video, clearing the protected source,
-  and preventing further owner reports. Add a regression test for this exact
-  event sequence.
+- Resolved by Plan 054: Mobile `PlayerProvider` now registers `onError` and
+  stops playback on `PLAYBACK_LEASE_LOST`; its socket tests cover the following
+  `available` state. Preserve this behavior during account-session changes.
 - Prove background audio behavior on Android and iOS, or retain an explicitly
   exclusive HTTP renewal fallback when the background socket/JS runtime is
   suspended. A foreground-only AppState handler does not prove lease renewal

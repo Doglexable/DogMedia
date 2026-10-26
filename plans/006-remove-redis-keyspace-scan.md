@@ -31,6 +31,11 @@ Fixing this by removing the obsolete runtime keyspace scan ensures idle polling 
 
 ## Current state
 
+The excerpt below is historical. The local variable `ips` named Redis active
+keys at the time; in the current account flow protected playback keys are
+scoped to a synthetic account identity, while `request.user.id` owns durable
+activity. Do not use a source IP as a user identifier in new code.
+
 - `server/src/routes/playback.js:759-776`:
 ```javascript
     let ips = await redis.zrangebyscore(ACTIVE_INDEX_KEY, now, "+inf");
