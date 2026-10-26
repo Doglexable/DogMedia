@@ -25,6 +25,8 @@
 
 Two endpoints use bare `JSON.parse()` on Redis string values without error handling. If a resume key contains corrupted, truncated, or legacy non-JSON data, these endpoints throw unhandled `SyntaxError` exceptions, returning 500 Internal Server Errors to clients instead of gracefully treating corrupted entries as cache misses.
 
+The key excerpt below is historical. For authenticated requests, `request.clientIp` is a stable synthetic account identity used by the existing Redis key format; `request.networkIp` is the actual network address. New ownership contracts should use `request.user.id` and plan a key migration.
+
 ## Current state
 
 Relevant files:

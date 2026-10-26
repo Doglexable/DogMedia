@@ -1,5 +1,11 @@
 # Plan 039: Make exclusive playback conflicts identify the active client safely
 
+> **Account migration note (2026-10-26):** This completed plan records the
+> original lease implementation. Authenticated requests now carry `request.user.id`
+> and a synthetic account value in `request.clientIp`; the latter is not the
+> network address. Read all `clientIp`/same-IP tests below as account-key
+> compatibility tests. New account ownership should use `request.user.id`.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
@@ -24,8 +30,8 @@
 Dogmedia stores an exclusive audio/video lease in Redis, but a rejected client
 only receives `PLAYBACK_IN_USE`, a generic message, and `retryAfter`. Web,
 desktop, and mobile therefore cannot tell whether Web, Desktop, or Mobile owns
-the lease. The acquisition script also treats IP address as ownership: a
-different Dogmedia client on the same IP silently replaces the lease instead of
+the lease. The acquisition script originally treated its `clientIp` field as ownership: a
+different Dogmedia client sharing the same account-scoped key could replace the lease instead of
 receiving a conflict. This plan makes the stable viewer identity part of the
 ownership decision and exposes only a safe holder descriptor — never the
 session ID or viewer ID.
@@ -52,7 +58,7 @@ if currentRaw then
 end
 ```
 
-This allows any new viewer on the same IP to replace the session. The stored
+This allowed any new viewer under the same account key to replace the session. The stored
 lease at `server/src/playback-session.js:192-200` already includes `viewerId`,
 `sessionId`, `mediaId`, `clientIp`, and `platform`.
 
@@ -118,8 +124,8 @@ must never include `viewerId`, `sessionId`, raw Redis keys, or `clientIp`.
 - Client UI changes — Plan 040 consumes this contract.
 - Changing the 30-second lease duration.
 - Exposing viewer/session IDs or IP addresses.
-- Replacing IP-based access authorization; this plan changes playback lease
-  ownership only, not the whitelist architecture.
+- Changing account authentication, Redis-backed sessions, or tier checks; this
+  plan changes playback lease ownership only.
 - Changing admin authorization for `DELETE /api/playback/lease/admin`.
 
 ## Git workflow
@@ -130,29 +136,29 @@ must never include `viewerId`, `sessionId`, raw Redis keys, or `clientIp`.
 
 ## Steps
 
-### Step 1: Make viewer plus IP the lease owner
+### Step 1: Make viewer plus account key the lease owner
 
 Change `ACQUIRE_LEASE_SCRIPT` so replacement succeeds only when both the stored
 `viewerId` and `clientIp` equal the incoming values. A different viewer on the
-same IP must receive a conflict. A different IP using the same viewer must also
-receive a conflict because playback sessions and stream validation remain bound
-to IP.
+same account key must receive a conflict. A different account key using the
+same viewer must also receive a conflict because playback sessions and stream
+validation remain bound to that account key.
 
 Pass both values as Lua arguments. On conflict, return the current lease JSON
 from the same atomic script invocation along with its TTL. Do not perform a
 separate `GET` after the failed acquisition; that introduces a race where the
 reported holder may differ from the holder that caused the rejection.
 
-Keep legitimate quality/session rotation working for the same viewer and IP:
+Keep legitimate quality/session rotation working for the same viewer and account key:
 return the previous session ID on successful replacement so the route can
 revoke it as it does today.
 
 **Verify**: add tests to `server/src/playback-session.test.js` proving:
 
-1. same viewer + same IP can rotate session IDs;
-2. different viewer + same IP is rejected and returns the original holder;
-3. same viewer + different IP is rejected;
-4. different viewer + different IP is rejected;
+1. same viewer + same account key can rotate session IDs;
+2. different viewer + same account key is rejected and returns the original holder;
+3. same viewer + different account key is rejected;
+4. different viewer + different account key is rejected;
 5. conflict metadata never contains a newly attempted lease as the holder.
 
 Run the focused server test command; all pass.
@@ -208,14 +214,14 @@ Run focused tests, full server tests, and server lint.
 - Extend `server/src/routes/media.test.js` with a 409 response contract test.
 - Extend `server/src/routes/playback.test.js` for heartbeat-lost and lease-status
   holder responses.
-- Include a same-IP/different-viewer regression test; this is the bug that
+- Include a same-account-key/different-viewer regression test; this is the bug that
   previously let Web/Desktop/Mobile replace one another silently.
 - Include sensitive-field absence assertions on every public holder response.
 
 ## Done criteria
 
-- [ ] A different viewer cannot replace an exclusive lease merely by sharing its IP.
-- [ ] Same viewer + same IP session rotation still succeeds.
+- [ ] A different viewer cannot replace an exclusive lease merely by sharing its account key.
+- [ ] Same viewer + same account key session rotation still succeeds.
 - [ ] Conflict responses contain the safe `activeSession` descriptor.
 - [ ] No conflict/status response contains viewer ID, session ID, or client IP.
 - [ ] Heartbeat loss reports the current holder when one exists.
@@ -231,7 +237,7 @@ Stop and report if:
 - Legitimate quality switching uses a new viewer ID rather than the persisted
   viewer ID; changing ownership rules would then break quality switching.
 - Product requirements demand exposing raw IP/viewer/session identifiers.
-- The implementation requires weakening IP whitelist authorization.
+- The implementation requires weakening account session or tier authorization.
 - Current route shapes have drifted from the excerpts above.
 
 ## Maintenance notes

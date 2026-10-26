@@ -26,7 +26,7 @@
 
 ## Why this matters
 
-The main media streaming endpoint (`GET /api/media/:id/stream` at `server/src/routes/media.js:1206`) enforces `ORIGINAL_QUALITY_MIN_TIER` (tier >= 100) before serving original-quality audio/video files. The offline download endpoint (`GET /api/offline/media/:id/download`) defaults to `quality=ori` and serves original files without any tier check. This allows guest and standard network users (tier 0) to download unencoded master audio files, bypassing the quality restriction enforced everywhere else.
+The main media streaming endpoint (`GET /api/media/:id/stream` at `server/src/routes/media.js:1206`) enforces `ORIGINAL_QUALITY_MIN_TIER` (tier >= 100) before serving original-quality audio/video files. The offline download endpoint (`GET /api/offline/media/:id/download`) originally served original files without that tier check. This allowed signed-in standard users (tier 0) to download master audio files. The account session supplies `request.accessTier`.
 
 ## Current state
 

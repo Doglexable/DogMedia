@@ -23,17 +23,17 @@
 
 ## Why this matters
 
-`QUEUE_TTL_SECONDS` documents a 7-day expiry for per-IP queue keys, and plan
+`QUEUE_TTL_SECONDS` documents a 7-day expiry for account-scoped queue keys, and plan
 030 fixed the delete path — but the four most common write paths never set any
 TTL, so queues touched only through them become immortal: Redis memory leaks
-and returning IPs resurrect week-old queues instead of starting fresh. After
+and returning users resurrect week-old queues instead of starting fresh. After
 this plan, every queue/index write carries the documented TTL.
 
 ## Current state
 
 Relevant files:
 
-- `server/src/routes/queue.js` — all per-IP queue routes; TTL constant at line 37.
+- `server/src/routes/queue.js` — account-scoped queue routes; legacy Redis key builders use the synthetic account value in `request.clientIp`, not the network address.
 - `server/src/routes/queue.test.js` — existing queue tests.
 
 ```js

@@ -1,5 +1,12 @@
 # Plan 002: Eliminate Client IP Spoofing on Loopback Proxy Hops
 
+> **Account migration note (2026-10-26):** This is a completed historical
+> proxy-hardening plan. Source IP no longer authorizes users or grants tier 999.
+> `server/src/plugins/auth.js` authenticates username/password accounts through
+> Redis-backed sessions, sets `request.user.id` and `request.accessTier`, and
+> uses `request.networkIp` for network controls such as login rate limits.
+> The `clientIp` field on protected requests is a synthetic account key.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
@@ -23,11 +30,11 @@
 
 ## Why this matters
 
-DogMedia uses IP-based authorization without passwords. In `server/src/plugins/auth.js:51-63`, `getClientIp` checks if the immediate socket peer is a loopback address (`127.0.0.1` or `::1`). Since Nginx runs on the host or in network host mode, all proxied requests come from loopback. In this case, `getClientIp` calls `getFirstValidHeaderIp` on `request.headers["x-forwarded-for"]`, which picks the **first (leftmost)** IP in the list.
+At the time this plan was written, the server used IP authorization. Its old `getClientIp` read the first, client-controlled forwarded address from a loopback proxy hop. The excerpt below records that historical implementation.
 
-If a remote client supplies a forged header such as `X-Forwarded-For: 127.0.0.1`, Nginx (via `$client_forwarded_for` in `web/nginx.conf:12-15`) forwards the client's header directly to Fastify. Fastify reads `127.0.0.1` as `clientIp` and immediately grants tier 999 (full Administrator) access!
+The spoofed-header risk originally included an administrator-tier bypass. Under the current account flow, forwarded headers must still be handled correctly for `request.networkIp`, registration/login rate limits, and logs, but cannot grant account access or privilege.
 
-Fixing this ensures Fastify and Nginx only trust validated proxy hops and prevents client-forged IP headers from spoofing admin or whitelisted tiers.
+This completed work hardened proxy-hop handling. Any future change must preserve account-session and tier authorization regardless of source IP.
 
 ## Current state
 
@@ -85,7 +92,7 @@ map $http_x_forwarded_for $client_forwarded_for {
 - `server/src/plugins/auth.test.js` (create or update)
 
 **Out of scope**:
-- Database `ip_whitelist` table structure.
+- Account database and session authorization.
 - Client routing.
 
 ## Git workflow
@@ -107,19 +114,19 @@ In `web/nginx.conf`:
 In `server/src/plugins/auth.js`:
 - In Fastify, `request.ip` uses `proxy-addr` based on `trustProxy` (configured in `server/src/index.js`).
 - If inspecting `X-Forwarded-For` manually behind a single trusted reverse proxy (e.g. Nginx on loopback), the genuine client IP is the **last untrusted hop** (e.g. `rawIps[rawIps.length - 1]`), NOT the first entry which is client-supplied!
-- Furthermore, ensure `normalizeIp` is applied to all IP return values (including direct `request.ip`), stripping any `::ffff:` prefix so dual-stack IPv4-mapped IPv6 addresses match PostgreSQL CIDRs.
+- Ensure `normalizeIp` is applied to all network IP return values, including direct `request.ip`, so rate limits and audit records use a consistent address.
 
 ### Step 3: Add Verification Tests
 
 In `server/src/plugins/auth.test.js` (or `server/src/routes/playback.test.js`):
-- Test that a request with `x-forwarded-for: 127.0.0.1, 203.0.113.195` from loopback socket correctly resolves to `203.0.113.195`, preventing the client from spoofing loopback admin access.
+- Test that a request with `x-forwarded-for: 127.0.0.1, 203.0.113.195` from a trusted loopback proxy resolves `request.networkIp` to the correct client address without changing the authenticated account or its tier.
 - Test that IPv4-mapped `::ffff:192.168.1.5` correctly normalizes to `192.168.1.5`.
 
 ## Done criteria
 
 - [ ] `npm run lint --workspace=server` exits 0.
 - [ ] `npm run test:server` exits 0 with all IP resolution tests passing.
-- [ ] Forged `X-Forwarded-For: 127.0.0.1` does not grant tier 999.
+- [ ] Forged `X-Forwarded-For: 127.0.0.1` cannot change the authenticated account, its tier, or the network rate-limit identity.
 
 ## STOP conditions
 

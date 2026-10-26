@@ -1,5 +1,11 @@
 # Plan 026: Ship a Native Linux Desktop Client in Rust
 
+> **Historical plan:** The GTK approach below was superseded by the shipped
+> Dioxus/Blitz desktop client. Any remaining desktop work must use the current
+> username/password account flow and Bearer session token in
+> `desktop/src/api/client.rs`; the old network-access workflow below is not
+> an implementation instruction.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
@@ -39,7 +45,7 @@ directly to PostgreSQL or Redis.
 The first release is a playback client: server selection, access check,
 library/category browsing, search, favorites, photo/audio/video playback,
 queue management, resume positions, lyrics, subtitles, quality selection, and
-desktop media controls. Admin uploads, whitelist management, Wrapped stories,
+desktop media controls. Admin uploads, account administration, Wrapped stories,
 music-share reel creation, and offline downloads are deliberately deferred.
 
 ## Architecture decision
@@ -208,9 +214,9 @@ boundaries. Add them to the plan status note when created.
 
 - Reusing `web/` code or embedding its built files.
 - Changing PostgreSQL schemas, Redis queue formats, endpoint response shapes,
-  access tiers, or IP-based authorization.
+  access tiers, or account authentication.
 - Direct database/cache access from the desktop application.
-- Admin uploads, category editing, whitelist management, mobile release
+- Admin uploads, category editing, account administration, mobile release
   management, Wrapped, and music-share reel creation.
 - Offline downloads in v1. This is the first follow-up after the streaming
   client is stable; use `/api/offline/*` and a Rust SQLite store when planned.
@@ -464,8 +470,9 @@ only XDG app data remains.
 
 ### Manual acceptance on a real Dogmedia server
 
-1. Configure an HTTP LAN server and an HTTPS server; denied IPs see the access
-   screen and whitelisted IPs enter the library.
+1. Configure an HTTP LAN server and an HTTPS server; sign in with a valid
+   username/password account, verify the Bearer session reaches the library,
+   and verify signed-out or expired sessions return to login.
 2. Browse 100+ items, search rapidly, filter each media family, enter nested
    categories, and paginate without duplicates.
 3. Display a photo; play MP3/FLAC audio and H.264/WebM video; seek near the end;
@@ -520,7 +527,7 @@ Stop and report back instead of improvising if:
   boundaries.
 - An existing `/api` response differs from the typed contract enough to require a
   breaking server response change.
-- A step requires changing the IP-based authorization model, database schema,
+- A step requires changing the account authentication model, database schema,
   Redis key formats, or any existing web/mobile response shape.
 - ASS subtitle rendering requires executing external commands or trusting
   arbitrary attachment/font paths. Fall back to VTT and report the limitation.

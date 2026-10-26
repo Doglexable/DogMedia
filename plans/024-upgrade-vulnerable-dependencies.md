@@ -24,7 +24,7 @@
 ## Why this matters
 
 `npm audit` reports several High-severity security advisories affecting reachable runtime code:
-1. `fastify <= 5.12.0` (GHSA-3m5p-2c4r-xxw2): `X-Forwarded-*` header spoofing vulnerability when reverse proxies hop, risking CIDR bypass.
+1. `fastify <= 5.12.0` (GHSA-3m5p-2c4r-xxw2): `X-Forwarded-*` header spoofing vulnerability when reverse proxies hop. The original CIDR bypass concern is historical; current account sessions and tiers must not derive privilege from source IP, while `request.networkIp` still needs trustworthy proxy handling for rate limits.
 2. `find-my-way <= 9.6.0` (GHSA-c96f-x56v-gq3h): High-severity Denial of Service vulnerability via HTTP/2 route parsing.
 3. `react-router / react-router-dom 6.0.0 - 7.18.1` (GHSA-wrjc-x8rr-h8h6): Open redirect vulnerability via backslash-encoded paths in `<Link>` and `useNavigate`, and client DoS via inefficient route matching (GHSA-chx6-hx7r-mcp5).
 Updating Fastify to `^5.12.5` and `react-router-dom` to `^7.18.2` patches these vulnerabilities via semver-compatible minor/patch upgrades without breaking application code.

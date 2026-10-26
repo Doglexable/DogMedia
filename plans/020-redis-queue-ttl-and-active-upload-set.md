@@ -23,14 +23,14 @@
 
 ## Why this matters
 
-The Redis cache currently suffers from two distinct efficiency issues. First, `server/src/routes/media.js` implements `GET /uploads/queue` by executing a full Redis keyspace `SCAN` matching `media:upload-completion:*` on every poll from the Admin UI. As the number of keys in Redis grows, `SCAN` causes single-threaded event loop latency spikes. Second, per-IP queue keys (`queue:${ip}`, `queue:index:${ip}`, and `queue:revision:${ip}`) in `server/src/routes/queue.js` are created without expiration (`EX`), causing Redis memory to grow monotonically with every unique client IP that ever connects. Tracking active upload IDs in a Redis set (`media:upload-completion:active_ids`) and setting a 7-day TTL on queue keys resolves both problems.
+The Redis cache had two efficiency issues. First, `GET /uploads/queue` scanned upload-completion keys on every Admin poll. Second, queue keys lacked expiry, allowing stale account queues to accumulate. Queue key names still interpolate `request.clientIp`, but authenticated requests receive a stable account-scoped synthetic value from `server/src/plugins/auth.js`; the real network address is `request.networkIp`. Tracking active upload IDs in a Redis set and setting a 7-day TTL on queue keys addresses both issues.
 
 ## Current state
 
 The relevant files:
 - `server/src/upload-completion-queue.js` — writes and manages upload completion status in Redis.
 - `server/src/routes/media.js` — `GET /uploads/queue` endpoint that scans Redis.
-- `server/src/routes/queue.js` — manages per-IP playback queue lists and revisions.
+- `server/src/routes/queue.js` — manages account-scoped playback queue lists and revisions through legacy key names.
 
 Current-state excerpts:
 `server/src/routes/media.js:960-973`:
@@ -78,7 +78,7 @@ async function replaceQueue(redis, key, idxKey, ids, startId) {
 
 Repo conventions:
 - Follow Plan 006 exemplar (`playback:active:ips` set) for tracking active resource keys without full keyspace scans.
-- Per-IP temporary state uses 7-day TTL (`7 * 24 * 60 * 60 = 604,800` seconds).
+- Account-scoped temporary queue state uses a 7-day TTL (`604,800` seconds).
 
 ## Commands you will need
 
@@ -187,4 +187,4 @@ In `server/src/routes/queue.js`:
 
 ## Maintenance notes
 
-- Any additional per-IP Redis keys introduced in future features must specify an explicit TTL to avoid memory leaks.
+- Additional account-scoped Redis keys need explicit TTLs. Use `request.user.id` for new ownership contracts; preserve the legacy synthetic `request.clientIp` only where existing queue keys require it.

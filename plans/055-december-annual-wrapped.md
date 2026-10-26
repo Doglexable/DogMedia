@@ -61,7 +61,7 @@ Decided spec (`PLAN_YEARLY_WRAPPED.md`, read the full file — key quotes):
 
 Existing code (verify before editing):
 
-- Monthly rolling 30-day per-IP lock: `server/src/migrations/009_wrapped_access_locks.sql`,
+- Monthly rolling 30-day lock per account: the original schema is in `server/src/migrations/009_wrapped_access_locks.sql`; migration 029 transfers ownership to `users.id`.
   `INSERT ... ON CONFLICT ... WHERE next_open_at <= NOW()`; routes
   `GET /api/wrapped/access` (non-consuming) and `GET /api/wrapped/current`
   (consuming, 429 `WRAPPED_LOCKED`); see `PROJECT_CONTEXT.md:90-111`.

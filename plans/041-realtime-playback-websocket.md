@@ -1,5 +1,12 @@
 # Plan 041: Push exclusive playback ownership and position over WebSocket
 
+> **Account migration note (2026-10-26):** Resume this blocked work against
+> username/password accounts and Redis-backed sessions. The protected route
+> group requires a valid account session. `request.user.id` is the account
+> owner; `request.clientIp` is a synthetic account key retained by the existing
+> playback lease contract; `request.networkIp` is only the network address.
+> Do not reintroduce IP allowlisting or bind an account ticket to a source IP.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If anything in the "STOP conditions" section occurs, stop and
@@ -114,15 +121,17 @@ same request turn that changes Redis; clients must not wait for a timer.
 
 Authentication handshake:
 
-1. Add `POST /api/playback/socket-ticket`. It uses the existing IP whitelist
+1. Add `POST /api/playback/socket-ticket`. It uses the existing account-session
    hook and `readViewerId`/`resolveViewerId`, normalizes platform/device label,
    and creates a cryptographically random, single-use ticket valid for at most
    30 seconds.
 2. Store only a SHA-256 digest in Redis under a dedicated ticket key; the value
-   contains viewer ID, client IP, access tier, platform, and normalized label.
+   contains account ID, session version or equivalent revocation binding, viewer
+   ID, account-scoped playback key, access tier, platform, and normalized label.
 3. Open `/api/playback/socket` without query credentials. The first socket
-   message must be `auth`; atomically consume the ticket and require the socket
-   IP to match. An unauthenticated socket receives no state and closes after a
+   message must be `auth`; atomically consume the ticket and revalidate the
+   account session (including password-change revocation) before publishing
+   state. An unauthenticated socket receives no state and closes after a
    short timeout.
 4. Do not put viewer/session IDs or tickets in URLs or logs. Validate browser
    `Origin` against the same configured origins used by CORS; native clients
@@ -134,7 +143,8 @@ Liveness and renewal:
   before the next liveness deadline. Browsers answer protocol pings
   automatically; clients do not need a JavaScript heartbeat interval.
 - `session.bind` validates the protected session against the ticket-bound
-  viewer and socket IP. While that socket remains alive and still owns the
+  account, viewer, and account-scoped playback key. While that socket remains
+  alive and still owns the
   bound lease, the server refreshes it through `refreshExclusiveLease` on the
   server liveness cycle. Do not refresh a lease merely because an observer
   socket is connected.
@@ -142,8 +152,9 @@ Liveness and renewal:
   the existing Redis TTL grace for transient network changes. Use a rescheduled
   expiry timer plus a Redis re-check to emit `available` when the lease really
   expires—do not add another client polling loop.
-- Owner `playback.state` messages are accepted only after exact
-  `viewerId + sessionId + clientIp + mediaId` validation. Reuse the same
+- Owner `playback.state` messages are accepted only after exact account,
+  `viewerId + sessionId + clientIp + mediaId` validation. Here `clientIp`
+  names the legacy synthetic account key. Reuse the same
   authorization and Redis snapshot writer used by HTTP `/active` so WebSocket
   and compatibility HTTP paths cannot diverge.
 - Push discrete play/pause/seek/media/loop/shuffle changes immediately. During
@@ -232,9 +243,9 @@ Create the ticket endpoint and atomic consume helper. Ticket tests must prove:
 
 1. ticket is random, expires, and is single-use;
 2. Redis stores a digest rather than the raw ticket;
-3. a different source IP cannot use it;
+3. an account with a different ID or a revoked session cannot use it;
 4. no ticket/viewer/session/IP appears in a public event or log fixture;
-5. unwhitelisted requests cannot obtain a ticket or upgrade successfully.
+5. signed-out or expired sessions cannot obtain a ticket or upgrade successfully.
 
 **Verify**: run the focused server tests; the new ticket/protocol tests pass.
 
@@ -276,15 +287,16 @@ Notify the hub only after the corresponding Redis mutation succeeds:
 - successful compatibility `/active` updates so a legacy owner still updates
   new observer clients.
 
-Configure `web/nginx.conf` for WebSocket upgrade on the socket endpoint. Keep
-the existing trusted real-IP headers exactly aligned with `/api/`; otherwise a
-socket and its HTTP session may appear to come from different IPs. Verify both
+Configure `web/nginx.conf` for WebSocket upgrade on the socket endpoint. Preserve
+the same account session authentication and Origin policy as HTTP. Forward
+trusted real-IP headers for registration/login rate limits and audit context,
+but do not use source IP as playback ownership. Verify both
 direct Fastify (`ws://127.0.0.1:3001`) and Nginx/Apache (`wss://public-host`)
 paths. Apache 2.4.47+ can upgrade through `mod_proxy_http`; if the deployed
 version cannot, document and add the minimal `mod_proxy_wstunnel` rule.
 
 **Verify**: Nginx syntax passes and an integration client receives the initial
-state through the proxy with the same normalized client IP as HTTP.
+state through the proxy under the same authenticated account as HTTP.
 
 ### Step 4: Migrate Web to event-driven ownership
 
@@ -435,9 +447,10 @@ Stop and report instead of improvising if:
   playback into a follow-up design.
 - Desktop WebSocket support requires OpenSSL or conflicts with the existing
   Tokio/runtime versions; select a rustls-compatible crate or stop.
-- A step requires weakening IP whitelist checks, exposing protected identity,
+- A step requires weakening account session or tier checks, exposing protected identity,
   releasing immediately on ordinary network loss, or changing the lease TTL.
-- Proxy upgrade cannot preserve the same trusted client IP as ordinary HTTP.
+- Proxy upgrade cannot preserve the same account authentication and Origin
+  policy as ordinary HTTP.
 
 ## Maintenance notes
 

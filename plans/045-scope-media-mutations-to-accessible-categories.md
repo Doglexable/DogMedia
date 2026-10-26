@@ -23,7 +23,7 @@
 
 ## Why this matters
 
-Any whitelisted caller with tier ≥ 100 can update, delete, or force re-encoding
+Any signed-in account with tier ≥ 100 can update, delete, or force re-encoding
 of media inside administrator-only (e.g. tier-999) categories by guessing its
 sequential integer id, and can plant new uploads into restricted categories.
 Read paths in the same file already enforce category-tier scoping; the mutating
@@ -102,7 +102,7 @@ rows. Tests use the light-fastify inject pattern — model after
 **Out of scope** (do NOT touch, even though they look related):
 
 - `server/src/routes/queue.js`, `offline.js`, `playback.js` CTE copies — a separate dedup plan covers them; do not refactor the CTE itself here.
-- `server/src/routes/whitelist.js` and generic id-format validation — covered by plan 049.
+- Generic id-format validation was covered by plan 049. Its historical whitelist portion was retired when account authentication replaced that route.
 - Any change to response shapes for valid in-scope requests.
 
 ## Git workflow
