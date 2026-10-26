@@ -187,8 +187,8 @@ export default async function lyricsRoutes(fastify) {
       throw error;
     }
 
-    const { rowCount } = await fastify.pg.query("SELECT 1 FROM media_assets WHERE id = $1", [request.params.id]);
-    if (rowCount === 0) return reply.code(404).send({ error: "Media not found" });
+    const { rows } = await fastify.pg.query(ACCESSIBLE_MEDIA_SQL, [request.accessTier, request.params.id]);
+    if (rows.length === 0) return sendMissingMedia(fastify, reply, request.params.id);
 
     const row = await upsertUploadedLyrics(fastify.pg, request.params.id, lyrics);
     return serializeLyrics(row);
@@ -198,6 +198,9 @@ export default async function lyricsRoutes(fastify) {
     if (request.accessTier < 100) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
+
+    const { rows } = await fastify.pg.query(ACCESSIBLE_MEDIA_SQL, [request.accessTier, request.params.id]);
+    if (rows.length === 0) return sendMissingMedia(fastify, reply, request.params.id);
 
     const { rowCount } = await fastify.pg.query("DELETE FROM media_lyrics WHERE media_id = $1", [request.params.id]);
     if (rowCount === 0) return reply.code(404).send({ error: "Lyrics not found" });
