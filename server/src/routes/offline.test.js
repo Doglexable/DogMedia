@@ -26,11 +26,13 @@ function mediaRow() {
     title: "Track", description: null, artists: "Artist", duration: 30,
     track_order: 3, mime_type: "audio/mpeg", file_path: "7/1.mp3", source_version: 1,
     has_lyrics: true, liked: true,
+    available_qualities: ["high", "ori"],
+    encoding_status: { high: { status: "ready" } },
   };
 }
 
 async function buildApp(dataDir, { accessTier = 0, variants = [{
-  quality: "high", file_path: "7/1/high.mp3", mime_type: "audio/mpeg",
+  media_id: 1, source_version: 1, quality: "high", file_path: "7/1/high.mp3", mime_type: "audio/mpeg",
 }] } = {}) {
   const app = Fastify();
   const queries = [];
@@ -126,7 +128,7 @@ describe("offline routes", () => {
   });
 
   it("returns an audio-only direct-folder manifest with version metadata", async () => {
-    const { app, queries } = await buildApp(await fixture());
+    const { app, queries } = await buildApp(await fixture(), { accessTier: 100 });
     const response = await app.inject({ method: "GET", url: "/api/offline/manifest?category_id=7" });
     expect(response.statusCode).toBe(200);
     expect(response.json().items[0]).toMatchObject({ id: 1, category_id: 7, track_order: 3, byteSize: 13, hasLyrics: true, liked: true });
@@ -137,8 +139,85 @@ describe("offline routes", () => {
     expect(queries[0].sql).toContain("ORDER BY ac.order_parts");
     expect(queries[0].sql).toContain("COALESCE(m.track_order, 0)");
     expect(queries[0].sql).not.toContain("lower(m.title)");
-    expect(queries[0].params).toEqual([0, 1, 7]);
+    expect(queries[0].params).toEqual([100, 1, 7]);
     await app.close();
+  });
+
+  it("aligns tier-0 default and ori manifest metadata with permitted download and validate", async () => {
+    const dataDir = await fixture();
+    const { app } = await buildApp(dataDir, { accessTier: 0 });
+
+    for (const url of ["/api/offline/manifest?category_id=7", "/api/offline/manifest?category_id=7&quality=ori"]) {
+      const manifestRes = await app.inject({ method: "GET", url });
+      expect(manifestRes.statusCode).toBe(200);
+      const item = manifestRes.json().items[0];
+      expect(item.quality).toBe("high");
+      expect(item.byteSize).toBe(12);
+      expect(item.fileVersion).toMatch(/^12:\d+$/);
+
+      const downloadRes = await app.inject({ method: "GET", url: "/api/offline/media/1/download?quality=ori" });
+      expect(downloadRes.statusCode).toBe(200);
+      expect(downloadRes.headers["x-media-quality"]).toBe("high");
+      expect(downloadRes.headers["x-file-version"]).toBe(item.fileVersion);
+      expect(downloadRes.headers["content-length"]).toBe("12");
+
+      const validateRes = await app.inject({
+        method: "POST",
+        url: "/api/offline/validate",
+        payload: {
+          items: [
+            { mediaId: 1, fileVersion: item.fileVersion },
+            { mediaId: 1, fileVersion: item.fileVersion, quality: "ori" },
+            { mediaId: 1, fileVersion: "13:999999999", quality: "ori" },
+          ],
+        },
+      });
+      expect(validateRes.statusCode).toBe(200);
+      expect(validateRes.json().items).toMatchObject([
+        { mediaId: 1, status: "valid", fileVersion: item.fileVersion, byteSize: 12 },
+        { mediaId: 1, status: "valid", fileVersion: item.fileVersion, byteSize: 12 },
+        { mediaId: 1, status: "changed", fileVersion: item.fileVersion, byteSize: 12 },
+      ]);
+    }
+    await app.close();
+  });
+
+  it("returns 202 ENCODING_QUEUED when high rendition is absent for tier 0 manifest", async () => {
+    const { app } = await buildApp(await fixture(), { accessTier: 0, variants: [] });
+    for (const url of ["/api/offline/manifest?category_id=7", "/api/offline/manifest?category_id=7&quality=ori"]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toMatchObject({ code: "ENCODING_QUEUED", quality: "high" });
+    }
+    await app.close();
+  });
+
+  it("retains original quality metadata and download for tier 100", async () => {
+    const dataDir = await fixture();
+    const { app } = await buildApp(dataDir, { accessTier: 100 });
+    const manifestRes = await app.inject({ method: "GET", url: "/api/offline/manifest?category_id=7" });
+    expect(manifestRes.statusCode).toBe(200);
+    const item = manifestRes.json().items[0];
+    expect(item.quality).toBe("ori");
+    expect(item.byteSize).toBe(13);
+
+    const downloadRes = await app.inject({ method: "GET", url: "/api/offline/media/1/download?quality=ori" });
+    expect(downloadRes.statusCode).toBe(200);
+    expect(downloadRes.headers["x-media-quality"]).toBe("ori");
+    expect(downloadRes.headers["content-length"]).toBe("13");
+    await app.close();
+  });
+
+  it("returns high metadata and download for an explicit high request across tiers", async () => {
+    for (const accessTier of [0, 100]) {
+      const { app } = await buildApp(await fixture(), { accessTier });
+      const manifestRes = await app.inject({ method: "GET", url: "/api/offline/manifest?category_id=7&quality=high" });
+      expect(manifestRes.statusCode).toBe(200);
+      const item = manifestRes.json().items[0];
+      expect(item.quality).toBe("high");
+      expect(item.byteSize).toBe(12);
+      await app.close();
+    }
   });
 
   it("classifies valid, locked, missing, and changed downloads", async () => {

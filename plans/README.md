@@ -77,7 +77,7 @@ done.
 | [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | TODO |
 | [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
 | [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
-| [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |
+| [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | DONE — manifest and validate endpoints use effective quality matching download; 13 focused tests, 33 server files, 323 tests pass |
 | [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | TODO |
 | [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | TODO |
 | [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | TODO |

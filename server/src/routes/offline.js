@@ -109,8 +109,16 @@ export async function fetchVariantsBatch(pg, mediaIds) {
   return variantsByMedia;
 }
 
-export async function resolveQualityFile(pg, row, requestedQuality, preloadedVariants = null) {
-  if (requestedQuality === "ori") return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+export function resolveEffectiveOfflineQuality(requestedQuality, accessTier) {
+  const canAccessOriginal = accessTier >= ORIGINAL_QUALITY_MIN_TIER;
+  return requestedQuality === "ori" && !canAccessOriginal ? "high" : requestedQuality;
+}
+
+export async function resolveQualityFile(pg, row, requestedQuality, preloadedVariants = null, { canAccessOriginal = true } = {}) {
+  if (requestedQuality === "ori") {
+    if (!canAccessOriginal) return null;
+    return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+  }
   const key = `${row.id}:${row.source_version}`;
   let rows;
   if (preloadedVariants) {
@@ -125,11 +133,13 @@ export async function resolveQualityFile(pg, row, requestedQuality, preloadedVar
   }
   const quality = selectActualQuality(requestedQuality, rows.map((item) => item.quality));
   const variant = rows.find((item) => item.quality === quality);
-  return variant ? { path: variant.file_path, mimeType: variant.mime_type, quality } : { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+  if (variant) return { path: variant.file_path, mimeType: variant.mime_type, quality };
+  if (canAccessOriginal) return { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
+  return null;
 }
 
-export async function manifestItems(rows, dataDir, pg, requestedQuality = "ori", preloadedVariants = null) {
-  const variantsMap = requestedQuality === "ori"
+export async function manifestItems(rows, dataDir, pg, requestedQuality = "ori", preloadedVariants = null, { canAccessOriginal = true } = {}) {
+  const variantsMap = (requestedQuality === "ori" && canAccessOriginal)
     ? null
     : (preloadedVariants || await fetchVariantsBatch(pg, rows.map((r) => Number(r.id))));
   const items = new Array(rows.length);
@@ -140,13 +150,17 @@ export async function manifestItems(rows, dataDir, pg, requestedQuality = "ori",
       nextIndex += 1;
       const row = rows[index];
       try {
-        const selected = await resolveQualityFile(pg, row, requestedQuality, variantsMap);
+        const selected = await resolveQualityFile(pg, row, requestedQuality, variantsMap, { canAccessOriginal });
+        if (!selected) {
+          items[index] = null;
+          continue;
+        }
         let resolved = selected;
         let stats;
         try {
           stats = await stat(join(dataDir, resolved.path));
         } catch (error) {
-          if (resolved.quality === "ori") throw error;
+          if (!canAccessOriginal || resolved.quality === "ori") throw error;
           resolved = { path: row.file_path, mimeType: row.mime_type, quality: "ori" };
           stats = await stat(join(dataDir, resolved.path));
         }
@@ -193,15 +207,37 @@ export default async function offlineRoutes(fastify, options = {}) {
     if (!categoryId && !mediaId) return reply.code(400).send({ error: "category_id or media_id is required" });
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, mediaId ? { mediaIds: [mediaId] } : { categoryId });
     if (mediaId && rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
-    const manifestVariants = requestedQuality === "ori" ? new Map() : await fetchVariantsBatch(fastify.pg, rows.map((row) => Number(row.id)));
-    const pending = requestedQuality !== "ori"
-      ? rows.filter((row) => !(manifestVariants.get(`${row.id}:${row.source_version}`) || []).some((variant) => variant.quality === requestedQuality))
+    const canAccessOriginal = request.accessTier >= ORIGINAL_QUALITY_MIN_TIER;
+    const effectiveQuality = resolveEffectiveOfflineQuality(requestedQuality, request.accessTier);
+    const manifestVariants = effectiveQuality === "ori" ? new Map() : await fetchVariantsBatch(fastify.pg, rows.map((row) => Number(row.id)));
+    const pending = effectiveQuality !== "ori"
+      ? rows.filter((row) => !(manifestVariants.get(`${row.id}:${row.source_version}`) || []).some((variant) => variant.quality === effectiveQuality))
       : [];
     if (pending.length) {
-      for (const row of pending) await queueOfflineVariant(fastify, reply, row, requestedQuality);
-      return reply.code(202).send({ code: "ENCODING_QUEUED", quality: requestedQuality, statusUrl: `/api/media/${pending[0].id}/encoding/status`, retryAfter: 5 });
+      for (const row of pending) await queueOfflineVariant(fastify, reply, row, effectiveQuality);
+      return reply.code(202).send({ code: "ENCODING_QUEUED", quality: effectiveQuality, statusUrl: `/api/media/${pending[0].id}/encoding/status`, retryAfter: 5 });
     }
-    return { items: await manifestItems(rows, dataDir, fastify.pg, requestedQuality, manifestVariants) };
+    if (!canAccessOriginal && effectiveQuality !== "ori") {
+      const missingOnDisk = [];
+      for (const row of rows) {
+        const variants = manifestVariants.get(`${row.id}:${row.source_version}`) || [];
+        const variant = variants.find((v) => v.quality === effectiveQuality);
+        if (variant) {
+          try {
+            await stat(join(dataDir, variant.file_path));
+          } catch {
+            missingOnDisk.push(row);
+          }
+        } else {
+          missingOnDisk.push(row);
+        }
+      }
+      if (missingOnDisk.length) {
+        for (const row of missingOnDisk) await queueOfflineVariant(fastify, reply, row, effectiveQuality);
+        return reply.code(202).send({ code: "ENCODING_QUEUED", quality: effectiveQuality, statusUrl: `/api/media/${missingOnDisk[0].id}/encoding/status`, retryAfter: 5 });
+      }
+    }
+    return { items: await manifestItems(rows, dataDir, fastify.pg, effectiveQuality, manifestVariants, { canAccessOriginal }) };
   });
 
   fastify.get("/media/:id/download", async (request, reply) => {
@@ -213,15 +249,13 @@ export default async function offlineRoutes(fastify, options = {}) {
     if (rows.length === 0) return sendMissingOrDenied(fastify, reply, mediaId);
     const media = rows[0];
     const canAccessOriginal = request.accessTier >= ORIGINAL_QUALITY_MIN_TIER;
-    const effectiveQuality = requestedQuality === "ori" && !canAccessOriginal
-      ? "high"
-      : requestedQuality;
-    let selected = await resolveQualityFile(fastify.pg, media, effectiveQuality);
-    if (effectiveQuality !== "ori" && selected.quality === "ori") {
+    const effectiveQuality = resolveEffectiveOfflineQuality(requestedQuality, request.accessTier);
+    let selected = await resolveQualityFile(fastify.pg, media, effectiveQuality, null, { canAccessOriginal });
+    if (effectiveQuality !== "ori" && (!selected || selected.quality === "ori")) {
       await queueOfflineVariant(fastify, reply, media, effectiveQuality);
       return reply.code(202).send({ code: "ENCODING_QUEUED", quality: effectiveQuality, statusUrl: `/api/media/${media.id}/encoding/status`, retryAfter: 5 });
     }
-    if (selected.quality === "ori" && !canAccessOriginal) {
+    if ((!selected || selected.quality === "ori") && !canAccessOriginal) {
       return reply.code(403).send({ error: "Original quality requires admin access" });
     }
     let filePath = join(dataDir, selected.path);
@@ -256,13 +290,15 @@ export default async function offlineRoutes(fastify, options = {}) {
     const ids = [...new Set(requested.map((item) => normalizeOfflineMediaId(item?.mediaId)).filter(Boolean))];
     const rows = await accessibleAudioRows(fastify, request.accessTier, request.user.id, { mediaIds: ids });
     const rowById = new Map(rows.map((row) => [Number(row.id), row]));
+    const canAccessOriginal = request.accessTier >= ORIGINAL_QUALITY_MIN_TIER;
     const accessible = new Map();
     const itemsByQuality = new Map();
     for (const requestItem of requested) {
       const mediaId = normalizeOfflineMediaId(requestItem?.mediaId);
       const row = rowById.get(mediaId);
       if (!row) continue;
-      const quality = normalizeRequestedQuality(requestItem?.quality, { defaultQuality: "ori" }) || "ori";
+      const rawQuality = normalizeRequestedQuality(requestItem?.quality, { defaultQuality: "ori" }) || "ori";
+      const quality = resolveEffectiveOfflineQuality(rawQuality, request.accessTier);
       if (!itemsByQuality.has(quality)) itemsByQuality.set(quality, new Map());
       itemsByQuality.get(quality).set(mediaId, row);
     }
@@ -272,7 +308,7 @@ export default async function offlineRoutes(fastify, options = {}) {
       : new Map();
     for (const [quality, rowMap] of itemsByQuality.entries()) {
       const targetRows = [...rowMap.values()];
-      const items = await manifestItems(targetRows, dataDir, fastify.pg, quality, variantsMap);
+      const items = await manifestItems(targetRows, dataDir, fastify.pg, quality, variantsMap, { canAccessOriginal });
       for (const item of items) {
         accessible.set(`${item.id}:${quality}`, item);
       }
@@ -284,7 +320,8 @@ export default async function offlineRoutes(fastify, options = {}) {
     return {
       items: requested.map((item) => {
         const mediaId = normalizeOfflineMediaId(item?.mediaId);
-        const quality = normalizeRequestedQuality(item?.quality, { defaultQuality: "ori" }) || "ori";
+        const rawQuality = normalizeRequestedQuality(item?.quality, { defaultQuality: "ori" }) || "ori";
+        const quality = resolveEffectiveOfflineQuality(rawQuality, request.accessTier);
         const current = accessible.get(`${mediaId}:${quality}`);
         if (!mediaId || !existing.has(mediaId)) return { mediaId, status: "missing" };
         if (!current) return { mediaId, status: "locked" };
