@@ -728,7 +728,7 @@ npm run dev              # server + web (concurrent)
 npm run dev:server       # server only
 npm run dev:web          # web / vite only
 npm run dev:desktop      # native Dioxus/Blitz desktop client
-npm run migrate          # run DB migrations
+npm run migrate --workspace=server  # run DB migrations
 npm run build            # Vite production build
 npm run build:desktop    # release desktop binary
 npm run clean:desktop    # clean desktop Cargo build cache (frees target/)

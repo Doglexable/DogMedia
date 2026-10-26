@@ -91,7 +91,7 @@ the former whitelist route or localhost as an access-control template.
 | [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | DONE — createDashboardPaginationGate synchronizes loadMedia reset and loadMore in-flight state; all mobile tests pass |
 | [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | DONE — createLatestSummaryLoader ignores out-of-order summary responses and late failures; all mobile tests pass |
 | [074](074-prevent-cancelled-download-resurrection.md) | Keep cancelled mobile downloads from reappearing | P1 | M | — | DONE — reviewed isolated checkout commit `d512c91`; attempt tokens isolate in-flight jobs; post-byte cancellation guards and cleanup prevent ready resurrection; 166 mobile tests pass; branch not merged |
-| [075](075-correct-readme-migration-command.md) | Show a runnable migration command in the README | P3 | S | — | TODO |
+| [075](075-correct-readme-migration-command.md) | Show a runnable migration command in the README | P3 | S | — | DONE — updated README command reference to specify --workspace=server |
 
 ## Dependency notes
 
