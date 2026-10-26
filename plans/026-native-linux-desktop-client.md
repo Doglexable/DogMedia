@@ -96,17 +96,25 @@ web server, or the existing React bundle anywhere in this application.
 
 ### Protected playback contract
 
-`mobile/src/api.js:41-63` is the behavioral reference for native clients:
+The historical snippet from `mobile/src/api.js:41-63` needs the current account
+session header. A native client first calls `/api/auth/login` with username and
+password, retains the returned session token, and sends it as a Bearer token on
+protected JSON and stream requests. The viewer ID remains a device identity;
+it does not authenticate the account.
 
 ```javascript
 const data = await apiJson(`/api/media/${Number(mediaId)}/playback-session`, {
   method: "POST",
-  headers: storedViewerId ? { "X-Viewer-ID": storedViewerId } : {},
+  headers: {
+    Authorization: `Bearer ${accountToken}`,
+    ...(storedViewerId ? { "X-Viewer-ID": storedViewerId } : {}),
+  },
   body: JSON.stringify({ quality }),
 });
 return {
   uri: absoluteApiUrl(data.streamUrl),
   headers: {
+    Authorization: `Bearer ${accountToken}`,
     "X-Playback-Session": data.sessionId,
     "X-Viewer-ID": data.viewerId,
   },
@@ -114,8 +122,9 @@ return {
 ```
 
 `server/src/routes/media.js:1181-1257` creates the session and lease, while
-`server/src/routes/media.js:1260-1295` rejects a stream lacking matching session,
-viewer, quality, source version, IP, or access tier. The desktop player must not
+`server/src/routes/media.js:1260-1295` rejects a stream lacking a valid account
+session or matching playback session, viewer, quality, source version,
+account-scoped key, or access tier. The desktop player must not
 open `/api/media/:id/stream` before creating the session.
 
 The lease API is in `server/src/routes/playback.js:667-700`. Heartbeat an active
@@ -243,11 +252,13 @@ real Dogmedia audio/video stream after creating a playback session.
 
 For the real stream proof:
 
-1. POST to `/api/media/:id/playback-session` with quality `high` and a persisted
-   viewer UUID.
+1. Sign in through `/api/auth/login`, then POST to
+   `/api/media/:id/playback-session` with a Bearer session token, quality
+   `high`, and a persisted viewer UUID.
 2. Construct `playbin3` and attach to `source-setup` before setting the URI.
 3. When the source supports `extra-headers`, set a `GstStructure` containing
-   `X-Playback-Session` and `X-Viewer-ID`. Never put these values in the URI.
+   `Authorization: Bearer <account token>`, `X-Playback-Session`, and
+   `X-Viewer-ID`. Never put these values in the URI.
 4. Attach `gtk4paintablesink` for video and verify audio-only media works with no
    paintable.
 5. Seek to a non-zero position and confirm the server responds through its Range
@@ -261,7 +272,7 @@ For the real stream proof:
 - `cargo test --manifest-path desktop/Cargo.toml playback` passes.
 - Manual run shows one protected audio item and one protected video item start,
   seek, pause, resume, and stop without a 401/409 response.
-- Captured application logs contain neither the returned `sessionId` nor
+- Captured application logs contain no account token, `sessionId`, or
   `viewerId`; header names in source code are expected, but values are private.
 
 If custom headers are not present on range/redirect requests, stop. Do not work
@@ -296,7 +307,8 @@ Implement the layers before adding feature widgets:
   deserialization for nullable fields and unknown additive response fields.
 - `api/client.rs`: validate an `http` or `https` base URL, join paths without
   losing an existing prefix, apply 2.5-second access-check and longer media
-  metadata timeouts, inject viewer/platform headers, decode JSON errors, and map
+  metadata timeouts, inject Bearer session and viewer/platform headers, decode
+  JSON errors, and map
   status/code pairs such as 403, `PLAYBACK_IN_USE`, and
   `PLAYBACK_LEASE_LOST` into typed errors.
 - `api/endpoints.rs`: one method per consumed endpoint. GTK code must not contain
