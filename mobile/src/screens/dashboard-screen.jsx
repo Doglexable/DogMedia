@@ -13,6 +13,7 @@ import { alpha, radii, spacing, useTheme } from "../theme";
 import { getPlaybackErrorPresentation } from "../utils/playback-errors";
 import { filterDisplayCategories, getBrowseSectionTitle } from "../utils/categories";
 import { createDashboardPaginationGate } from "../utils/dashboard-pagination";
+import { createLatestSummaryLoader } from "../utils/dashboard-summary";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -108,11 +109,17 @@ export function DashboardScreen({ navigation }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState("");
   const paginationGateRef = useRef(createDashboardPaginationGate());
+  const summaryLoaderRef = useRef(createLatestSummaryLoader({
+    fetchSummary: (url, options) => apiJson(url, options),
+    applySummary: setSummary,
+  }));
 
   useEffect(() => {
     const gate = paginationGateRef.current;
+    const summaryLoader = summaryLoaderRef.current;
     return () => {
       gate.invalidate();
+      summaryLoader.invalidate();
     };
   }, []);
 
@@ -208,13 +215,11 @@ export function DashboardScreen({ navigation }) {
       });
   }, [debouncedSearch, mediaType, nextCursor, selectedCategory]);
 
-  const loadSummary = useCallback(() => {
+  const loadSummary = useCallback((signal) => {
     const params = new URLSearchParams({ view: "all" });
     if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
-    apiJson(`/api/playback/dashboard?${params.toString()}`)
-      .then(setSummary)
-      .catch(() => setSummary(null));
+    return summaryLoaderRef.current.load(`/api/playback/dashboard?${params.toString()}`, signal);
   }, [mediaType, selectedCategory]);
 
   useEffect(() => {
@@ -225,8 +230,11 @@ export function DashboardScreen({ navigation }) {
   useEffect(() => {
     const controller = new AbortController();
     loadMedia(controller.signal);
-    loadSummary();
-    return () => controller.abort();
+    loadSummary(controller.signal);
+    return () => {
+      controller.abort();
+      summaryLoaderRef.current.invalidate();
+    };
   }, [loadMedia, loadSummary]);
 
   const visibleMedia = media;
