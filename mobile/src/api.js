@@ -132,7 +132,7 @@ export async function preparePlaybackSource(source, { maxAttempts = 60 } = {}) {
       method: "GET",
       headers: { ...source.headers, Range: "bytes=0-0" },
     });
-    if (response.ok) return source;
+    if (response.status === 200 || response.status === 206) return source;
     const data = await response.json().catch(() => null);
     if (![202, 409].includes(response.status) || !data?.statusUrl) {
       const error = new Error(data?.error || "Playback rendition is unavailable");

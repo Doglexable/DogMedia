@@ -49,6 +49,116 @@ impl Transport for FakeTransport {
     }
 }
 
+fn playback_stream_session() -> dogmedia_desktop::domain::PlaybackSession {
+    dogmedia_desktop::domain::PlaybackSession {
+        stream_url: dogmedia_desktop::domain::StreamPath::new("/api/media/9/stream?quality=high"),
+        session_id: dogmedia_desktop::domain::SessionId::new("secret_session_abcdefghijklmnop"),
+        viewer_id: dogmedia_desktop::domain::ViewerId::new("viewer_abcdefghijklmnopqrst"),
+        lease_required: true,
+        quality: Quality::High,
+        expires_at: None,
+    }
+}
+
+#[tokio::test]
+async fn stream_readiness_retries_server_shaped_pending_responses() {
+    for status in [202, 409] {
+        let transport = FakeTransport::scripted([
+            FakeTransport::json(
+                status,
+                serde_json::json!({
+                    "code": if status == 202 { "ENCODING_QUEUED" } else { "ENCODING_NOT_READY" },
+                    "statusUrl": "/api/media/9/encoding/status",
+                    "retryAfter": 0,
+                }),
+            ),
+            Ok(RawResponse {
+                status: 206,
+                body: b"x".to_vec(),
+            }),
+        ]);
+        let client = ApiClient::with_transport(
+            "https://media.test",
+            "viewer_abcdefghijklmnopqrst",
+            transport.clone(),
+        )
+        .unwrap();
+
+        client
+            .wait_for_stream_ready(&playback_stream_session())
+            .await
+            .unwrap();
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_eq!(request.url.path(), "/api/media/9/stream");
+            assert_eq!(request.headers["Range"], "bytes=0-0");
+        }
+    }
+}
+
+#[tokio::test]
+async fn stream_readiness_rejects_pending_without_retry_url() {
+    let transport = FakeTransport::scripted([FakeTransport::json(
+        202,
+        serde_json::json!({
+            "code": "ENCODING_QUEUED",
+        }),
+    )]);
+    let client = ApiClient::with_transport(
+        "https://media.test",
+        "viewer_abcdefghijklmnopqrst",
+        transport.clone(),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        client
+            .wait_for_stream_ready(&playback_stream_session())
+            .await,
+        Err(ApiError::Http { status: 202, .. })
+    ));
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn stream_readiness_accepts_only_full_or_partial_media_responses() {
+    for status in [200, 206] {
+        let transport = FakeTransport::scripted([Ok(RawResponse {
+            status,
+            body: b"x".to_vec(),
+        })]);
+        let client = ApiClient::with_transport(
+            "https://media.test",
+            "viewer_abcdefghijklmnopqrst",
+            transport.clone(),
+        )
+        .unwrap();
+        client
+            .wait_for_stream_ready(&playback_stream_session())
+            .await
+            .unwrap();
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+
+    let transport = FakeTransport::scripted([Ok(RawResponse {
+        status: 204,
+        body: Vec::new(),
+    })]);
+    let client = ApiClient::with_transport(
+        "https://media.test",
+        "viewer_abcdefghijklmnopqrst",
+        transport,
+    )
+    .unwrap();
+    assert!(matches!(
+        client
+            .wait_for_stream_ready(&playback_stream_session())
+            .await,
+        Err(ApiError::Http { status: 204, .. })
+    ));
+}
+
 #[tokio::test]
 async fn access_request_preserves_prefix_and_sends_desktop_identity() {
     let transport = FakeTransport::scripted([FakeTransport::json(
@@ -90,15 +200,31 @@ async fn account_login_and_registration_send_credentials_to_the_expected_routes(
         "https://example.test/dogmedia",
         "viewer_abcdefghijklmnopqrst",
         transport.clone(),
-    ).unwrap();
-    assert_eq!(client.account_session("alice", "long secret password", false).await.unwrap(), token);
-    assert_eq!(client.account_session("bob", "another long secret", true).await.unwrap(), token);
+    )
+    .unwrap();
+    assert_eq!(
+        client
+            .account_session("alice", "long secret password", false)
+            .await
+            .unwrap(),
+        token
+    );
+    assert_eq!(
+        client
+            .account_session("bob", "another long secret", true)
+            .await
+            .unwrap(),
+        token
+    );
     let requests = transport.requests.lock().unwrap();
     assert_eq!(requests[0].method, HttpMethod::Post);
     assert_eq!(requests[0].url.path(), "/dogmedia/api/auth/login");
     assert_eq!(requests[0].json.as_ref().unwrap()["username"], "alice");
     assert_eq!(requests[1].url.path(), "/dogmedia/api/auth/register");
-    assert_eq!(requests[1].json.as_ref().unwrap()["password"], "another long secret");
+    assert_eq!(
+        requests[1].json.as_ref().unwrap()["password"],
+        "another long secret"
+    );
 }
 
 #[tokio::test]

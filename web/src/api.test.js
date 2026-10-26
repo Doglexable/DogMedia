@@ -7,6 +7,7 @@ import {
   getPlaybackLease,
   heartbeatPlaybackLease,
   mediaThumbnailUrl,
+  preparePlaybackStream,
   profilePictureUrl,
   readJsonArray,
 } from "./api";
@@ -14,6 +15,7 @@ import {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("readJsonArray", () => {
@@ -52,6 +54,47 @@ describe("account session expiry", () => {
 });
 
 describe("protected playback", () => {
+  const session = { streamUrl: "/api/media/9/stream?quality=high", sessionId: "opaque-session" };
+
+  it.each([202, 409])("waits for a playable stream after HTTP %s", async (status) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: status === 202 ? "ENCODING_QUEUED" : "ENCODING_NOT_READY",
+        statusUrl: "/api/media/9/encoding/status",
+        retryAfter: 0,
+      }), { status, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("x", { status: 206 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ready = preparePlaybackStream(session);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(ready).resolves.toBe(session.streamUrl);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, session.streamUrl, expect.objectContaining({
+      headers: { Range: "bytes=0-0", "X-Playback-Session": session.sessionId },
+    }));
+  });
+
+  it("rejects a pending response without a retry URL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: "ENCODING_QUEUED",
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    await expect(preparePlaybackStream(session)).rejects.toMatchObject({ code: "ENCODING_QUEUED" });
+  });
+
+  it.each([200, 206])("accepts a stream immediately on HTTP %s", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("x", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(preparePlaybackStream(session)).resolves.toBe(session.streamUrl);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not accept another 2xx response as media", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(preparePlaybackStream(session)).rejects.toThrow("Playback rendition is unavailable");
+  });
+
   it("creates a credentialed session before exposing the stream URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       streamUrl: "/api/media/4/stream?quality=high",

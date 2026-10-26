@@ -52,9 +52,7 @@ impl ApiError {
     /// Short human-readable message for status banners and toasts.
     pub fn user_message(&self) -> String {
         match self {
-            Self::AccessDenied => {
-                "This account is not allowed by the server.".to_owned()
-            }
+            Self::AccessDenied => "This account is not allowed by the server.".to_owned(),
             Self::PlaybackInUse { holder, .. } | Self::PlaybackLeaseLost { holder, .. } => {
                 let label = holder
                     .as_ref()
@@ -149,15 +147,30 @@ impl ApiClient {
         &self.account_token
     }
 
-    pub async fn account_session(&self, username: &str, password: &str, register: bool) -> Result<String, ApiError> {
+    pub async fn account_session(
+        &self,
+        username: &str,
+        password: &str,
+        register: bool,
+    ) -> Result<String, ApiError> {
         #[derive(serde::Deserialize)]
-        struct Session { token: String }
-        let path = if register { "api/auth/register" } else { "api/auth/login" };
-        let session: Session = self.json(
-            HttpMethod::Post, path,
-            Some(&serde_json::json!({ "username": username, "password": password })),
-            None, Duration::from_secs(20),
-        ).await?;
+        struct Session {
+            token: String,
+        }
+        let path = if register {
+            "api/auth/register"
+        } else {
+            "api/auth/login"
+        };
+        let session: Session = self
+            .json(
+                HttpMethod::Post,
+                path,
+                Some(&serde_json::json!({ "username": username, "password": password })),
+                None,
+                Duration::from_secs(20),
+            )
+            .await?;
         Ok(session.token)
     }
 
@@ -201,6 +214,7 @@ impl ApiClient {
 
     pub async fn wait_for_stream_ready(&self, session: &PlaybackSession) -> Result<(), ApiError> {
         #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct Pending {
             status_url: Option<String>,
             retry_after: Option<u64>,
@@ -235,7 +249,7 @@ impl ApiClient {
                     timeout: Duration::from_secs(20),
                 })
                 .await?;
-            if (200..300).contains(&response.status) {
+            if matches!(response.status, 200 | 206) {
                 return Ok(());
             }
             let pending: Pending = serde_json::from_slice(&response.body).unwrap_or(Pending {

@@ -76,7 +76,7 @@ done.
 | [066](066-profile-modal-and-navigation-integration.md) | Profile modal and navigation integration (sidebar & bottom bar) | P1 | S | — | DONE — profile modal with profile picture picker (_s_/_l_.webp), CREDITS.txt, collapsible sections, user update, cancel, and bottom logout button wired to sidebar & bottom bar |
 | [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | TODO |
 | [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
-| [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
+| [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | DONE — web, mobile, and desktop readiness probes recognize only 200/206 as playable; 202/409 retry loop verified across clients |
 | [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |
 | [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | TODO |
 | [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | TODO |

@@ -96,7 +96,7 @@ export async function preparePlaybackStream(session, { signal, maxAttempts = 60 
       headers: { Range: "bytes=0-0", "X-Playback-Session": session.sessionId },
       signal,
     });
-    if (response.ok) {
+    if (response.status === 200 || response.status === 206) {
       await response.body?.cancel?.();
       return session.streamUrl;
     }

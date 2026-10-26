@@ -5,6 +5,7 @@ import {
   createPlaybackSessionSource,
   forceReleasePlaybackLease,
   getPlaybackLease,
+  preparePlaybackSource,
   protectedMediaSource,
   setAccountToken,
 } from "./api.js";
@@ -54,6 +55,47 @@ describe("API reachability", () => {
 });
 
 describe("protected playback", () => {
+  const source = { uri: "http://localhost:3001/api/media/9/stream?quality=high", headers: { "X-Playback-Session": "opaque-session" } };
+
+  it.each([202, 409])("waits for a playable stream after HTTP %s", async (status) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: status === 202 ? "ENCODING_QUEUED" : "ENCODING_NOT_READY",
+        statusUrl: "/api/media/9/encoding/status",
+        retryAfter: 0,
+      }), { status, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("x", { status: 206 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ready = preparePlaybackSource(source);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(ready).resolves.toBe(source);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, source.uri, expect.objectContaining({
+      headers: { ...source.headers, Range: "bytes=0-0" },
+    }));
+  });
+
+  it("rejects a pending response without a retry URL", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: "ENCODING_QUEUED",
+    }), { status: 202, headers: { "Content-Type": "application/json" } })));
+    await expect(preparePlaybackSource(source)).rejects.toMatchObject({ code: "ENCODING_QUEUED" });
+  });
+
+  it.each([200, 206])("accepts a stream immediately on HTTP %s", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("x", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(preparePlaybackSource(source)).resolves.toBe(source);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not accept another 2xx response as media", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(preparePlaybackSource(source)).rejects.toThrow("Playback rendition is unavailable");
+  });
+
   it("attaches the account token to native artwork and stream requests", async () => {
     await setAccountToken("test-account-token");
     expect(protectedMediaSource("http://localhost:3001/api/media/9/thumbnail").headers)
