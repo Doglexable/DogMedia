@@ -12,6 +12,8 @@ import { usePlayerLibrary } from "../context/player-context";
 import { alpha, radii, spacing, useTheme } from "../theme";
 import { getPlaybackErrorPresentation } from "../utils/playback-errors";
 import { filterDisplayCategories, getBrowseSectionTitle } from "../utils/categories";
+import { createDashboardPaginationGate } from "../utils/dashboard-pagination";
+import { createLatestSummaryLoader } from "../utils/dashboard-summary";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -106,7 +108,20 @@ export function DashboardScreen({ navigation }) {
   const [mediaLoading, setMediaLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState("");
-  const browseGenerationRef = useRef(0);
+  const paginationGateRef = useRef(createDashboardPaginationGate());
+  const summaryLoaderRef = useRef(createLatestSummaryLoader({
+    fetchSummary: (url, options) => apiJson(url, options),
+    applySummary: setSummary,
+  }));
+
+  useEffect(() => {
+    const gate = paginationGateRef.current;
+    const summaryLoader = summaryLoaderRef.current;
+    return () => {
+      gate.invalidate();
+      summaryLoader.invalidate();
+    };
+  }, []);
 
   const greeting = useMemo(() => getGreeting(), []);
 
@@ -143,37 +158,40 @@ export function DashboardScreen({ navigation }) {
   }, [notice]);
 
   const loadMedia = useCallback((signal) => {
-    const generation = browseGenerationRef.current + 1;
-    browseGenerationRef.current = generation;
+    const gate = paginationGateRef.current;
+    const { generation } = gate.startGeneration();
     const params = new URLSearchParams({ limit: "50", view: "all" });
     if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
+    setLoadingMore(false);
     setMediaLoading(true);
     setMedia([]);
     setNextCursor(null);
     return apiJson(`/api/media/browse?${params.toString()}`, { signal })
       .then((data) => {
-        if (browseGenerationRef.current !== generation) return;
+        if (!gate.isGenerationCurrent(generation)) return;
         setMedia(Array.isArray(data.items) ? data.items : []);
         setNextCursor(data.nextCursor || null);
       })
       .catch((error) => {
         if (error?.name === "AbortError") return;
-        if (browseGenerationRef.current !== generation) return;
+        if (!gate.isGenerationCurrent(generation)) return;
         setMedia([]);
         setNotice("Could not load media.");
       })
       .finally(() => {
-        if (browseGenerationRef.current === generation) {
+        if (gate.isGenerationCurrent(generation)) {
           setMediaLoading(false);
         }
       });
   }, [debouncedSearch, mediaType, selectedCategory]);
 
   const loadMore = useCallback(() => {
-    if (!nextCursor || loadingMore) return;
-    const generation = browseGenerationRef.current;
+    if (!nextCursor) return;
+    const gate = paginationGateRef.current;
+    const ticket = gate.startPage();
+    if (!ticket) return;
     const params = new URLSearchParams({ limit: "50", view: "all", cursor: nextCursor });
     if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (debouncedSearch) params.set("q", debouncedSearch);
@@ -181,24 +199,27 @@ export function DashboardScreen({ navigation }) {
     setLoadingMore(true);
     apiJson(`/api/media/browse?${params.toString()}`)
       .then((data) => {
-        if (browseGenerationRef.current !== generation) return;
+        if (!gate.isPageCurrent(ticket)) return;
         setMedia((current) => {
           const seen = new Set(current.map((item) => Number(item.id)));
           return [...current, ...(data.items || []).filter((item) => !seen.has(Number(item.id)))];
         });
         setNextCursor(data.nextCursor || null);
       })
-      .catch(() => { if (browseGenerationRef.current === generation) setNotice("Could not load more media."); })
-      .finally(() => { if (browseGenerationRef.current === generation) setLoadingMore(false); });
-  }, [debouncedSearch, loadingMore, mediaType, nextCursor, selectedCategory]);
+      .catch(() => {
+        if (gate.isPageCurrent(ticket)) setNotice("Could not load more media.");
+      })
+      .finally(() => {
+        const stillPaging = gate.finishPage(ticket);
+        setLoadingMore(stillPaging);
+      });
+  }, [debouncedSearch, mediaType, nextCursor, selectedCategory]);
 
-  const loadSummary = useCallback(() => {
+  const loadSummary = useCallback((signal) => {
     const params = new URLSearchParams({ view: "all" });
     if (selectedCategory) params.set("category_id", String(selectedCategory));
     if (mediaType && mediaType !== "all") params.set("type", mediaType);
-    apiJson(`/api/playback/dashboard?${params.toString()}`)
-      .then(setSummary)
-      .catch(() => setSummary(null));
+    return summaryLoaderRef.current.load(`/api/playback/dashboard?${params.toString()}`, signal);
   }, [mediaType, selectedCategory]);
 
   useEffect(() => {
@@ -209,8 +230,11 @@ export function DashboardScreen({ navigation }) {
   useEffect(() => {
     const controller = new AbortController();
     loadMedia(controller.signal);
-    loadSummary();
-    return () => controller.abort();
+    loadSummary(controller.signal);
+    return () => {
+      controller.abort();
+      summaryLoaderRef.current.invalidate();
+    };
   }, [loadMedia, loadSummary]);
 
   const visibleMedia = media;
