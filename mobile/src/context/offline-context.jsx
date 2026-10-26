@@ -34,6 +34,10 @@ import {
   OFFLINE_MAX_CONCURRENT_DOWNLOADS,
   resolveOfflineSource,
 } from "../utils/offline";
+import {
+  createDownloadLifecycleManager,
+  finalizeDownloadAttempt,
+} from "../utils/download-lifecycle";
 import { getStoredMediaQuality } from "../media-quality";
 
 const OfflineContext = createContext(null);
@@ -90,6 +94,7 @@ export function OfflineProvider({ children }) {
   const activeCellularApprovalRef = useRef(new Map());
   const cancelledDownloadsRef = useRef(new Set());
   const pausedDownloadsRef = useRef(new Set());
+  const lifecycleRef = useRef(createDownloadLifecycleManager());
   const pumpingRef = useRef(false);
   const syncingRef = useRef(false);
 
@@ -224,9 +229,15 @@ export function OfflineProvider({ children }) {
       return;
     }
 
+    const attemptToken = createClientEventId();
+    lifecycleRef.current.startAttempt(job.mediaId, attemptToken);
+
     const safeVersion = String(item.fileVersion).replace(/[^a-z0-9_-]/gi, "-");
-    const fileUri = `${AUDIO_DIR}/${item.id}-${safeVersion}.${audioExtension(item.mime_type)}`;
+    const fileUri = `${AUDIO_DIR}/${item.id}-${safeVersion}-${attemptToken}.${audioExtension(item.mime_type)}`;
     const partUri = `${fileUri}.part`;
+    const thumbTarget = `${THUMB_DIR}/${item.id}-${attemptToken}.image`;
+    const cleanupAttemptFiles = () => deleteUris(partUri, fileUri, thumbTarget);
+
     await deleteUris(partUri);
     await patchStoredJob(job.mediaId, { state: "downloading", progress: 0, error: null });
     const download = FileSystem.createDownloadResumable(
@@ -234,6 +245,7 @@ export function OfflineProvider({ children }) {
       partUri,
       { headers: accountAuthHeaders() },
       ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+        if (!lifecycleRef.current.isCurrent(job.mediaId, attemptToken)) return;
         const progress = totalBytesExpectedToWrite > 0 ? totalBytesWritten / totalBytesExpectedToWrite : 0;
         patchStoredJob(job.mediaId, { progress }).then(refresh).catch(() => {});
       }
@@ -243,54 +255,89 @@ export function OfflineProvider({ children }) {
     try {
       const result = await download.downloadAsync();
       if (!result?.uri || result.status < 200 || result.status >= 300) throw new Error("Download did not complete");
+
+      lifecycleRef.current.assertCurrent(job.mediaId, attemptToken);
+
       const info = await FileSystem.getInfoAsync(partUri, { size: true });
       const responseVersion = result.headers?.["X-File-Version"] || result.headers?.["x-file-version"];
       if (!info.exists || Number(info.size) !== Number(item.byteSize) || (responseVersion && responseVersion !== item.fileVersion)) {
         throw new Error("Downloaded file failed verification");
       }
+
+      lifecycleRef.current.assertCurrent(job.mediaId, attemptToken);
+
       await deleteUris(fileUri);
       await FileSystem.moveAsync({ from: partUri, to: fileUri });
 
-      let thumbnailUri = null;
-      const thumbTarget = `${THUMB_DIR}/${item.id}.image`;
-      try {
-        const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: accountAuthHeaders() });
-        if (thumb.status >= 200 && thumb.status < 300) thumbnailUri = thumb.uri;
-      } catch {
-        await deleteUris(thumbTarget);
-      }
-      let lyrics = null;
-      if (item.hasLyrics) {
-        try {
-          const response = await api(`/api/media/${item.id}/lyrics`);
-          if (response.ok) lyrics = await response.json();
-        } catch {
-          lyrics = null;
-        }
-      }
-      const existing = downloads.find((entry) => entry.mediaId === Number(item.id));
-      await saveStoredDownload({
-        id: item.id, metadata: metadataFromManifest(item), fileUri, thumbnailUri: thumbnailUri || existing?.thumbnailUri,
-        lyrics: lyrics || existing?.lyrics, fileVersion: item.fileVersion, byteSize: item.byteSize, status: "ready",
+      lifecycleRef.current.assertCurrent(job.mediaId, attemptToken);
+
+      await finalizeDownloadAttempt({
+        lifecycle: lifecycleRef.current,
+        mediaId: job.mediaId,
+        attemptToken,
+        fetchArtwork: async () => {
+          try {
+            const thumb = await FileSystem.downloadAsync(mediaThumbnailUrl(item.id), thumbTarget, { headers: accountAuthHeaders() });
+            if (thumb.status >= 200 && thumb.status < 300) return thumb.uri;
+          } catch {
+            await deleteUris(thumbTarget);
+          }
+          return null;
+        },
+        fetchLyrics: async () => {
+          if (!item.hasLyrics) return null;
+          try {
+            const response = await api(`/api/media/${item.id}/lyrics`);
+            if (response.ok) return await response.json();
+          } catch {
+            return null;
+          }
+          return null;
+        },
+        saveDownload: async ({ artworkUri, lyrics }) => {
+          const storedList = await listStoredDownloads();
+          const existing = storedList.find((entry) => entry.mediaId === Number(item.id));
+          await saveStoredDownload({
+            id: item.id,
+            metadata: metadataFromManifest(item),
+            fileUri,
+            thumbnailUri: artworkUri || existing?.thumbnailUri,
+            lyrics: lyrics || existing?.lyrics,
+            fileVersion: item.fileVersion,
+            byteSize: item.byteSize,
+            status: "ready",
+          });
+          if (existing?.fileUri && existing.fileUri !== fileUri) await deleteUris(existing.fileUri);
+          if (existing?.thumbnailUri && existing.thumbnailUri !== artworkUri && artworkUri) await deleteUris(existing.thumbnailUri);
+          await deleteStoredJob(job.mediaId);
+        },
+        getStoredDownload: async (mediaId) => {
+          const list = await listStoredDownloads();
+          return list.find((entry) => entry.mediaId === Number(mediaId)) || null;
+        },
+        deleteStoredDownload: async (mediaId) => {
+          await deleteStoredDownload(mediaId);
+        },
       });
-      if (existing?.fileUri && existing.fileUri !== fileUri) await deleteUris(existing.fileUri);
-      await deleteStoredJob(job.mediaId);
     } catch (error) {
-      await deleteUris(partUri);
-      const cancelled = cancelledDownloadsRef.current.has(Number(job.mediaId));
+      await cleanupAttemptFiles();
+      const cancelled = lifecycleRef.current.isCancelled(attemptToken) || cancelledDownloadsRef.current.has(Number(job.mediaId));
       const paused = pausedDownloadsRef.current.has(Number(job.mediaId));
       await patchStoredJob(job.mediaId, {
         state: cancelled ? "cancelled" : paused || !network.isConnected ? "paused" : "failed",
         error: cancelled ? null : paused ? "Download paused by network policy" : error?.message || "Download failed",
       });
     } finally {
-      cancelledDownloadsRef.current.delete(Number(job.mediaId));
-      pausedDownloadsRef.current.delete(Number(job.mediaId));
-      activeDownloadsRef.current.delete(Number(job.mediaId));
-      activeCellularApprovalRef.current.delete(Number(job.mediaId));
+      lifecycleRef.current.finishAttempt(job.mediaId, attemptToken);
+      if (activeDownloadsRef.current.get(Number(job.mediaId)) === download) {
+        cancelledDownloadsRef.current.delete(Number(job.mediaId));
+        pausedDownloadsRef.current.delete(Number(job.mediaId));
+        activeDownloadsRef.current.delete(Number(job.mediaId));
+        activeCellularApprovalRef.current.delete(Number(job.mediaId));
+      }
       await refresh();
     }
-  }, [downloads, network, refresh]);
+  }, [network, refresh]);
 
   useEffect(() => {
     if (!ready || pumpingRef.current) return;
@@ -330,9 +377,10 @@ export function OfflineProvider({ children }) {
   }, [enqueueManifest]);
 
   const cancelDownload = useCallback(async (mediaId) => {
+    lifecycleRef.current.cancelAttempt(mediaId);
+    cancelledDownloadsRef.current.add(Number(mediaId));
     const active = activeDownloadsRef.current.get(Number(mediaId));
     if (active) {
-      cancelledDownloadsRef.current.add(Number(mediaId));
       await active.pauseAsync().catch(() => {});
       await patchStoredJob(mediaId, { state: "cancelled", error: null });
     } else await patchStoredJob(mediaId, { state: "cancelled", error: null });
@@ -347,6 +395,7 @@ export function OfflineProvider({ children }) {
   }, [refresh]);
 
   const removeDownload = useCallback(async (mediaId) => {
+    lifecycleRef.current.cancelAttempt(mediaId);
     const item = (await listStoredDownloads()).find((entry) => entry.mediaId === Number(mediaId));
     await cancelDownload(mediaId);
     await deleteUris(item?.fileUri, item?.thumbnailUri);
@@ -386,6 +435,7 @@ export function OfflineProvider({ children }) {
   }, [network.isConnected, refresh]);
 
   const removeAll = useCallback(async () => {
+    lifecycleRef.current.invalidateAll();
     await Promise.all([...activeDownloadsRef.current.keys()].map(cancelDownload));
     const current = await listStoredDownloads();
     await Promise.all(current.flatMap((item) => [item.fileUri, item.thumbnailUri]).filter(Boolean).map((uri) => FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {})));
@@ -394,6 +444,7 @@ export function OfflineProvider({ children }) {
   }, [cancelDownload, refresh]);
 
   const clearAccountData = useCallback(async () => {
+    lifecycleRef.current.invalidateAll();
     await removeAll();
     await clearAccountOfflineState();
     setLease(null);
