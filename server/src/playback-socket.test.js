@@ -81,10 +81,23 @@ describe("protected playback socket route", () => {
 
   it("pushes takeover and force release immediately and rejects non-owner or stale state", async () => {
     const store = new Map();
+    let activePlaybackReads = 0;
+    let activeReadGate = null;
     const chain = { set(key, value) { store.set(key, value); return chain; }, del(key) { store.delete(key); return chain; }, zadd() { return chain; }, zrem() { return chain; }, async exec() { return []; } };
     const redis = {
       async set(key, value) { store.set(key, value); },
-      async get(key) { return store.get(key) || null; },
+      async get(key) {
+        if (key.startsWith("playback:active:")) {
+          activePlaybackReads += 1;
+          if (activeReadGate) {
+            const gate = activeReadGate;
+            activeReadGate = null;
+            gate.entered();
+            await gate.resume;
+          }
+        }
+        return store.get(key) || null;
+      },
       async getdel(key) { const value = store.get(key) || null; store.delete(key); return value; },
       async del(key) { const existed = store.delete(key); return existed ? 1 : 0; },
       async pttl() { return 30_000; },
@@ -117,6 +130,9 @@ describe("protected playback socket route", () => {
     };
     const owner = await connect(ownerId);
     const observer = await connect(otherId);
+    const secondObserver = await connect("v".repeat(32));
+    let newcomerSocket;
+    let releasePausedRead;
     try {
       store.set(playbackSessionKey(sessionId), JSON.stringify({ mediaId: 5, viewerId: ownerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true, mediaType: "video/mp4" }));
       store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId, clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
@@ -133,8 +149,42 @@ describe("protected playback socket route", () => {
       const state = (sequence) => ({ type: "playback.state", version: 1, sessionId, mediaId: 5, action: "play", position: 12, duration: 30, loopMode: "none", shuffleEnabled: false, sequence });
       observer.socket.send(JSON.stringify(state(1)));
       await vi.waitFor(() => expect(observer.events.filter((event) => event.code === "PLAYBACK_NOT_OWNER").length).toBe(2));
+      activePlaybackReads = 0;
       owner.socket.send(JSON.stringify(state(1)));
       await vi.waitFor(() => expect(observer.events.at(-1)?.activeSession?.playback?.position).toBe(12));
+      await vi.waitFor(() => expect(secondObserver.events.at(-1)?.activeSession?.playback?.position).toBe(12));
+      const ownerState = owner.events.at(-1);
+      const observerState = observer.events.at(-1);
+      const secondObserverState = secondObserver.events.at(-1);
+      expect(ownerState).toMatchObject({ type: "lease.state", state: "owned" });
+      expect(observerState).toMatchObject({ type: "lease.state", state: "busy" });
+      expect(secondObserverState).toMatchObject({ type: "lease.state", state: "busy" });
+      expect(ownerState.activeSession).toEqual(observerState.activeSession);
+      expect(secondObserverState.activeSession).toEqual(observerState.activeSession);
+      expect(ownerState.revision).toBe(observerState.revision);
+      expect(secondObserverState.revision).toBe(observerState.revision);
+      // One read precedes the playback write; the broadcast adds only one read for all three sockets.
+      expect(activePlaybackReads).toBe(2);
+
+      let markReadEntered;
+      const readEntered = new Promise((resolve) => { markReadEntered = resolve; });
+      const pauseRead = new Promise((resolve) => { releasePausedRead = resolve; });
+      activeReadGate = { entered: markReadEntered, resume: pauseRead };
+      const nextRevision = ownerState.revision + 1;
+      const pendingBroadcast = app.playbackSocketHub.notify();
+      await readEntered;
+      const newcomerTicket = await issueSocketTicket(redis, identity("w".repeat(32)));
+      newcomerSocket = await app.injectWS("/api/playback/socket");
+      const newcomerEvents = [];
+      newcomerSocket.on("message", (raw) => newcomerEvents.push(JSON.parse(raw.toString())));
+      newcomerSocket.send(JSON.stringify({ type: "auth", version: 1, ticket: newcomerTicket }));
+      await vi.waitFor(() => expect(newcomerEvents.map((event) => event.type)).toEqual(["socket.ready", "lease.state"]));
+      releasePausedRead();
+      await pendingBroadcast;
+      await vi.waitFor(() => expect(owner.events.at(-1)?.revision).toBe(nextRevision));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(newcomerEvents.filter((event) => event.type === "lease.state")).toHaveLength(1);
+
       owner.socket.send(JSON.stringify(state(0)));
       await vi.waitFor(() => expect(owner.events.some((event) => event.code === "PLAYBACK_NOT_OWNER")).toBe(true));
       const previousRevision = owner.events.filter((event) => event.type === "lease.state").at(-1).revision;
@@ -154,8 +204,11 @@ describe("protected playback socket route", () => {
       await vi.waitFor(() => expect(observer.events.at(-1)?.state).toBe("available"));
       expect(observer.events.at(-1)).toMatchObject({ type: "lease.state", state: "available" });
     } finally {
+      releasePausedRead?.();
       owner.socket.close();
       observer.socket.close();
+      secondObserver.socket.close();
+      newcomerSocket?.close();
       await app.close();
     }
   });
