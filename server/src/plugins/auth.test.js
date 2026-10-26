@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
+import { createHash } from "node:crypto";
 import authPlugin, { getClientIp } from "./auth.js";
 import { hashPassword } from "../password.js";
 
@@ -12,7 +13,7 @@ function createApp() {
       if (users.some((user) => user.username.toLowerCase() === params[0].toLowerCase())) {
         const error = new Error("duplicate"); error.code = "23505"; throw error;
       }
-      const user = { id: users.length + 1, username: params[0], password_hash: params[1], access_tier: 0, profile_picture: "fine" };
+      const user = { id: users.length + 1, username: params[0], password_hash: params[1], access_tier: 0, profile_picture: "fine", session_version: 0 };
       users.push(user);
       return { rows: [user] };
     }
@@ -29,6 +30,9 @@ function createApp() {
         user.username = params[0];
         user.password_hash = params[1];
         if (params.length >= 4) user.profile_picture = params[2];
+        if (sql.includes("session_version = session_version + 1")) {
+          user.session_version = (user.session_version ?? 0) + 1;
+        }
         return { rows: [user] };
       }
       return { rows: [] };
@@ -43,7 +47,7 @@ function createApp() {
     async incr(key) { const count = Number(sessions.get(key) || 0) + 1; sessions.set(key, count); return count; },
     async expire() {},
   });
-  return { app, users };
+  return { app, users, sessions };
 }
 
 describe("account authentication", () => {
@@ -156,6 +160,107 @@ describe("account authentication", () => {
       payload: { username: "userupdated", password: "new super secret password" },
     });
     expect(newLogin.statusCode).toBe(200);
+
+    await app.close();
+  });
+
+  it("revokes older sessions on password change while keeping initiating token and allowing legacy tokens", async () => {
+    const { app } = createApp();
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+    }, { prefix: "/api" });
+
+    // Register user
+    const reg = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { username: "multisession", password: "initial password 123" },
+    });
+    const token1 = reg.json().token;
+
+    // Login from a second device (second session)
+    const login2 = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "multisession", password: "initial password 123" },
+    });
+    const token2 = login2.json().token;
+
+    // Both sessions work initially
+    expect((await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token1}` } })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token2}` } })).statusCode).toBe(200);
+
+    // Profile-picture or username only edit does NOT revoke session 2
+    const updateProfile = await app.inject({
+      method: "PUT",
+      url: "/api/auth/profile",
+      headers: { Authorization: `Bearer ${token1}` },
+      payload: { username: "multisession2", profile_picture: "monoco_good" },
+    });
+    expect(updateProfile.statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token1}` } })).statusCode).toBe(200);
+    expect((await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token2}` } })).statusCode).toBe(200);
+
+    // Password change through token1
+    const updatePassword = await app.inject({
+      method: "PUT",
+      url: "/api/auth/profile",
+      headers: { Authorization: `Bearer ${token1}` },
+      payload: { password: "new super secret password", currentPassword: "initial password 123" },
+    });
+    expect(updatePassword.statusCode).toBe(200);
+
+    // Initiating token1 still has access (200)
+    const token1Profile = await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token1}` } });
+    expect(token1Profile.statusCode).toBe(200);
+
+    // Older token2 is now revoked (401 with LOGIN_REQUIRED)
+    const token2Profile = await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${token2}` } });
+    expect(token2Profile.statusCode).toBe(401);
+    expect(token2Profile.json()).toMatchObject({ code: "LOGIN_REQUIRED" });
+
+    // Old password fails to log in
+    const oldLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "multisession2", password: "initial password 123" },
+    });
+    expect(oldLogin.statusCode).toBe(401);
+
+    // New password succeeds to log in
+    const newLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { username: "multisession2", password: "new super secret password" },
+    });
+    expect(newLogin.statusCode).toBe(200);
+
+    await app.close();
+  });
+
+  it("accepts legacy Redis session values and rejects malformed session values", async () => {
+    const { app, users, sessions } = createApp();
+    users.push({ id: 1, username: "legacyuser", password_hash: await hashPassword("a secure password"), access_tier: 0, profile_picture: "fine", session_version: 0 });
+    await app.register(async (instance) => {
+      await authPlugin(instance);
+    }, { prefix: "/api" });
+
+    // Legacy value: only userId string "1"
+    const legacyToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const legacyKey = `auth:session:${createHash("sha256").update(legacyToken).digest("hex")}`;
+    sessions.set(legacyKey, "1");
+
+    const legacyRes = await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${legacyToken}` } });
+    expect(legacyRes.statusCode).toBe(200);
+
+    // Malformed value: e.g. "not-a-number", "invalid:shape:extra", etc.
+    const malformedToken = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+    const malformedKey = `auth:session:${createHash("sha256").update(malformedToken).digest("hex")}`;
+    sessions.set(malformedKey, "malformed-garbage");
+
+    const malformedRes = await app.inject({ url: "/api/auth/profile", headers: { Authorization: `Bearer ${malformedToken}` } });
+    expect(malformedRes.statusCode).toBe(401);
+    expect(malformedRes.json()).toMatchObject({ code: "LOGIN_REQUIRED" });
 
     await app.close();
   });

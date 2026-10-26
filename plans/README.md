@@ -78,7 +78,7 @@ done.
 | [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
 | [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
 | [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |
-| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | TODO |
+| [071](071-revoke-sessions-on-password-change.md) | Revoke older account sessions when the password changes | P1 | M | — | DONE — added migration 031 and session_version invalidation on password change; real-DB migration pending host db container; 33 server files pass |
 | [072](072-reset-mobile-browse-pagination.md) | Reset mobile pagination when browse filters change | P2 | S | — | TODO |
 | [073](073-ignore-stale-mobile-summaries.md) | Ignore stale mobile dashboard summary responses | P2 | S | 072 | TODO |
 | [074](074-prevent-cancelled-download-resurrection.md) | Keep cancelled mobile downloads from reappearing | P1 | M | — | TODO |
