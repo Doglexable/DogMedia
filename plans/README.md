@@ -74,7 +74,7 @@ done.
 | [064](064-verify-android-release-artifacts.md) | Verify Android release APKs before publishing | P1 | M | 062 | BLOCKED — operator has no trusted release signer fingerprint yet; local generated release build uses debug signing; establish release signing and provide its public SHA-256 fingerprint |
 | [065](065-downscale-desktop-mini-player-video.md) | Downscale desktop video decode and texture upload for mini-player | P2 | S | 057, 059 | DONE — adaptive 640×360 mini-player vs unconstrained fullscreen caps negotiation; oversized pool drain; 74 tests pass |
 | [066](066-profile-modal-and-navigation-integration.md) | Profile modal and navigation integration (sidebar & bottom bar) | P1 | S | — | DONE — profile modal with profile picture picker (_s_/_l_.webp), CREDITS.txt, collapsible sections, user update, cancel, and bottom logout button wired to sidebar & bottom bar |
-| [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | TODO |
+| [067](067-scope-category-mutations.md) | Scope category mutations to the caller's accessible tree | P1 | M | — | DONE — scoped category mutations (create, edit, move, cover, delete) to caller tier via category_tree; 33 files, 332 server tests pass |
 | [068](068-scope-lyrics-mutations.md) | Restrict lyrics writes to accessible media | P1 | S | — | TODO |
 | [069](069-wait-for-pending-playback.md) | Wait for a playable stream after an encoding-pending response | P1 | M | — | TODO |
 | [070](070-align-offline-quality-contract.md) | Return offline metadata for the file the user can download | P1 | S | — | TODO |

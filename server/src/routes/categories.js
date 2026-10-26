@@ -54,20 +54,24 @@ async function categoryExists(fastify, id) {
   return rowCount > 0;
 }
 
-async function getCategory(fastify, id) {
-  const { rows } = await fastify.pg.query(
-    "SELECT id, parent_id, min_access_tier, sort_order, cover_path FROM categories WHERE id = $1",
-    [id]
+async function getAccessibleCategory(pg, id, accessTier) {
+  const { rows } = await pg.query(
+    `${CATEGORY_TREE_SQL}
+     SELECT id, parent_id, min_access_tier, sort_order, cover_path
+     FROM category_tree WHERE id = $2`,
+    [accessTier, id]
   );
   return rows[0] || null;
 }
 
-async function getParentTier(fastify, id) {
-  const { rows } = await fastify.pg.query(
-    "SELECT min_access_tier FROM categories WHERE id = $1",
-    [id]
-  );
-  return rows[0]?.min_access_tier ?? null;
+async function sendMissingOrDeniedCategory(fastify, reply, id) {
+  if (await categoryExists(fastify, id)) return reply.code(403).send({ error: "Access denied" });
+  return reply.code(404).send({ error: "Not found" });
+}
+
+async function sendMissingOrDeniedParent(fastify, reply, id) {
+  if (await categoryExists(fastify, id)) return reply.code(403).send({ error: "Access denied" });
+  return reply.code(400).send({ error: "Parent category not found" });
 }
 
 async function categoryHasChildren(fastify, id) {
@@ -184,11 +188,9 @@ export default async function (fastify, options = {}) {
     }
 
     if (normalizedParentId !== null) {
-      const parentTier = await getParentTier(fastify, normalizedParentId);
-      if (parentTier === null) {
-        return reply.code(400).send({ error: "Parent category not found" });
-      }
-      effectiveTier = parentTier;
+      const parent = await getAccessibleCategory(fastify.pg, normalizedParentId, request.accessTier);
+      if (!parent) return sendMissingOrDeniedParent(fastify, reply, normalizedParentId);
+      effectiveTier = parent.min_access_tier;
     }
 
     const { rows } = await fastify.pg.query(
@@ -224,8 +226,8 @@ export default async function (fastify, options = {}) {
 
   fastify.put("/:id/thumbnail", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
-    const category = await getCategory(fastify, request.params.id);
-    if (!category) return reply.code(404).send({ error: "Not found" });
+    const category = await getAccessibleCategory(fastify.pg, request.params.id, request.accessTier);
+    if (!category) return sendMissingOrDeniedCategory(fastify, reply, request.params.id);
     let upload = null;
     for await (const part of request.parts({ limits: { fileSize: 20 * 1024 * 1024 } })) {
       if (part.type === "file" && (part.fieldname === "thumbnail" || part.fieldname === "file")) {
@@ -260,12 +262,8 @@ export default async function (fastify, options = {}) {
 
   fastify.delete("/:id/thumbnail", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
-    const { rows } = await fastify.pg.query(
-      "SELECT id, cover_path FROM categories WHERE id = $1",
-      [request.params.id]
-    );
-    const category = rows[0];
-    if (!category) return reply.code(404).send({ error: "Not found" });
+    const category = await getAccessibleCategory(fastify.pg, request.params.id, request.accessTier);
+    if (!category) return sendMissingOrDeniedCategory(fastify, reply, request.params.id);
     await fastify.pg.query("UPDATE categories SET cover_path = NULL WHERE id = $1", [request.params.id]);
     if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
     return reply.code(204).send();
@@ -281,16 +279,12 @@ export default async function (fastify, options = {}) {
     const normalizedName = typeof name === "string" ? name.trim() : null;
     const hasParentId = Object.hasOwn(request.body, "parent_id");
     const normalizedParentId = normalizeNullableInt(parent_id);
-    const existing = await getCategory(fastify, id);
+    const existing = await getAccessibleCategory(fastify.pg, id, request.accessTier);
 
-    if (!existing) return reply.code(404).send({ error: "Not found" });
+    if (!existing) return sendMissingOrDeniedCategory(fastify, reply, id);
 
     if (normalizedParentId !== null && normalizedParentId === Number.parseInt(id, 10)) {
       return reply.code(400).send({ error: "A category cannot be its own parent" });
-    }
-
-    if (normalizedParentId !== null && await categoryHasDescendant(fastify, id, normalizedParentId)) {
-      return reply.code(400).send({ error: "A category cannot be moved under its own child" });
     }
 
     const effectiveParentId = hasParentId ? normalizedParentId : existing.parent_id;
@@ -298,11 +292,13 @@ export default async function (fastify, options = {}) {
     let effectiveSortOrder = existing.sort_order;
 
     if (effectiveParentId !== null) {
-      const parentTier = await getParentTier(fastify, effectiveParentId);
-      if (parentTier === null) {
-        return reply.code(400).send({ error: "Parent category not found" });
-      }
-      effectiveTier = parentTier;
+      const parent = await getAccessibleCategory(fastify.pg, effectiveParentId, request.accessTier);
+      if (!parent) return sendMissingOrDeniedParent(fastify, reply, effectiveParentId);
+      effectiveTier = parent.min_access_tier;
+    }
+
+    if (normalizedParentId !== null && await categoryHasDescendant(fastify, id, normalizedParentId)) {
+      return reply.code(400).send({ error: "A category cannot be moved under its own child" });
     }
 
     if (hasParentId && effectiveParentId !== existing.parent_id) {
@@ -359,6 +355,10 @@ export default async function (fastify, options = {}) {
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: "Not found" });
       }
+      if (!await getAccessibleCategory(client, categoryId, request.accessTier)) {
+        await client.query("ROLLBACK");
+        return reply.code(403).send({ error: "Access denied" });
+      }
 
       let effectiveTier = existing.min_access_tier;
       if (parentId !== null) {
@@ -369,6 +369,10 @@ export default async function (fastify, options = {}) {
         if (!parentRows[0]) {
           await client.query("ROLLBACK");
           return reply.code(400).send({ error: "Parent category not found" });
+        }
+        if (!await getAccessibleCategory(client, parentId, request.accessTier)) {
+          await client.query("ROLLBACK");
+          return reply.code(403).send({ error: "Access denied" });
         }
 
         const { rowCount: descendantCount } = await client.query(
@@ -457,20 +461,19 @@ export default async function (fastify, options = {}) {
       return reply.code(403).send({ error: "Insufficient tier" });
     }
     const { id } = request.params;
-    const exists = await categoryExists(fastify, id);
-    if (!exists) return reply.code(404).send({ error: "Not found" });
+    const category = await getAccessibleCategory(fastify.pg, id, request.accessTier);
+    if (!category) return sendMissingOrDeniedCategory(fastify, reply, id);
 
     if (await categoryHasChildren(fastify, id)) {
       return reply.code(409).send({ error: "Delete child categories first" });
     }
 
-    const { rows: categoryRows } = await fastify.pg.query("SELECT cover_path FROM categories WHERE id = $1", [id]);
     const { rowCount } = await fastify.pg.query(
       "DELETE FROM categories WHERE id = $1 RETURNING cover_path",
       [id]
     );
     if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
-    if (categoryRows[0]?.cover_path) await unlink(join(dataDir, categoryRows[0].cover_path)).catch(() => {});
+    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
     await rm(join(dataDir, String(id)), { recursive: true, force: true }).catch(() => {});
     return reply.code(204).send();
   });
