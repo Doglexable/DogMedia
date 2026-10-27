@@ -13,6 +13,7 @@ import {
   requestPlaybackSocketTicket,
 } from "../api";
 import { createPlaybackSocket } from "../utils/playback-socket";
+import { createLeaseStatusPoller } from "../utils/lease-status-poller";
 import { SleepTimerCompleteModal } from "../components/sleep-timer-complete-modal";
 import { useOffline } from "./offline-context";
 import { getMediaKind, nextLoopMode } from "../utils/media";
@@ -632,58 +633,20 @@ export function PlayerProvider({ accessTier = 0, children }) {
       service.stop();
     };
   }, [offline.isConnected]);
-  const observingExclusiveSession = Boolean(playbackConflict);
-
   useEffect(() => {
-    if (!observingExclusiveSession || socketStatus === "ready") return undefined;
-    let stopped = false;
-    let timer;
-    const sync = async () => {
-      try {
-        const status = await getPlaybackLease();
-        if (stopped) return;
-        if (status.state !== "busy" || !status.activeSession) {
-          setPlaybackConflict(null);
-          setPlaybackAccessError("");
-          return;
+    if (!offline.isConnected || socketStatus === "ready") return undefined;
+    const poller = createLeaseStatusPoller({
+      getStatus: getPlaybackLease,
+      onStatus: async (status) => {
+        if (status.state === "busy" || status.state === "available") {
+          await leaseHandlerRef.current?.(status);
         }
-        const holder = status.activeSession;
-        const conflict = { holder, message: `Playback is active on ${holder.deviceLabel}` };
-        applyObservedConflict(conflict);
-        const snapshot = holder.playback;
-        const mediaId = Number(snapshot?.mediaId || holder.mediaId);
-        if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
-          const media = await apiJson(`/api/media/${mediaId}`);
-          if (stopped) return;
-          await unloadSound();
-          videoControllerRef.current?.pause?.();
-          videoControllerRef.current = null;
-          playbackSourceRef.current = null;
-          setPlaybackSource(null);
-          currentMediaRef.current = media;
-          setCurrentMedia(media);
-        }
-        if (snapshot) {
-          positionRef.current = snapshot.position;
-          durationRef.current = snapshot.duration || currentMediaRef.current?.duration || 0;
-          pausedRef.current = snapshot.action !== "play";
-          loopModeRef.current = snapshot.loopMode;
-          shuffleEnabledRef.current = snapshot.shuffleEnabled;
-          setPosition(positionRef.current);
-          setDuration(durationRef.current);
-          setPaused(pausedRef.current);
-          setLoopMode(loopModeRef.current);
-          setShuffleEnabled(shuffleEnabledRef.current);
-        }
-      } catch {}
-      if (!stopped) timer = setTimeout(sync, 5_000);
-    };
-    sync();
+      },
+    });
     return () => {
-      stopped = true;
-      clearTimeout(timer);
+      poller.stop();
     };
-  }, [applyObservedConflict, observingExclusiveSession, socketStatus, unloadSound]);
+  }, [offline.isConnected, socketStatus]);
 
   const takeOverExclusiveSession = useCallback(async () => {
     if (accessTier < 100 || !playbackConflictRef.current || !currentMediaRef.current) return;
