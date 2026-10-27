@@ -57,7 +57,7 @@ the former whitelist route or localhost as an access-control template.
 | [037](037-bind-compose-ports-to-localhost.md) | Bind Compose database and cache ports to localhost with Redis authentication | P1 | S | — | DONE |
 | [039](039-exclusive-playback-holder-contract.md) | Make exclusive playback conflicts identify the active client safely | P1 | M | — | DONE |
 | [040](040-exclusive-session-ui-all-clients.md) | Show the exclusive session holder consistently on web, desktop, and mobile | P1 | L | 039 | DONE |
-| [041](041-realtime-playback-websocket.md) | Finish account-bound realtime playback WebSocket lifecycle | P1 | L | 039, 040, 054, 071 | BLOCKED — socket code exists and mobile force-release is fixed; account-session revocation, background-audio acceptance, and remaining lifecycle gates pending |
+| [041](041-realtime-playback-websocket.md) | Finish account-bound realtime playback WebSocket lifecycle | P1 | L | 039, 040, 054, 071 | DONE — account-session binding, password-change revocation, and observer exclusion verified; 348 server tests and client suites pass |
 | [042](042-release-abandoned-mobile-video-lease.md) | Release mobile video leases when session creation finishes after unmount | P1 | S | 041 | DONE |
 | [043](043-local-folder-fallback-offline-playback.md) | Local folder fallback for offline desktop playback (audio+video, recursive, remembered) | P2 | M | — | BLOCKED — release app and remembered offline folder confirmed; playback controls and reconnect walkthrough remain |
 | [044](044-macos-cross-compile-dmg.md) | Cross-compile desktop for macOS (.dmg) and Windows (.exe) from Linux | P3 | L | 043 | BLOCKED at Windows link/install — macOS images and 350-DLL Windows runtime stage built; MSVC CRT/SDK cache and NSIS unavailable |

@@ -54,6 +54,17 @@ export function parseSessionValue(value) {
   return { userId: Number(match[1]), sessionVersion: Number(match[2]) };
 }
 
+export async function isUserSessionValid(pg, userId, sessionVersion) {
+  if (!pg?.query || !userId) return false;
+  try {
+    const { rows } = await pg.query("SELECT session_version FROM users WHERE id = $1", [userId]);
+    if (!rows.length) return false;
+    return Number(rows[0].session_version ?? 0) === Number(sessionVersion ?? 0);
+  } catch {
+    return false;
+  }
+}
+
 function cookieToken(header) {
   const entry = String(header || "").split(";").map((part) => part.trim())
     .find((part) => part.startsWith(`${COOKIE_NAME}=`));
