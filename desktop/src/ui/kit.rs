@@ -12,6 +12,8 @@ pub enum IconName {
     Close,
     Compress,
     Expand,
+    Eye,
+    EyeOff,
     Folder,
     Globe,
     Grid,
@@ -68,6 +70,16 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             path { d: "M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" }
         },
         IconName::Expand => rsx! { path { d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" } },
+        IconName::Eye => rsx! {
+            path { d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" }
+            circle { cx: "12", cy: "12", r: "3" }
+        },
+        IconName::EyeOff => rsx! {
+            path { d: "M9.88 9.88a3 3 0 1 0 4.24 4.24" }
+            path { d: "M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" }
+            path { d: "M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" }
+            line { x1: "2", y1: "2", x2: "22", y2: "22" }
+        },
         IconName::Folder => {
             rsx! { path { d: "M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" } }
         }

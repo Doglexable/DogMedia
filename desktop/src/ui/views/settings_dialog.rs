@@ -19,6 +19,7 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
     };
     let env_urls = snapshot.server_environments.clone();
     let active_env = env_urls.match_environment(&snapshot.settings_url);
+    let mut show_password = use_signal(|| false);
 
     rsx! {
         div { class: "dialog-backdrop",
@@ -88,10 +89,28 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                             }
                         }
                     }
-                    label { class: "field",
-                        span { "Password" }
+                    div { class: "field",
+                        div { class: "field-header",
+                            span { "Password" }
+                            button {
+                                class: "password-toggle-btn",
+                                r#type: "button",
+                                title: if *show_password.read() { "Hide password" } else { "Show password" },
+                                onclick: move |_| {
+                                    let current = *show_password.read();
+                                    show_password.set(!current);
+                                },
+                                Icon {
+                                    name: if *show_password.read() { IconName::EyeOff } else { IconName::Eye },
+                                    class: "password-toggle-icon".to_owned(),
+                                }
+                                span {
+                                    if *show_password.read() { "Hide" } else { "Show" }
+                                }
+                            }
+                        }
                         Input {
-                            input_type: "password".to_owned(),
+                            input_type: if *show_password.read() { "text".to_owned() } else { "password".to_owned() },
                             value: snapshot.settings_password.clone(),
                             placeholder: "Enter account password".to_owned(),
                             oninput: move |event: FormEvent| {

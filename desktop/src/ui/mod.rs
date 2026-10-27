@@ -4144,4 +4144,46 @@ mod tests {
         .unwrap();
         assert_eq!(format_window_title(Some(&track_empty_title)), "Dogmedia");
     }
+
+    #[test]
+    fn settings_dialog_password_field_uses_password_type_with_visibility_toggle() {
+        fn harness() -> Element {
+            let app = use_signal(NativeApp::boot);
+            rsx! {
+                crate::ui::views::SettingsDialog { app }
+            }
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+
+        let mut found_password_input = false;
+        let mut found_toggle_btn = false;
+
+        document.inner.visit(|_, node| {
+            let Some(element) = node.element_data() else {
+                return;
+            };
+            let is_input = element.name.local.as_ref() == "input";
+            let has_password_type = element
+                .attrs
+                .iter()
+                .any(|a| a.name.local.as_ref() == "type" && a.value == "password");
+            if is_input && has_password_type {
+                found_password_input = true;
+            }
+
+            let has_toggle_class = element
+                .attrs
+                .iter()
+                .any(|a| a.name.local.as_ref() == "class" && a.value.contains("password-toggle-btn"));
+            if has_toggle_class {
+                found_toggle_btn = true;
+            }
+        });
+
+        assert!(found_password_input, "Password input with type=password must exist");
+        assert!(found_toggle_btn, "Password visibility toggle button must exist");
+    }
 }

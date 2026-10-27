@@ -57,6 +57,8 @@ dioxus-native = { path = "vendor/dioxus-native" }
 # wgpu_context 0.1.2 panics on recoverable surface timeouts. Keep AnyRender's
 # compatible release line and patch only its surface-acquisition policy.
 wgpu_context = { path = "vendor/wgpu_context" }
+# Mask password fields during input rendering
+blitz-paint = { path = "vendor/blitz-paint" }
 
 [profile.release]
 lto = "thin"

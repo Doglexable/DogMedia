@@ -2212,6 +2212,11 @@ select:focus-visible {
 .settings-content { display: grid; gap: 18px; padding: 20px; }
 .field { display: grid; gap: 7px; color: var(--text-secondary); font-size: 12px; }
 .field > span { color: var(--text); font-weight: 650; }
+.field-header { display: flex; align-items: center; justify-content: space-between; }
+.field-header > span { color: var(--text); font-weight: 650; }
+.password-toggle-btn { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--text-secondary); font-size: 11px; font-weight: 550; cursor: pointer; }
+.password-toggle-btn:hover { background: var(--hover); color: var(--text); }
+.password-toggle-icon { width: 13px; height: 13px; }
 .field small { color: var(--text-tertiary); }
 .theme-toggle, .env-toggle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border: 1px solid var(--border); border-radius: 10px; padding: 4px; background: var(--surface-soft); }
 .theme-toggle-option, .env-toggle-option { position: relative; display: flex; min-height: 44px; appearance: none; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; padding: 0 10px; background: transparent; color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer; }
