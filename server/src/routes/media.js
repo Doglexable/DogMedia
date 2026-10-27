@@ -24,6 +24,7 @@ import {
   acquireExclusiveLease,
   createPlaybackSession,
   publicLeaseHolder,
+  readPlaybackClientId,
   readPlaybackSessionId,
   readViewerId,
   refreshExclusiveLease,
@@ -1357,12 +1358,14 @@ export default async function (fastify, options = {}) {
     }
 
     const viewerId = resolveViewerId(request);
+    const clientId = readPlaybackClientId(request, viewerId);
     const leaseRequired = requiresExclusiveLease(request.accessTier, media.mime_type);
     const created = await createPlaybackSession(fastify.redis, {
       mediaId: media.id,
       clientIp: request.clientIp || request.ip,
       accessTier: request.accessTier,
       viewerId,
+      clientId,
       leaseRequired,
       quality: requestedQuality,
       mediaType: media.mime_type,
@@ -1375,6 +1378,7 @@ export default async function (fastify, options = {}) {
       try {
         lease = await acquireExclusiveLease(fastify.redis, {
           viewerId,
+          clientId,
           sessionId: created.sessionId,
           mediaId: media.id,
           clientIp: request.clientIp || request.ip,

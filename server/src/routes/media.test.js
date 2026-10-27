@@ -423,7 +423,8 @@ describe("quality-aware streaming", () => {
       async eval(script, keyCount, key, ...args) {
         if (script.includes("previousSessionId")) {
           const current = redisValues.has(key) ? JSON.parse(redisValues.get(key)) : null;
-          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+          const currentClientId = current?.clientId || current?.viewerId;
+          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1] || (args[4] && currentClientId !== args[4]))) {
             return [0, JSON.stringify(current), 15000];
           }
           redisValues.set(key, args[2]);
@@ -518,7 +519,8 @@ describe("quality-aware streaming", () => {
       async eval(script, keyCount, key, ...args) {
         if (script.includes("previousSessionId")) {
           const current = redisValues.has(key) ? JSON.parse(redisValues.get(key)) : null;
-          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+          const currentClientId = current?.clientId || current?.viewerId;
+          if (current && (current.viewerId !== args[0] || current.clientIp !== args[1] || (args[4] && currentClientId !== args[4]))) {
             return [0, JSON.stringify(current), 15000];
           }
           redisValues.set(key, args[2]);
