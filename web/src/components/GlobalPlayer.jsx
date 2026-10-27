@@ -349,13 +349,6 @@ export function GlobalPlayerProvider({ children }) {
 
   useEffect(() => {
     if (socketStatus === "ready" || !playbackSessionIdRef.current || !currentMedia || isImage) return;
-    // Paused heartbeats must not keep the exclusive lease alive: while paused
-    // the lease is left to lapse (≤30s) so another device can take over
-    // without waiting. The lease is re-acquired on resume (see togglePlayback).
-    if (paused) {
-      leaseStaleRef.current = true;
-      return;
-    }
     let stopped = false;
     const heartbeat = () => {
       const sessionId = playbackSessionIdRef.current;
@@ -374,7 +367,7 @@ export function GlobalPlayerProvider({ children }) {
       stopped = true;
       window.clearInterval(interval);
     };
-  }, [currentMedia?.id, handleLeaseLost, isImage, paused, socketStatus, streamSrc]);
+  }, [currentMedia?.id, handleLeaseLost, isImage, socketStatus, streamSrc]);
 
   const playWithFreshLease = useCallback(() => {
     if (!mediaRef.current || !currentMedia || isImage) return;
@@ -1001,7 +994,6 @@ export function GlobalPlayerProvider({ children }) {
       pauseDropTimerRef.current = setTimeout(() => {
         pauseDropTimerRef.current = null;
         api("/api/playback/active", { method: "DELETE" }).catch(() => {});
-        stopPlayback();
       }, PAUSE_CACHE_TTL_MS);
     }
 
@@ -1011,7 +1003,7 @@ export function GlobalPlayerProvider({ children }) {
         pauseDropTimerRef.current = null;
       }
     };
-  }, [currentMedia, paused, stopPlayback]);
+  }, [currentMedia, paused]);
 
   const pausePlaybackForSleepTimer = useCallback(() => {
     setShouldAutoPlay(false);

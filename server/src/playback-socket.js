@@ -36,7 +36,11 @@ export function isAllowedSocketOrigin(request, allowedOrigins) {
   return allowedOrigins.has(origin) || origin === `${scheme}://${request.headers.host}`;
 }
 
-export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } = {}) {
+export function createPlaybackSocketHub(fastify, {
+  allowedOrigins = new Set(),
+  schedulePingInterval = setInterval,
+  clearPingInterval = clearInterval,
+} = {}) {
   const sockets = new Set();
   const timers = new Set();
   const counters = { connections: 0, authRejected: 0, reconnects: 0, protocolErrors: 0, slowConsumers: 0 };
@@ -125,12 +129,12 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
     const cleanup = () => {
       clearTimeout(authTimeout);
       timers.delete(authTimeout);
-      clearInterval(pingTimer);
+      clearPingInterval(pingTimer);
       timers.delete(pingTimer);
       sockets.delete(entry);
       if (entry.boundSessionId) scheduleExpiry().catch(() => {});
     };
-    const pingTimer = setInterval(async () => {
+    const pingTimer = schedulePingInterval(async () => {
       if (!entry.identity) return;
       if (!entry.pong) { socket.terminate(); return; }
       entry.pong = false;
@@ -163,9 +167,9 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           }
         } catch (error) { fastify.log.warn({ err: error }, "playback socket session check failed"); }
       }
-      // Web intentionally lets a paused lease expire; native players retain
-      // their existing paused-session renewal while the foreground socket lives.
-      if (entry.boundSessionId && (entry.playing || entry.identity.platform !== "web")) {
+      // A connected, bound owner retains the lease during both play and pause.
+      // Observers and unbound sockets never renew it.
+      if (entry.boundSessionId) {
         try {
           const session = await readPlaybackSession(fastify.redis, entry.boundSessionId);
           if (!session || session.viewerId !== entry.identity.viewerId || session.clientIp !== entry.identity.clientIp) {

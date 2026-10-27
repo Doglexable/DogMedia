@@ -58,6 +58,11 @@ run `git status` and `git diff HEAD --stat` first and record what is dirty):
   (benign today — ownership is by id match — but wrong).
 - Known design point: `playback-socket.js:128` — web paused sockets
   intentionally do not renew the lease while native ones do (by design, keep).
+
+**Superseded 2026-10-27 (Plan 079):** Connected, bound web owners now renew
+their exclusive lease while paused, matching native clients. The web HTTP
+fallback also heartbeats while paused. Stop and close release when possible;
+after connectivity loss, the Redis lease expires at its normal TTL.
 - Polling call sites to eventually retire (NOT in this plan, listed for
   context): `web/src/components/GlobalPlayer.jsx:287-315`,
   `mobile/src/context/player-context.jsx:420-444`, desktop polling in
