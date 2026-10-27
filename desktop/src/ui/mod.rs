@@ -891,7 +891,7 @@ fn connect(mut app: Signal<NativeApp>) {
     };
     // Never carry takeover authorization across a reconnect or server change.
     app.write().access_tier = 0;
-    spawn(async move {
+    dioxus_core::spawn_forever(async move {
         match client.check_access().await {
             Ok(status) => {
                 if let Err(error) = client.verify_account_session().await {
@@ -910,6 +910,8 @@ fn connect(mut app: Signal<NativeApp>) {
                     state.settings_connecting = false;
                     state.settings_error = None;
                 }
+                begin_browse(app);
+                load_queue(app);
                 match client.categories().await {
                     Ok(value) => {
                         app.write().categories = value.clone();
@@ -919,8 +921,6 @@ fn connect(mut app: Signal<NativeApp>) {
                     }
                     Err(error) => app.write().status = Some(error.user_message()),
                 }
-                begin_browse(app);
-                load_queue(app);
             }
             Err(ApiError::AccessDenied) => {
                 let msg = "Access denied: log in with a valid account.".to_owned();
@@ -1223,7 +1223,7 @@ fn begin_browse(mut app: Signal<NativeApp>) {
     let query = app.read().query();
     let generation = app.write().library.begin_query(query.clone());
     load_dashboard(app);
-    spawn(async move {
+    dioxus_core::spawn_forever(async move {
         match client.browse(&query).await {
             Ok(page) => {
                 let first = page.items.first().cloned();
@@ -1257,7 +1257,7 @@ fn load_dashboard(mut app: Signal<NativeApp>) {
     app.write().dashboard_generation += 1;
     app.write().dashboard = DashboardSummary::default();
     let generation = app.read().dashboard_generation;
-    spawn(async move {
+    dioxus_core::spawn_forever(async move {
         if let Ok(summary) = client.dashboard(&query).await {
             let is_current = app.read().dashboard_generation == generation;
             if is_current {
@@ -1317,7 +1317,7 @@ fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
     let Some(key) = app.write().artwork.start_category(&category) else {
         return;
     };
-    spawn(async move {
+    dioxus_core::spawn_forever(async move {
         let result = match client.category_thumbnail(category.id).await {
             Ok(bytes) => Some(ArtworkState::Ready(Arc::new(artwork_source_url(
                 &key, bytes,
@@ -2451,7 +2451,7 @@ fn load_queue(mut app: Signal<NativeApp>) {
     let Some(client) = app.read().client.clone() else {
         return;
     };
-    spawn(async move {
+    dioxus_core::spawn_forever(async move {
         let result = client.queue_window().await;
         if app.read().local_mode {
             return;
@@ -3166,24 +3166,30 @@ fn save_settings(mut app: Signal<NativeApp>) {
         candidate.viewer_id.clone(),
     ) {
         Ok(client) => {
-            let client = if password.is_empty() { client.with_account_token(&candidate.account_token) } else { client };
-            let save_result = app.read().store.save(&candidate);
-            if let Err(error) = save_result {
-                let msg = format!("Failed to save settings: {error}");
-                app.write().settings_error = Some(msg.clone());
-                app.write().status = Some(msg);
-                return;
+            let client = if password.is_empty() {
+                client.with_account_token(&candidate.account_token)
+            } else {
+                client
+            };
+            if password.is_empty() {
+                let save_result = app.read().store.save(&candidate);
+                if let Err(error) = save_result {
+                    let msg = format!("Failed to save settings: {error}");
+                    app.write().settings_error = Some(msg.clone());
+                    app.write().status = Some(msg);
+                    return;
+                }
+                app.write().settings = candidate.clone();
+                app.write().client = Some(client.clone());
             }
 
-            app.write().settings = candidate.clone();
-            app.write().client = Some(client.clone());
             app.write().settings_error = None;
             app.write().settings_connecting = true;
             app.write().access_tier = 0;
             app.write().library.access = AccessView::Checking;
             app.write().status = Some("Verifying server connection…".to_owned());
 
-            spawn(async move {
+            dioxus_core::spawn_forever(async move {
                 let client = if !password.is_empty() {
                     match client.account_session(&candidate.username, &password, false).await {
                         Ok(token) => {
@@ -3200,51 +3206,54 @@ fn save_settings(mut app: Signal<NativeApp>) {
                             app.write().client = Some(authenticated.clone());
                             authenticated
                         }
-                                Err(error) => {
-                                    let mut state = app.write();
-                                    state.settings_error = Some(format!("Account login failed: {}", error.user_message()));
-                                    state.settings_connecting = false;
-                                    state.library.access = AccessView::Denied;
-                                    state.settings_open = true;
-                                    return;
-                                }
-                            }
-                        } else { client };
-                        match client.check_access().await {
-                            Ok(status) => {
-                                if let Err(error) = client.verify_account_session().await {
-                                    let mut state = app.write();
-                                    state.library.access = AccessView::Denied;
-                                    state.settings_open = true;
-                                    state.settings_connecting = false;
-                                    state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
-                                    return;
-                                }
-                                exit_local_mode(app);
-                                {
-                                    let mut state = app.write();
-                                    state.on_server_connected();
-                                    state.access_tier = status.tier;
-                                    state.library.access = AccessView::Ready;
-                                    state.settings_open = false;
-                                    state.settings_connecting = false;
-                                    state.settings_error = None;
-                                    state.status =
-                                        Some("Connected to server successfully.".to_owned());
-                                }
+                        Err(error) => {
+                            let mut state = app.write();
+                            state.settings_error = Some(format!("Account login failed: {}", error.user_message()));
+                            state.settings_connecting = false;
+                            state.library.access = AccessView::Denied;
+                            state.settings_open = true;
+                            return;
+                        }
+                    }
+                } else {
+                    client
+                };
+                match client.check_access().await {
+                    Ok(status) => {
+                        if let Err(error) = client.verify_account_session().await {
+                            let mut state = app.write();
+                            state.library.access = AccessView::Denied;
+                            state.settings_open = true;
+                            state.settings_connecting = false;
+                            state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
+                            return;
+                        }
+                        exit_local_mode(app);
+                        {
+                            let mut state = app.write();
+                            state.on_server_connected();
+                            state.access_tier = status.tier;
+                            state.library.access = AccessView::Ready;
+                            state.settings_open = false;
+                            state.settings_connecting = false;
+                            state.settings_error = None;
+                            state.status =
+                                Some("Connected to server successfully.".to_owned());
+                        }
 
-                                match client.categories().await {
-                                    Ok(value) => {
-                                        app.write().categories = value.clone();
-                                        for category in value {
-                                            ensure_category_artwork(app, category);
-                                        }
-                                    }
-                                    Err(error) => app.write().status = Some(error.user_message()),
+                        begin_browse(app);
+                        load_queue(app);
+
+                        match client.categories().await {
+                            Ok(value) => {
+                                app.write().categories = value.clone();
+                                for category in value {
+                                    ensure_category_artwork(app, category);
                                 }
-                                begin_browse(app);
-                                load_queue(app);
                             }
+                            Err(error) => app.write().status = Some(error.user_message()),
+                        }
+                    }
                             Err(ApiError::AccessDenied) => {
                                 let msg = "Access denied: log in with a valid account.".to_owned();
                                 let mut state = app.write();
