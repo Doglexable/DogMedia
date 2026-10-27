@@ -25,13 +25,19 @@ export async function issueSocketTicket(redis, details) {
   return ticket;
 }
 
-export async function consumeSocketTicket(redis, ticket, clientIp) {
+export async function consumeSocketTicket(redis, ticket, user) {
   if (typeof ticket !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(ticket)) return null;
   const raw = await redis.getdel(socketTicketKey(ticket));
   if (!raw) return null;
   try {
     const details = JSON.parse(raw);
-    return details.clientIp === clientIp ? details : null;
+    if (!user) return null;
+    const userId = typeof user === "object" ? user.id : (typeof user === "number" ? user : null);
+    if (!userId || details.userId !== userId) return null;
+    const userVersion = Number((typeof user === "object" ? (user.session_version ?? user.sessionVersion) : 0) ?? 0);
+    const ticketVersion = Number(details.sessionVersion ?? 0);
+    if (ticketVersion !== userVersion) return null;
+    return details;
   } catch {
     return null;
   }

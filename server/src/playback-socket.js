@@ -1,5 +1,6 @@
 import { consumeSocketTicket, getExclusiveLease, readPlaybackSession, refreshExclusiveLease } from "./playback-session.js";
 import { authorizeExclusiveReport, publicHolderWithPlayback, writeActivePlayback } from "./playback-live-state.js";
+import { isUserSessionValid } from "./plugins/auth.js";
 
 export const SOCKET_MAX_BYTES = 8192;
 export const SOCKET_CLOSE = { malformed: 4400, unauthorized: 4401, rateLimited: 4408, slow: 4429 };
@@ -134,6 +135,29 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
         entry.pendingState = null;
         send(entry, pending);
       }
+      if (entry.identity && fastify.pg?.query && entry.identity.userId) {
+        try {
+          const valid = await isUserSessionValid(fastify.pg, entry.identity.userId, entry.identity.sessionVersion);
+          if (!valid) {
+            const revokedSessionId = entry.boundSessionId;
+            entry.boundSessionId = null;
+            entry.boundMediaType = "";
+            entry.playing = false;
+            if (revokedSessionId) {
+              send(entry, {
+                type: "protocol.error",
+                version: VERSION,
+                code: "PLAYBACK_LEASE_LOST",
+                sessionId: revokedSessionId,
+                message: "Playback lease lost",
+              });
+            }
+            socket.close(SOCKET_CLOSE.unauthorized, "Session revoked");
+            if (revokedSessionId) await notify();
+            return;
+          }
+        } catch (error) { fastify.log.warn({ err: error }, "playback socket session check failed"); }
+      }
       // Web intentionally lets a paused lease expire; native players retain
       // their existing paused-session renewal while the foreground socket lives.
       if (entry.boundSessionId && (entry.playing || entry.identity.platform !== "web")) {
@@ -172,7 +196,7 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
         catch { counters.protocolErrors += 1; socket.close(SOCKET_CLOSE.malformed, "Invalid message"); return; }
         if (!entry.identity) {
           if (message.type !== "auth") { socket.close(SOCKET_CLOSE.unauthorized, "Authentication required"); return; }
-          const identity = await consumeSocketTicket(fastify.redis, message.ticket, request.clientIp || request.ip);
+          const identity = await consumeSocketTicket(fastify.redis, message.ticket, request.user);
           if (!identity) { counters.authRejected += 1; socket.close(SOCKET_CLOSE.unauthorized, "Invalid ticket"); return; }
           entry.identity = identity;
           clearTimeout(authTimeout);
@@ -185,6 +209,14 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           return;
         }
         if (message.type === "session.bind") {
+          if (fastify.pg?.query && entry.identity.userId) {
+            const valid = await isUserSessionValid(fastify.pg, entry.identity.userId, entry.identity.sessionVersion);
+            if (!valid) {
+              send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_NOT_OWNER", message: "Playback session is not the owner" });
+              socket.close(SOCKET_CLOSE.unauthorized, "Session revoked");
+              return;
+            }
+          }
           const session = await readPlaybackSession(fastify.redis, message.sessionId);
           const lease = await getExclusiveLease(fastify.redis);
           if (!session?.leaseRequired || session.viewerId !== entry.identity.viewerId
@@ -203,6 +235,18 @@ export function createPlaybackSocketHub(fastify, { allowedOrigins = new Set() } 
           return;
         }
         if (message.type === "playback.state") {
+          if (fastify.pg?.query && entry.identity.userId) {
+            const valid = await isUserSessionValid(fastify.pg, entry.identity.userId, entry.identity.sessionVersion);
+            if (!valid) {
+              entry.boundSessionId = null;
+              entry.boundMediaType = "";
+              entry.playing = false;
+              send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_NOT_OWNER", message: "Playback state rejected" });
+              socket.close(SOCKET_CLOSE.unauthorized, "Session revoked");
+              await notify();
+              return;
+            }
+          }
           const identity = {
             ...entry.identity,
             sessionId: message.sessionId,

@@ -584,6 +584,7 @@ export default async function (fastify) {
       viewerId, clientIp, accessTier: request.accessTier,
       platform, deviceLabel: normalizeDeviceLabel(request.headers["x-client-name"], platform),
       userId: request.user?.id || null,
+      sessionVersion: Number(request.user?.session_version ?? 0),
       username: request.user?.username || null,
       profilePicture: request.user?.profile_picture || null,
     });
