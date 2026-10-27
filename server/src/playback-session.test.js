@@ -7,6 +7,7 @@ import {
   parseCookies,
   playbackCookieName,
   publicLeaseHolder,
+  readPlaybackClientId,
   refreshExclusiveLease,
   releaseExclusiveLease,
   requiresExclusiveLease,
@@ -24,7 +25,8 @@ function memoryRedis() {
     async eval(script, keyCount, key, ...args) {
       if (script.includes("previousSessionId")) {
         const current = values.has(key) ? JSON.parse(values.get(key)) : null;
-        if (current && (current.viewerId !== args[0] || current.clientIp !== args[1])) {
+        const currentClientId = current?.clientId || current?.viewerId;
+        if (current && (current.viewerId !== args[0] || current.clientIp !== args[1] || (args[4] && currentClientId !== args[4]))) {
           const ttl = Math.max(0, (expiresAt.get(key) ?? Date.now()) - Date.now());
           return [0, JSON.stringify(current), ttl];
         }
@@ -256,5 +258,57 @@ describe("protected playback sessions", () => {
     expect(publicLeaseHolder({ platform: "weird", mediaId: -3 }, -5)).toBeNull();
     expect(publicLeaseHolder(null, 10)).toBeNull();
     expect(publicLeaseHolder("nope", 10)).toBeNull();
+  });
+
+  it("validates and extracts playback client IDs", () => {
+    expect(readPlaybackClientId({ headers: { "x-playback-client-id": "12345678-1234-1234-1234-123456789abc" } })).toBe("12345678-1234-1234-1234-123456789abc");
+    expect(readPlaybackClientId({ headers: {} }, "default-viewer")).toBe("default-viewer");
+    expect(readPlaybackClientId({ headers: { "x-playback-client-id": "" } }, "default-viewer")).toBe("default-viewer");
+    expect(() => readPlaybackClientId({ headers: { "x-playback-client-id": "short" } })).toThrowError(expect.objectContaining({ statusCode: 400 }));
+    expect(() => readPlaybackClientId({ headers: { "x-playback-client-id": "bad!chars@here###" } })).toThrowError(expect.objectContaining({ statusCode: 400 }));
+  });
+
+  it("isolates lease ownership between different client IDs sharing viewer and IP", async () => {
+    const redis = memoryRedis();
+    const tabA = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_shared_cookie",
+      clientId: "tab_a_1111111111111111",
+      sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+      mediaId: 1,
+      clientIp: "192.168.1.2",
+      platform: "web",
+      deviceLabel: "Tab A",
+    });
+    expect(tabA.acquired).toBe(true);
+
+    // Tab B attempts play while Tab A owns lease
+    const tabB = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_shared_cookie",
+      clientId: "tab_b_2222222222222222",
+      sessionId: "session_bbbbbbbbbbbbbbbbbbb",
+      mediaId: 2,
+      clientIp: "192.168.1.2",
+      platform: "web",
+      deviceLabel: "Tab B",
+    });
+    expect(tabB.acquired).toBe(false);
+    expect(tabB.holder).toMatchObject({
+      platform: "web",
+      deviceLabel: "Tab A",
+      mediaId: 1,
+    });
+
+    // Tab A changes track/quality: rotates successfully
+    const tabARotate = await acquireExclusiveLease(redis, {
+      viewerId: "viewer_shared_cookie",
+      clientId: "tab_a_1111111111111111",
+      sessionId: "session_a22222222222222222",
+      mediaId: 3,
+      clientIp: "192.168.1.2",
+      platform: "web",
+      deviceLabel: "Tab A",
+    });
+    expect(tabARotate.acquired).toBe(true);
+    expect(tabARotate.previousSessionId).toBe("session_aaaaaaaaaaaaaaaaaaa");
   });
 });

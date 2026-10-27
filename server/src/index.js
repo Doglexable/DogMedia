@@ -53,7 +53,7 @@ await app.register(cors, {
     callback(null, !origin || ALLOWED_ORIGINS.has(origin));
   },
   credentials: true,
-  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name", "Authorization"],
+  allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Playback-Client-ID", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name", "Authorization"],
   exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
 });
 await app.register(websocket, { options: { maxPayload: 8192 } });

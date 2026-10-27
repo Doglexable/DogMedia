@@ -93,7 +93,7 @@ the former whitelist route or localhost as an access-control template.
 | [074](074-prevent-cancelled-download-resurrection.md) | Keep cancelled mobile downloads from reappearing | P1 | M | — | DONE — attempt tokens isolate in-flight jobs; post-byte cancellation guards and cleanup prevent ready resurrection; 166 mobile tests pass |
 | [075](075-correct-readme-migration-command.md) | Show a runnable migration command in the README | P3 | S | — | DONE — updated README command reference to specify --workspace=server |
 | [076](076-observe-mobile-lease-without-socket.md) | Show the remote playback owner on Android while the socket is unavailable | P2 | S | — | DONE — cancellable lease poller active while socket not ready; 11 focused tests, 171 mobile tests, and mobile lint pass |
-| [077](077-isolate-web-playback-per-tab.md) | Prevent a second web tab from replacing the active tab's playback | P1 | M | — | TODO |
+| [077](077-isolate-web-playback-per-tab.md) | Prevent a second web tab from replacing the active tab's playback | P1 | M | — | DONE — document-scoped client ID sent via X-Playback-Client-ID isolates Redis lease ownership per tab while preserving same-tab rotation; 117 focused server/web tests, full Node lint/test, and web build pass |
 | [078](078-retain-observer-mini-player.md) | Preserve the observer mini player across exclusive-lease transitions | P1 | L | 076, 077 | TODO |
 | [079](079-retain-web-lease-while-paused.md) | Keep the web owner's exclusive lease while playback is paused | P1 | M | 078 | TODO |
 

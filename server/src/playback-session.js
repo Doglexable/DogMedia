@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 
 export const PLAYBACK_SESSION_HEADER = "x-playback-session";
+export const PLAYBACK_CLIENT_ID_HEADER = "x-playback-client-id";
 export const VIEWER_ID_HEADER = "x-viewer-id";
 export const EXCLUSIVE_PLAYBACK_ENABLED = process.env.EXCLUSIVE_PLAYBACK_ENABLED !== "false";
 export const EXCLUSIVE_PLAYBACK_LEASE_SECONDS = Math.max(
@@ -48,7 +49,8 @@ local currentRaw = redis.call('GET', KEYS[1])
 local previousSessionId = ''
 if currentRaw then
   local current = cjson.decode(currentRaw)
-  if current.viewerId ~= ARGV[1] or current.clientIp ~= ARGV[2] then
+  local currentClientId = current.clientId or current.viewerId
+  if current.viewerId ~= ARGV[1] or current.clientIp ~= ARGV[2] or currentClientId ~= ARGV[5] then
     return {0, currentRaw, redis.call('PTTL', KEYS[1])}
   end
   previousSessionId = current.sessionId or ''
@@ -95,6 +97,24 @@ export function playbackCookieName(mediaId) {
 
 function validOpaqueId(value) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(value);
+}
+
+export function isValidPlaybackClientId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(value);
+}
+
+export function readPlaybackClientId(request, viewerId = null) {
+  const raw = request.headers[PLAYBACK_CLIENT_ID_HEADER];
+  if (raw === undefined || raw === null || raw === "") {
+    return viewerId || null;
+  }
+  if (isValidPlaybackClientId(raw)) {
+    return raw;
+  }
+  const error = new Error("Invalid playback client ID");
+  error.statusCode = 400;
+  error.code = "INVALID_PLAYBACK_CLIENT_ID";
+  throw error;
 }
 
 export function readViewerId(request) {
@@ -164,11 +184,13 @@ export async function createPlaybackSession(redis, details) {
     PLAYBACK_SESSION_TTL_SECONDS,
     Math.max(1800, (Number(details.duration) || 0) + 3600)
   );
+  const clientId = details.clientId || details.viewerId;
   const session = {
     mediaId: Number(details.mediaId),
     clientIp: String(details.clientIp),
     accessTier: Number(details.accessTier),
     viewerId: details.viewerId,
+    clientId,
     leaseRequired: Boolean(details.leaseRequired),
     quality: details.quality,
     mediaType: typeof details.mediaType === "string" ? details.mediaType : "",
@@ -270,8 +292,10 @@ function retryAfterSeconds(ttlMs) {
 export async function acquireExclusiveLease(redis, details) {
   const now = Date.now();
   const platform = details.platform || "web";
+  const clientId = details.clientId || details.viewerId;
   const lease = {
     viewerId: details.viewerId,
+    clientId,
     sessionId: details.sessionId,
     mediaId: Number(details.mediaId),
     clientIp: String(details.clientIp),
@@ -288,7 +312,8 @@ export async function acquireExclusiveLease(redis, details) {
     String(details.viewerId),
     String(details.clientIp),
     JSON.stringify(lease),
-    ttlMs
+    ttlMs,
+    String(clientId)
   );
   const acquired = Number(result?.[0]) === 1;
   return {

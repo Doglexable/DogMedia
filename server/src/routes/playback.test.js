@@ -760,6 +760,70 @@ describe("exclusive playback lease routes", () => {
     await app.close();
   });
 
+  it("isolates web tab lease ownership using X-Playback-Client-ID", async () => {
+    const redis = createMockRedis({
+      "stream:exclusive:standard": JSON.stringify({
+        viewerId: "viewer_shared_cookie",
+        clientId: "tab_a_1111111111111111",
+        sessionId: "session_aaaaaaaaaaaaaaaaaaa",
+        mediaId: 7,
+        clientIp: "192.168.1.20",
+        platform: "web",
+        deviceLabel: "Dogmedia Web",
+      }),
+    });
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = "192.168.1.20";
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    // Tab A (owner)
+    const tabAResponse = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: {
+        "x-viewer-id": "viewer_shared_cookie",
+        "x-playback-client-id": "tab_a_1111111111111111",
+      },
+    });
+    expect(tabAResponse.statusCode).toBe(200);
+    expect(tabAResponse.json().state).toBe("owned");
+
+    // Tab B (observer with same viewer cookie and IP)
+    const tabBResponse = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: {
+        "x-viewer-id": "viewer_shared_cookie",
+        "x-playback-client-id": "tab_b_2222222222222222",
+      },
+    });
+    expect(tabBResponse.statusCode).toBe(200);
+    expect(tabBResponse.json().state).toBe("busy");
+    expect(tabBResponse.json().activeSession).toMatchObject({
+      platform: "web",
+      deviceLabel: "Dogmedia Web",
+      mediaId: 7,
+    });
+    expect(JSON.stringify(tabBResponse.json())).not.toContain("tab_a_1111111111111111");
+
+    // Malformed client ID
+    const malformed = await app.inject({
+      method: "GET",
+      url: "/api/playback/lease",
+      headers: {
+        "x-playback-client-id": "invalid!",
+      },
+    });
+    expect(malformed.statusCode).toBe(400);
+
+    await app.close();
+  });
+
   it("mirrors the owner snapshot and rejects duplicate position reporters", async () => {
     const ownerViewer = "viewer_bbbbbbbbbbbbbbbbbbbb";
     const ownerSession = "session_hhhhhhhhhhhhhhhhhhh";

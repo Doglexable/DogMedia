@@ -10,6 +10,7 @@ import {
   preparePlaybackStream,
   profilePictureUrl,
   readJsonArray,
+  requestPlaybackSocketTicket,
 } from "./api";
 
 afterEach(() => {
@@ -109,7 +110,25 @@ describe("protected playback", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/media/4/playback-session", expect.objectContaining({
       method: "POST",
       credentials: "include",
+      headers: expect.objectContaining({
+        "X-Playback-Client-ID": expect.any(String),
+      }),
       body: JSON.stringify({ quality: "high" }),
+    }));
+  });
+
+  it("requests a socket ticket with the playback client id header", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ticket: "fake-ticket" }), {
+      headers: { "Content-Type": "application/json" }, status: 200,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestPlaybackSocketTicket()).resolves.toBe("fake-ticket");
+    expect(fetchMock).toHaveBeenCalledWith("/api/playback/socket-ticket", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({
+        "X-Playback-Client-ID": expect.any(String),
+      }),
     }));
   });
 
@@ -169,6 +188,11 @@ describe("protected playback", () => {
       state: "busy",
       activeSession: { playback: { mediaId: 9, action: "play", position: 31 } },
     });
+    expect(fetchMock).toHaveBeenCalledWith("/api/playback/lease", expect.objectContaining({
+      headers: expect.objectContaining({
+        "X-Playback-Client-ID": expect.any(String),
+      }),
+    }));
     await expect(forceReleasePlaybackLease()).resolves.toEqual({ ok: true, released: true });
     expect(fetchMock).toHaveBeenLastCalledWith("/api/playback/lease/admin", expect.objectContaining({
       method: "DELETE",

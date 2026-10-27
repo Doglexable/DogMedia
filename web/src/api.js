@@ -39,6 +39,7 @@ export function profilePictureUrl(avatarId, size = "s") {
 }
 
 import { normalizeHolderSession } from "./components/global-player/exclusive-session";
+import { getPlaybackClientId } from "./components/global-player/playback-client-id";
 
 export async function api(path, options = {}) {
   const response = await fetch(apiUrl(path), { ...options, credentials: "include" });
@@ -54,7 +55,11 @@ export async function api(path, options = {}) {
 export async function requestPlaybackSocketTicket() {
   const response = await api("/api/playback/socket-ticket", {
     method: "POST",
-    headers: { "X-Client-Platform": "web", "X-Client-Name": "Dogmedia Web" },
+    headers: {
+      "X-Client-Platform": "web",
+      "X-Client-Name": "Dogmedia Web",
+      "X-Playback-Client-ID": getPlaybackClientId(),
+    },
   });
   const data = await response.json().catch(() => null);
   if (!response.ok || !data?.ticket) throw new Error("Could not open playback updates");
@@ -74,6 +79,7 @@ export async function createPlaybackSession(mediaId, quality = "high", { signal 
       "Content-Type": "application/json",
       "X-Client-Platform": "web",
       "X-Client-Name": "Dogmedia Web",
+      "X-Playback-Client-ID": getPlaybackClientId(),
     },
     body: JSON.stringify({ quality }),
     signal,
@@ -142,7 +148,11 @@ export async function releasePlaybackLease(sessionId) {
 }
 
 export async function getPlaybackLease() {
-  const response = await api("/api/playback/lease");
+  const response = await api("/api/playback/lease", {
+    headers: {
+      "X-Playback-Client-ID": getPlaybackClientId(),
+    },
+  });
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.error || "Could not read playback session");
   return {

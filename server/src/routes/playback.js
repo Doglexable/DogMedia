@@ -5,6 +5,7 @@ import {
   issueSocketTicket,
   normalizeDeviceLabel,
   publicLeaseHolder,
+  readPlaybackClientId,
   readPlaybackSession,
   readViewerId,
   resolveViewerId,
@@ -577,11 +578,12 @@ async function getCachedDashboardSummary(fastify, request) {
 export default async function (fastify) {
   fastify.post("/socket-ticket", async (request, reply) => {
     const viewerId = resolveViewerId(request);
+    const clientId = readPlaybackClientId(request, viewerId);
     const clientIp = request.clientIp || request.ip;
     const platform = ["web", "mobile", "desktop"].includes(request.headers["x-client-platform"])
       ? request.headers["x-client-platform"] : "web";
     const ticket = await issueSocketTicket(getRedis(fastify), {
-      viewerId, clientIp, accessTier: request.accessTier,
+      viewerId, clientId, clientIp, accessTier: request.accessTier,
       platform, deviceLabel: normalizeDeviceLabel(request.headers["x-client-name"], platform),
       userId: request.user?.id || null,
       sessionVersion: Number(request.user?.session_version ?? 0),
@@ -746,9 +748,12 @@ export default async function (fastify) {
     const lease = await getExclusiveLease(getRedis(fastify));
     if (!lease) return { state: "available", expiresIn: 0 };
     const viewerId = readViewerId(request);
+    const clientId = readPlaybackClientId(request, viewerId);
+    const leaseClientId = lease.clientId || lease.viewerId;
     const owned = Boolean(viewerId)
       && viewerId === lease.viewerId
-      && (request.clientIp || request.ip) === lease.clientIp;
+      && (request.clientIp || request.ip) === lease.clientIp
+      && clientId === leaseClientId;
     const holder = await liveHolderWithPlayback(getRedis(fastify), lease, lease.expiresIn);
     return {
       state: owned ? "owned" : "busy",
