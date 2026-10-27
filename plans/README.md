@@ -95,7 +95,7 @@ the former whitelist route or localhost as an access-control template.
 | [076](076-observe-mobile-lease-without-socket.md) | Show the remote playback owner on Android while the socket is unavailable | P2 | S | — | DONE — cancellable lease poller active while socket not ready; 11 focused tests, 171 mobile tests, and mobile lint pass |
 | [077](077-isolate-web-playback-per-tab.md) | Prevent a second web tab from replacing the active tab's playback | P1 | M | — | DONE — document-scoped client ID sent via X-Playback-Client-ID isolates Redis lease ownership per tab while preserving same-tab rotation; 117 focused server/web tests, full Node lint/test, and web build pass |
 | [078](078-retain-observer-mini-player.md) | Preserve the observer mini player across exclusive-lease transitions | P1 | L | 076, 077 | DONE — retained snapshots and explicit Play acquisition on desktop/web/Android; 10 web and 12 mobile focused tests, full lint/test/build, 90 native and 9 desktop state tests pass; branch merged |
-| [079](079-retain-web-lease-while-paused.md) | Keep the web owner's exclusive lease while playback is paused | P1 | M | 078 | BLOCKED — first executor stopped after two failed focused server runs; WebSocket fake-timer regression timed out and an existing takeover assertion saw `available` instead of `owned`; no commit or merge. Recovery steps are in the plan. |
+| [079](079-retain-web-lease-while-paused.md) | Keep the web owner's exclusive lease while playback is paused | P1 | M | 078 | DONE — paused web owner retains exclusive lease via WebSocket liveness and HTTP fallback heartbeat; pause cache TTL no longer clears connected player; 20 focused server and 8 web tests, full Node lint/test/build pass |
 
 ## Dependency notes
 

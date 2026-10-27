@@ -41,6 +41,137 @@ describe("playback socket protocol", () => {
 });
 
 describe("protected playback socket route", () => {
+  it("renews a paused bound web owner past the lease TTL, but not an observer or a disconnected owner", async () => {
+    const store = new Map();
+    const leaseKey = "stream:exclusive:standard";
+    let fakeNow = 100_000;
+    let leaseExpiresAt = 0;
+    const renewals = vi.fn();
+    const redis = {
+      async set(key, value) { store.set(key, value); },
+      async get(key) {
+        if (key === leaseKey && fakeNow >= leaseExpiresAt) store.delete(key);
+        return store.get(key) || null;
+      },
+      async getdel(key) { const value = store.get(key) || null; store.delete(key); return value; },
+      async pttl() { return Math.max(0, leaseExpiresAt - fakeNow); },
+      multi() {
+        const chain = {
+          set(key, value) { store.set(key, value); return chain; },
+          del(key) { store.delete(key); return chain; },
+          zadd() { return chain; },
+          zrem() { return chain; },
+          async exec() { return []; },
+        };
+        return chain;
+      },
+      async eval(_script, _keys, key, viewerId, sessionId, clientIp, now, ttl) {
+        const raw = await redis.get(key);
+        if (!raw) return [0, -2];
+        const lease = JSON.parse(raw);
+        if (lease.viewerId !== viewerId || lease.sessionId !== sessionId || lease.clientIp !== clientIp) {
+          return [0, raw, await redis.pttl()];
+        }
+        lease.lastHeartbeatAt = now;
+        store.set(key, JSON.stringify(lease));
+        leaseExpiresAt = fakeNow + ttl;
+        renewals();
+        return [1, ttl];
+      },
+    };
+
+    const pingCallbacks = new Map();
+    const app = Fastify();
+    await app.register(websocket);
+    app.decorate("redis", redis);
+    app.decorate("playbackSocketHub", createPlaybackSocketHub(app, {
+      schedulePingInterval: (fn) => {
+        const id = Symbol();
+        pingCallbacks.set(id, fn);
+        return id;
+      },
+      clearPingInterval: (id) => {
+        pingCallbacks.delete(id);
+      },
+    }));
+    await app.register(async (scope) => {
+      scope.addHook("onRequest", async (request) => {
+        request.clientIp = "192.0.2.1";
+        request.accessTier = 100;
+        request.user = { id: 1, username: "user", access_tier: 100, session_version: 0 };
+      });
+      await scope.register(playbackRoutes, { prefix: "/playback" });
+    }, { prefix: "/api" });
+    await app.ready();
+
+    const sessionId = "s".repeat(32);
+    const ownerId = "o".repeat(32);
+    const connect = async (viewerId) => {
+      const ticket = await issueSocketTicket(redis, {
+        userId: 1, sessionVersion: 0, viewerId, clientIp: "192.0.2.1", accessTier: 100, platform: "web",
+      });
+      const socket = await app.injectWS("/api/playback/socket");
+      const events = [];
+      socket.on("message", (raw) => events.push(JSON.parse(raw.toString())));
+      socket.send(JSON.stringify({ type: "auth", version: 1, ticket }));
+      await vi.waitFor(() => expect(events.some((event) => event.type === "socket.ready")).toBe(true));
+      return { socket, events };
+    };
+
+    let owner;
+    let observer;
+    try {
+      owner = await connect(ownerId);
+      observer = await connect("v".repeat(32));
+      store.set(playbackSessionKey(sessionId), JSON.stringify({
+        mediaId: 10, viewerId: ownerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true, mediaType: "audio/mpeg",
+      }));
+      store.set(leaseKey, JSON.stringify({
+        viewerId: ownerId, sessionId, clientIp: "192.0.2.1", mediaId: 10, platform: "web",
+      }));
+      leaseExpiresAt = fakeNow + 30_000;
+
+      owner.socket.send(JSON.stringify({ type: "session.bind", version: 1, sessionId }));
+      await vi.waitFor(() => expect(owner.events.some((event) => event.state === "owned")).toBe(true));
+
+      owner.socket.send(JSON.stringify({
+        type: "playback.state", version: 1, sessionId, mediaId: 10,
+        action: "pause", position: 12, duration: 90, loopMode: "none", shuffleEnabled: false, sequence: 1,
+      }));
+      await vi.waitFor(() => expect(observer.events.at(-1)?.activeSession?.playback?.action).toBe("pause"));
+      expect(owner.events.some((event) => event.code === "PLAYBACK_NOT_OWNER")).toBe(false);
+
+      for (let tick = 0; tick < 3; tick += 1) {
+        fakeNow += 10_000;
+        owner.socket.pong();
+        observer.socket.pong();
+        for (const fn of [...pingCallbacks.values()]) {
+          await fn();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      expect(renewals.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(await redis.get(leaseKey)).not.toBeNull();
+      expect(observer.events.some((event) => event.state === "available" && event.revision > 0)).toBe(false);
+
+      const renewalCount = renewals.mock.calls.length;
+      owner.socket.terminate();
+
+      fakeNow += 31_000;
+      await app.playbackSocketHub.notify();
+      await vi.waitFor(() => expect(observer.events.at(-1)?.state).toBe("available"));
+
+      expect(renewals).toHaveBeenCalledTimes(renewalCount);
+      expect(await redis.get(leaseKey)).toBeNull();
+      expect(observer.events.at(-1)).toMatchObject({ type: "lease.state", state: "available" });
+    } finally {
+      owner?.socket.close();
+      observer?.socket.close();
+      await app.close();
+    }
+  });
+
   it("uses the access hook and sends an initial safe state after one-use authentication", async () => {
     const store = new Map();
     const redis = {
