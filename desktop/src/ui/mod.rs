@@ -503,19 +503,32 @@ pub fn run() {
         tokio::runtime::Runtime::new().expect("failed to initialize the native async runtime");
     let _runtime_guard = runtime.enter();
 
+    let settings = SettingsStore::discover()
+        .and_then(|store| store.load())
+        .unwrap_or_default();
+
+    let width = if settings.window_width >= 800 {
+        settings.window_width as f64
+    } else {
+        1280.0
+    };
+    let height = if settings.window_height >= 560 {
+        settings.window_height as f64
+    } else {
+        800.0
+    };
+
     let mut window_attributes = dioxus_native::WindowAttributes::default()
         .with_title("Dogmedia")
-        .with_inner_size(dioxus_native::LogicalSize::new(1280.0, 800.0))
-        .with_min_inner_size(dioxus_native::LogicalSize::new(800.0, 560.0));
+        .with_inner_size(dioxus_native::LogicalSize::new(width, height))
+        .with_min_inner_size(dioxus_native::LogicalSize::new(800.0, 560.0))
+        .with_maximized(settings.window_maximized);
 
     #[cfg(target_os = "linux")]
     {
         use winit::platform::wayland::WindowAttributesExtWayland;
         use winit::platform::x11::WindowAttributesExtX11;
-        let preference = SettingsStore::discover()
-            .and_then(|store| store.load())
-            .map(|settings| settings.color_scheme)
-            .unwrap_or_default();
+        let preference = settings.color_scheme;
         let system_scheme = (preference == ColorScheme::System)
             .then(system_theme::read_gsettings_scheme)
             .flatten();
@@ -582,6 +595,39 @@ fn App() -> Element {
                     *last = new_title.clone();
                     if let Some(window) = title_window.as_ref() {
                         window.set_title(&new_title);
+                    }
+                }
+            }
+        });
+    }
+    {
+        let window_handle = native_window.clone();
+        use_future(move || {
+            let window_handle = window_handle.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                    let Some(window) = window_handle.as_ref() else {
+                        continue;
+                    };
+
+                    let is_fullscreen = window.fullscreen().is_some();
+                    let is_maximized = window.is_maximized();
+                    let scale = window.scale_factor();
+                    let physical_size = window.inner_size();
+                    let logical_size = physical_size.to_logical::<f64>(scale);
+                    let width = logical_size.width.round() as i32;
+                    let height = logical_size.height.round() as i32;
+
+                    let mut model = app.write();
+                    if model.settings.update_window_geometry(
+                        is_maximized,
+                        is_fullscreen,
+                        width,
+                        height,
+                    ) {
+                        let _ = model.store.save(&model.settings);
                     }
                 }
             }

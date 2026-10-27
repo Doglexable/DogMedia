@@ -201,6 +201,7 @@ pub struct Settings {
     pub notifications: bool,
     pub window_width: i32,
     pub window_height: i32,
+    pub window_maximized: bool,
     pub local_folder: Option<PathBuf>,
 }
 
@@ -217,14 +218,45 @@ impl Default for Settings {
             volume: Volume::default(),
             color_scheme: ColorScheme::System,
             notifications: true,
-            window_width: 1100,
-            window_height: 720,
+            window_width: 1280,
+            window_height: 800,
+            window_maximized: false,
             local_folder: None,
         }
     }
 }
 
 impl Settings {
+    /// Updates window size and maximized state if changed, ignoring video fullscreen.
+    /// Returns `true` if any persisted geometry field changed.
+    pub fn update_window_geometry(
+        &mut self,
+        is_maximized: bool,
+        is_fullscreen: bool,
+        width: i32,
+        height: i32,
+    ) -> bool {
+        if is_fullscreen {
+            return false;
+        }
+        let width = width.max(800);
+        let height = height.max(560);
+        let mut changed = false;
+
+        if self.window_maximized != is_maximized {
+            self.window_maximized = is_maximized;
+            changed = true;
+        }
+
+        if !is_maximized && (self.window_width != width || self.window_height != height) {
+            self.window_width = width;
+            self.window_height = height;
+            changed = true;
+        }
+
+        changed
+    }
+
     /// Returns `true` when the URL uses plain HTTP toward a public/non-local
     /// host and therefore needs explicit confirmation.
     pub fn set_server_url(&mut self, input: &str) -> Result<bool, SettingsError> {
@@ -388,5 +420,48 @@ mod tests {
         assert_eq!(urls.match_environment("https://staging.example.com/"), Some(ServerEnvironment::Staging));
         assert_eq!(urls.match_environment("https://stream.example.com"), Some(ServerEnvironment::Prod));
         assert_eq!(urls.match_environment("https://other.com"), None);
+    }
+
+    #[test]
+    fn old_settings_load_without_window_maximized() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("window_maximized");
+        let loaded: Settings = serde_json::from_value(value).unwrap();
+        assert!(!loaded.window_maximized);
+        assert_eq!(loaded.window_width, 1280);
+        assert_eq!(loaded.window_height, 800);
+    }
+
+    #[test]
+    fn window_geometry_updates_and_ignores_fullscreen() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.window_width, 1280);
+        assert_eq!(settings.window_height, 800);
+        assert!(!settings.window_maximized);
+
+        // Ignores video fullscreen
+        assert!(!settings.update_window_geometry(true, true, 1920, 1080));
+        assert!(!settings.window_maximized);
+        assert_eq!(settings.window_width, 1280);
+
+        // Normal resize
+        assert!(settings.update_window_geometry(false, false, 1440, 900));
+        assert_eq!(settings.window_width, 1440);
+        assert_eq!(settings.window_height, 900);
+        assert!(!settings.window_maximized);
+
+        // Same dimensions report no change
+        assert!(!settings.update_window_geometry(false, false, 1440, 900));
+
+        // Maximize window (preserves width/height for unmaximize)
+        assert!(settings.update_window_geometry(true, false, 1920, 1080));
+        assert!(settings.window_maximized);
+        assert_eq!(settings.window_width, 1440);
+        assert_eq!(settings.window_height, 900);
+
+        // Unmaximize restores
+        assert!(settings.update_window_geometry(false, false, 1440, 900));
+        assert!(!settings.window_maximized);
+        assert_eq!(settings.window_width, 1440);
     }
 }
