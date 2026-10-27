@@ -512,11 +512,21 @@ export function FullPlayer({ navigation }) {
   const media = player.currentMedia;
 
   useEffect(() => {
-    setProtectedSource(null);
-    setProtectedSourceConflict(null);
-    setProtectedSourceError("");
-    if (player.controlsLocked) return;
-    if (!media || media.mime_type?.startsWith("audio/")) return;
+    if (player.controlsLocked) {
+      setProtectedSource(null);
+      setProtectedSourceConflict(null);
+      setProtectedSourceError("");
+      return;
+    }
+    if (!media || media.mime_type?.startsWith("audio/")) {
+      setProtectedSource(null);
+      setProtectedSourceConflict(null);
+      setProtectedSourceError("");
+      return;
+    }
+    if (player.paused && !protectedSource) {
+      return;
+    }
     const protectedQuality = player.quality === "ori" && !media.available_qualities?.includes("ori")
       ? "high"
       : player.quality;
@@ -531,7 +541,7 @@ export function FullPlayer({ navigation }) {
         player.applyObservedConflict?.(conflict);
         setProtectedSourceError(conflictDisplayText(conflict, error.message));
       });
-  }, [media?.id, media?.mime_type, player.controlsLocked, player.quality]);
+  }, [media?.id, media?.mime_type, player.controlsLocked, player.paused, player.quality]);
 
   useEffect(() => {
     if (!protectedSource?.leaseRequired) return;

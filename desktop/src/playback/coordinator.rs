@@ -181,10 +181,7 @@ impl PlaybackCoordinator {
 
     pub fn remote_available(&mut self) {
         if self.snapshot.session_unavailable {
-            self.snapshot.status = PlaybackStatus::Idle;
-            self.snapshot.media = None;
-            self.snapshot.position = 0.0;
-            self.snapshot.duration = 0.0;
+            self.snapshot.status = PlaybackStatus::Paused;
             self.snapshot.session_unavailable = false;
             self.snapshot.holder = None;
             self.snapshot.error = None;

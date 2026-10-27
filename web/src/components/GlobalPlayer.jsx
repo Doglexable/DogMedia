@@ -178,6 +178,7 @@ export function GlobalPlayerProvider({ children }) {
   const [playbackAccessError, setPlaybackAccessError] = useState("");
   const [playbackConflict, setPlaybackConflict] = useState(null);
   const [observingExclusiveSession, setObservingExclusiveSession] = useState(false);
+  const [retainedWithoutSession, setRetainedWithoutSession] = useState(false);
 
   // EQ — hoisted here so AudioContext persists across full/mini player switches
   const {
@@ -244,7 +245,7 @@ export function GlobalPlayerProvider({ children }) {
   useEffect(() => {
     const controller = new AbortController();
     setStreamSrc("");
-    if (observingExclusiveSession) return () => controller.abort();
+    if (observingExclusiveSession || retainedWithoutSession) return () => controller.abort();
     setPlaybackConflict(null);
     setPlaybackAccessError("");
     if (!currentMedia) return () => controller.abort();
@@ -292,7 +293,7 @@ export function GlobalPlayerProvider({ children }) {
       controller.abort();
       if (replacingSessionIdRef.current === request) replacingSessionIdRef.current = null;
     };
-  }, [currentMedia?.id, observingExclusiveSession, quality]);
+  }, [currentMedia?.id, observingExclusiveSession, quality, retainedWithoutSession]);
 
   useEffect(() => {
     const mediaId = Number(currentMedia?.id);
@@ -541,6 +542,7 @@ export function GlobalPlayerProvider({ children }) {
 
     takeoverAutoplayRef.current = false;
     prefetchedNextIdRef.current = null;
+    setRetainedWithoutSession(false);
     setObservingExclusiveSession(observing);
     if (!observing) setPlaybackConflict(null);
     setCurrentMedia(mediaItem);
@@ -573,15 +575,21 @@ export function GlobalPlayerProvider({ children }) {
     if (message.state === "available") {
       if (playbackSessionIdRef.current) leaseStaleRef.current = true;
       // An observer must not reacquire the lease just because its owner left.
-      if (observingExclusiveSession) setCurrentMedia(null);
-      setObservingExclusiveSession(false);
+      if (observingExclusiveSession) {
+        setRetainedWithoutSession(true);
+        setObservingExclusiveSession(false);
+        setPaused(true);
+        setShouldAutoPlay(false);
+      }
       setPlaybackConflict(null);
       return;
     }
     if (message.state === "owned") {
       if (observingExclusiveSession && !playbackSessionIdRef.current) {
-        setCurrentMedia(null);
+        setRetainedWithoutSession(true);
         setObservingExclusiveSession(false);
+        setPaused(true);
+        setShouldAutoPlay(false);
         setPlaybackConflict(null);
       }
       return;
@@ -594,6 +602,7 @@ export function GlobalPlayerProvider({ children }) {
     const holder = message.activeSession;
     setPlaybackConflict({ holder, message: `Playback is active on ${holder.deviceLabel}` });
     setObservingExclusiveSession(true);
+    setRetainedWithoutSession(false);
     const snapshot = holder.playback;
     const mediaId = Number(snapshot?.mediaId || holder.mediaId);
     if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
@@ -739,14 +748,17 @@ export function GlobalPlayerProvider({ children }) {
           return;
         }
         if (status.state !== "busy" || !status.activeSession) {
-          setCurrentMedia(null);
+          setRetainedWithoutSession(true);
           setObservingExclusiveSession(false);
+          setPaused(true);
+          setShouldAutoPlay(false);
           setPlaybackConflict(null);
           setPlaybackAccessError("");
           return;
         }
         const holder = status.activeSession;
         setPlaybackConflict({ holder, message: `Playback is active on ${holder.deviceLabel}` });
+        setRetainedWithoutSession(false);
         const snapshot = holder.playback;
         const mediaId = Number(snapshot?.mediaId || holder.mediaId);
         if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
@@ -971,6 +983,7 @@ export function GlobalPlayerProvider({ children }) {
     setStreamSrc("");
     setPlaybackConflict(null);
     setObservingExclusiveSession(false);
+    setRetainedWithoutSession(false);
     setPlaybackAccessError("");
     if (isRouteFullPlayer) navigate("/");
   }, [isRouteFullPlayer, navigate]);
@@ -1438,6 +1451,14 @@ export function GlobalPlayerProvider({ children }) {
       return;
     }
 
+    if (retainedWithoutSession) {
+      const resumePos = position || 0;
+      pendingSeekPositionRef.current = resumePos > 0 ? resumePos : null;
+      setRetainedWithoutSession(false);
+      setShouldAutoPlay(true);
+      return;
+    }
+
     if (!mediaRef.current) return;
 
     if (mediaRef.current.paused) {
@@ -1445,7 +1466,7 @@ export function GlobalPlayerProvider({ children }) {
     } else {
       mediaRef.current.pause();
     }
-  }, [isImage, observingExclusiveSession, openFullPlayer, playWithFreshLease]);
+  }, [isImage, observingExclusiveSession, openFullPlayer, playWithFreshLease, position, retainedWithoutSession]);
 
   const playQueueMedia = useCallback((mediaItem, options = {}) => {
     if (!mediaItem) return;
