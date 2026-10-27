@@ -162,6 +162,11 @@ fn holder_is_stored_and_cleared_with_session_availability() {
     assert!(coordinator.snapshot().holder.is_none());
     assert!(coordinator.snapshot().error.is_none());
     assert!(!coordinator.snapshot().session_unavailable);
+    assert_eq!(
+        coordinator.snapshot().media.as_ref().map(|m| m.id),
+        Some(MediaId::new(2))
+    );
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
     // Fallback labels never leak identifiers.
     assert_eq!(SessionHolder::default().display_label(), "Another device");
     assert_eq!(
@@ -186,4 +191,81 @@ fn stop_is_idempotent_and_queue_modes_are_bounded() {
     assert_eq!(coordinator.next_index(2, 3), Some(0));
     coordinator.set_repeat(RepeatMode::One);
     assert_eq!(coordinator.next_index(2, 3), Some(2));
+}
+
+#[test]
+fn observer_available_retains_paused_snapshot_until_stop() {
+    let mut coordinator = PlaybackCoordinator::default();
+    let remote_item = media(MediaId::new(42));
+    coordinator.observe_remote(
+        remote_item.clone(),
+        SessionHolder {
+            platform: Some("web".to_owned()),
+            device_label: Some("Web Browser".to_owned()),
+            media_id: Some(MediaId::new(42)),
+            expires_in: Some(30),
+            playback: Some(Box::new(RemotePlayback {
+                media_id: MediaId::new(42),
+                action: "play".to_owned(),
+                position: 45.0,
+                duration: 180.0,
+                loop_mode: Some("queue".to_owned()),
+                shuffle_enabled: true,
+            })),
+        },
+    );
+
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Playing);
+    assert_eq!(coordinator.snapshot().position, 45.0);
+    assert_eq!(coordinator.snapshot().duration, 180.0);
+    assert_eq!(coordinator.snapshot().repeat, RepeatMode::Queue);
+    assert!(coordinator.snapshot().shuffle);
+    assert!(coordinator.snapshot().session_unavailable);
+
+    // Remote releases lease: state becomes available
+    coordinator.remote_available();
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
+    assert_eq!(
+        coordinator.snapshot().media.as_ref().map(|m| m.id),
+        Some(MediaId::new(42))
+    );
+    assert_eq!(coordinator.snapshot().position, 45.0);
+    assert_eq!(coordinator.snapshot().duration, 180.0);
+    assert_eq!(coordinator.snapshot().repeat, RepeatMode::Queue);
+    assert!(coordinator.snapshot().shuffle);
+    assert!(!coordinator.snapshot().session_unavailable);
+    assert!(coordinator.snapshot().holder.is_none());
+    assert!(coordinator.snapshot().error.is_none());
+
+    // Another busy event updates retained state smoothly
+    coordinator.observe_remote(
+        remote_item,
+        SessionHolder {
+            platform: Some("mobile".to_owned()),
+            device_label: Some("Phone".to_owned()),
+            media_id: Some(MediaId::new(42)),
+            expires_in: Some(25),
+            playback: Some(Box::new(RemotePlayback {
+                media_id: MediaId::new(42),
+                action: "pause".to_owned(),
+                position: 60.0,
+                duration: 180.0,
+                loop_mode: Some("none".to_owned()),
+                shuffle_enabled: false,
+            })),
+        },
+    );
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
+    assert_eq!(coordinator.snapshot().position, 60.0);
+    assert!(coordinator.snapshot().session_unavailable);
+    assert!(coordinator.snapshot().holder.is_some());
+
+    // Explicit Stop clears retained snapshot completely
+    coordinator.stop();
+    assert_eq!(coordinator.snapshot().status, PlaybackStatus::Idle);
+    assert!(coordinator.snapshot().media.is_none());
+    assert_eq!(coordinator.snapshot().position, 0.0);
+    assert_eq!(coordinator.snapshot().duration, 0.0);
+    assert!(!coordinator.snapshot().session_unavailable);
+    assert!(coordinator.snapshot().holder.is_none());
 }

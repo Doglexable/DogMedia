@@ -76,6 +76,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const videoSourceRef = useRef(null);
   const playbackSocketRef = useRef(null);
   const leaseHandlerRef = useRef(null);
+  const leaseEventIdRef = useRef(0);
   const [socketStatus, setSocketStatus] = useState("connecting");
   const [revokedSessionId, setRevokedSessionId] = useState(null);
   const playbackConflictRef = useRef(null);
@@ -553,9 +554,13 @@ export function PlayerProvider({ accessTier = 0, children }) {
   }, []);
 
   leaseHandlerRef.current = async (message) => {
+    const eventId = ++leaseEventIdRef.current;
     if (message.state === "available") {
       setPlaybackConflict(null);
       setPlaybackAccessError("");
+      if (!playbackSourceRef.current && !videoSourceRef.current) {
+        setRevokedSessionId(null);
+      }
       return;
     }
     if (message.state !== "busy" || !message.activeSession) return;
@@ -576,11 +581,13 @@ export function PlayerProvider({ accessTier = 0, children }) {
     if (mediaId > 0 && Number(currentMediaRef.current?.id) !== mediaId) {
       try {
         const media = await apiJson(`/api/media/${mediaId}`);
+        if (eventId !== leaseEventIdRef.current) return;
         await unloadSound();
         currentMediaRef.current = media;
         setCurrentMedia(media);
       } catch {}
     }
+    if (eventId !== leaseEventIdRef.current) return;
     if (snapshot) {
       positionRef.current = snapshot.position;
       durationRef.current = snapshot.duration;
@@ -638,6 +645,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     const poller = createLeaseStatusPoller({
       getStatus: getPlaybackLease,
       onStatus: async (status) => {
+        if (poller.isStopped()) return;
         if (status.state === "busy" || status.state === "available") {
           await leaseHandlerRef.current?.(status);
         }
@@ -942,16 +950,20 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const togglePlayback = useCallback(() => {
     if (playbackConflictRef.current || revokedSessionId) return;
     if (!currentMediaRef.current || getMediaKind(currentMediaRef.current.mime_type) === "image") return;
-    if (getMediaKind(currentMediaRef.current.mime_type) === "audio"
-      && !playbackSourceRef.current
-      && offline.isConnected) {
-      startMedia(currentMediaRef.current, {
-        autoplay: true,
-        loadResume: false,
-        replacementAction: null,
-        startPosition: positionRef.current,
-      }).catch(() => {});
-      return;
+    const kind = getMediaKind(currentMediaRef.current.mime_type);
+    if (
+      (kind === "audio" && !playbackSourceRef.current)
+      || (kind === "video" && !videoSourceRef.current)
+    ) {
+      if (offline.isConnected) {
+        startMedia(currentMediaRef.current, {
+          autoplay: true,
+          loadResume: false,
+          replacementAction: null,
+          startPosition: positionRef.current,
+        }).catch(() => {});
+        return;
+      }
     }
     if (pausedRef.current) {
       reportPlayingRef.current(true);

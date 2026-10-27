@@ -805,16 +805,14 @@ fn App() -> Element {
                                 if stale { continue; }
                                 app.write().socket_last_revision = Some(revision);
                                 if state == "busy" {
-                                    let (has_session, was_unavailable, current_media) = {
+                                    let (has_session, current_media) = {
                                         let snapshot = app.read();
-                                        let playback = snapshot.coordinator.snapshot();
-                                        (snapshot.session.is_some(), playback.session_unavailable, playback.media.clone())
+                                        (snapshot.session.is_some(), snapshot.coordinator.snapshot().media.clone())
                                     };
                                     if has_session
                                         && let Some(engine) = engine.read().as_ref() { let _ = engine.stop(); }
-                                    let same_media = was_unavailable
-                                        && current_media.as_ref().map(|media| media.id)
-                                            == holder.as_ref().and_then(|value| value.media_id);
+                                    let same_media = current_media.as_ref().map(|media| media.id)
+                                        == holder.as_ref().and_then(|value| value.media_id);
                                     if same_media {
                                         if let (Some(media), Some(holder)) = (current_media, holder.clone()) {
                                             ensure_artwork(app, media.clone());
@@ -2208,6 +2206,13 @@ fn set_playback_playing(
     let session = app.read().session.clone();
     let playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing;
     if playing == requested_playing {
+        return;
+    }
+    if session.is_none() {
+        if requested_playing {
+            let position = app.read().coordinator.snapshot().position;
+            play_media_at(app, engine, media, false, Some(position), true, false);
+        }
         return;
     }
     let result = engine.read().as_ref().map(|engine| {
