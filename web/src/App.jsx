@@ -1,10 +1,11 @@
 import { useEffect, useState, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { api } from "./api";
+import { api, releasePlaybackLease } from "./api";
 import { AccessContext } from "./access-context";
 import { ConnectionError } from "./components/app-error-boundary";
 import { lazyWithRetry } from "./utils/lazy-with-retry";
 import { APP_VERSION_LABEL } from "./version";
+import { clearStoredPlaybackSession, getStoredPlaybackSession } from "./components/global-player/playback-session-storage";
 
 const SharedLikedMusic = lazyWithRetry(() => import("./pages/SharedLikedMusic"));
 const SharedMusic = lazyWithRetry(() => import("./pages/SharedMusic"));
@@ -68,7 +69,12 @@ function AccessGuard({ children }) {
   );
 
   return <AccessContext.Provider value={{ ...status, logout: async () => {
+    const playbackSession = getStoredPlaybackSession();
+    if (playbackSession?.accountId === Number(status.id)) {
+      await releasePlaybackLease(playbackSession.sessionId);
+    }
     await api("/api/auth/logout", { method: "POST" });
+    clearStoredPlaybackSession();
     setStatus({ ok: false });
   }, updateUser: (user) => {
     setStatus((prev) => ({ ...prev, ...user, username: user?.username || prev.username, description: user?.username || prev.description }));

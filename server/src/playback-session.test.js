@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   acquireExclusiveLease,
   createPlaybackSession,
+  forceReleaseExclusiveLease,
   getExclusiveLease,
   normalizeDeviceLabel,
   parseCookies,
@@ -95,7 +96,7 @@ describe("protected playback sessions", () => {
     });
   });
 
-  it("allows one IP, renews its lease, and rejects the same viewer from another IP", async () => {
+  it("allows one account lease, renews it, and rejects a second device on that account", async () => {
     const redis = memoryRedis();
     const first = await acquireExclusiveLease(redis, {
       viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
@@ -110,7 +111,8 @@ describe("protected playback sessions", () => {
       viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
       sessionId: "session_bbbbbbbbbbbbbbbbbbb",
       mediaId: 2,
-      clientIp: "192.168.1.3",
+      clientIp: "192.168.1.2",
+      clientId: "other_device_aaaaaaaaaaaa",
       platform: "mobile",
     });
     expect(competing).toMatchObject({ acquired: false });
@@ -122,14 +124,14 @@ describe("protected playback sessions", () => {
       "session_aaaaaaaaaaaaaaaaaaa",
       "192.168.1.2"
     )).resolves.toMatchObject({ refreshed: true });
-    await expect(getExclusiveLease(redis)).resolves.toMatchObject({ mediaId: 1, platform: "web" });
+    await expect(getExclusiveLease(redis, "192.168.1.2")).resolves.toMatchObject({ mediaId: 1, platform: "web" });
     await expect(releaseExclusiveLease(
       redis,
       "viewer_aaaaaaaaaaaaaaaaaaaa",
       "session_aaaaaaaaaaaaaaaaaaa",
       "192.168.1.2"
     )).resolves.toBe(true);
-    await expect(getExclusiveLease(redis)).resolves.toBeNull();
+    await expect(getExclusiveLease(redis, "192.168.1.2")).resolves.toBeNull();
   });
 
   it("lets the same viewer on the same IP rotate sessions and exposes the old session for revocation", async () => {
@@ -183,7 +185,7 @@ describe("protected playback sessions", () => {
     expect(competing.holder.viewerId).toBe("viewer_bbbbbbbbbbbbbbbbbbbb");
   });
 
-  it("rejects the same viewer from a different IP", async () => {
+  it("keeps leases independent across account scopes even when the viewer ID is reused", async () => {
     const redis = memoryRedis();
     await acquireExclusiveLease(redis, {
       viewerId: "viewer_aaaaaaaaaaaaaaaaaaaa",
@@ -197,11 +199,12 @@ describe("protected playback sessions", () => {
       mediaId: 2,
       clientIp: "192.168.1.3",
     });
-    expect(competing.acquired).toBe(false);
-    expect(competing.holder).toMatchObject({ sessionId: "session_aaaaaaaaaaaaaaaaaaa" });
+    expect(competing.acquired).toBe(true);
+    await expect(getExclusiveLease(redis, "192.168.1.2")).resolves.toMatchObject({ sessionId: "session_aaaaaaaaaaaaaaaaaaa" });
+    await expect(getExclusiveLease(redis, "192.168.1.3")).resolves.toMatchObject({ sessionId: "session_bbbbbbbbbbbbbbbbbbb" });
   });
 
-  it("rejects a different viewer from a different IP", async () => {
+  it("lets a different account acquire its own lease", async () => {
     const redis = memoryRedis();
     await acquireExclusiveLease(redis, {
       viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
@@ -215,9 +218,25 @@ describe("protected playback sessions", () => {
       mediaId: 2,
       clientIp: "192.168.1.9",
     });
-    expect(competing.acquired).toBe(false);
-    expect(competing.holder).toMatchObject({ mediaId: 1 });
-    expect(competing.holder.sessionId).not.toBe("session_bbbbbbbbbbbbbbbbbbb");
+    expect(competing.acquired).toBe(true);
+    await expect(getExclusiveLease(redis, "192.168.1.2")).resolves.toMatchObject({ mediaId: 1 });
+    await expect(getExclusiveLease(redis, "192.168.1.9")).resolves.toMatchObject({ mediaId: 2 });
+  });
+
+  it("force releases only the selected account lease", async () => {
+    const redis = memoryRedis();
+    for (const [clientIp, viewerId] of [["fd50::1", "viewer_aaaaaaaaaaaaaaaaaaaa"], ["fd50::2", "viewer_bbbbbbbbbbbbbbbbbbbb"]]) {
+      const result = await acquireExclusiveLease(redis, {
+        viewerId,
+        sessionId: `session_${viewerId}`,
+        mediaId: 1,
+        clientIp,
+      });
+      expect(result.acquired).toBe(true);
+    }
+    expect(await forceReleaseExclusiveLease(redis, "fd50::1")).toBe(1);
+    await expect(getExclusiveLease(redis, "fd50::1")).resolves.toBeNull();
+    await expect(getExclusiveLease(redis, "fd50::2")).resolves.toMatchObject({ viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb" });
   });
 
   it("requires a lease for protected playback at every access tier", () => {

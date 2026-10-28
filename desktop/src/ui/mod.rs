@@ -247,6 +247,7 @@ pub(crate) struct NativeApp {
     photo_data_url: Option<Arc<String>>,
     player_expanded: bool,
     quality_popover_open: bool,
+    media_settings_open: bool,
     queue_open: bool,
     settings_open: bool,
     server_environments: ServerEnvironmentUrls,
@@ -346,6 +347,7 @@ impl NativeApp {
             photo_data_url: None,
             player_expanded: false,
             quality_popover_open: false,
+            media_settings_open: false,
             queue_open: false,
             settings_open,
             server_environments,
@@ -1842,7 +1844,33 @@ fn change_quality(
     }
 }
 
+fn change_playback_rate(
+    mut app: Signal<NativeApp>,
+    engine: Signal<Option<PlaybackEngine>>,
+    rate: f64,
+) {
+    if app.read().coordinator.snapshot().session_unavailable {
+        return;
+    }
+    let engine_ref = engine.read();
+    let Some(player) = engine_ref.as_ref() else {
+        return;
+    };
+    match player.set_rate(rate) {
+        Ok(()) => app.write().coordinator.set_rate(rate),
+        Err(error) => app.write().status = Some(error.to_string()),
+    }
+}
+
 fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
+    if app.read().coordinator.sleep_timer_expired() {
+        set_playback_playing(app, engine, false);
+    }
+    let timer_update_needed = app.read().coordinator.sleep_timer_update_needed();
+    let timer_paused = timer_update_needed && app.write().coordinator.tick();
+    if timer_paused && let Some(player) = engine.read().as_ref() {
+        let _ = player.pause();
+    }
     let app_read = app.read();
     let snapshot = app_read.coordinator.snapshot().clone();
     drop(app_read);
@@ -1873,6 +1901,18 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     let event = engine.read().as_ref().and_then(PlaybackEngine::poll_event);
     let position = engine.read().as_ref().and_then(PlaybackEngine::position);
     let duration = engine.read().as_ref().and_then(PlaybackEngine::duration);
+    if position.is_some() && snapshot.status != PlaybackStatus::Loading {
+        let requested_rate = app.read().coordinator.rate();
+        let rate_result = engine.read().as_ref().and_then(|player| {
+            ((player.rate() - requested_rate).abs() > f64::EPSILON)
+                .then(|| player.set_rate(requested_rate))
+        });
+        if let Some(Err(error)) = rate_result {
+            let mut state = app.write();
+            state.coordinator.set_rate(1.0);
+            state.status = Some(error.to_string());
+        }
+    }
 
     let effective_duration = duration
         .filter(|&d| d > 0.0)
@@ -2335,6 +2375,7 @@ fn stop_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
         state.subtitle_cues.clear();
         state.subtitle_cues.shrink_to_fit();
         state.player_expanded = false;
+        state.media_settings_open = false;
         state.queue_open = false;
     }
     if let Some(mut timing) = app.read().timing_signal {

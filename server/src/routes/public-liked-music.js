@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { ACCESSIBLE_CATEGORY_IDS_SQL } from "../category-access.js";
 
 function hashToken(token) {
   return createHash("sha256").update(token).digest("hex");
@@ -25,14 +26,7 @@ export default async function (fastify) {
 
     const share = shareRows[0];
     const { rows } = await fastify.pg.query(
-      `WITH RECURSIVE accessible_categories AS (
-         SELECT id FROM categories
-         WHERE parent_id IS NULL AND min_access_tier <= $1
-         UNION ALL
-         SELECT c.id FROM categories c
-         JOIN accessible_categories ac ON c.parent_id = ac.id
-         WHERE c.min_access_tier <= $1
-       )
+      `${ACCESSIBLE_CATEGORY_IDS_SQL}
        SELECT m.title
        FROM liked_music l
        JOIN media_assets m ON m.id = l.media_id

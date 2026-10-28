@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::domain::{Media, MediaId, Quality, SessionHolder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,10 +68,25 @@ pub enum Effect {
     },
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct PlaybackCoordinator {
     snapshot: PlaybackSnapshot,
     released_sequence: Option<u64>,
+    rate: f64,
+    sleep_timer_deadline: Option<Instant>,
+    sleep_timer_remaining: Option<u64>,
+}
+
+impl Default for PlaybackCoordinator {
+    fn default() -> Self {
+        Self {
+            snapshot: PlaybackSnapshot::default(),
+            released_sequence: None,
+            rate: 1.0,
+            sleep_timer_deadline: None,
+            sleep_timer_remaining: None,
+        }
+    }
 }
 
 impl PlaybackCoordinator {
@@ -87,6 +104,9 @@ impl PlaybackCoordinator {
             ]);
         }
         self.snapshot.sequence += 1;
+        if self.snapshot.media.as_ref().is_none_or(|current| current.id != media.id) {
+            self.rate = 1.0;
+        }
         self.snapshot.status = PlaybackStatus::Loading;
         self.snapshot.position = 0.0;
         self.snapshot.duration = media.duration.unwrap_or(0.0);
@@ -163,12 +183,14 @@ impl PlaybackCoordinator {
     }
 
     pub fn lease_lost(&mut self) {
+        self.set_sleep_timer(None);
         self.snapshot.status = PlaybackStatus::Paused;
         self.snapshot.session_unavailable = true;
         self.snapshot.error = Some("Playback moved to another device".into());
     }
 
     pub fn session_unavailable(&mut self, message: impl Into<String>) {
+        self.set_sleep_timer(None);
         self.snapshot.status = PlaybackStatus::Paused;
         self.snapshot.session_unavailable = true;
         self.snapshot.error = Some(message.into());
@@ -189,6 +211,7 @@ impl PlaybackCoordinator {
     }
 
     pub fn observe_remote(&mut self, media: Media, holder: SessionHolder) {
+        self.set_sleep_timer(None);
         let playback = holder.playback.as_ref();
         self.snapshot.sequence += 1;
         self.snapshot.media = Some(media);
@@ -272,6 +295,55 @@ impl PlaybackCoordinator {
             })
     }
 
+    pub fn set_rate(&mut self, rate: f64) {
+        self.rate = if rate.is_finite() { rate.clamp(0.25, 3.0) } else { 1.0 };
+    }
+
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+
+    pub fn set_sleep_timer(&mut self, minutes: Option<u32>) {
+        let seconds = minutes.filter(|value| *value > 0).map(u64::from).map(|value| value * 60);
+        self.sleep_timer_deadline = seconds.map(|value| Instant::now() + Duration::from_secs(value));
+        self.sleep_timer_remaining = seconds;
+    }
+
+    pub fn sleep_timer_remaining(&self) -> Option<u64> {
+        self.sleep_timer_remaining
+    }
+
+    pub fn has_sleep_timer(&self) -> bool {
+        self.sleep_timer_deadline.is_some()
+    }
+
+    pub fn sleep_timer_expired(&self) -> bool {
+        self.sleep_timer_deadline.is_some_and(|deadline| Instant::now() >= deadline)
+    }
+
+    pub fn sleep_timer_update_needed(&self) -> bool {
+        self.sleep_timer_deadline.is_some_and(|deadline| {
+            let remaining = deadline.saturating_duration_since(Instant::now()).as_secs().max(1);
+            self.sleep_timer_expired() || self.sleep_timer_remaining != Some(remaining)
+        })
+    }
+
+    pub fn tick(&mut self) -> bool {
+        let Some(deadline) = self.sleep_timer_deadline else {
+            return false;
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now()).as_secs();
+        if remaining == 0 && Instant::now() >= deadline {
+            let was_playing = matches!(self.snapshot.status, PlaybackStatus::Playing | PlaybackStatus::Loading);
+            self.pause();
+            self.sleep_timer_deadline = None;
+            self.sleep_timer_remaining = None;
+            return was_playing;
+        }
+        self.sleep_timer_remaining = Some(remaining.max(1));
+        false
+    }
+
     pub fn set_repeat(&mut self, repeat: RepeatMode) {
         self.snapshot.repeat = repeat;
     }
@@ -287,6 +359,8 @@ impl PlaybackCoordinator {
     }
 
     pub fn stop(&mut self) -> Vec<Effect> {
+        self.set_sleep_timer(None);
+        self.rate = 1.0;
         if self.snapshot.status == PlaybackStatus::Idle {
             return Vec::new();
         }
@@ -364,5 +438,32 @@ mod tests {
         assert!(!coordinator.update_position(15.004));
         assert!(coordinator.update_position(90.0));
         assert_eq!(coordinator.snapshot().position, 90.0);
+    }
+
+    #[test]
+    fn sleep_timer_pauses_at_deadline_and_clears_itself() {
+        let mut coordinator = PlaybackCoordinator::default();
+        coordinator.snapshot.status = PlaybackStatus::Playing;
+        coordinator.set_sleep_timer(Some(15));
+        assert_eq!(coordinator.sleep_timer_remaining(), Some(900));
+        coordinator.sleep_timer_deadline = Some(Instant::now() - Duration::from_secs(1));
+
+        assert!(coordinator.sleep_timer_expired());
+        assert!(coordinator.tick());
+        assert_eq!(coordinator.snapshot().status, PlaybackStatus::Paused);
+        assert_eq!(coordinator.sleep_timer_remaining(), None);
+        assert!(!coordinator.has_sleep_timer());
+    }
+
+    #[test]
+    fn sleep_timer_can_be_disabled_without_pausing() {
+        let mut coordinator = PlaybackCoordinator::default();
+        coordinator.snapshot.status = PlaybackStatus::Playing;
+        coordinator.set_sleep_timer(Some(30));
+        coordinator.set_sleep_timer(None);
+
+        assert!(!coordinator.tick());
+        assert_eq!(coordinator.snapshot().status, PlaybackStatus::Playing);
+        assert_eq!(coordinator.sleep_timer_remaining(), None);
     }
 }

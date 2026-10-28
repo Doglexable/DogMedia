@@ -43,7 +43,7 @@ describe("playback socket protocol", () => {
 describe("protected playback socket route", () => {
   it("renews a paused bound web owner past the lease TTL, but not an observer or a disconnected owner", async () => {
     const store = new Map();
-    const leaseKey = "stream:exclusive:standard";
+    const leaseKey = "stream:exclusive:account:192.0.2.1";
     let fakeNow = 100_000;
     let leaseExpiresAt = 0;
     const renewals = vi.fn();
@@ -271,7 +271,7 @@ describe("protected playback socket route", () => {
     let releasePausedRead;
     try {
       store.set(playbackSessionKey(sessionId), JSON.stringify({ mediaId: 5, viewerId: ownerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true, mediaType: "video/mp4" }));
-      store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId, clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
+      store.set("stream:exclusive:account:192.0.2.1", JSON.stringify({ viewerId: ownerId, sessionId, clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
       await app.playbackSocketHub.notify();
       await vi.waitFor(() => expect(owner.events.at(-1)?.state).toBe("owned"));
       await vi.waitFor(() => expect(observer.events.at(-1)?.state).toBe("busy"));
@@ -324,7 +324,7 @@ describe("protected playback socket route", () => {
       owner.socket.send(JSON.stringify(state(0)));
       await vi.waitFor(() => expect(owner.events.some((event) => event.code === "PLAYBACK_NOT_OWNER")).toBe(true));
       const previousRevision = owner.events.filter((event) => event.type === "lease.state").at(-1).revision;
-      store.set("stream:exclusive:standard", JSON.stringify({ viewerId: ownerId, sessionId: "n".repeat(32), clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
+      store.set("stream:exclusive:account:192.0.2.1", JSON.stringify({ viewerId: ownerId, sessionId: "n".repeat(32), clientIp: "192.0.2.1", mediaId: 5, platform: "web", deviceLabel: "Web" }));
       await app.playbackSocketHub.notify();
       await vi.waitFor(() => expect(owner.events.at(-1)).toMatchObject({ state: "owned", revision: previousRevision + 1 }));
       expect(owner.events).toContainEqual(expect.objectContaining({
@@ -465,7 +465,7 @@ describe("protected playback socket route", () => {
         leaseRequired: true,
         mediaType: "audio/mpeg",
       }));
-      redisStore.set("stream:exclusive:standard", JSON.stringify({
+      redisStore.set("stream:exclusive:account:fd50::a", JSON.stringify({
         viewerId: ticketResA2.json().viewerId,
         sessionId,
         clientIp: "fd50::a",
@@ -474,8 +474,28 @@ describe("protected playback socket route", () => {
         deviceLabel: "Web",
       }));
 
+      const otherAccountStatus = await app.inject({
+        method: "GET",
+        url: "/api/playback/lease",
+        headers: { authorization: `Bearer ${tokenB}` },
+      });
+      expect(otherAccountStatus.json()).toEqual({ state: "available", expiresIn: 0 });
+      const ticketResB = await app.inject({
+        method: "POST",
+        url: "/api/playback/socket-ticket",
+        headers: { authorization: `Bearer ${tokenB}` },
+      });
+      socketB = await app.injectWS("/api/playback/socket", { headers: { authorization: `Bearer ${tokenB}` } });
+      const otherAccountEvents = [];
+      socketB.on("message", (raw) => otherAccountEvents.push(JSON.parse(raw.toString())));
+      socketB.send(JSON.stringify({ type: "auth", version: 1, ticket: ticketResB.json().ticket }));
+      await vi.waitFor(() => expect(otherAccountEvents.some((event) => event.type === "lease.state" && event.state === "available")).toBe(true));
+
       socketA.send(JSON.stringify({ type: "session.bind", version: 1, sessionId }));
       await vi.waitFor(() => expect(eventsA.some((e) => e.state === "owned")).toBe(true));
+      await app.playbackSocketHub.notify();
+      expect(otherAccountEvents.at(-1)).toMatchObject({ type: "lease.state", state: "available" });
+      expect(otherAccountEvents.at(-1)).not.toHaveProperty("activeSession");
 
       const newPassword = "new secret password 456";
       const profileRes = await app.inject({
@@ -563,7 +583,7 @@ describe("protected playback socket route", () => {
       store.set(playbackSessionKey(sessionId), JSON.stringify({
         mediaId: 10, viewerId: ownerViewerId, clientIp: "192.0.2.1", accessTier: 100, leaseRequired: true, mediaType: "video/mp4",
       }));
-      store.set("stream:exclusive:standard", JSON.stringify({
+      store.set("stream:exclusive:account:192.0.2.1", JSON.stringify({
         viewerId: ownerViewerId, sessionId, clientIp: "192.0.2.1", mediaId: 10, platform: "web", deviceLabel: "Owner Web",
       }));
 
@@ -576,7 +596,7 @@ describe("protected playback socket route", () => {
       await vi.waitFor(() => expect(observerEvents.some((e) => e.code === "PLAYBACK_NOT_OWNER")).toBe(true));
 
       // Owner disconnects / releases lease
-      store.delete("stream:exclusive:standard");
+      store.delete("stream:exclusive:account:192.0.2.1");
       ownerSocket.close();
       await app.playbackSocketHub.notify();
 

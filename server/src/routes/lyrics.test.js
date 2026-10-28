@@ -18,20 +18,15 @@ async function buildApp(accessTier) {
   const mutations = [];
 
   function isAccessible(mediaId) {
-    let categoryId = media.get(Number(mediaId));
-    if (!categoryId) return false;
-    while (categoryId !== null) {
-      const category = categories.get(categoryId);
-      if (!category || category.minTier > accessTier) return false;
-      categoryId = category.parentId;
-    }
-    return true;
+    const categoryId = media.get(Number(mediaId));
+    const category = categories.get(categoryId);
+    return Boolean(category && category.minTier <= accessTier);
   }
 
   const app = Fastify();
   app.decorate("pg", {
     async query(sql, params) {
-      if (sql.includes("WITH RECURSIVE accessible_categories")) {
+      if (sql.includes("WITH accessible_categories AS")) {
         const mediaId = Number(params[1]);
         const item = lyrics.get(mediaId);
         const rows = isAccessible(mediaId)
@@ -73,17 +68,27 @@ describe("lyrics mutation access", () => {
     }
   });
 
-  it.each(["PUT", "DELETE"])("rejects %s for media above the admin's tier and below a hidden ancestor", async (method) => {
+  it.each(["PUT", "DELETE"])("rejects %s for media above the admin's tier", async (method) => {
     const { app, lyrics, mutations } = await buildApp(100);
     try {
-      for (const mediaId of [20, 30]) {
-        const response = await app.inject({ method, url: `/api/media/${mediaId}/lyrics`, ...(method === "PUT" ? { payload: VALID_LYRICS } : {}) });
-        expect(response.statusCode).toBe(403);
-        expect(response.json()).toEqual({ error: "Access denied" });
-      }
+      const response = await app.inject({ method, url: "/api/media/20/lyrics", ...(method === "PUT" ? { payload: VALID_LYRICS } : {}) });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({ error: "Access denied" });
       expect(mutations).toEqual([]);
       expect(lyrics.has(20)).toBe(true);
       expect(lyrics.has(30)).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it.each(["PUT", "DELETE"])("allows %s for public media below a private ancestor", async (method) => {
+    const { app, lyrics, mutations } = await buildApp(100);
+    try {
+      const response = await app.inject({ method, url: "/api/media/30/lyrics", ...(method === "PUT" ? { payload: VALID_LYRICS } : {}) });
+      expect(response.statusCode).toBe(method === "PUT" ? 200 : 204);
+      expect(lyrics.has(30)).toBe(method === "PUT");
+      expect(mutations).toHaveLength(1);
     } finally {
       await app.close();
     }

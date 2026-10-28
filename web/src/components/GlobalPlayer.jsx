@@ -1,9 +1,10 @@
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, playbackSocketUrl, preparePlaybackStream, releasePlaybackLease, requestPlaybackSocketTicket } from "../api";
+import { api, createPlaybackSession, forceReleasePlaybackLease, getPlaybackLease, heartbeatPlaybackLease, mediaThumbnailUrl, playbackSocketUrl, preparePlaybackStream, releasePlaybackLease, requestPlaybackSocketTicket, resumePlaybackSession } from "../api";
 import { useAccess } from "../access-context";
 import { conflictFromError, shouldHandleLeaseLoss } from "./global-player/exclusive-session";
 import { createPlaybackSocket } from "./global-player/playback-socket";
+import { clearStoredPlaybackSession, getStoredPlaybackSession, readStoredPlaybackSession, storePlaybackSession } from "./global-player/playback-session-storage";
 import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./global-player/lyrics-cache";
 import { MiniPlayer } from "./global-player/mini-player";
 import { lazyWithRetry } from "../utils/lazy-with-retry";
@@ -96,7 +97,7 @@ function readStoredMuted() {
 export function GlobalPlayerProvider({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { tier = 0 } = useAccess() || {};
+  const { tier = 0, id: accountId } = useAccess() || {};
   const mediaRef = useRef(null);
   const loadSeqRef = useRef(0);
   const queueLoadSeqRef = useRef(0);
@@ -106,6 +107,7 @@ export function GlobalPlayerProvider({ children }) {
   const pendingSeekPositionRef = useRef(null);
   const takeoverAutoplayRef = useRef(false);
   const activeRestoreStartedRef = useRef(false);
+  const pendingRestoredPauseRef = useRef(null);
   const nowPlayingPauseTimerRef = useRef(null);
   const nowPlayingPauseControllerRef = useRef(null);
   const mediaSessionActionsRef = useRef(null);
@@ -260,11 +262,30 @@ export function GlobalPlayerProvider({ children }) {
     const replacingSessionId = playbackSessionIdRef.current;
     const request = { replacingSessionId };
     replacingSessionIdRef.current = request;
-    createPlaybackSession(currentMedia.id, quality, { signal: controller.signal })
-      .then(async (session) => {
-        await preparePlaybackStream(session, { signal: controller.signal });
+    const storedSessionId = readStoredPlaybackSession(accountId, currentMedia.id, quality);
+    (async () => {
+      let session = storedSessionId
+        ? await resumePlaybackSession(currentMedia.id, storedSessionId, quality, { signal: controller.signal })
+        : null;
+      const reused = Boolean(session);
+      if (!session) {
+        if (storedSessionId) clearStoredPlaybackSession(storedSessionId);
+        if (controller.signal.aborted) return;
+        session = await createPlaybackSession(currentMedia.id, quality, { signal: controller.signal });
         if (controller.signal.aborted) {
           releasePlaybackLease(session.sessionId);
+          return;
+        }
+        storePlaybackSession(accountId, currentMedia.id, quality, session.sessionId);
+      }
+      if (controller.signal.aborted) return;
+      try {
+        await preparePlaybackStream(session, { signal: controller.signal });
+        if (controller.signal.aborted) {
+          if (!reused) {
+            clearStoredPlaybackSession(session.sessionId);
+            releasePlaybackLease(session.sessionId);
+          }
           return;
         }
         if (replacingSessionIdRef.current === request) replacingSessionIdRef.current = null;
@@ -273,27 +294,43 @@ export function GlobalPlayerProvider({ children }) {
         playbackSocketRef.current?.bind(session.sessionId);
         setPlaybackConflict(null);
         setStreamSrc(session.streamUrl);
-      })
-      .catch((error) => {
-        if (replacingSessionIdRef.current === request) replacingSessionIdRef.current = null;
-        if (error.name !== "AbortError") {
-          takeoverAutoplayRef.current = false;
-          takeoverPendingRef.current = false;
-          setShouldAutoPlay(false);
-          setPaused(true);
-          const conflict = conflictFromError(error);
-          setPlaybackConflict(conflict);
-          setObservingExclusiveSession(Boolean(conflict));
-          if (conflict) setPlayerExpanded(false);
-          setPlaybackAccessError(error.message);
+        const restoredPause = pendingRestoredPauseRef.current;
+        if (restoredPause?.mediaId === Number(currentMedia.id)) {
+          pendingRestoredPauseRef.current = null;
+          api("/api/playback/active", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Playback-Session": session.sessionId },
+            body: JSON.stringify(restoredPause),
+          }).catch(() => {});
         }
-      });
+      } catch (error) {
+        if (!reused) {
+          clearStoredPlaybackSession(session.sessionId);
+          releasePlaybackLease(session.sessionId);
+        }
+        throw error;
+      }
+    })().catch((error) => {
+      if (replacingSessionIdRef.current === request) replacingSessionIdRef.current = null;
+      if (error.name !== "AbortError") {
+        pendingRestoredPauseRef.current = null;
+        takeoverAutoplayRef.current = false;
+        takeoverPendingRef.current = false;
+        setShouldAutoPlay(false);
+        setPaused(true);
+        const conflict = conflictFromError(error);
+        setPlaybackConflict(conflict);
+        setObservingExclusiveSession(Boolean(conflict));
+        if (conflict) setPlayerExpanded(false);
+        setPlaybackAccessError(error.message);
+      }
+    });
 
     return () => {
       controller.abort();
       if (replacingSessionIdRef.current === request) replacingSessionIdRef.current = null;
     };
-  }, [currentMedia?.id, observingExclusiveSession, quality, retainedWithoutSession]);
+  }, [accountId, currentMedia?.id, observingExclusiveSession, quality, retainedWithoutSession]);
 
   useEffect(() => {
     const mediaId = Number(currentMedia?.id);
@@ -336,6 +373,7 @@ export function GlobalPlayerProvider({ children }) {
 
   const handleLeaseLost = useCallback((error) => {
     mediaRef.current?.pause?.();
+    clearStoredPlaybackSession(playbackSessionIdRef.current);
     playbackSessionIdRef.current = null;
     setStreamSrc("");
     setPaused(true);
@@ -384,6 +422,7 @@ export function GlobalPlayerProvider({ children }) {
       .then((session) => {
         if (resumeSeqRef.current !== seq) return;
         playbackSessionIdRef.current = session.sessionId;
+        storePlaybackSession(accountId, currentMedia.id, quality, session.sessionId);
         playbackSocketRef.current?.bind(session.sessionId);
         setPlaybackConflict(null);
         setPlaybackAccessError("");
@@ -393,11 +432,10 @@ export function GlobalPlayerProvider({ children }) {
         if (resumeSeqRef.current !== seq) return;
         handleLeaseLost(error);
       });
-  }, [currentMedia, handleLeaseLost, isImage, quality]);
+  }, [accountId, currentMedia, handleLeaseLost, isImage, quality]);
 
-  useEffect(() => () => {
-    releasePlaybackLease(playbackSessionIdRef.current);
-  }, []);
+  // A document unload also unmounts the provider. Keep the lease for a short
+  // refresh window; the next document validates and reuses the same session.
 
   const changeQuality = useCallback((nextQuality) => {
     if (observingExclusiveSession) return;
@@ -947,8 +985,10 @@ export function GlobalPlayerProvider({ children }) {
 
   const stopPlayback = useCallback(() => {
     takeoverAutoplayRef.current = false;
+    pendingRestoredPauseRef.current = null;
     const playbackSessionId = playbackSessionIdRef.current;
     playbackSessionIdRef.current = null;
+    clearStoredPlaybackSession(playbackSessionId);
     releasePlaybackLease(playbackSessionId);
     pauseStartedAtRef.current = null;
     if (pauseDropTimerRef.current) {
@@ -1284,10 +1324,19 @@ export function GlobalPlayerProvider({ children }) {
 
     api("/api/playback/active")
       .then((r) => r.json())
-      .then((data) => {
+      .then(async (data) => {
         if (cancelled) return;
         const active = data.active;
-        if (!active) return;
+        if (!active) {
+          const stored = getStoredPlaybackSession();
+          if (stored?.accountId === Number(accountId)) {
+            const lease = await getPlaybackLease().catch(() => null);
+            if (!cancelled && lease?.state === "owned") {
+              playMediaById(stored.mediaId, null, { autoplay: false, loadResume: false, preserveQueue: true });
+            }
+          }
+          return;
+        }
         const isPaused = active.action === "pause" || active.state === "paused";
         if (isPaused && isPauseTimeoutExpired(active.pausedAt || active.timestamp)) {
           api("/api/playback/active", { method: "DELETE" }).catch(() => {});
@@ -1309,21 +1358,17 @@ export function GlobalPlayerProvider({ children }) {
           preserveQueue: true,
           startPosition,
         });
-        api("/api/playback/active", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mediaId: Number(active.mediaId),
-            title: active.title,
-            action: "pause",
-            position: startPosition,
-            duration: Math.floor(active.duration || 0),
-            loopMode: LOOP_MODES.includes(active.loopMode) ? active.loopMode : "none",
-            shuffleEnabled: Boolean(active.shuffleEnabled),
-            trigger: active.trigger || "user",
-            pausedAt: active.pausedAt || active.timestamp || new Date().toISOString(),
-          }),
-        }).catch(() => {});
+        pendingRestoredPauseRef.current = {
+          mediaId: Number(active.mediaId),
+          title: active.title,
+          action: "pause",
+          position: startPosition,
+          duration: Math.floor(active.duration || 0),
+          loopMode: LOOP_MODES.includes(active.loopMode) ? active.loopMode : "none",
+          shuffleEnabled: Boolean(active.shuffleEnabled),
+          trigger: active.trigger || "user",
+          pausedAt: active.pausedAt || active.timestamp || new Date().toISOString(),
+        };
       })
       .catch(() => {})
       .finally(() => {
@@ -1333,7 +1378,7 @@ export function GlobalPlayerProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [playMediaById]);
+  }, [accountId, playMediaById]);
 
   useEffect(() => {
     if (!currentMedia || !isImage || !shouldAutoPlay) return;

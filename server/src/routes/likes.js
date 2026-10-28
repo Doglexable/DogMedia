@@ -1,15 +1,6 @@
 import { createHash, randomBytes } from "crypto";
+import { ACCESSIBLE_CATEGORY_IDS_SQL } from "../category-access.js";
 
-const ACCESSIBLE_MEDIA_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT id FROM categories
-    WHERE parent_id IS NULL AND min_access_tier <= $1
-    UNION ALL
-    SELECT c.id FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  )
-`;
 
 function ownerId(request) {
   return request.user.id;
@@ -27,7 +18,7 @@ function hashToken(token) {
 export default async function (fastify) {
   fastify.get("/", async (request) => {
     const { rows } = await fastify.pg.query(
-      `${ACCESSIBLE_MEDIA_SQL}
+      `${ACCESSIBLE_CATEGORY_IDS_SQL}
        SELECT m.*, c.name AS category_name, l.liked_at
        FROM liked_music l
        JOIN media_assets m ON m.id = l.media_id
@@ -46,7 +37,7 @@ export default async function (fastify) {
     if (mediaId === null) return reply.code(400).send({ error: "Invalid media ID" });
 
     const { rows } = await fastify.pg.query(
-      `${ACCESSIBLE_MEDIA_SQL}
+      `${ACCESSIBLE_CATEGORY_IDS_SQL}
        SELECT m.id, m.mime_type
        FROM media_assets m
        JOIN accessible_categories ac ON ac.id = m.category_id

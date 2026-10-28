@@ -13,8 +13,13 @@ export const PLAYBACK_SESSION_TTL_SECONDS = Math.max(
   Number.parseInt(process.env.PLAYBACK_SESSION_TTL_SECONDS || "21600", 10) || 21600
 );
 const VIEWER_COOKIE_NAME = "pfs_viewer";
-const EXCLUSIVE_LEASE_KEY = "stream:exclusive:standard";
 const SOCKET_TICKET_TTL_SECONDS = 30;
+
+// Auth replaces clientIp with a stable account identity before playback routes run.
+export function exclusiveLeaseKey(clientIp) {
+  if (typeof clientIp !== "string" || !clientIp) throw new Error("Playback account scope is required");
+  return `stream:exclusive:account:${clientIp}`;
+}
 
 export function socketTicketKey(ticket) {
   return `playback:socket-ticket:${createHash("sha256").update(ticket).digest("hex")}`;
@@ -308,7 +313,7 @@ export async function acquireExclusiveLease(redis, details) {
   const result = await redis.eval(
     ACQUIRE_LEASE_SCRIPT,
     1,
-    EXCLUSIVE_LEASE_KEY,
+    exclusiveLeaseKey(details.clientIp),
     String(details.viewerId),
     String(details.clientIp),
     JSON.stringify(lease),
@@ -330,7 +335,7 @@ export async function refreshExclusiveLease(redis, viewerId, sessionId, clientIp
   const result = await redis.eval(
     REFRESH_LEASE_SCRIPT,
     1,
-    EXCLUSIVE_LEASE_KEY,
+    exclusiveLeaseKey(clientIp),
     viewerId,
     sessionId,
     String(clientIp),
@@ -350,25 +355,26 @@ export async function releaseExclusiveLease(redis, viewerId, sessionId = "", cli
   return Number(await redis.eval(
     RELEASE_LEASE_SCRIPT,
     1,
-    EXCLUSIVE_LEASE_KEY,
+    exclusiveLeaseKey(clientIp),
     viewerId,
     sessionId || "",
     String(clientIp)
   )) === 1;
 }
 
-export async function getExclusiveLease(redis) {
-  const raw = await redis.get(EXCLUSIVE_LEASE_KEY);
+export async function getExclusiveLease(redis, clientIp) {
+  const key = exclusiveLeaseKey(clientIp);
+  const raw = await redis.get(key);
   if (!raw) return null;
   try {
     const lease = JSON.parse(raw);
-    const ttlMs = await redis.pttl(EXCLUSIVE_LEASE_KEY);
+    const ttlMs = await redis.pttl(key);
     return { ...lease, expiresIn: Math.max(0, Math.ceil(ttlMs / 1000)) };
   } catch {
     return null;
   }
 }
 
-export async function forceReleaseExclusiveLease(redis) {
-  return redis.del(EXCLUSIVE_LEASE_KEY);
+export async function forceReleaseExclusiveLease(redis, clientIp) {
+  return redis.del(exclusiveLeaseKey(clientIp));
 }

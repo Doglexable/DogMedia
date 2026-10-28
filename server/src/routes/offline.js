@@ -11,26 +11,11 @@ import {
 import { RESUME_TTL_SECONDS } from "./playback.js";
 import { normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 import { enqueueEncodingQuality } from "../encoding-queue.js";
+import { ACCESSIBLE_CATEGORY_TREE_SQL } from "../category-access.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 const MAX_BATCH_ITEMS = 500;
 const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
-const ACCESSIBLE_AUDIO_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT c.id, c.parent_id, c.name,
-           ARRAY[c.name::text]::text[] AS path_parts,
-           ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
-    FROM categories c
-    WHERE c.parent_id IS NULL AND c.min_access_tier <= $1
-    UNION ALL
-    SELECT c.id, c.parent_id, c.name,
-           ac.path_parts || c.name::text,
-           ac.order_parts || COALESCE(c.sort_order, 0)
-    FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  )
-`;
 
 function serializeMedia(row, stats, quality = "ori") {
   return {
@@ -65,7 +50,7 @@ async function accessibleAudioRows(fastify, accessTier, userId, { categoryId = n
     filter = ` AND m.id = ANY($${params.length}::int[])`;
   }
   const { rows } = await fastify.pg.query(
-    `${ACCESSIBLE_AUDIO_SQL}
+    `${ACCESSIBLE_CATEGORY_TREE_SQL}
      SELECT m.*, ac.name AS category_name,
             ARRAY(
               SELECT v.quality FROM media_encoding_variants v

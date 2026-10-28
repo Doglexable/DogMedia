@@ -219,3 +219,192 @@ elements.volume.addEventListener("input", () => {
 });
 window.addEventListener("pagehide", () => { pause(); audioContext?.close(); });
 render();
+
+// Privacy & Transparency Modal Controller
+const modalOverlay = document.querySelector("#privacy-modal");
+const openModalBtns = document.querySelectorAll("#open-privacy-btn, #open-privacy-hero-btn, #open-privacy-footer-btn");
+const closeModalBtns = document.querySelectorAll("#close-privacy-btn, #modal-confirm-btn");
+const tabButtons = document.querySelectorAll(".modal-tab");
+const tabPanels = document.querySelectorAll(".modal-panel");
+
+function openPrivacyModal() {
+  if (!modalOverlay) return;
+  modalOverlay.classList.add("is-open");
+  modalOverlay.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closePrivacyModal() {
+  if (!modalOverlay) return;
+  modalOverlay.classList.remove("is-open");
+  modalOverlay.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+openModalBtns.forEach((btn) => btn.addEventListener("click", openPrivacyModal));
+closeModalBtns.forEach((btn) => btn.addEventListener("click", closePrivacyModal));
+
+modalOverlay?.addEventListener("click", (e) => {
+  if (e.target === modalOverlay) closePrivacyModal();
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && modalOverlay?.classList.contains("is-open")) {
+    closePrivacyModal();
+  }
+});
+
+tabButtons.forEach((tabBtn) => {
+  tabBtn.addEventListener("click", () => {
+    const targetId = tabBtn.getAttribute("data-tab");
+    tabButtons.forEach((btn) => {
+      btn.classList.remove("is-active");
+      btn.setAttribute("aria-selected", "false");
+    });
+    tabPanels.forEach((panel) => panel.classList.remove("is-active"));
+
+    tabBtn.classList.add("is-active");
+    tabBtn.setAttribute("aria-selected", "true");
+    const activePanel = document.getElementById(targetId);
+    if (activePanel) activePanel.classList.add("is-active");
+  });
+});
+
+// Theme Switcher Controller (shares the single "theme" key with web media)
+const THEME_STORAGE_KEY = "theme";
+const THEME_MODES = ["system", "light", "dark"];
+
+function getStoredThemeMode() {
+  try {
+    const mode = localStorage.getItem(THEME_STORAGE_KEY) || document.documentElement.dataset.themeMode || "system";
+    return THEME_MODES.includes(mode) ? mode : "system";
+  } catch {
+    return document.documentElement.dataset.themeMode || "system";
+  }
+}
+
+function resolveThemeMode(mode) {
+  if (mode === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return mode;
+}
+
+function updateThemeUI(mode) {
+  const labels = {
+    system: "Sistem",
+    light: "Terang",
+    dark: "Gelap",
+  };
+  const icons = {
+    system: "◐",
+    light: "☀️",
+    dark: "🌙",
+  };
+
+  const labelText = `Tema: ${labels[mode] || labels.system}`;
+  const iconText = icons[mode] || icons.system;
+
+  const headerLabel = document.querySelector("#theme-label");
+  const footerLabel = document.querySelector("#theme-label-footer");
+  const headerIcon = document.querySelector("#theme-toggle-btn .theme-icon");
+  const footerIcon = document.querySelector("#theme-toggle-footer-btn .theme-icon");
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+
+  if (headerLabel) headerLabel.textContent = labelText;
+  if (footerLabel) footerLabel.textContent = labelText;
+  if (headerIcon) headerIcon.textContent = iconText;
+  if (footerIcon) footerIcon.textContent = iconText;
+
+  const resolved = resolveThemeMode(mode);
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute("content", resolved === "dark" ? "#101116" : "#f8f8f7");
+  }
+}
+
+function applyThemeMode(mode, persist = true) {
+  const resolved = resolveThemeMode(mode);
+  document.documentElement.dataset.themeMode = mode;
+  document.documentElement.dataset.theme = resolved;
+
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, mode);
+    } catch {
+      /* ignore if storage is restricted */
+    }
+  }
+  updateThemeUI(mode);
+}
+
+function cycleTheme(event) {
+  const current = getStoredThemeMode();
+  const nextIndex = (THEME_MODES.indexOf(current) + 1) % THEME_MODES.length;
+  const next = THEME_MODES[nextIndex];
+
+  if (
+    typeof document.startViewTransition !== "function" ||
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  ) {
+    applyThemeMode(next, true);
+    return;
+  }
+
+  const rect = event?.currentTarget?.getBoundingClientRect?.();
+  const x = Math.round(rect ? rect.left + rect.width / 2 : window.innerWidth / 2);
+  const y = Math.round(rect ? rect.top + rect.height / 2 : window.innerHeight / 2);
+  const radius = Math.ceil(
+    Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y),
+    ),
+  );
+
+  const root = document.documentElement;
+  root.style.setProperty("--theme-transition-x", `${x}px`);
+  root.style.setProperty("--theme-transition-y", `${y}px`);
+  root.style.setProperty("--theme-transition-radius", `${radius}px`);
+  root.classList.add("theme-view-transition");
+
+  let transition;
+  try {
+    transition = document.startViewTransition(() => {
+      applyThemeMode(next, true);
+    });
+  } catch {
+    root.classList.remove("theme-view-transition");
+    root.style.removeProperty("--theme-transition-x");
+    root.style.removeProperty("--theme-transition-y");
+    root.style.removeProperty("--theme-transition-radius");
+    applyThemeMode(next, true);
+    return;
+  }
+
+  const cleanup = () => {
+    root.classList.remove("theme-view-transition");
+    root.style.removeProperty("--theme-transition-x");
+    root.style.removeProperty("--theme-transition-y");
+    root.style.removeProperty("--theme-transition-radius");
+  };
+
+  transition?.finished?.then(cleanup, cleanup);
+}
+
+const initialMode = getStoredThemeMode();
+applyThemeMode(initialMode, false);
+
+document.querySelectorAll("#theme-toggle-btn, #theme-toggle-footer-btn").forEach((btn) => {
+  btn.addEventListener("click", cycleTheme);
+});
+
+const colorSchemeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+colorSchemeMedia.addEventListener("change", (e) => {
+  if (getStoredThemeMode() === "system") {
+    document.documentElement.dataset.theme = e.matches ? "dark" : "light";
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute("content", e.matches ? "#101116" : "#f8f8f7");
+    }
+  }
+});
+

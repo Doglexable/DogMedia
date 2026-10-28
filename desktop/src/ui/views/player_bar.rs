@@ -137,6 +137,18 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                     }
                 }
                 IconButton {
+                    label: snapshot.coordinator.sleep_timer_remaining()
+                        .map(|seconds| format!("Playback settings, sleep timer {}m remaining", seconds.div_ceil(60)))
+                        .unwrap_or_else(|| "Playback settings".to_owned()),
+                    icon: IconName::Settings,
+                    class: if snapshot.coordinator.has_sleep_timer() { "active".to_owned() } else { String::new() },
+                    onclick: move |_| {
+                        let mut state = app.write();
+                        state.quality_popover_open = false;
+                        state.media_settings_open = true;
+                    },
+                }
+                IconButton {
                     label: "Queue".to_owned(),
                     icon: IconName::List,
                     class: if snapshot.queue_open { "active".to_owned() } else { String::new() },

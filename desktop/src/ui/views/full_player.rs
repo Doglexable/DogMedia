@@ -121,7 +121,11 @@ pub(crate) fn FullPlayer(
         event.stop_propagation();
         match event.key() {
             Key::Escape => {
-                app.write().player_expanded = false;
+                if app.read().media_settings_open {
+                    app.write().media_settings_open = false;
+                } else {
+                    app.write().player_expanded = false;
+                }
             }
             Key::Character(ref ch) if ch == " " || ch == "k" || ch == "K" => {
                 if !is_photo {
@@ -193,6 +197,7 @@ pub(crate) fn FullPlayer(
             onkeydown: on_key_down,
             if !snapshot.queue_open
                 && !snapshot.quality_popover_open
+                && !snapshot.media_settings_open
                 && !snapshot.settings_open
             {
                 div {
@@ -324,6 +329,18 @@ pub(crate) fn FullPlayer(
                                 quality: playback.quality,
                                 disabled: session_unavailable,
                             }
+                        }
+                        IconButton {
+                            label: snapshot.coordinator.sleep_timer_remaining()
+                                .map(|seconds| format!("Playback settings, sleep timer {}m remaining", seconds.div_ceil(60)))
+                                .unwrap_or_else(|| "Playback settings".to_owned()),
+                            icon: IconName::Settings,
+                            class: if snapshot.coordinator.has_sleep_timer() { "active".to_owned() } else { String::new() },
+                            onclick: move |_| {
+                                let mut state = app.write();
+                                state.quality_popover_open = false;
+                                state.media_settings_open = true;
+                            },
                         }
                         IconButton {
                             label: "Queue".to_owned(), icon: IconName::List,

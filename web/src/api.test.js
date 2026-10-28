@@ -11,6 +11,7 @@ import {
   profilePictureUrl,
   readJsonArray,
   requestPlaybackSocketTicket,
+  resumePlaybackSession,
 } from "./api";
 
 afterEach(() => {
@@ -115,6 +116,25 @@ describe("protected playback", () => {
       }),
       body: JSON.stringify({ quality: "high" }),
     }));
+  });
+
+  it("resumes an existing session and falls back only when the server no longer has it", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        streamUrl: "/api/media/4/stream?quality=high", sessionId: "opaque-session",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(resumePlaybackSession(4, "opaque-session", "high")).resolves.toMatchObject({ sessionId: "opaque-session" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/media/4/playback-session/resume", expect.objectContaining({
+      method: "POST", credentials: "include",
+      headers: expect.objectContaining({
+        "X-Playback-Session": "opaque-session",
+        "X-Playback-Client-ID": expect.any(String),
+      }),
+      body: JSON.stringify({ quality: "high" }),
+    }));
+    await expect(resumePlaybackSession(4, "opaque-session", "high")).resolves.toBeNull();
   });
 
   it("requests a socket ticket with the playback client id header", async () => {

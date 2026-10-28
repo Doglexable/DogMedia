@@ -23,7 +23,19 @@ function generatePlaybackClientId() {
   });
 }
 
-const playbackClientId = generatePlaybackClientId();
+const STORAGE_KEY = "pfs:playback-client-id";
+
+function readPlaybackClientId() {
+  try {
+    const stored = window.sessionStorage.getItem(STORAGE_KEY);
+    if (typeof stored === "string" && /^[A-Za-z0-9_-]{16,128}$/.test(stored)) return stored;
+  } catch {}
+  const generated = generatePlaybackClientId();
+  try { window.sessionStorage.setItem(STORAGE_KEY, generated); } catch {}
+  return generated;
+}
+
+const playbackClientId = typeof window === "undefined" ? generatePlaybackClientId() : readPlaybackClientId();
 
 export function getPlaybackClientId() {
   return playbackClientId;

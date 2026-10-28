@@ -51,6 +51,13 @@ describe("automatic queue ordering", () => {
     }
   );
 
+  it("traverses restricted descendants but includes media only from accessible branches", async () => {
+    const sql = await autoQueueSql("/api/queue/auto/7?start=8");
+    expect(sql).toContain("JOIN selected_categories sc ON c.parent_id = sc.id");
+    expect(sql).toContain("JOIN accessible_categories ac ON ac.id = m.category_id");
+    expect(sql).not.toContain("JOIN accessible_categories ac ON ac.id = c.id");
+  });
+
   it("orders /api/queue/auto/likes by liked_at DESC and filters by user ID", async () => {
     const sql = await autoQueueSql("/api/queue/auto/likes?start=8");
     expect(sql).toContain("FROM liked_music l");
@@ -125,6 +132,7 @@ describe("playlist completion suggestions", () => {
       },
     });
     expect(queries[0].sql).toContain("COALESCE($3::integer, m.category_id)");
+    expect(queries[0].sql).toContain("JOIN accessible_categories media_ac ON media_ac.id = m.category_id");
     expect(queries[0].sql).toContain("playable_categories");
     expect(queries[0].sql).toContain("cand.cycle_order");
     expect(queries[0].sql).toContain("split_part(m.mime_type, '/', 1) = current_item.media_family");
@@ -565,7 +573,7 @@ describe("exclusive lease queue guard", () => {
     const leaseRaw = lease ? JSON.stringify(lease) : null;
     return {
       async get(key) {
-        if (key === "stream:exclusive:standard") return leaseRaw;
+        if (key === `stream:exclusive:account:${HOLDER_IP}`) return leaseRaw;
         if (key.startsWith("queue:index:")) return "0";
         if (key.startsWith("queue:revision:")) return "0";
         return null;

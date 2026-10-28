@@ -216,9 +216,10 @@ to `dist/packages/` by the packaging commands below.
 
 The first launch asks for the Dogmedia server URL and account credentials.
 The desktop app retains a viewer ID for playback leases and resume state.
-Audio and video playback is protected by a single global lease: another
-viewer cannot start playback until the active client releases its lease or it
-expires. Use HTTPS outside a trusted LAN.
+Audio and video playback is protected by one lease per account: another device
+using the same account cannot start playback until the active client releases
+its lease or it expires. Different accounts can play independently, including
+when they share a network IP. Use HTTPS outside a trusted LAN.
 
 Build and publish native Debian or Fedora packages with:
 

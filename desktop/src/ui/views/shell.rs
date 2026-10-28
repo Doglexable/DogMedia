@@ -2,7 +2,7 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::{
-    AppMenubar, FullPlayer, Library, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog,
+    AppMenubar, FullPlayer, Library, MediaSettingsDialog, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog,
     Sidebar, VideoMiniPlayer,
 };
 
@@ -39,6 +39,8 @@ pub(crate) fn Shell(
                 let mut app_w = app.write();
                 if app_w.quality_popover_open {
                     app_w.quality_popover_open = false;
+                } else if app_w.media_settings_open {
+                    app_w.media_settings_open = false;
                 } else if app_w.settings_open
                     && app_w.settings.configured
                     && !app_w.settings_connecting
@@ -116,6 +118,7 @@ pub(crate) fn Shell(
             if !snapshot.player_expanded
                 && !snapshot.queue_open
                 && !snapshot.quality_popover_open
+                && !snapshot.media_settings_open
                 && !snapshot.settings_open
             {
                 // Blitz currently keeps focus on a node after that node is
@@ -230,6 +233,9 @@ pub(crate) fn Shell(
             }
             if snapshot.settings_open {
                 SettingsDialog { app }
+            }
+            if snapshot.media_settings_open {
+                MediaSettingsDialog { app, engine }
             }
         }
     }

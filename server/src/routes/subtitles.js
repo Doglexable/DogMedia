@@ -2,19 +2,10 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { join } from "path";
 import { extractMediaSubtitles, getSubtitlesForMedia } from "../subtitles.js";
+import { ACCESSIBLE_CATEGORY_IDS_SQL } from "../category-access.js";
 
 const ACCESSIBLE_MEDIA_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT c.id, c.parent_id
-    FROM categories c
-    WHERE c.parent_id IS NULL
-      AND c.min_access_tier <= $1
-    UNION ALL
-    SELECT c.id, c.parent_id
-    FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  )
+  ${ACCESSIBLE_CATEGORY_IDS_SQL}
   SELECT
     m.id,
     m.file_path,

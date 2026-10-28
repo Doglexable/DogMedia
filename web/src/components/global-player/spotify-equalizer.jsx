@@ -356,11 +356,17 @@ export function SpotifyEqualizer({
           preserveAspectRatio="none"
         >
           <defs>
-            {/* Spotify Signature Misty White Gradient */}
+            {/* Spotify Signature Misty White Gradient (Dark Mode) */}
             <linearGradient id="spotifyEqGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0.22" />
               <stop offset="65%" stopColor="#ffffff" stopOpacity="0.07" />
               <stop offset="100%" stopColor="#ffffff" stopOpacity="0.0" />
+            </linearGradient>
+            {/* Scandinavian Rose Gradient (Light Mode) */}
+            <linearGradient id="spotifyEqGradientLight" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#e11d48" stopOpacity="0.18" />
+              <stop offset="65%" stopColor="#e11d48" stopOpacity="0.06" />
+              <stop offset="100%" stopColor="#e11d48" stopOpacity="0.0" />
             </linearGradient>
             <filter id="spotifyEqGlow" x="-20%" y="-20%" width="140%" height="140%">
               <feGaussianBlur stdDeviation="2.5" result="blur" />
@@ -433,12 +439,11 @@ export function SpotifyEqualizer({
             />
           )}
 
-          {/* Main Pure White Curved Spline */}
+          {/* Main Curved Spline */}
           {curvePath && (
             <path
               d={curvePath}
               fill="none"
-              stroke="#ffffff"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"

@@ -2315,18 +2315,21 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 8px 12px;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 7px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.07);
+  min-width: 0;
 }
 
 .spotify-eq-target-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .spotify-eq-target-icon {
@@ -2335,7 +2338,7 @@ textarea {
 }
 
 .spotify-eq-target-label {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.8);
   letter-spacing: 0.04em;
@@ -2346,24 +2349,34 @@ textarea {
   font-size: 11px;
   font-weight: 800;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 6px;
   border-radius: 6px;
   background: rgba(225, 29, 72, 0.16);
   color: #fb7185;
   border: 1px solid rgba(225, 29, 72, 0.28);
+  min-width: 54px;
+  text-align: center;
+  white-space: nowrap;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .spotify-eq-target-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .spotify-eq-target-stepper {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .spotify-eq-target-step-btn {
@@ -2381,6 +2394,7 @@ textarea {
   font-weight: 700;
   line-height: 1;
   transition: all 0.15s;
+  flex-shrink: 0;
 }
 
 .spotify-eq-target-step-btn:hover:not(:disabled) {
@@ -2389,7 +2403,10 @@ textarea {
 }
 
 .spotify-eq-target-slider {
-  width: 90px;
+  width: 70px;
+  min-width: 44px;
+  max-width: 80px;
+  flex-shrink: 1;
   height: 4px;
   appearance: none;
   background: rgba(255, 255, 255, 0.15);
@@ -2421,8 +2438,9 @@ textarea {
 .spotify-eq-target-apply-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 5px 12px;
+  padding: 5px 10px;
   border-radius: 8px;
   font-size: 11px;
   font-weight: 700;
@@ -2432,6 +2450,8 @@ textarea {
   cursor: pointer;
   transition: all 0.15s;
   box-shadow: 0 2px 8px rgba(225, 29, 72, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .spotify-eq-target-apply-btn:hover {
@@ -2945,6 +2965,429 @@ textarea {
   display: flex;
   align-items: center;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Settings Panel & Equalizer — Light Theme Support
+   ═══════════════════════════════════════════════════════════ */
+
+:root:not([data-theme="dark"]) .settings-panel,
+[data-theme="light"] .settings-panel {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+:root:not([data-theme="dark"]) .settings-tabs,
+[data-theme="light"] .settings-tabs {
+  border-bottom: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .settings-tab-btn,
+[data-theme="light"] .settings-tab-btn {
+  color: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .settings-tab-btn:hover,
+[data-theme="light"] .settings-tab-btn:hover {
+  color: var(--text, #0a0a0a);
+  background: var(--hover-fill, rgb(0 0 0 / 4%));
+}
+
+:root:not([data-theme="dark"]) .settings-tab-btn--active,
+[data-theme="light"] .settings-tab-btn--active {
+  color: var(--text, #0a0a0a);
+  border-bottom-color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .settings-section-header,
+[data-theme="light"] .settings-section-header {
+  color: var(--muted, rgb(0 0 0 / 60%));
+}
+
+:root:not([data-theme="dark"]) .settings-section-badge,
+[data-theme="light"] .settings-section-badge {
+  color: var(--muted, rgb(0 0 0 / 65%));
+  background: var(--surface-soft, rgb(0 0 0 / 6%));
+}
+
+:root:not([data-theme="dark"]) .settings-section-badge--timer,
+[data-theme="light"] .settings-section-badge--timer {
+  background: rgba(225, 29, 72, 0.12);
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .settings-quality-option,
+[data-theme="light"] .settings-quality-option {
+  background: var(--surface-soft, rgb(0 0 0 / 4%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 8%));
+}
+
+:root:not([data-theme="dark"]) .settings-quality-option:hover,
+[data-theme="light"] .settings-quality-option:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 7%));
+}
+
+:root:not([data-theme="dark"]) .settings-quality-option--active,
+[data-theme="light"] .settings-quality-option--active {
+  background: rgba(225, 29, 72, 0.08);
+  border-color: rgba(225, 29, 72, 0.35);
+}
+
+:root:not([data-theme="dark"]) .settings-quality-name,
+[data-theme="light"] .settings-quality-name {
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .settings-quality-bitrate,
+[data-theme="light"] .settings-quality-bitrate {
+  color: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .settings-quality-badge,
+[data-theme="light"] .settings-quality-badge {
+  color: var(--muted, rgb(0 0 0 / 60%));
+  background: var(--surface-soft, rgb(0 0 0 / 6%));
+}
+
+:root:not([data-theme="dark"]) .settings-quality-option--active .settings-quality-badge,
+[data-theme="light"] .settings-quality-option--active .settings-quality-badge {
+  background: rgba(225, 29, 72, 0.15);
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .settings-speed-option,
+[data-theme="light"] .settings-speed-option {
+  color: var(--muted, rgb(0 0 0 / 70%));
+  background: var(--surface-soft, rgb(0 0 0 / 4%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 8%));
+}
+
+:root:not([data-theme="dark"]) .settings-speed-option:hover,
+[data-theme="light"] .settings-speed-option:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 8%));
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .settings-speed-option--active,
+[data-theme="light"] .settings-speed-option--active {
+  background: rgba(225, 29, 72, 0.1);
+  border-color: rgba(225, 29, 72, 0.35);
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .settings-timer-option,
+[data-theme="light"] .settings-timer-option {
+  color: var(--muted, rgb(0 0 0 / 70%));
+  background: var(--surface-soft, rgb(0 0 0 / 4%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 8%));
+}
+
+:root:not([data-theme="dark"]) .settings-timer-option:hover,
+[data-theme="light"] .settings-timer-option:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 8%));
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .settings-timer-option--active,
+[data-theme="light"] .settings-timer-option--active {
+  background: rgba(225, 29, 72, 0.1);
+  border-color: rgba(225, 29, 72, 0.35);
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .settings-timer-clear,
+[data-theme="light"] .settings-timer-clear {
+  color: var(--vault-rose, #e11d48);
+  background: rgba(225, 29, 72, 0.08);
+  border: 1px solid rgba(225, 29, 72, 0.22);
+}
+
+:root:not([data-theme="dark"]) .settings-timer-clear:hover,
+[data-theme="light"] .settings-timer-clear:hover {
+  background: rgba(225, 29, 72, 0.15);
+}
+
+:root:not([data-theme="dark"]) .settings-panel-footer,
+[data-theme="light"] .settings-panel-footer {
+  border-top: 1px solid var(--card-border, rgb(0 0 0 / 8%));
+  background: var(--surface-soft, rgb(0 0 0 / 3%));
+}
+
+:root:not([data-theme="dark"]) .settings-panel-version,
+[data-theme="light"] .settings-panel-version {
+  background: rgba(225, 29, 72, 0.08);
+  color: var(--vault-rose, #e11d48);
+  border: 1px solid rgba(225, 29, 72, 0.22);
+}
+
+/* ── Spotify Equalizer Light Theme ── */
+
+:root:not([data-theme="dark"]) .spotify-eq-title,
+[data-theme="light"] .spotify-eq-title {
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-status-badge,
+[data-theme="light"] .spotify-eq-status-badge {
+  background: var(--surface-soft, rgb(0 0 0 / 6%));
+  color: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-status-badge--on,
+[data-theme="light"] .spotify-eq-status-badge--on {
+  background: rgba(225, 29, 72, 0.12);
+  color: var(--vault-rose, #e11d48);
+  border: 1px solid rgba(225, 29, 72, 0.25);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-reset-btn,
+[data-theme="light"] .spotify-eq-reset-btn {
+  background: var(--surface-soft, rgb(0 0 0 / 5%));
+  color: var(--muted, rgb(0 0 0 / 70%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-reset-btn:hover,
+[data-theme="light"] .spotify-eq-reset-btn:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 9%));
+  color: var(--text, #0a0a0a);
+  border-color: var(--card-border, rgb(0 0 0 / 18%));
+}
+
+:root:not([data-theme="dark"]) .eq-toggle-track,
+[data-theme="light"] .eq-toggle-track {
+  background: rgb(0 0 0 / 15%);
+}
+
+:root:not([data-theme="dark"]) .eq-toggle-input:checked + .eq-toggle-track,
+[data-theme="light"] .eq-toggle-input:checked + .eq-toggle-track {
+  background: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .eq-toggle-thumb,
+[data-theme="light"] .eq-toggle-thumb {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-pills-bar::-webkit-scrollbar-thumb,
+[data-theme="light"] .spotify-eq-pills-bar::-webkit-scrollbar-thumb {
+  background: var(--card-border, rgb(0 0 0 / 15%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-pill,
+[data-theme="light"] .spotify-eq-pill {
+  background: var(--surface-soft, rgb(0 0 0 / 5%));
+  color: var(--muted, rgb(0 0 0 / 70%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-pill:hover:not(:disabled),
+[data-theme="light"] .spotify-eq-pill:hover:not(:disabled) {
+  background: var(--hover-fill, rgb(0 0 0 / 9%));
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-pill--custom,
+[data-theme="light"] .spotify-eq-pill--custom {
+  color: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-genre-tag,
+[data-theme="light"] .spotify-eq-genre-tag {
+  background: rgba(225, 29, 72, 0.06);
+  border: 1px solid rgba(225, 29, 72, 0.16);
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-genre-icon,
+[data-theme="light"] .spotify-eq-genre-icon {
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-genre-text strong,
+[data-theme="light"] .spotify-eq-genre-text strong {
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-bar,
+[data-theme="light"] .spotify-eq-target-bar {
+  background: var(--surface-soft, rgb(0 0 0 / 4%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-icon,
+[data-theme="light"] .spotify-eq-target-icon {
+  color: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-label,
+[data-theme="light"] .spotify-eq-target-label {
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-badge,
+[data-theme="light"] .spotify-eq-target-badge {
+  background: rgba(225, 29, 72, 0.1);
+  color: var(--vault-rose, #e11d48);
+  border: 1px solid rgba(225, 29, 72, 0.25);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-step-btn,
+[data-theme="light"] .spotify-eq-target-step-btn {
+  background: var(--surface-soft, rgb(0 0 0 / 6%));
+  color: var(--text, #0a0a0a);
+  border: 1px solid var(--card-border, rgb(0 0 0 / 12%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-step-btn:hover:not(:disabled),
+[data-theme="light"] .spotify-eq-target-step-btn:hover:not(:disabled) {
+  background: var(--hover-fill, rgb(0 0 0 / 10%));
+  border-color: var(--card-border, rgb(0 0 0 / 20%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-slider,
+[data-theme="light"] .spotify-eq-target-slider {
+  background: rgb(0 0 0 / 12%);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-slider::-webkit-slider-thumb,
+[data-theme="light"] .spotify-eq-target-slider::-webkit-slider-thumb {
+  background: var(--vault-rose, #e11d48);
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.4);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-slider::-moz-range-thumb,
+[data-theme="light"] .spotify-eq-target-slider::-moz-range-thumb {
+  background: var(--vault-rose, #e11d48);
+  box-shadow: 0 0 6px rgba(225, 29, 72, 0.4);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-apply-btn--matched,
+[data-theme="light"] .spotify-eq-target-apply-btn--matched {
+  background: var(--surface-soft, rgb(0 0 0 / 6%));
+  color: var(--muted, rgb(0 0 0 / 60%));
+  border-color: var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-apply-btn--matched:hover,
+[data-theme="light"] .spotify-eq-target-apply-btn--matched:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 9%));
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-line,
+[data-theme="light"] .spotify-eq-target-line {
+  stroke: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-target-line-label,
+[data-theme="light"] .spotify-eq-target-line-label {
+  fill: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-card,
+[data-theme="light"] .spotify-eq-card {
+  background: var(--vault-paper, #f8f8f7);
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-db-label,
+[data-theme="light"] .spotify-eq-db-label {
+  fill: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-baseline,
+[data-theme="light"] .spotify-eq-baseline {
+  stroke: rgb(0 0 0 / 14%);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-grid-vline,
+[data-theme="light"] .spotify-eq-grid-vline {
+  stroke: rgb(0 0 0 / 8%);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-freq-label,
+[data-theme="light"] .spotify-eq-freq-label {
+  fill: var(--muted, rgb(0 0 0 / 54%));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-freq-label--active,
+[data-theme="light"] .spotify-eq-freq-label--active {
+  fill: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-curve-line,
+[data-theme="light"] .spotify-eq-curve-line {
+  stroke: var(--vault-rose, #e11d48);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-area-fill,
+[data-theme="light"] .spotify-eq-area-fill {
+  fill: url(#spotifyEqGradientLight);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-dot,
+[data-theme="light"] .spotify-eq-dot {
+  fill: var(--vault-rose, #e11d48);
+  filter: drop-shadow(0 1px 3px rgba(225, 29, 72, 0.35));
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-dot-halo,
+[data-theme="light"] .spotify-eq-dot-halo {
+  fill: rgba(225, 29, 72, 0.22);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-tooltip-bg,
+[data-theme="light"] .spotify-eq-tooltip-bg {
+  fill: var(--vault-ink, #0a0a0a);
+  stroke: rgb(0 0 0 / 20%);
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-tooltip-text,
+[data-theme="light"] .spotify-eq-tooltip-text {
+  fill: #ffffff;
+}
+
+:root:not([data-theme="dark"]) .spotify-eq-footer-hint,
+[data-theme="light"] .spotify-eq-footer-hint {
+  color: var(--muted, rgb(0 0 0 / 54%));
+}
+
+/* ── Standalone EQ Panel Light Theme ── */
+
+:root:not([data-theme="dark"]) .eq-panel,
+[data-theme="light"] .eq-panel {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+:root:not([data-theme="dark"]) .eq-panel-title,
+[data-theme="light"] .eq-panel-title {
+  color: var(--muted, rgb(0 0 0 / 60%));
+}
+
+:root:not([data-theme="dark"]) .eq-preset-btn,
+[data-theme="light"] .eq-preset-btn {
+  background: var(--surface-soft, rgb(0 0 0 / 5%));
+  color: var(--muted, rgb(0 0 0 / 70%));
+  border: 1px solid var(--card-border, rgb(0 0 0 / 10%));
+}
+
+:root:not([data-theme="dark"]) .eq-preset-btn:hover,
+[data-theme="light"] .eq-preset-btn:hover {
+  background: var(--hover-fill, rgb(0 0 0 / 9%));
+  color: var(--text, #0a0a0a);
+}
+
+:root:not([data-theme="dark"]) .eq-preset-btn--active,
+[data-theme="light"] .eq-preset-btn--active {
+  background: var(--vault-rose, #e11d48);
+  color: #ffffff;
+}
+
 
 /* ── Media Type Filter Pills (Spotify Style) ── */
 .media-type-pills {

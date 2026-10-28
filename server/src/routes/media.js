@@ -20,11 +20,14 @@ import {
 } from "../upload-completion-queue.js";
 import { ENCODED_QUALITIES, normalizeRequestedQuality, selectActualQuality } from "../media-quality.js";
 import { shouldNormalizeMatroskaSource } from "../video-source-normalization.js";
+import { ACCESSIBLE_CATEGORY_TREE_SQL } from "../category-access.js";
 import {
   acquireExclusiveLease,
   createPlaybackSession,
+  getExclusiveLease,
   publicLeaseHolder,
   readPlaybackClientId,
+  readPlaybackSession,
   readPlaybackSessionId,
   readViewerId,
   refreshExclusiveLease,
@@ -51,33 +54,6 @@ const CHUNK_SIZE = 4 * 1024 * 1024;
 const MAX_RESOURCE_ID = 2147483647;
 const CHUNK_UPLOAD_DIR = join(UPLOAD_TMP_DIR, "chunked");
 const ORIGINAL_QUALITY_MIN_TIER = Number.parseInt(process.env.MEDIA_ORIGINAL_MIN_TIER || "100", 10);
-const ACCESSIBLE_CATEGORY_TREE_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT
-      c.id,
-      c.parent_id,
-      c.min_access_tier,
-      c.name,
-      c.cover_path,
-      ARRAY[c.name::text]::text[] AS path_parts,
-      ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
-    FROM categories c
-    WHERE c.parent_id IS NULL
-      AND c.min_access_tier <= $1
-    UNION ALL
-    SELECT
-      c.id,
-      c.parent_id,
-      c.min_access_tier,
-      c.name,
-      c.cover_path,
-      ac.path_parts || c.name::text,
-      ac.order_parts || COALESCE(c.sort_order, 0)
-    FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  )
-`;
 const MEDIA_ENCODING_FIELDS = `
   ARRAY(
     SELECT requested.quality
@@ -1421,6 +1397,60 @@ export default async function (fastify, options = {}) {
       leaseRequired,
       expiresAt: new Date(created.session.expiresAt).toISOString(),
       quality: requestedQuality,
+    };
+  });
+
+  fastify.post("/:id/playback-session/resume", async (request, reply) => {
+    const mediaId = Number(request.params.id);
+    if (!Number.isSafeInteger(mediaId) || mediaId < 1 || mediaId > MAX_RESOURCE_ID) {
+      return reply.code(400).send({ error: "Invalid media id" });
+    }
+    const sessionId = request.headers["x-playback-session"];
+    const requestedQuality = normalizeRequestedQuality(request.body?.quality, { defaultQuality: "" });
+    const session = await readPlaybackSession(fastify.redis, sessionId);
+    const viewerId = readViewerId(request);
+    const clientId = readPlaybackClientId(request, viewerId);
+    const clientIp = request.clientIp || request.ip;
+    if (!session || !viewerId || session.viewerId !== viewerId
+        || session.clientId !== clientId || session.clientIp !== clientIp
+        || Number(session.mediaId) !== mediaId || Number(session.accessTier) !== request.accessTier
+        || !requestedQuality || session.quality !== requestedQuality
+        || Number(session.expiresAt) <= Date.now()) {
+      return reply.code(404).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session unavailable" });
+    }
+    const { rows } = await fastify.pg.query(
+      `${ACCESSIBLE_CATEGORY_TREE_SQL}
+       SELECT m.id, m.mime_type, m.source_version
+       FROM media_assets m
+       JOIN accessible_categories ac ON ac.id = m.category_id
+       WHERE m.id = $2`,
+      [request.accessTier, mediaId]
+    );
+    const media = rows[0];
+    if (!media || Number(session.sourceVersion) !== Number(media.source_version)
+        || session.leaseRequired !== requiresExclusiveLease(request.accessTier, media.mime_type)) {
+      return reply.code(404).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session unavailable" });
+    }
+    if (session.leaseRequired) {
+      const lease = await getExclusiveLease(fastify.redis, clientIp);
+      if (!lease || lease.sessionId !== sessionId || lease.viewerId !== viewerId
+          || lease.clientId !== clientId || lease.clientIp !== clientIp) {
+        return reply.code(404).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session unavailable" });
+      }
+      const refreshed = await refreshExclusiveLease(fastify.redis, viewerId, sessionId, clientIp);
+      if (!refreshed.refreshed) {
+        return reply.code(404).send({ code: "PLAYBACK_SESSION_INVALID", error: "Playback session unavailable" });
+      }
+    }
+    setPlaybackSessionCookie(request, reply, mediaId, sessionId,
+      Math.max(1, Math.ceil((Number(session.expiresAt) - Date.now()) / 1000)));
+    reply.header("Cache-Control", "no-store");
+    return {
+      streamUrl: `/api/media/${mediaId}/stream?quality=${encodeURIComponent(session.quality)}`,
+      sessionId,
+      leaseRequired: session.leaseRequired,
+      expiresAt: new Date(session.expiresAt).toISOString(),
+      quality: session.quality,
     };
   });
 

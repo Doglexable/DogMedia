@@ -207,6 +207,7 @@ describe("Admin workspace", () => {
     expect(textContent(tree)).toContain("Android release");
     expect(textContent(tree)).toContain("Category Tree");
     expect(findButton(tree, "Upload Here").props.disabled).toBe(true);
+    expect(findButton(tree, "Edit Folder").props.disabled).toBe(true);
 
     tree = openMediaWorkspace();
     const tabLabels = () => findAll(tree, (node) => node.props?.role === "tab")
@@ -230,6 +231,36 @@ describe("Admin workspace", () => {
     findButton(tree, "Collection0 items").props.onClick();
     tree = renderAdmin();
     expect(textContent(tree)).toContain("No media in this category");
+  });
+
+  it("opens the existing folder settings and saves its permission", async () => {
+    mocks.api.mockResolvedValue(response({ ...categories[0], min_access_tier: 0 }));
+    let tree = renderAdmin();
+    const categoryTree = findAll(tree, (node) => node.type?.name === "CategoryTreeDndMock")[0];
+    categoryTree.props.onSelect(7);
+    tree = renderAdmin();
+    expect(findButton(tree, "Edit Folder").props.disabled).toBe(false);
+    findButton(tree, "Edit Folder").props.onClick();
+    tree = renderAdmin();
+    const modal = findAll(tree, (node) => node.type?.name === "CategoryEditModal")[0];
+    expect(modal.props.isOpen).toBe(true);
+    expect(modal.props.category).toMatchObject({ id: 7, name: "Anime", min_access_tier: 100 });
+    await modal.props.onSave({ id: 7, name: "Anime", description: "", parentId: null, minAccessTier: 0 });
+    expect(mocks.api).toHaveBeenCalledWith("/api/categories/7", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ name: "Anime", description: "", min_access_tier: 0, parent_id: null, apply_to_children: false }),
+    }));
+    expect(mocks.refreshCategories).toHaveBeenCalled();
+  });
+
+  it("sends the apply-to-children option when requested", async () => {
+    mocks.api.mockResolvedValue(response({ ...categories[0], min_access_tier: 0 }));
+    const tree = renderAdmin();
+    const modal = findAll(tree, (node) => node.type?.name === "CategoryEditModal")[0];
+    await modal.props.onSave({ id: 7, name: "Anime", description: "", parentId: null, minAccessTier: 0, applyToChildren: true });
+    expect(mocks.api).toHaveBeenCalledWith("/api/categories/7", expect.objectContaining({
+      body: JSON.stringify({ name: "Anime", description: "", min_access_tier: 0, parent_id: null, apply_to_children: true }),
+    }));
   });
 
   it("stages a video and splits it using the chunk size returned by the API", async () => {

@@ -6,9 +6,20 @@
     <meta name="theme-color" content="#101116" />
     <meta name="description" content="Kenali Dogmedia lewat demo player musik yang berjalan langsung di browser." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
+    <script>
+      (function () {
+        var mode = localStorage.getItem("theme") || "system";
+        if (["system", "light", "dark"].indexOf(mode) === -1) mode = "system";
+        var resolved = mode === "system"
+          ? (matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light")
+          : mode;
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themeMode = mode;
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=4" />
     <title>Dogmedia — ruang untuk musikmu</title>
-    <script src="/player.js" defer></script>
+    <script src="/player.js?v=4" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -20,8 +31,15 @@
         <nav class="header-nav" aria-label="Navigasi utama">
           <a href="#player">Demo player</a>
           <a href="#about">Tentang</a>
+          <button type="button" class="nav-button" id="open-privacy-btn">Privasi & Data</button>
         </nav>
-        <span class="header-label"><span class="live-dot"></span> DEMO PUBLIK</span>
+        <div class="header-actions">
+          <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Ganti mode tema" title="Ganti mode tema (Sistem / Terang / Gelap)">
+            <span class="theme-icon" aria-hidden="true">◐</span>
+            <span class="theme-label" id="theme-label">Tema: Sistem</span>
+          </button>
+          <span class="header-label"><span class="live-dot"></span> DEMO PUBLIK</span>
+        </div>
       </header>
 
       <main>
@@ -31,7 +49,7 @@
             <h1 id="hero-title">Beri musikmu<br /><em>ruang sendiri.</em></h1>
             <p class="hero-description">Dogmedia adalah ruang pribadi untuk mendengarkan koleksimu. Coba rasa player-nya di sini, langsung dari browser.</p>
             <a class="primary-link" href="#player">Coba player <span aria-hidden="true">↗</span></a>
-            <p class="hero-note">Audio demo dibuat di perangkatmu. Koleksi privat tidak dipublikasikan.</p>
+            <p class="hero-note">Audio demo dibuat di perangkatmu. <button type="button" class="inline-link-btn" id="open-privacy-hero-btn">Transparansi data ↗</button></p>
           </div>
           <div class="hero-art" aria-hidden="true">
             <div class="art-caption"><span>NOW PLAYING</span><span>01 / 03</span></div>
@@ -78,7 +96,202 @@
           <p>Musik, video, dan foto dalam satu ruang yang kamu kelola sendiri. Halaman ini hanya memperlihatkan pengalaman mendengar; player demo tidak terhubung ke library privat.</p>
         </section>
       </main>
-      <footer><span>© 2026 Dogmedia</span><span>Self-hosted media, made personal.</span></footer>
+
+      <footer>
+        <span>© 2026 Dogmedia — Ruang privat untuk mediamu.</span>
+        <div class="footer-actions">
+          <button type="button" class="theme-toggle-btn theme-toggle-btn--footer" id="theme-toggle-footer-btn" aria-label="Ganti mode tema" title="Ganti mode tema (Sistem / Terang / Gelap)">
+            <span class="theme-icon" aria-hidden="true">◐</span>
+            <span class="theme-label" id="theme-label-footer">Tema: Sistem</span>
+          </button>
+          <button type="button" class="footer-link-button" id="open-privacy-footer-btn">Transparansi Data & Privasi ↗</button>
+        </div>
+      </footer>
+
+      <!-- Privacy & Data Transparency Modal -->
+      <div class="modal-overlay" id="privacy-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
+        <div class="modal-card">
+          <div class="modal-header">
+            <div class="modal-header-text">
+              <div class="modal-tag"><span class="live-dot"></span> TRANSPARANSI DATA · PRIVATE-FIRST ARCHITECTURE</div>
+              <h2 id="privacy-modal-title">Transparansi Data Aplikasi</h2>
+              <p>Baik dioperasikan sebagai layanan publik maupun media server mandiri, berikut rincian terbuka seluruh data yang diproses aplikasi agar dapat berfungsi.</p>
+            </div>
+            <button type="button" class="modal-close-btn" id="close-privacy-btn" aria-label="Tutup modal">✕</button>
+          </div>
+
+          <div class="modal-tabs" role="tablist" aria-label="Kategori Data">
+            <button type="button" role="tab" class="modal-tab is-active" data-tab="tab-demo" id="tab-btn-demo" aria-selected="true" aria-controls="tab-demo">
+              <span>🌐</span>
+              <span>Demo Peramban</span>
+            </button>
+            <button type="button" role="tab" class="modal-tab" data-tab="tab-auth" id="tab-btn-auth" aria-selected="false" aria-controls="tab-auth">
+              <span>👤</span>
+              <span>Akun & Profil</span>
+            </button>
+            <button type="button" role="tab" class="modal-tab" data-tab="tab-playback" id="tab-btn-playback" aria-selected="false" aria-controls="tab-playback">
+              <span>📊</span>
+              <span>Riwayat & Sesi</span>
+            </button>
+            <button type="button" role="tab" class="modal-tab" data-tab="tab-media" id="tab-btn-media" aria-selected="false" aria-controls="tab-media">
+              <span>📁</span>
+              <span>Media & Berkas</span>
+            </button>
+            <button type="button" role="tab" class="modal-tab" data-tab="tab-network" id="tab-btn-network" aria-selected="false" aria-controls="tab-network">
+              <span>🛡️</span>
+              <span>Jaringan & Proteksi</span>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <!-- Panel 1: Demo Peramban -->
+            <div class="modal-panel is-active" id="tab-demo" role="tabpanel" aria-labelledby="tab-btn-demo">
+              <div class="panel-banner">
+                <div class="panel-banner-icon" aria-hidden="true">🌐</div>
+                <div>
+                  <h3>Halaman Demo Interaktif</h3>
+                  <p>Halaman demo ini berjalan terisolasi di sisi peramban dan tidak mengambil data sensitif maupun riwayat pustaka privat.</p>
+                </div>
+              </div>
+              <div class="data-table">
+                <div class="data-row">
+                  <span class="data-label">Audio Demo</span>
+                  <span class="data-desc"><strong>0 Byte dari server media.</strong> Seluruh nada dan instrumen disintesis langsung di peramban via Web Audio API lokal.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Cookies & Pelacak</span>
+                  <span class="data-desc"><strong>Nol (0) Cookie.</strong> Tidak ada cookie pelacakan, tidak ada Google Analytics, Pixel, atau SDK eksternal.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Content Security</span>
+                  <span class="data-desc">Header CSP <code>connect-src 'none'</code> secara ketat memblokir koneksi jaringan keluar dari browser pada halaman demo.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel 2: Akun & Profil -->
+            <div class="modal-panel" id="tab-auth" role="tabpanel" aria-labelledby="tab-btn-auth">
+              <div class="panel-banner">
+                <div class="panel-banner-icon" aria-hidden="true">👤</div>
+                <div>
+                  <h3>Akun Pengguna & Kredensial</h3>
+                  <p>Data identitas akun yang digunakan untuk autentikasi dan pengaturan hak akses pengguna pada layanan ini.</p>
+                </div>
+              </div>
+              <div class="data-table">
+                <div class="data-row">
+                  <span class="data-label">Nama Pengguna</span>
+                  <span class="data-desc">Username unik untuk login dan identifikasi profil akun pada aplikasi.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Kata Sandi</span>
+                  <span class="data-desc"><strong>Hanya disimpan dalam bentuk hash Argon2.</strong> Kata sandi teks asli tidak pernah disimpan, tidak dicatat dalam log, dan tidak dapat dilihat oleh siapa pun.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Tingkat Izin (Tier)</span>
+                  <span class="data-desc">Penanda peran (misal Tier 0 untuk pengguna standar, Tier 100+ untuk pengelola) untuk menentukan pustaka media yang dapat diakses.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Foto Profil</span>
+                  <span class="data-desc">Berkas avatar gambar opsional yang diunggah pengguna untuk tampilan akun (dapat diubah atau dihapus kapan saja).</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel 3: Riwayat & Sesi -->
+            <div class="modal-panel" id="tab-playback" role="tabpanel" aria-labelledby="tab-btn-playback">
+              <div class="panel-banner">
+                <div class="panel-banner-icon" aria-hidden="true">📊</div>
+                <div>
+                  <h3>Riwayat Pemutaran & Sesi Login</h3>
+                  <p>Semua data aktivitas pemutaran terikat langsung ke akun pengguna (User ID), bukan ke alamat IP perangkat.</p>
+                </div>
+              </div>
+              <div class="data-table">
+                <div class="data-row">
+                  <span class="data-label">Token Sesi</span>
+                  <span class="data-desc">Token acak terenkripsi bertempo kedaluwarsa otomatis (TTL) dalam cookie HTTP-only aman untuk menjaga status login Anda.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Rekap Statistik</span>
+                  <span class="data-desc">Mencatat ID media, waktu putar, dan durasi mendengarkan untuk menghasilkan rekap statistik pemutaran personal (*Wrapped*).</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Resume Position</span>
+                  <span class="data-desc">Menyimpan posisi menit/detik terakhir saat jeda secara sementara di memori (TTL 15 menit) agar lagu/film bisa dilanjutkan di titik jeda.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Koleksi & Antrean</span>
+                  <span class="data-desc">Menyimpan daftar lagu yang disukai (<em>Liked Music</em>) dan daftar antrean putar (<em>Queue</em>) aktif per akun.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Playback Sync</span>
+                  <span class="data-desc">Status perangkat aktif untuk sinkronisasi pemutar antar browser, aplikasi desktop, maupun mobile.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel 4: Media & Berkas -->
+            <div class="modal-panel" id="tab-media" role="tabpanel" aria-labelledby="tab-btn-media">
+              <div class="panel-banner">
+                <div class="panel-banner-icon" aria-hidden="true">📁</div>
+                <div>
+                  <h3>Penyimpanan Media & Konten Berkas</h3>
+                  <p>Konten audio, video, dan gambar yang diunggah serta dikelola pada penyimpanan instans aplikasi ini.</p>
+                </div>
+              </div>
+              <div class="data-table">
+                <div class="data-row">
+                  <span class="data-label">Penyimpanan Media</span>
+                  <span class="data-desc">File mentah audio, video, dan foto disimpan di volume penyimpanan instans ini, bukan di cloud publik pihak ketiga.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Metadata Media</span>
+                  <span class="data-desc">Judul, nama artis, nomor urut track, cover art, format MIME, serta berkas lirik (.lrc) dan takarir subtitle (.vtt/.srt).</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Varian Streaming</span>
+                  <span class="data-desc">Hasil transcode resolusi adaptif (720p, 1080p, audio stream) yang diproses otomatis untuk kelancaran streaming.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Tautan Berbagi</span>
+                  <span class="data-desc">Token acak publik yang dibuat hanya jika pengguna memilih membagikan lagu atau reels dengan batas waktu kedaluwarsa.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel 5: Jaringan & Proteksi -->
+            <div class="modal-panel" id="tab-network" role="tabpanel" aria-labelledby="tab-btn-network">
+              <div class="panel-banner">
+                <div class="panel-banner-icon" aria-hidden="true">🛡️</div>
+                <div>
+                  <h3>Alamat IP, Jaringan & Keamanan</h3>
+                  <p>Data koneksi jaringan diproses murni untuk proteksi teknis, integritas server, dan pencegahan penyalahgunaan.</p>
+                </div>
+              </div>
+              <div class="data-table">
+                <div class="data-row">
+                  <span class="data-label">Rate Limiting</span>
+                  <span class="data-desc">Alamat IP klien hanya dibaca secara sementara di memori server untuk mencegah serangan brute-force login, spam request, atau DoS.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Log Web Server</span>
+                  <span class="data-desc">Log akses standar server (IP, User-Agent, status respons) untuk mendiagnosis kendala koneksi dan lalu lintas teknis.</span>
+                </div>
+                <div class="data-row">
+                  <span class="data-label">Tanpa Pelacak Pihak Ketiga</span>
+                  <span class="data-desc">Tidak ada data pengguna yang dijual, ditautkan ke profil periklanan, atau dialirkan ke penyedia pelacak pihak ketiga.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <span class="modal-footer-note">🔒 Privasi terproteksi · Tidak ada penjualan data atau integrasi pihak ketiga.</span>
+            <button type="button" class="modal-primary-btn" id="modal-confirm-btn">Tutup</button>
+          </div>
+        </div>
+      </div>
     </div>
   </body>
 </html>

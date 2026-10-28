@@ -96,9 +96,12 @@ the former whitelist route or localhost as an access-control template.
 | [077](077-isolate-web-playback-per-tab.md) | Prevent a second web tab from replacing the active tab's playback | P1 | M | — | DONE — document-scoped client ID sent via X-Playback-Client-ID isolates Redis lease ownership per tab while preserving same-tab rotation; 117 focused server/web tests, full Node lint/test, and web build pass |
 | [078](078-retain-observer-mini-player.md) | Preserve the observer mini player across exclusive-lease transitions | P1 | L | 076, 077 | DONE — retained snapshots and explicit Play acquisition on desktop/web/Android; 10 web and 12 mobile focused tests, full lint/test/build, 90 native and 9 desktop state tests pass; branch merged |
 | [079](079-retain-web-lease-while-paused.md) | Keep the web owner's exclusive lease while playback is paused | P1 | M | 078 | DONE — paused web owner retains exclusive lease via WebSocket liveness and HTTP fallback heartbeat; pause cache TTL no longer clears connected player; 20 focused server and 8 web tests, full Node lint/test/build pass |
+| [080](080-mobile-media-settings-sheet.md) | Port Web Media Settings Sheet (Quality, Speed, Sleep Timer) to Mobile Client | P2 | M | — | DONE — mobile lint and 175 tests pass |
+| [081](081-desktop-media-settings-dialog.md) | Port Media Settings (Quality, Speed, Sleep Timer) to Native Desktop Client | P2 | M | — | DONE — cargo check, 117 tests, and clippy pass; seven existing clippy warnings remain |
 
 ## Dependency notes
 
+- **Plans 080 & 081 (Cross-Client Media Settings Parity)**: Ports Web's unified `SettingsControl` capabilities (Quality selector, Playback Speed 0.5x–2.0x, and Sleep Timer) to Mobile (React Native / Expo bottom sheet) and Desktop (Rust / Dioxus native dialog). Both plans are independent and can be executed concurrently.
 - **Plans 076–079 (2026-10-27 playback policy)**: Run 076 and 077 first; they are independent. Run 078 after both because it revises their mobile/web observer paths. Run 079 after 078 because both edit `GlobalPlayer.jsx`. The requested policy is: an exclusive owner retains the lease while paused and connected; non-owners keep a visible mini player and last known media/position, including the short `available` gap during takeover. No observer acquires ownership automatically. Plan 079 supersedes the earlier web-pause decision recorded in Plan 054.
 - **Plans 067–075** are independent except **073 follows 072** because both edit
   `mobile/src/screens/dashboard-screen.jsx`. Apply 067 and 068 first for access control,

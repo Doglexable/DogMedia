@@ -8,7 +8,7 @@ import { normalizeCategoryCover, sendCoverFile } from "../category-cover.js";
 const DATA_DIR = process.env.DATA_DIR || "data";
 
 const CATEGORY_TREE_SQL = `
-  WITH RECURSIVE category_tree AS (
+  WITH RECURSIVE all_categories AS (
     SELECT
       c.id,
       c.name,
@@ -18,12 +18,13 @@ const CATEGORY_TREE_SQL = `
       c.sort_order,
       c.cover_path,
       c.created_at,
-      ARRAY[c.name::text]::text[] AS path_parts,
+      CASE WHEN c.min_access_tier <= $1 THEN ARRAY[c.name::text] ELSE ARRAY[]::text[] END AS path_parts,
       ARRAY[c.sort_order]::integer[] AS order_parts,
-      0 AS depth
+      CASE WHEN c.min_access_tier <= $1 THEN 0 ELSE -1 END AS depth,
+      NULL::integer AS visible_parent_id,
+      CASE WHEN c.min_access_tier <= $1 THEN c.id ELSE NULL::integer END AS visible_ancestor_id
     FROM categories c
     WHERE c.parent_id IS NULL
-      AND c.min_access_tier <= $1
     UNION ALL
     SELECT
       c.id,
@@ -34,12 +35,15 @@ const CATEGORY_TREE_SQL = `
       c.sort_order,
       c.cover_path,
       c.created_at,
-      ct.path_parts || c.name::text,
+      CASE WHEN c.min_access_tier <= $1 THEN ct.path_parts || c.name::text ELSE ct.path_parts END,
       ct.order_parts || c.sort_order,
-      ct.depth + 1
+      CASE WHEN c.min_access_tier <= $1 THEN ct.depth + 1 ELSE ct.depth END,
+      ct.visible_ancestor_id,
+      CASE WHEN c.min_access_tier <= $1 THEN c.id ELSE ct.visible_ancestor_id END
     FROM categories c
-    JOIN category_tree ct ON c.parent_id = ct.id
-    WHERE c.min_access_tier <= $1
+    JOIN all_categories ct ON c.parent_id = ct.id
+  ), category_tree AS (
+    SELECT * FROM all_categories WHERE min_access_tier <= $1
   )
 `;
 
@@ -96,21 +100,6 @@ async function categoryHasDescendant(fastify, id, descendantId) {
   return rowCount > 0;
 }
 
-async function propagateTierToDescendants(fastify, id, tier) {
-  await fastify.pg.query(
-    `WITH RECURSIVE descendants AS (
-       SELECT id FROM categories WHERE parent_id = $1
-       UNION ALL
-       SELECT c.id FROM categories c
-       JOIN descendants d ON c.parent_id = d.id
-     )
-     UPDATE categories
-     SET min_access_tier = $2
-     WHERE id IN (SELECT id FROM descendants)`,
-    [id, tier]
-  );
-}
-
 export default async function (fastify, options = {}) {
   const dataDir = options.dataDir || DATA_DIR;
   fastify.get("/", async (request) => {
@@ -121,7 +110,8 @@ export default async function (fastify, options = {}) {
          category_tree.name,
          category_tree.description,
          category_tree.min_access_tier,
-         category_tree.parent_id,
+         category_tree.visible_parent_id AS parent_id,
+         CASE WHEN $1 >= 100 THEN category_tree.parent_id ELSE NULL END AS stored_parent_id,
          category_tree.sort_order,
          category_tree.cover_path,
          category_tree.created_at,
@@ -149,7 +139,8 @@ export default async function (fastify, options = {}) {
          category_tree.name,
          category_tree.description,
          category_tree.min_access_tier,
-         category_tree.parent_id,
+         category_tree.visible_parent_id AS parent_id,
+         CASE WHEN $1 >= 100 THEN category_tree.parent_id ELSE NULL END AS stored_parent_id,
          category_tree.sort_order,
          category_tree.cover_path,
          category_tree.created_at,
@@ -181,7 +172,7 @@ export default async function (fastify, options = {}) {
     const { name, description, min_access_tier, parent_id } = request.body;
     const normalizedName = typeof name === "string" ? name.trim() : "";
     const normalizedParentId = normalizeNullableInt(parent_id);
-    let effectiveTier = min_access_tier ?? 0;
+    const effectiveTier = min_access_tier ?? 0;
 
     if (!normalizedName) {
       return reply.code(400).send({ error: "Category name is required" });
@@ -190,7 +181,6 @@ export default async function (fastify, options = {}) {
     if (normalizedParentId !== null) {
       const parent = await getAccessibleCategory(fastify.pg, normalizedParentId, request.accessTier);
       if (!parent) return sendMissingOrDeniedParent(fastify, reply, normalizedParentId);
-      effectiveTier = parent.min_access_tier;
     }
 
     const { rows } = await fastify.pg.query(
@@ -275,26 +265,28 @@ export default async function (fastify, options = {}) {
     }
 
     const { id } = request.params;
-    const { name, description, min_access_tier, parent_id } = request.body;
+    const { name, description, min_access_tier, parent_id, apply_to_children } = request.body;
     const normalizedName = typeof name === "string" ? name.trim() : null;
     const hasParentId = Object.hasOwn(request.body, "parent_id");
     const normalizedParentId = normalizeNullableInt(parent_id);
     const existing = await getAccessibleCategory(fastify.pg, id, request.accessTier);
 
     if (!existing) return sendMissingOrDeniedCategory(fastify, reply, id);
+    if (apply_to_children !== undefined && typeof apply_to_children !== "boolean") {
+      return reply.code(400).send({ error: "apply_to_children must be a boolean" });
+    }
 
     if (normalizedParentId !== null && normalizedParentId === Number.parseInt(id, 10)) {
       return reply.code(400).send({ error: "A category cannot be its own parent" });
     }
 
     const effectiveParentId = hasParentId ? normalizedParentId : existing.parent_id;
-    let effectiveTier = min_access_tier ?? existing.min_access_tier;
+    const effectiveTier = min_access_tier ?? existing.min_access_tier;
     let effectiveSortOrder = existing.sort_order;
 
-    if (effectiveParentId !== null) {
+    if (effectiveParentId !== null && effectiveParentId !== existing.parent_id) {
       const parent = await getAccessibleCategory(fastify.pg, effectiveParentId, request.accessTier);
       if (!parent) return sendMissingOrDeniedParent(fastify, reply, effectiveParentId);
-      effectiveTier = parent.min_access_tier;
     }
 
     if (normalizedParentId !== null && await categoryHasDescendant(fastify, id, normalizedParentId)) {
@@ -309,14 +301,65 @@ export default async function (fastify, options = {}) {
       effectiveSortOrder = orderRows[0].next_order;
     }
 
-    const { rows } = await fastify.pg.query(
-      "UPDATE categories SET name = COALESCE($1, name), description = COALESCE($2, description), min_access_tier = $3, parent_id = $4, sort_order = $5 WHERE id = $6 RETURNING *",
-      [normalizedName, description ?? null, effectiveTier, effectiveParentId, effectiveSortOrder, id]
-    );
+    const updateSql = "UPDATE categories SET name = COALESCE($1, name), description = COALESCE($2, description), min_access_tier = $3, parent_id = $4, sort_order = $5 WHERE id = $6 RETURNING *";
+    const updateParams = [normalizedName, description ?? null, effectiveTier, effectiveParentId, effectiveSortOrder, id];
+    if (!apply_to_children) {
+      const { rows } = await fastify.pg.query(updateSql, updateParams);
+      return rows[0];
+    }
 
-    await propagateTierToDescendants(fastify, id, effectiveTier);
+    const client = await fastify.pg.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("LOCK TABLE categories IN SHARE ROW EXCLUSIVE MODE");
+      if (!await getAccessibleCategory(client, id, request.accessTier)) {
+        await client.query("ROLLBACK");
+        return reply.code(403).send({ error: "Access denied" });
+      }
+      if (effectiveParentId !== null && effectiveParentId !== existing.parent_id &&
+          !await getAccessibleCategory(client, effectiveParentId, request.accessTier)) {
+        await client.query("ROLLBACK");
+        return reply.code(403).send({ error: "Access denied" });
+      }
+      if (normalizedParentId !== null && await categoryHasDescendant({ pg: client }, id, normalizedParentId)) {
+        await client.query("ROLLBACK");
+        return reply.code(400).send({ error: "A category cannot be moved under its own child" });
+      }
+      const { rowCount: inaccessibleChildren } = await client.query(
+        `WITH RECURSIVE descendants AS (
+           SELECT id, min_access_tier FROM categories WHERE parent_id = $1
+           UNION ALL
+           SELECT c.id, c.min_access_tier FROM categories c
+           JOIN descendants d ON c.parent_id = d.id
+         )
+         SELECT 1 FROM descendants WHERE min_access_tier > $2 LIMIT 1`,
+        [id, request.accessTier]
+      );
+      if (inaccessibleChildren > 0) {
+        await client.query("ROLLBACK");
+        return reply.code(403).send({ error: "Access denied to a child category" });
+      }
 
-    return rows[0];
+      const { rows } = await client.query(updateSql, updateParams);
+      await client.query(
+        `WITH RECURSIVE descendants AS (
+           SELECT id FROM categories WHERE parent_id = $1
+           UNION ALL
+           SELECT c.id FROM categories c
+           JOIN descendants d ON c.parent_id = d.id
+         )
+         UPDATE categories SET min_access_tier = $2
+         WHERE id IN (SELECT id FROM descendants)`,
+        [id, effectiveTier]
+      );
+      await client.query("COMMIT");
+      return rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 
   fastify.patch("/:id/move", async (request, reply) => {
@@ -360,7 +403,6 @@ export default async function (fastify, options = {}) {
         return reply.code(403).send({ error: "Access denied" });
       }
 
-      let effectiveTier = existing.min_access_tier;
       if (parentId !== null) {
         const { rows: parentRows } = await client.query(
           "SELECT id, min_access_tier FROM categories WHERE id = $1 FOR UPDATE",
@@ -389,7 +431,6 @@ export default async function (fastify, options = {}) {
           await client.query("ROLLBACK");
           return reply.code(400).send({ error: "A category cannot be moved under its own child" });
         }
-        effectiveTier = parentRows[0].min_access_tier;
       }
 
       await client.query(
@@ -423,24 +464,12 @@ export default async function (fastify, options = {}) {
       destinationIds.splice(nextIndex, 0, categoryId);
 
       await client.query(
-        "UPDATE categories SET parent_id = $1, min_access_tier = $2 WHERE id = $3",
-        [parentId, effectiveTier, categoryId]
+        "UPDATE categories SET parent_id = $1 WHERE id = $2",
+        [parentId, categoryId]
       );
       for (const [index, id] of destinationIds.entries()) {
         await client.query("UPDATE categories SET sort_order = $1 WHERE id = $2", [index, id]);
       }
-
-      await client.query(
-        `WITH RECURSIVE descendants AS (
-           SELECT id FROM categories WHERE parent_id = $1
-           UNION ALL
-           SELECT c.id FROM categories c
-           JOIN descendants d ON c.parent_id = d.id
-         )
-         UPDATE categories SET min_access_tier = $2
-         WHERE id IN (SELECT id FROM descendants)`,
-        [categoryId, effectiveTier]
-      );
 
       const { rows } = await client.query(
         "SELECT id, parent_id, sort_order, min_access_tier FROM categories WHERE id = $1",

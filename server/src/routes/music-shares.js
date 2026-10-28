@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { enqueueMusicReel } from "../music-reel-queue.js";
+import { ACCESSIBLE_CATEGORY_IDS_SQL } from "../category-access.js";
 
 const SHARE_MIN_TIER = Math.max(0, Number.parseInt(process.env.MEDIA_SHARE_MIN_TIER || "100", 10) || 100);
 const MAX_TRACKS = 10;
@@ -72,13 +73,7 @@ const CURRENT_REEL_SQL = `
 `;
 
 const SELECTED_LIKES_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT id FROM categories WHERE parent_id IS NULL AND min_access_tier <= $1
-    UNION ALL
-    SELECT c.id FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  ), requested AS (
+  ${ACCESSIBLE_CATEGORY_IDS_SQL}, requested AS (
     SELECT media_id, position
     FROM unnest($3::int[]) WITH ORDINALITY AS picked(media_id, position)
   )

@@ -4,6 +4,10 @@ const ACTIVE_INDEX_KEY = "playback:active:index";
 const ACTIVE_PLAYING_TTL_SECONDS = 300;
 const PAUSE_CACHE_TTL_SECONDS = 1800;
 
+export function activePlaybackIdentity(clientIp, viewerId) {
+  return viewerId ? `${clientIp}:${viewerId}` : clientIp;
+}
+
 const mediaIdOf = (value) => {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -30,7 +34,7 @@ export async function publicHolderWithPlayback(redis, lease, expiresIn) {
   const holder = publicLeaseHolder(lease, expiresIn);
   if (!holder || !lease?.viewerId) return holder;
   try {
-    const raw = await redis.get(`playback:active:${lease.viewerId}`);
+    const raw = await redis.get(`playback:active:${activePlaybackIdentity(lease.clientIp, lease.viewerId)}`);
     const playback = raw ? publicPlaybackSnapshot(JSON.parse(raw)) : null;
     if (playback && playback.mediaId === holder.mediaId) holder.playback = playback;
   } catch {}
@@ -38,7 +42,7 @@ export async function publicHolderWithPlayback(redis, lease, expiresIn) {
 }
 
 export async function authorizeExclusiveReport(redis, { viewerId, sessionId, clientIp, mediaId, mediaType }) {
-  const lease = await getExclusiveLease(redis);
+  const lease = await getExclusiveLease(redis, clientIp);
   const targetsExclusiveMedia = Boolean(lease) || /^audio\//.test(mediaType || "") || /^video\//.test(mediaType || "");
   if (!targetsExclusiveMedia) return { authorized: true, lease };
   const session = await readPlaybackSession(redis, sessionId);
@@ -65,7 +69,7 @@ export function reportIdentity(request) {
 }
 
 export async function writeActivePlayback(redis, identity, body) {
-  const activeIdentity = identity.viewerId || identity.clientIp;
+  const activeIdentity = activePlaybackIdentity(identity.clientIp, identity.viewerId);
   const key = `playback:active:${activeIdentity}`;
   const action = body.action;
   if (action === "end") {

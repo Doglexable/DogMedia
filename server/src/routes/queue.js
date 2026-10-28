@@ -3,36 +3,7 @@ import {
   publicLeaseHolder,
   readViewerId,
 } from "../playback-session.js";
-
-const ACCESSIBLE_CATEGORY_TREE_SQL = `
-  WITH RECURSIVE accessible_categories AS (
-    SELECT
-      c.id,
-      c.parent_id,
-      c.min_access_tier,
-      c.name,
-      COALESCE(c.sort_order, 0) AS sort_order,
-      c.cover_path,
-      ARRAY[c.name::text]::text[] AS path_parts,
-      ARRAY[COALESCE(c.sort_order, 0)]::integer[] AS order_parts
-    FROM categories c
-    WHERE c.parent_id IS NULL
-      AND c.min_access_tier <= $1
-    UNION ALL
-    SELECT
-      c.id,
-      c.parent_id,
-      c.min_access_tier,
-      c.name,
-      COALESCE(c.sort_order, 0) AS sort_order,
-      c.cover_path,
-      ac.path_parts || c.name::text,
-      ac.order_parts || COALESCE(c.sort_order, 0)
-    FROM categories c
-    JOIN accessible_categories ac ON c.parent_id = ac.id
-    WHERE c.min_access_tier <= $1
-  )
-`;
+import { ACCESSIBLE_CATEGORY_TREE_SQL } from "../category-access.js";
 
 const QUEUE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
@@ -45,16 +16,13 @@ function queueKeys(request) {
   };
 }
 
-/// Queue keys are scoped per client IP while the exclusive playback lease is
-/// global. A device that does not own the lease must not rewrite the queue the
-/// holder is playing from, so queue mutations are rejected with
-/// PLAYBACK_IN_USE when a lease is held by a different viewer on the same
-/// client IP. Reads stay open so observers can follow the holder's queue.
+/// Queue and playback lease keys share the authenticated account scope.
+/// A device that does not own the account's lease cannot rewrite its queue.
 async function exclusiveQueueConflict(fastify, request) {
   let lease = null;
   try {
     if (typeof fastify.redis?.get !== "function") return null;
-    lease = await getExclusiveLease(fastify.redis);
+    lease = await getExclusiveLease(fastify.redis, request.clientIp || request.ip);
   } catch (error) {
     fastify.log.debug({ error }, "exclusive lease lookup for queue guard failed");
     return null;
@@ -220,6 +188,7 @@ export default async function (fastify) {
            ac.order_parts
          FROM media_assets m
          JOIN accessible_categories ac ON ac.id = COALESCE($3::integer, m.category_id)
+         JOIN accessible_categories media_ac ON media_ac.id = m.category_id
          WHERE m.id = $2
        ),
        playable_categories AS (
@@ -519,7 +488,6 @@ export default async function (fastify) {
          SELECT c.id
          FROM categories c
          JOIN selected_categories sc ON c.parent_id = sc.id
-         JOIN accessible_categories ac ON ac.id = c.id
        )
        SELECT m.id FROM media_assets m
        JOIN selected_categories sc ON sc.id = m.category_id
@@ -657,7 +625,6 @@ export default async function (fastify) {
          SELECT c.id
          FROM categories c
          JOIN selected_categories sc ON c.parent_id = sc.id
-         JOIN accessible_categories ac ON ac.id = c.id
        )
        SELECT m.id FROM media_assets m
        JOIN selected_categories sc ON sc.id = m.category_id

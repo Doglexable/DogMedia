@@ -418,6 +418,7 @@ describe("quality-aware streaming", () => {
     const redisValues = new Map();
     app.decorate("redis", {
       async get(key) { return redisValues.get(key) || null; },
+      async pttl() { return 30000; },
       async set(key, value) { redisValues.set(key, value); return "OK"; },
       async del(key) { return redisValues.delete(key) ? 1 : 0; },
       async eval(script, keyCount, key, ...args) {
@@ -456,6 +457,7 @@ describe("quality-aware streaming", () => {
       method: "POST",
       url: "/api/media/1/playback-session",
       payload: { quality: "high" },
+      headers: { "x-playback-client-id": "tab_a_1111111111111111" },
     });
     expect(sessionResponse.statusCode).toBe(200);
     expect(sessionResponse.json().sessionId).toBeTruthy();
@@ -464,6 +466,37 @@ describe("quality-aware streaming", () => {
       : [sessionResponse.headers["set-cookie"]];
     expect(setCookies.join("; ")).toContain("HttpOnly");
     const cookie = setCookies.find((value) => value.startsWith("pfs_stream_1="))?.split(";")[0];
+    const sessionCount = redisValues.size;
+    const resumeHeaders = {
+      "x-playback-session": sessionResponse.json().sessionId,
+      "x-playback-client-id": "tab_a_1111111111111111",
+      "x-viewer-id": sessionResponse.json().viewerId,
+    };
+    const resumed = await app.inject({ method: "POST", url: "/api/media/1/playback-session/resume", headers: { ...resumeHeaders, "x-forwarded-proto": "https" }, payload: { quality: "high" } });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json().sessionId).toBe(sessionResponse.json().sessionId);
+    expect(redisValues.size).toBe(sessionCount);
+    expect(String(resumed.headers["set-cookie"])).toContain("Path=/api/media/1/stream");
+    expect(String(resumed.headers["set-cookie"])).toContain("SameSite=Strict");
+    expect(String(resumed.headers["set-cookie"])).toContain("HttpOnly");
+    expect(String(resumed.headers["set-cookie"])).toContain("Secure");
+    const otherTab = await app.inject({
+      method: "POST", url: "/api/media/1/playback-session/resume",
+      headers: { ...resumeHeaders, "x-playback-client-id": "tab_b_2222222222222222" },
+      payload: { quality: "high" },
+    });
+    expect(otherTab.statusCode).toBe(404);
+    const otherViewer = await app.inject({
+      method: "POST", url: "/api/media/1/playback-session/resume",
+      headers: { ...resumeHeaders, "x-viewer-id": "viewer_other_2222222222222222" },
+      payload: { quality: "high" },
+    });
+    expect(otherViewer.statusCode).toBe(404);
+    const wrongQuality = await app.inject({
+      method: "POST", url: "/api/media/1/playback-session/resume",
+      headers: resumeHeaders, payload: { quality: "low" },
+    });
+    expect(wrongQuality.statusCode).toBe(404);
     const response = await app.inject({
       method: "GET",
       url: "/api/media/1/stream?quality=high",
@@ -479,7 +512,7 @@ describe("quality-aware streaming", () => {
       method: "POST",
       url: "/api/media/1/playback-session",
       payload: { quality: "low" },
-      headers: { "x-viewer-id": sessionResponse.json().viewerId },
+      headers: { "x-viewer-id": sessionResponse.json().viewerId, "x-playback-client-id": "tab_a_1111111111111111" },
     });
     expect(lowSession.statusCode).toBe(200);
     const lowCookie = (Array.isArray(lowSession.headers["set-cookie"])
@@ -503,11 +536,11 @@ describe("quality-aware streaming", () => {
   it("reports the safe holder on acquisition conflict without sensitive identifiers", async () => {
     const app = Fastify();
     const redisValues = new Map([
-      ["stream:exclusive:standard", JSON.stringify({
+      ["stream:exclusive:account:127.0.0.1", JSON.stringify({
         viewerId: "viewer_holder_hhhhhhhhhhhh",
         sessionId: "session_holder_hhhhhhhhhhh",
         mediaId: 9,
-        clientIp: "10.0.0.9",
+        clientIp: "127.0.0.1",
         platform: "desktop",
         deviceLabel: "Studio PC",
       })],

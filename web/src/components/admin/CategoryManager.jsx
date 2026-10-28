@@ -60,9 +60,7 @@ function applyCategoryMove(cats, catId, pId, idx) {
   dest.splice(Math.min(Math.max(idx, 0), dest.length), 0, moved);
   const positions = new Map(dest.map((c, pos) => [Number(c.id), pos]));
   if (oldPid !== normPid) orderCategories(cats.filter((c) => Number(c.id) !== numId && (c.parent_id == null ? null : Number(c.parent_id)) === oldPid)).forEach((c, pos) => positions.set(Number(c.id), pos));
-  const parent = normPid == null ? null : cats.find((c) => Number(c.id) === normPid), descIds = new Set([numId]);
-  let found = true; while (found) { found = false; for (const c of cats) { if (!descIds.has(Number(c.id)) && descIds.has(Number(c.parent_id))) { descIds.add(Number(c.id)); found = true; } } }
-  const updated = cats.map((c) => { const id = Number(c.id), changes = positions.has(id) ? { sort_order: positions.get(id) } : {}; if (id === numId) changes.parent_id = normPid; if (parent && descIds.has(id)) changes.min_access_tier = parent.min_access_tier; return Object.keys(changes).length ? { ...c, ...changes } : c; });
+  const updated = cats.map((c) => { const id = Number(c.id), changes = positions.has(id) ? { sort_order: positions.get(id) } : {}; if (id === numId) changes.parent_id = normPid; return Object.keys(changes).length ? { ...c, ...changes } : c; });
   const byP = new Map(); for (const c of updated) { const k = c.parent_id ?? null, a = byP.get(k) || []; a.push(c); byP.set(k, a); }
   const tree = new Map(), walk = (cur = null, depth = 0, parts = []) => { for (const ch of orderCategories(byP.get(cur) || [])) { const n = [...parts, ch.name]; tree.set(Number(ch.id), { depth, path: n.join(" / ") }); walk(ch.id, depth + 1, n); } };
   walk(); return updated.map((c) => ({ ...c, ...tree.get(Number(c.id)) }));
@@ -244,10 +242,10 @@ export default function CategoryManager() {
     }
   };
 
-  const handleSaveCategory = async ({ id, name, description, parentId, minAccessTier, coverFile }) => {
+  const handleSaveCategory = async ({ id, name, description, parentId, minAccessTier, applyToChildren = false, coverFile }) => {
     let catId = id;
     if (id) {
-      const res = await api(`/api/categories/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description, min_access_tier: minAccessTier, parent_id: parentId }) }); if (!res.ok) throw new Error(await readApiError(res, "Failed to update category"));
+      const res = await api(`/api/categories/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description, min_access_tier: minAccessTier, parent_id: parentId, apply_to_children: applyToChildren }) }); if (!res.ok) throw new Error(await readApiError(res, "Failed to update category"));
       const updated = await res.json(); setMessage({ type: "success", text: `Category "${updated.name}" updated.` });
     } else {
       const res = await api("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, description, min_access_tier: minAccessTier, parent_id: parentId }) }); if (!res.ok) throw new Error(await readApiError(res, "Failed to create category"));
@@ -433,6 +431,7 @@ export default function CategoryManager() {
             <div style={styles.actionRow}>
               <button type="button" style={styles.button("secondary")} onClick={openUploadQueue}>Upload queue{activeBrowserTransfer ? ` · ${activeBrowserTransfer.progress === null ? "active" : `${activeBrowserTransfer.progress ?? 0}%`}` : uploadQueueSummary.queued + uploadQueueSummary.processing > 0 ? ` (${uploadQueueSummary.queued + uploadQueueSummary.processing})` : ""}</button>
               <button type="button" style={styles.button("secondary")} onClick={() => openCategoryModal("")}>Create Root</button>
+              <button type="button" style={styles.button("secondary", !selectedCategory)} disabled={!selectedCategory} onClick={() => openCategoryModal(selectedCategory)}>Edit Folder</button>
               <button type="button" style={styles.button("secondary", !selectedCategory)} disabled={!selectedCategory} onClick={() => openCategoryModal(selectedCategory?.id)}>Create Child</button>
               <button type="button" style={styles.button("primary", !selectedCategory)} disabled={!selectedCategory} onClick={() => openMediaModal(selectedCategory.id)}>Upload Here</button>
             </div>
@@ -441,7 +440,7 @@ export default function CategoryManager() {
           <section className="glass-surface" style={styles.tableCard}>
             <div style={styles.tableHeader}><h2 style={styles.cardTitle}>Category Tree</h2><p style={styles.cardSubtitle}>Drag folders between rows to reorder, onto a folder to nest, or into the root zone to unnest.</p></div>
             {categories.length === 0 ? (<div style={styles.emptyState}><div style={styles.emptyIcon}>🗂️</div><div style={{ fontWeight: 700, color: "var(--text)" }}>No categories yet</div><p style={{ marginTop: 6, marginBottom: 0 }}>Create a root category first, then add children like Music / Evanescence.</p></div>) : (
-              <div style={{ padding: 12 }}><CategoryTreeDnd categories={categories} moving={movingCategory} selectedId={selectedCategoryId} onSelect={(id) => setSelectedCategoryId(String(id))} onMove={handleMoveCategory} onManageMedia={openMediaModal} onAddChild={openCategoryModal} onDelete={handleDeleteCategory} /></div>
+              <div style={{ padding: 12 }}><CategoryTreeDnd categories={categories} moving={movingCategory} selectedId={selectedCategoryId} onSelect={(id) => setSelectedCategoryId(String(id))} onMove={handleMoveCategory} onManageMedia={openMediaModal} onAddChild={openCategoryModal} onEdit={openCategoryModal} onDelete={handleDeleteCategory} /></div>
             )}
           </section>
         </main>

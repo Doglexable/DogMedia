@@ -6,6 +6,7 @@ import playbackRoutes, {
   PAUSE_MAX_IDLE_MS,
   RESUME_TTL_SECONDS,
 } from "./playback.js";
+import { exclusiveLeaseKey } from "../playback-session.js";
 
 describe("playback pause cache helpers", () => {
   it("normalizes trigger correctly", () => {
@@ -566,7 +567,7 @@ describe("exclusive playback lease routes", () => {
     const sessionId = "session_aaaaaaaaaaaaaaaaaaa";
     const redis = createMockRedis({
       [`stream:session:${sessionId}`]: JSON.stringify({ viewerId, clientIp: "127.0.0.1", leaseRequired: true }),
-      "stream:exclusive:standard": JSON.stringify({ viewerId, sessionId, clientIp: "127.0.0.1", mediaId: 42, platform: "web" }),
+      [exclusiveLeaseKey("127.0.0.1")]: JSON.stringify({ viewerId, sessionId, clientIp: "127.0.0.1", mediaId: 42, platform: "web" }),
     });
     const app = Fastify();
     app.decorate("redis", redis);
@@ -621,7 +622,7 @@ describe("exclusive playback lease routes", () => {
       headers: { "x-playback-session": sessionId, "x-viewer-id": viewerId },
     });
     expect(released.json()).toEqual({ ok: true, released: true });
-    expect(await redis.get("stream:exclusive:standard")).toBeNull();
+    expect(await redis.get(exclusiveLeaseKey("127.0.0.1"))).toBeNull();
     expect(await redis.get(`stream:session:${sessionId}`)).toBeNull();
     await app.close();
   });
@@ -634,7 +635,7 @@ describe("exclusive playback lease routes", () => {
         clientIp: "127.0.0.1",
         leaseRequired: true,
       }),
-      "stream:exclusive:standard": JSON.stringify({
+      [exclusiveLeaseKey("127.0.0.1")]: JSON.stringify({
         viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
         sessionId: holderSessionId,
         mediaId: 7,
@@ -679,11 +680,11 @@ describe("exclusive playback lease routes", () => {
 
   it("exposes the holder on busy lease status without sensitive identifiers", async () => {
     const redis = createMockRedis({
-      "stream:exclusive:standard": JSON.stringify({
+      [exclusiveLeaseKey("127.0.0.1")]: JSON.stringify({
         viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
         sessionId: "session_hhhhhhhhhhhhhhhhhhh",
         mediaId: 7,
-        clientIp: "10.9.9.9",
+        clientIp: "127.0.0.1",
         platform: "desktop",
         deviceLabel: "Studio PC",
       }),
@@ -704,7 +705,7 @@ describe("exclusive playback lease routes", () => {
     });
     const raw = JSON.stringify(busy.json());
     expect(raw).not.toContain("viewer_bbbbbbbbbbbbbbbbbbbb");
-    expect(raw).not.toContain("10.9.9.9");
+    expect(raw).not.toContain("127.0.0.1");
 
     const empty = createMockRedis();
     const app2 = Fastify();
@@ -723,7 +724,7 @@ describe("exclusive playback lease routes", () => {
 
   it("reports lease ownership only when both viewer and IP match", async () => {
     const redis = createMockRedis({
-      "stream:exclusive:standard": JSON.stringify({
+      [exclusiveLeaseKey("192.168.1.20")]: JSON.stringify({
         viewerId: "viewer_bbbbbbbbbbbbbbbbbbbb",
         sessionId: "session_hhhhhhhhhhhhhhhhhhh",
         mediaId: 7,
@@ -762,7 +763,7 @@ describe("exclusive playback lease routes", () => {
 
   it("isolates web tab lease ownership using X-Playback-Client-ID", async () => {
     const redis = createMockRedis({
-      "stream:exclusive:standard": JSON.stringify({
+      [exclusiveLeaseKey("192.168.1.20")]: JSON.stringify({
         viewerId: "viewer_shared_cookie",
         clientId: "tab_a_1111111111111111",
         sessionId: "session_aaaaaaaaaaaaaaaaaaa",
@@ -827,7 +828,7 @@ describe("exclusive playback lease routes", () => {
   it("mirrors the owner snapshot and rejects duplicate position reporters", async () => {
     const ownerViewer = "viewer_bbbbbbbbbbbbbbbbbbbb";
     const ownerSession = "session_hhhhhhhhhhhhhhhhhhh";
-    const activeKey = `playback:active:${ownerViewer}`;
+    const activeKey = `playback:active:192.168.1.20:${ownerViewer}`;
     const originalSnapshot = {
       mediaId: 7,
       title: "Owner supplied title",
@@ -841,7 +842,7 @@ describe("exclusive playback lease routes", () => {
       ip: "192.168.1.20",
     };
     const redis = createMockRedis({
-      "stream:exclusive:standard": JSON.stringify({
+      [exclusiveLeaseKey("192.168.1.20")]: JSON.stringify({
         viewerId: ownerViewer,
         sessionId: ownerSession,
         mediaId: 7,
@@ -908,7 +909,7 @@ describe("exclusive playback lease routes", () => {
     });
     expect(disguisedDuplicate.statusCode).toBe(409);
     expect(disguisedDuplicate.json().code).toBe("PLAYBACK_NOT_OWNER");
-    expect(await redis.get("playback:active:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeNull();
+    expect(await redis.get("playback:active:192.168.1.20:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeNull();
 
     const owner = await app.inject({
       method: "POST",
@@ -950,8 +951,36 @@ describe("exclusive playback lease routes", () => {
       expect(response.statusCode).toBe(200);
     }
 
-    expect(await redis.get("playback:active:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeTruthy();
-    expect(await redis.get("playback:active:viewer_bbbbbbbbbbbbbbbbbbbb")).toBeTruthy();
+    expect(await redis.get("playback:active:192.168.1.20:viewer_aaaaaaaaaaaaaaaaaaaa")).toBeTruthy();
+    expect(await redis.get("playback:active:192.168.1.20:viewer_bbbbbbbbbbbbbbbbbbbb")).toBeTruthy();
+    await app.close();
+  });
+
+  it("keeps active playback separate when two accounts reuse a viewer cookie", async () => {
+    const redis = createMockRedis();
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", { query: async () => ({ rows: [] }) });
+    app.addHook("onRequest", async (request) => {
+      request.accessTier = 0;
+      request.clientIp = request.headers["x-test-account-scope"];
+    });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const viewerId = "viewer_shared_cookie_aaaaaaaa";
+    for (const [scope, mediaId] of [["fd50::1", 11], ["fd50::2", 22]]) {
+      const headers = { "x-test-account-scope": scope, "x-viewer-id": viewerId };
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/playback/active",
+        headers,
+        payload: { mediaId, action: "play", position: 0, duration: 120 },
+      });
+      expect(response.statusCode).toBe(200);
+      expect((await app.inject({ method: "GET", url: "/api/playback/active", headers })).json().active.mediaId).toBe(mediaId);
+    }
+    expect(await redis.get(`playback:active:fd50::1:${viewerId}`)).toBeTruthy();
+    expect(await redis.get(`playback:active:fd50::2:${viewerId}`)).toBeTruthy();
     await app.close();
   });
 });

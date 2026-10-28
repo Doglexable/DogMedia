@@ -99,25 +99,16 @@ async function accessFixture(tier = 100) {
     [2, { id: 2, name: "Private root", parent_id: null, min_access_tier: 999, sort_order: 1, cover_path: "2/front.webp" }],
     [3, { id: 3, name: "Open child", parent_id: 1, min_access_tier: 0, sort_order: 0, cover_path: null }],
     [4, { id: 4, name: "Private child", parent_id: 1, min_access_tier: 999, sort_order: 1, cover_path: null }],
-    [5, { id: 5, name: "Hidden by ancestor", parent_id: 4, min_access_tier: 0, sort_order: 0, cover_path: null }],
+    [5, { id: 5, name: "Public under private", parent_id: 4, min_access_tier: 0, sort_order: 0, cover_path: null }],
   ]);
   const writes = [];
   const accessible = (id, accessTier) => {
-    let category = categories.get(Number(id));
-    if (!category) return null;
-    const target = category;
-    const seen = new Set();
-    while (category) {
-      if (seen.has(category.id) || category.min_access_tier > accessTier) return null;
-      seen.add(category.id);
-      category = category.parent_id === null ? null : categories.get(category.parent_id);
-      if (category === undefined) return null;
-    }
-    return target;
+    const category = categories.get(Number(id));
+    return category && category.min_access_tier <= accessTier ? category : null;
   };
   const query = async (sql, params = []) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
-    if (["BEGIN", "COMMIT", "ROLLBACK"].includes(normalized)) return { rows: [], rowCount: 0 };
+    if (["BEGIN", "COMMIT", "ROLLBACK", "LOCK TABLE categories IN SHARE ROW EXCLUSIVE MODE"].includes(normalized)) return { rows: [], rowCount: 0 };
     if (normalized.includes("FROM category_tree WHERE id = $2")) {
       const category = accessible(params[1], params[0]);
       return { rows: category ? [{ ...category }] : [], rowCount: Number(Boolean(category)) };
@@ -133,6 +124,19 @@ async function accessFixture(tier = 100) {
       while (category?.parent_id != null) {
         if (category.parent_id === Number(params[0])) return { rows: [{}], rowCount: 1 };
         category = categories.get(category.parent_id);
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalized.includes("SELECT 1 FROM descendants WHERE min_access_tier > $2 LIMIT 1")) {
+      const rootId = Number(params[0]);
+      const pending = [rootId];
+      while (pending.length) {
+        const parentId = pending.pop();
+        for (const category of categories.values()) {
+          if (category.parent_id !== parentId) continue;
+          if (category.min_access_tier > params[1]) return { rows: [{}], rowCount: 1 };
+          pending.push(category.id);
+        }
       }
       return { rows: [], rowCount: 0 };
     }
@@ -153,7 +157,22 @@ async function accessFixture(tier = 100) {
       categories.set(6, category);
       return { rows: [{ ...category }], rowCount: 1 };
     }
-    if (normalized.startsWith("UPDATE categories") || normalized.includes("UPDATE categories SET min_access_tier")) {
+    if (normalized.includes("UPDATE categories SET min_access_tier = $2")) {
+      writes.push({ sql: normalized, params });
+      const pending = [Number(params[0])];
+      let count = 0;
+      while (pending.length) {
+        const parentId = pending.pop();
+        for (const category of categories.values()) {
+          if (category.parent_id !== parentId) continue;
+          category.min_access_tier = params[1];
+          pending.push(category.id);
+          count += 1;
+        }
+      }
+      return { rows: [], rowCount: count };
+    }
+    if (normalized.startsWith("UPDATE categories")) {
       writes.push({ sql: normalized, params });
       const id = Number(params.at(-1));
       const category = categories.get(id);
@@ -164,7 +183,6 @@ async function accessFixture(tier = 100) {
       }
       if (category && normalized.startsWith("UPDATE categories SET parent_id")) {
         category.parent_id = params[0];
-        category.min_access_tier = params[1];
       }
       return { rows: category ? [{ ...category }] : [], rowCount: Number(Boolean(category)) };
     }
@@ -192,7 +210,6 @@ describe("category mutation access", () => {
     ["POST", "/api/categories", { name: "Under private", parent_id: 2 }],
     ["POST", "/api/categories", { name: "Under private child", parent_id: 4 }],
     ["PUT", "/api/categories/2", { name: "Exposed", min_access_tier: 0 }],
-    ["PUT", "/api/categories/5", { name: "Hidden by ancestor" }],
     ["PUT", "/api/categories/3", { name: "Moved", parent_id: 2 }],
     ["DELETE", "/api/categories/2", undefined],
     ["PUT", "/api/categories/2/thumbnail", undefined],
@@ -224,7 +241,7 @@ describe("category mutation access", () => {
       const move = await fixture.app.inject({ method: "PATCH", url: "/api/categories/3/move", payload: { parentId: 2, index: 0 } });
       expect(move.statusCode).toBe(200);
       expect(move.json().parent_id).toBe(2);
-      expect(move.json().min_access_tier).toBe(999);
+      expect(move.json().min_access_tier).toBe(0);
       expect(fixture.writes.length).toBeGreaterThan(0);
     } finally {
       await fixture.close();
@@ -240,7 +257,65 @@ describe("category mutation access", () => {
       const edited = await fixture.app.inject({ method: "PUT", url: "/api/categories/3", payload: { name: "Renamed open child" } });
       expect(edited.statusCode).toBe(200);
       expect(edited.json().name).toBe("Renamed open child");
-      expect(fixture.writes).toHaveLength(3);
+      expect(fixture.writes).toHaveLength(2);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("lets an administrator make a branch public while its parent stays private", async () => {
+    const fixture = await accessFixture(999);
+    try {
+      const created = await fixture.app.inject({ method: "POST", url: "/api/categories", payload: { name: "Public branch", parent_id: 2, min_access_tier: 0 } });
+      expect(created.statusCode).toBe(201);
+      expect(created.json()).toMatchObject({ parent_id: 2, min_access_tier: 0 });
+      expect(fixture.categories.get(2).min_access_tier).toBe(999);
+
+      const edited = await fixture.app.inject({ method: "PUT", url: "/api/categories/2", payload: { min_access_tier: 100 } });
+      expect(edited.statusCode).toBe(200);
+      expect(fixture.categories.get(2).min_access_tier).toBe(100);
+      expect(fixture.categories.get(6).min_access_tier).toBe(0);
+      expect(fixture.categories.get(5).min_access_tier).toBe(0);
+      expect(fixture.writes).toHaveLength(2);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("lets an admin edit a public branch below a restricted parent without changing its parent", async () => {
+    const fixture = await accessFixture(100);
+    try {
+      const response = await fixture.app.inject({ method: "PUT", url: "/api/categories/5", payload: { name: "Renamed public branch", parent_id: 4, min_access_tier: 0 } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ name: "Renamed public branch", parent_id: 4, min_access_tier: 0 });
+      expect(fixture.categories.get(4).min_access_tier).toBe(999);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("applies a folder tier to every descendant only when requested", async () => {
+    const fixture = await accessFixture(999);
+    try {
+      const response = await fixture.app.inject({ method: "PUT", url: "/api/categories/1", payload: { min_access_tier: 100, apply_to_children: true } });
+      expect(response.statusCode).toBe(200);
+      expect([1, 3, 4, 5].map((id) => fixture.categories.get(id).min_access_tier)).toEqual([100, 100, 100, 100]);
+      expect(fixture.categories.get(2).min_access_tier).toBe(999);
+      expect(fixture.writes).toHaveLength(2);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("rejects tier propagation if a child is above the admin's access tier", async () => {
+    const fixture = await accessFixture(100);
+    try {
+      const response = await fixture.app.inject({ method: "PUT", url: "/api/categories/1", payload: { min_access_tier: 100, apply_to_children: true } });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({ error: "Access denied to a child category" });
+      expect(fixture.writes).toEqual([]);
+      expect(fixture.categories.get(1).min_access_tier).toBe(0);
+      expect(fixture.categories.get(4).min_access_tier).toBe(999);
     } finally {
       await fixture.close();
     }

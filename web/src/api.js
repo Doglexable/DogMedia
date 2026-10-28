@@ -95,6 +95,23 @@ export async function createPlaybackSession(mediaId, quality = "high", { signal 
   return data;
 }
 
+export async function resumePlaybackSession(mediaId, sessionId, quality, { signal } = {}) {
+  const response = await api(`/api/media/${Number(mediaId)}/playback-session/resume`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Playback-Session": sessionId,
+      "X-Playback-Client-ID": getPlaybackClientId(),
+    },
+    body: JSON.stringify({ quality }),
+    signal,
+  });
+  if (response.status === 404) return null;
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.streamUrl) throw new Error(data?.error || "Could not resume playback session");
+  return data;
+}
+
 export async function preparePlaybackStream(session, { signal, maxAttempts = 60 } = {}) {
   if (!session?.streamUrl) throw new Error("Playback session has no stream URL");
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

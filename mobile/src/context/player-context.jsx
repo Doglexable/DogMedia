@@ -49,6 +49,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const durationRef = useRef(0);
   const pausedRef = useRef(true);
   const volumeRef = useRef(0.85);
+  const playbackRateRef = useRef(1);
   const mutedRef = useRef(false);
   const loopModeRef = useRef("none");
   const shuffleEnabledRef = useRef(false);
@@ -86,6 +87,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.85);
+  const [playbackRate, setPlaybackRateState] = useState(1);
   const [muted, setMuted] = useState(false);
   const [loopMode, setLoopMode] = useState("none");
   const [shuffleEnabled, setShuffleEnabled] = useState(false);
@@ -385,6 +387,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
 
     const sound = createAudioPlayer({ uri: source.uri, headers: source.headers }, { updateInterval: 500 });
     sound.volume = mutedRef.current ? 0 : volumeRef.current;
+    sound.playbackRate = playbackRateRef.current;
     sound.loop = false;
     if (soundRef.current && soundRef.current !== sound) {
       try {
@@ -487,6 +490,15 @@ export function PlayerProvider({ accessTier = 0, children }) {
     }
   }, [loadAudio, offline, quality, unloadSound]);
 
+  const setPlaybackRate = useCallback((rate) => {
+    const nextRate = Number(rate);
+    if (!Number.isFinite(nextRate) || nextRate < 0.5 || nextRate > 2) return;
+    playbackRateRef.current = nextRate;
+    setPlaybackRateState(nextRate);
+    if (soundRef.current) soundRef.current.playbackRate = nextRate;
+    videoControllerRef.current?.setPlaybackRate?.(nextRate);
+  }, []);
+
   const startMedia = useCallback(async (media, options = {}) => {
     if (!media) return;
     setRevokedSessionId(null);
@@ -497,6 +509,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       startPosition = 0,
     } = options;
     const previousMedia = currentMediaRef.current;
+    if (Number(previousMedia?.id) !== Number(media.id)) setPlaybackRate(1);
     const previousPosition = positionRef.current;
     const previousDuration = durationRef.current || previousMedia?.duration || 0;
 
@@ -541,7 +554,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
       sendActiveSession(media, "play", normalizedStart, media.duration || 0);
     }
     if (loadResume) loadResumePosition(media);
-  }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, unloadSound]);
+  }, [loadAudio, loadResumePosition, saveResumePositionFor, sendActiveSession, sendPlaybackEvent, setPlaybackRate, unloadSound]);
 
   const applyObservedConflict = useCallback((conflict) => {
     if (!conflict) return;
@@ -1001,6 +1014,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     videoControllerRef.current = controller;
     if (!controller) return () => {};
     controller.setVolume?.(mutedRef.current ? 0 : volumeRef.current);
+    controller.setPlaybackRate?.(playbackRateRef.current);
     controller.setLoop?.(false);
     if (pendingStartPositionRef.current != null) {
       controller.seek?.(pendingStartPositionRef.current);
@@ -1247,6 +1261,8 @@ export function PlayerProvider({ accessTier = 0, children }) {
     takeOverExclusiveSession,
     applyObservedConflict,
     quality,
+    playbackRate,
+    setPlaybackRate,
     actualQuality: offline.resolveMediaUri(currentMedia?.id)
       ? currentMedia?.quality || "ori"
       : actualMediaQuality(quality, currentMedia?.available_qualities),
@@ -1298,7 +1314,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, bindProtectedSource, socketStatus, revokedSessionId, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
-    quality, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
+    quality, playbackRate, setPlaybackRate, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
   ]);
 
   const libraryValue = useMemo(() => ({

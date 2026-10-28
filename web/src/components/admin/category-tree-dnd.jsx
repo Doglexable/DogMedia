@@ -19,6 +19,7 @@ import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
 import { faFolderPlus } from "@fortawesome/free-solid-svg-icons/faFolderPlus";
 import { faGripVertical } from "@fortawesome/free-solid-svg-icons/faGripVertical";
 import { faPhotoFilm } from "@fortawesome/free-solid-svg-icons/faPhotoFilm";
+import { faPen } from "@fortawesome/free-solid-svg-icons/faPen";
 import { faTrash } from "@fortawesome/free-solid-svg-icons/faTrash";
 
 function ordered(items) {
@@ -73,7 +74,7 @@ function DropEdge({ category, edge, activeId }) {
 }
 
 function TreeRow({
-  activeId, category, depth, expanded, hasChildren, onAddChild, onDelete,
+  activeId, category, depth, expanded, hasChildren, onAddChild, onDelete, onEdit,
   onManageMedia, onSelect, onToggle, selected, saving,
 }) {
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
@@ -136,6 +137,9 @@ function TreeRow({
           Tier {category.min_access_tier}
         </span>
         <div className="flex shrink-0 items-center gap-1" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="category-tree-action" title="Edit folder settings" aria-label={`Edit ${category.name}`} onClick={() => onEdit(category)}>
+            <FontAwesomeIcon icon={faPen} />
+          </button>
           <button type="button" className="category-tree-action" title="Manage media" aria-label={`Manage media in ${category.name}`} onClick={() => onManageMedia(category.id)}>
             <FontAwesomeIcon icon={faPhotoFilm} />
           </button>
@@ -161,7 +165,7 @@ function RootDropZone({ active }) {
   );
 }
 
-export function CategoryTreeDnd({ categories, moving, onAddChild, onDelete, onManageMedia, onMove, onSelect, selectedId }) {
+export function CategoryTreeDnd({ categories, moving, onAddChild, onDelete, onEdit, onManageMedia, onMove, onSelect, selectedId }) {
   const childrenByParent = useMemo(() => buildTree(categories), [categories]);
   const [expanded, setExpanded] = useState(new Set());
   const [activeId, setActiveId] = useState(null);
@@ -242,6 +246,7 @@ export function CategoryTreeDnd({ categories, moving, onAddChild, onDelete, onMa
           saving={moving}
           onAddChild={onAddChild}
           onDelete={onDelete}
+          onEdit={onEdit}
           onManageMedia={onManageMedia}
           onSelect={onSelect}
           onToggle={(id) => setExpanded((current) => {

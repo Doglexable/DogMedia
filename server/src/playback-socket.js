@@ -88,25 +88,30 @@ export function createPlaybackSocketHub(fastify, {
   const scheduleExpiry = async () => {
     if (expiryTimer) clearTimeout(expiryTimer);
     if (closed) return;
-    const lease = await getExclusiveLease(fastify.redis);
-    if (!lease) return;
+    const scopes = [...new Set([...sockets].map((entry) => entry.identity?.clientIp).filter(Boolean))];
+    const leases = await Promise.all(scopes.map((scope) => getExclusiveLease(fastify.redis, scope)));
+    const nextExpiry = Math.min(...leases.filter(Boolean).map((lease) => lease.expiresIn));
+    if (!Number.isFinite(nextExpiry)) return;
     expiryTimer = setTimeout(async () => {
       try {
-        const current = await getExclusiveLease(fastify.redis);
-        if (!current) await notify();
-        else await scheduleExpiry();
+        await notify();
       } catch (error) { fastify.log.warn({ err: error }, "playback socket expiry check failed"); }
-    }, Math.max(1000, lease.expiresIn * 1000 + 100));
+    }, Math.max(1000, nextExpiry * 1000 + 100));
     expiryTimer.unref?.();
   };
 
   const notify = async () => {
     if (closed) return;
     revision += 1;
-    const lease = await getExclusiveLease(fastify.redis);
     const recipients = [...sockets];
-    const holder = lease ? await publicHolderWithPlayback(fastify.redis, lease, lease.expiresIn) : null;
+    const scopes = [...new Set(recipients.map((entry) => entry.identity.clientIp))];
+    const leases = new Map(await Promise.all(scopes.map(async (scope) => [scope, await getExclusiveLease(fastify.redis, scope)])));
+    const holders = new Map(await Promise.all(scopes.map(async (scope) => {
+      const lease = leases.get(scope);
+      return [scope, lease ? await publicHolderWithPlayback(fastify.redis, lease, lease.expiresIn) : null];
+    })));
     for (const entry of recipients) {
+      const lease = leases.get(entry.identity.clientIp);
       if (entry.boundSessionId && lease?.sessionId !== entry.boundSessionId) {
         const revokedSessionId = entry.boundSessionId;
         entry.revokedSessionId = entry.boundSessionId;
@@ -115,7 +120,7 @@ export function createPlaybackSocketHub(fastify, {
         entry.playing = false;
         send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_LEASE_LOST", sessionId: revokedSessionId, message: "Playback lease lost" });
       }
-      send(entry, stateFor(entry, lease, holder));
+      send(entry, stateFor(entry, lease, holders.get(entry.identity.clientIp)));
     }
     await scheduleExpiry();
   };
@@ -213,7 +218,7 @@ export function createPlaybackSocketHub(fastify, {
           sockets.add(entry);
           counters.connections += 1;
           send(entry, { type: "socket.ready", version: VERSION });
-          await sendStateFor(entry, await getExclusiveLease(fastify.redis));
+          await sendStateFor(entry, await getExclusiveLease(fastify.redis, entry.identity.clientIp));
           await scheduleExpiry();
           return;
         }
@@ -227,7 +232,7 @@ export function createPlaybackSocketHub(fastify, {
             }
           }
           const session = await readPlaybackSession(fastify.redis, message.sessionId);
-          const lease = await getExclusiveLease(fastify.redis);
+          const lease = await getExclusiveLease(fastify.redis, entry.identity.clientIp);
           if (!session?.leaseRequired || session.viewerId !== entry.identity.viewerId
               || session.clientIp !== entry.identity.clientIp || session.accessTier !== entry.identity.accessTier
               || lease?.sessionId !== message.sessionId || lease.viewerId !== entry.identity.viewerId || lease.clientIp !== entry.identity.clientIp) {
@@ -266,7 +271,7 @@ export function createPlaybackSocketHub(fastify, {
             && await authorizeExclusiveReport(fastify.redis, identity);
           if (!authorized?.authorized || message.sequence < entry.sequence) {
             send(entry, { type: "protocol.error", version: VERSION, code: "PLAYBACK_NOT_OWNER", message: "Playback state rejected" });
-            await sendStateFor(entry, await getExclusiveLease(fastify.redis));
+            await sendStateFor(entry, await getExclusiveLease(fastify.redis, entry.identity.clientIp));
             return;
           }
           entry.sequence = message.sequence;

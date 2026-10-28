@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { generatePlaybackClientId, getPlaybackClientId } from "./playback-client-id";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("playback-client-id", () => {
   it("returns a stable non-empty string for the document", () => {
@@ -14,6 +16,19 @@ describe("playback-client-id", () => {
     const a = generatePlaybackClientId();
     const b = generatePlaybackClientId();
     expect(a).not.toBe(b);
+  });
+
+  it("keeps one tab identity across a document reload", async () => {
+    const values = new Map();
+    vi.stubGlobal("window", { sessionStorage: {
+      getItem: (key) => values.get(key) || null,
+      setItem: (key, value) => values.set(key, value),
+    } });
+    vi.resetModules();
+    const first = (await import("./playback-client-id")).getPlaybackClientId();
+    vi.resetModules();
+    const second = (await import("./playback-client-id")).getPlaybackClientId();
+    expect(second).toBe(first);
   });
 
   it("generates valid UUID formatted string even without crypto.randomUUID", () => {

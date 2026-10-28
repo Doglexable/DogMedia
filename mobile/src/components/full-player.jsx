@@ -21,9 +21,8 @@ import { conflictDisplayText, conflictFromError } from "../utils/exclusive-sessi
 import { usePlayer } from "../context/player-context";
 import { useOffline } from "../context/offline-context";
 import { LyricsView } from "./lyrics-view";
+import { MediaSettingsSheet } from "./media-settings-sheet";
 import { PlayerIconButton, PlayerTransportControls } from "./player-controls";
-
-const SLEEP_TIMER_PRESETS = [5, 15, 30, 45, 60];
 
 export function requestProtectedSource(mediaId, quality, onSource, onError) {
   let cancelled = false;
@@ -39,24 +38,6 @@ export function requestProtectedSource(mediaId, quality, onSource, onError) {
       if (!cancelled) onError(error);
     });
   return () => { cancelled = true; };
-}
-
-function QualityControl({ player, style, styles }) {
-  const qualities = player.currentMedia?.available_qualities?.includes("ori")
-    ? ["low", "med", "high", "ori"]
-    : ["low", "med", "high"];
-  return (
-    <Pressable
-      accessibilityLabel={`Media quality ${player.quality}, playing ${player.actualQuality}`}
-      accessibilityRole="button"
-      onPress={() => {
-        player.changeQuality(qualities[(qualities.indexOf(player.quality) + 1) % qualities.length]);
-      }}
-      style={[styles.qualityPill, style]}
-    >
-      <Text style={styles.qualityText}>{player.quality.toUpperCase()}{player.actualQuality !== player.quality ? ` → ${player.actualQuality.toUpperCase()}` : ""}</Text>
-    </Pressable>
-  );
 }
 
 function VideoSurface({ playerState, source, shouldPlay, styles }) {
@@ -89,6 +70,9 @@ function VideoSurface({ playerState, source, shouldPlay, styles }) {
       },
       setVolume: (nextVolume) => {
         player.volume = nextVolume;
+      },
+      setPlaybackRate: (rate) => {
+        player.playbackRate = rate;
       },
     });
   }, [player, playerState.registerVideoController]);
@@ -127,57 +111,19 @@ function getLoopIcon(loopMode) {
   return loopMode === "media" ? "repeat-outline" : "repeat";
 }
 
-function formatSleepTimer(seconds) {
-  if (!seconds) return "Sleep timer";
-  const mins = Math.ceil(seconds / 60);
-  return `${mins}m`;
-}
-
-function SleepTimerButton({ colors, darkSurface = false, onPress, remainingSeconds, styles }) {
-  const active = remainingSeconds > 0;
+function SettingsButton({ colors, darkSurface = false, onPress, remainingSeconds, styles }) {
+  const timerMinutes = Math.ceil((Number(remainingSeconds) || 0) / 60);
   return (
     <Pressable
-      accessibilityLabel={active ? `Sleep timer ${formatSleepTimer(remainingSeconds)} remaining` : "Sleep timer"}
+      accessibilityLabel={timerMinutes > 0 ? `Playback settings, sleep timer ${timerMinutes} minutes remaining` : "Playback settings"}
       accessibilityRole="button"
-      accessibilityState={{ selected: active }}
       hitSlop={10}
       onPress={onPress}
-      style={[styles.sleepButton, darkSurface && styles.sleepButtonDark, active && styles.sleepButtonActive]}
+      style={[styles.settingsButton, darkSurface && styles.settingsButtonDark]}
     >
-      <Ionicons name="alarm" size={21} color={active ? colors.primary : darkSurface ? colors.white : colors.text} />
-      {active && <Text style={styles.sleepBadge}>{formatSleepTimer(remainingSeconds)}</Text>}
+      <Ionicons name="settings-outline" size={22} color={darkSurface ? colors.white : colors.text} />
+      {timerMinutes > 0 && <Text style={styles.settingsBadge}>{timerMinutes}m</Text>}
     </Pressable>
-  );
-}
-
-function SleepTimerOptions({ colors, darkSurface = false, onClose, onSetSleepTimer, styles }) {
-  const chooseTimer = (minutes) => {
-    onSetSleepTimer(minutes);
-    onClose();
-  };
-
-  return (
-    <View style={[styles.sleepOptions, darkSurface && styles.sleepOptionsDark]}>
-      {SLEEP_TIMER_PRESETS.map((minutes) => (
-        <Pressable
-          accessibilityLabel={`Set sleep timer for ${minutes} minutes`}
-          accessibilityRole="button"
-          key={minutes}
-          onPress={() => chooseTimer(minutes)}
-          style={[styles.sleepPreset, darkSurface && styles.sleepPresetDark]}
-        >
-          <Text style={[styles.sleepPresetText, darkSurface && styles.sleepPresetTextDark]}>{minutes}m</Text>
-        </Pressable>
-      ))}
-      <Pressable
-        accessibilityLabel="Clear sleep timer"
-        accessibilityRole="button"
-        onPress={() => chooseTimer(0)}
-        style={[styles.sleepClear, darkSurface && styles.sleepClearDark]}
-      >
-        <Ionicons name="close" size={16} color={darkSurface ? colors.white : colors.text} />
-      </Pressable>
-    </View>
   );
 }
 
@@ -504,7 +450,7 @@ export function FullPlayer({ navigation }) {
   const [sheetTab, setSheetTab] = useState("lyrics");
   const [queueLoading, setQueueLoading] = useState(false);
   const [queueError, setQueueError] = useState("");
-  const [sleepOpen, setSleepOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [protectedSource, setProtectedSource] = useState(null);
   const [protectedSourceError, setProtectedSourceError] = useState("");
@@ -675,13 +621,15 @@ export function FullPlayer({ navigation }) {
   if (!isAudio) {
     return (
       <View style={[styles.visualShell, { paddingTop: insets.top + spacing.md, paddingBottom: insets.bottom + spacing.lg }]}>
-        <PlayerIconButton
-          accessibilityLabel="Close player"
-          icon="chevron-down"
-          onPress={closePlayer}
-          style={styles.visualClose}
-        />
-        <QualityControl player={player} style={[styles.visualQuality, { top: insets.top + spacing.md }]} styles={styles} />
+        <View style={styles.visualHeader}>
+          <PlayerIconButton
+            accessibilityLabel="Close player"
+            icon="chevron-down"
+            onPress={closePlayer}
+            style={styles.visualClose}
+          />
+          <SettingsButton colors={colors} darkSurface onPress={() => setSettingsOpen(true)} remainingSeconds={player.sleepTimerRemaining} styles={styles} />
+        </View>
         <View style={styles.visualStage}>
           {(protectedSourceConflict || protectedSourceError || player.playbackAccessError || player.playbackConflict || player.controlsLocked) && (
             <View style={styles.exclusiveSessionNotice}>
@@ -722,26 +670,7 @@ export function FullPlayer({ navigation }) {
             />
           )}
         </View>
-        {isVideo && (
-          <View style={styles.visualSleepControls}>
-            {sleepOpen && (
-              <SleepTimerOptions
-                colors={colors}
-                darkSurface
-                onClose={() => setSleepOpen(false)}
-                onSetSleepTimer={player.setSleepTimer}
-                styles={styles}
-              />
-            )}
-            <SleepTimerButton
-              colors={colors}
-              darkSurface
-              onPress={() => setSleepOpen((open) => !open)}
-              remainingSeconds={player.sleepTimerRemaining}
-              styles={styles}
-            />
-          </View>
-        )}
+        <MediaSettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} player={player} />
       </View>
     );
   }
@@ -761,13 +690,16 @@ export function FullPlayer({ navigation }) {
           <Text style={styles.headerKicker}>PLAYING FROM LIBRARY</Text>
           <Text numberOfLines={1} style={styles.headerPlaylist}>{getLastFolderName(media)}</Text>
         </View>
-        <PlayerIconButton
-          accessibilityLabel={shareBusy ? "Preparing music clip" : "Share 10 seconds from current position"}
-          disabled={!offline.isConnected || shareBusy}
-          icon="share-outline"
-          iconColor={!offline.isConnected ? colors.subtle : colors.text}
-          onPress={shareMusicClip}
-        />
+        <View style={styles.headerActions}>
+          <SettingsButton colors={colors} onPress={() => setSettingsOpen(true)} remainingSeconds={player.sleepTimerRemaining} styles={styles} />
+          <PlayerIconButton
+            accessibilityLabel={shareBusy ? "Preparing music clip" : "Share 10 seconds from current position"}
+            disabled={!offline.isConnected || shareBusy}
+            icon="share-outline"
+            iconColor={!offline.isConnected ? colors.subtle : colors.text}
+            onPress={shareMusicClip}
+          />
+        </View>
       </View>
 
       <View style={styles.mediaZone}>
@@ -845,23 +777,7 @@ export function FullPlayer({ navigation }) {
           />
         </View>
 
-        {sleepOpen && (
-          <SleepTimerOptions
-            colors={colors}
-            onClose={() => setSleepOpen(false)}
-            onSetSleepTimer={player.setSleepTimer}
-            styles={styles}
-          />
-        )}
-
         <View style={styles.actionRow}>
-          <QualityControl player={player} styles={styles} />
-          <SleepTimerButton
-            colors={colors}
-            onPress={() => setSleepOpen((open) => !open)}
-            remainingSeconds={player.sleepTimerRemaining}
-            styles={styles}
-          />
           <PlayerIconButton
             accessibilityLabel="Open queue"
             active={sheetOpen && sheetTab === "queue"}
@@ -952,6 +868,7 @@ export function FullPlayer({ navigation }) {
           total={player.queueTotal}
         />
       )}
+      <MediaSettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} player={player} />
     </View>
   );
 }
@@ -980,6 +897,11 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
     alignItems: "center",
     justifyContent: "space-between",
     zIndex: 10,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
   headerCenter: {
     flex: 1,
@@ -1182,102 +1104,30 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
     fontSize: 11,
     fontWeight: "800",
   },
-  qualityPill: {
-    minWidth: 54,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.sm,
-    borderRadius: 21,
-    borderWidth: 1,
-    borderColor: alpha(colors.primary, 0.35),
-    backgroundColor: alpha(colors.primary, 0.12),
-  },
-  qualityText: {
-    color: colors.primary,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-  },
-  visualQuality: {
-    position: "absolute",
-    right: spacing.md,
-    zIndex: 12,
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  sleepButton: {
+  settingsButton: {
     minWidth: 42,
     height: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
     borderRadius: 21,
     backgroundColor: alpha(colors.text, 0.1),
   },
-  sleepButtonDark: {
+  settingsButtonDark: {
     backgroundColor: "rgba(255,255,255,0.12)",
   },
-  sleepButtonActive: {
-    backgroundColor: alpha(colors.primary, 0.18),
-  },
-  sleepBadge: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  sleepOptions: {
-    alignSelf: "center",
-    minHeight: 42,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    padding: spacing.xs,
-    borderRadius: radii.md,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: alpha(colors.text, 0.08),
-  },
-  sleepOptionsDark: {
-    backgroundColor: "rgba(0,0,0,0.58)",
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  sleepPreset: {
-    minWidth: 42,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.sm,
-    backgroundColor: colors.cardSoft,
-  },
-  sleepPresetDark: {
-    backgroundColor: alpha(colors.white, 0.12),
-  },
-  sleepPresetText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  sleepPresetTextDark: {
+  settingsBadge: {
+    position: "absolute",
+    top: -4,
+    right: -8,
+    overflow: "hidden",
     color: colors.white,
-  },
-  sleepClear: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: colors.cardSoft,
-  },
-  sleepClearDark: {
-    backgroundColor: alpha(colors.white, 0.12),
-  },
-  visualSleepControls: {
-    alignItems: "center",
-    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: 4,
+    fontSize: 9,
+    fontWeight: "900",
   },
   controlZone: {
     gap: spacing.md,
@@ -1540,6 +1390,12 @@ const makeStyles = (colors, resolvedMode, shadow, isShort) => {
     flex: 1,
     backgroundColor: colors.black,
     paddingHorizontal: spacing.lg,
+  },
+  visualHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 10,
   },
   visualClose: {
     zIndex: 10,

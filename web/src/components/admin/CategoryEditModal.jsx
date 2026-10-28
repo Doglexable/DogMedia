@@ -155,6 +155,7 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
   const [description, setDescription] = useState("");
   const [parentId, setParentId] = useState("");
   const [minAccessTier, setMinAccessTier] = useState("0");
+  const [applyToChildren, setApplyToChildren] = useState(false);
   const [coverFile, setCoverFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -165,7 +166,7 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
     if (isEditing) {
       setName(category.name || "");
       setDescription(category.description || "");
-      setParentId(category.parent_id == null ? "" : String(category.parent_id));
+      setParentId((category.stored_parent_id ?? category.parent_id) == null ? "" : String(category.stored_parent_id ?? category.parent_id));
       setMinAccessTier(category.min_access_tier != null ? String(category.min_access_tier) : "0");
     } else {
       const initialParentId = category?.parentId != null
@@ -186,6 +187,7 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
     }
 
     setCoverFile(null);
+    setApplyToChildren(false);
     setError(null);
     setSaving(false);
   }, [category, categories, isEditing, isOpen]);
@@ -207,12 +209,6 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
 
   const handleParentChange = (nextParentId) => {
     setParentId(nextParentId);
-    const parent = nextParentId
-      ? categories.find((c) => String(c.id) === String(nextParentId))
-      : null;
-    if (parent) {
-      setMinAccessTier(String(parent.min_access_tier ?? 0));
-    }
   };
 
   const handleSubmit = async (event) => {
@@ -231,6 +227,7 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
         description: description.trim(),
         parentId: parentId ? Number.parseInt(parentId, 10) : null,
         minAccessTier: Number.parseInt(minAccessTier, 10) || 0,
+        applyToChildren: isEditing && applyToChildren,
         coverFile,
       });
       onClose();
@@ -307,6 +304,9 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
                 disabled={saving}
               >
                 <option value="">No parent (root)</option>
+                {parentId && !categories.some((c) => String(c.id) === String(parentId)) && (
+                  <option value={parentId}>Current restricted parent</option>
+                )}
                 {categories
                   .filter((c) => !isEditing || String(c.id) !== String(category?.id))
                   .map((c) => (
@@ -319,34 +319,31 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
 
             <div style={modalStyles.fieldGroup}>
               <label style={modalStyles.label}>Minimum Access Tier</label>
-              {parentId ? (
-                <div
-                  style={{
-                    ...modalStyles.input,
-                    minHeight: 42,
-                    display: "flex",
-                    alignItems: "center",
-                    background: "var(--card-bg)",
-                    color: "var(--muted)",
-                  }}
-                >
-                  Tier {minAccessTier}
-                </div>
-              ) : (
-                <input
-                  type="number"
-                  min="0"
-                  style={modalStyles.input}
-                  value={minAccessTier}
-                  onChange={(e) => setMinAccessTier(e.target.value)}
-                  disabled={saving}
-                />
-              )}
+              <input
+                type="number"
+                min="0"
+                style={modalStyles.input}
+                value={minAccessTier}
+                onChange={(e) => setMinAccessTier(e.target.value)}
+                disabled={saving}
+              />
               <p style={modalStyles.helpText}>
-                {parentId
-                  ? "Child categories always inherit the minimum access tier from their parent."
-                  : "Only users at this tier or higher can see the branch below this category."}
+                Each folder controls access to its own contents. A child folder may be public even when its parent is restricted.
               </p>
+              {isEditing && (
+                <label style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 12, cursor: saving ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={applyToChildren}
+                    onChange={(e) => setApplyToChildren(e.target.checked)}
+                    disabled={saving}
+                  />
+                  Apply this tier to all child folders
+                </label>
+              )}
+              {isEditing && (
+                <p style={modalStyles.helpText}>When checked, this replaces the current tier of every nested child folder.</p>
+              )}
             </div>
 
             <div style={modalStyles.fieldGroup}>

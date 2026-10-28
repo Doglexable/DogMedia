@@ -43,6 +43,8 @@ pub enum EngineError {
     InvalidStreamUrl,
     #[error("GStreamer state change failed: {0}")]
     State(#[from] gst::StateChangeError),
+    #[error("GStreamer rate seek failed: {0}")]
+    RateSeek(#[from] gst::glib::BoolError),
 }
 
 pub type RedrawCallback = Arc<dyn Fn() + Send + Sync + 'static>;
@@ -58,6 +60,7 @@ pub struct PlaybackEngine {
     recycle: Arc<Mutex<Vec<Vec<u8>>>>,
     redraw: Arc<Mutex<Option<RedrawCallback>>>,
     pending_seek: Arc<Mutex<Option<f64>>>,
+    current_rate: Mutex<f64>,
     last_video_pts: Arc<Mutex<Option<f64>>>,
 }
 
@@ -363,6 +366,7 @@ impl PlaybackEngine {
             recycle,
             redraw,
             pending_seek,
+            current_rate: Mutex::new(1.0),
             last_video_pts,
         })
     }
@@ -394,6 +398,9 @@ impl PlaybackEngine {
         if let Ok(mut pending) = self.pending_seek.lock() {
             *pending = None;
         }
+        if let Ok(mut current_rate) = self.current_rate.lock() {
+            *current_rate = 1.0;
+        }
         if let Ok(mut pts) = self.last_video_pts.lock() {
             *pts = None;
         }
@@ -413,6 +420,9 @@ impl PlaybackEngine {
         }
         if let Ok(mut pending) = self.pending_seek.lock() {
             *pending = None;
+        }
+        if let Ok(mut current_rate) = self.current_rate.lock() {
+            *current_rate = 1.0;
         }
         if let Ok(mut pts) = self.last_video_pts.lock() {
             *pts = None;
@@ -447,6 +457,30 @@ impl PlaybackEngine {
         Ok(())
     }
 
+    pub fn set_rate(&self, rate: f64) -> Result<(), EngineError> {
+        let rate = if rate.is_finite() { rate.clamp(0.25, 3.0) } else { 1.0 };
+        let position = self
+            .playbin
+            .query_position::<gst::ClockTime>()
+            .unwrap_or(gst::ClockTime::ZERO);
+        self.playbin.seek(
+            rate,
+            gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+            gst::SeekType::Set,
+            position,
+            gst::SeekType::None,
+            gst::ClockTime::NONE,
+        )?;
+        if let Ok(mut current_rate) = self.current_rate.lock() {
+            *current_rate = rate;
+        }
+        Ok(())
+    }
+
+    pub fn rate(&self) -> f64 {
+        self.current_rate.lock().map(|rate| *rate).unwrap_or(1.0)
+    }
+
     pub fn is_playing(&self) -> bool {
         let (state_res, current, pending) = self.playbin.state(Some(gst::ClockTime::ZERO));
         state_res.is_ok() && (current == gst::State::Playing || pending == gst::State::Playing)
@@ -460,6 +494,9 @@ impl PlaybackEngine {
     pub fn stop(&self) -> Result<(), EngineError> {
         if let Ok(mut pending) = self.pending_seek.lock() {
             *pending = None;
+        }
+        if let Ok(mut current_rate) = self.current_rate.lock() {
+            *current_rate = 1.0;
         }
         if let Ok(mut pts) = self.last_video_pts.lock() {
             *pts = None;
@@ -487,15 +524,23 @@ impl PlaybackEngine {
                 && current_state >= gst::State::Paused
                 && pending_state == gst::State::VoidPending
             {
-                let res = self.playbin.seek_simple(
-                    gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                    gst::ClockTime::from_nseconds((target.max(0.0) * 1_000_000_000.0) as u64),
-                );
+                let res = self.seek_at(target);
                 if res.is_ok() {
                     *pending = None;
                 }
             }
         }
+    }
+
+    fn seek_at(&self, seconds: f64) -> Result<(), gst::glib::BoolError> {
+        self.playbin.seek(
+            self.rate(),
+            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
+            gst::SeekType::Set,
+            gst::ClockTime::from_nseconds((seconds.max(0.0) * 1_000_000_000.0) as u64),
+            gst::SeekType::None,
+            gst::ClockTime::NONE,
+        )
     }
 
     pub fn seek(&self, seconds: f64) -> bool {
@@ -508,12 +553,7 @@ impl PlaybackEngine {
             && current_state >= gst::State::Paused
             && pending_state == gst::State::VoidPending
         {
-            self.playbin
-                .seek_simple(
-                    gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-                    gst::ClockTime::from_nseconds((seconds.max(0.0) * 1_000_000_000.0) as u64),
-                )
-                .is_ok()
+            self.seek_at(seconds).is_ok()
         } else {
             if let Ok(mut pending) = self.pending_seek.lock() {
                 *pending = Some(seconds);
@@ -684,6 +724,40 @@ mod tests {
             Some(gst::MessageView::Eos(_))
         ));
         pipeline.set_state(gst::State::Null).unwrap();
+    }
+
+    #[test]
+    fn audio_only_stream_accepts_rate_seek() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rate-test.wav");
+        let sample_rate = 8_000_u32;
+        let pcm = vec![0_u8; sample_rate as usize * 4 * 2];
+        let mut wav = Vec::with_capacity(44 + pcm.len());
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16_u32.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&1_u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2_u16.to_le_bytes());
+        wav.extend_from_slice(&16_u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&pcm);
+        std::fs::write(&path, wav).unwrap();
+
+        let engine = PlaybackEngine::new().unwrap();
+        let audio_sink = gst::ElementFactory::make("fakesink").build().unwrap();
+        engine.playbin.set_property("audio-sink", &audio_sink);
+        engine.open_local(&url::Url::from_file_path(&path).unwrap()).unwrap();
+        engine.pause().unwrap();
+        let (result, state, _) = engine.playbin.state(Some(gst::ClockTime::from_seconds(5)));
+        assert!(result.is_ok() && state >= gst::State::Paused);
+        engine.set_rate(1.5).unwrap();
+        assert_eq!(engine.rate(), 1.5);
+        engine.stop().unwrap();
     }
 
     #[test]

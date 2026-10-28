@@ -14,8 +14,9 @@ import {
   releaseExclusiveLease,
   revokePlaybackSession,
 } from "../playback-session.js";
-import { authorizeExclusiveReport as authorizeLiveReport, publicHolderWithPlayback as liveHolderWithPlayback, reportIdentity, writeActivePlayback } from "../playback-live-state.js";
+import { activePlaybackIdentity, authorizeExclusiveReport as authorizeLiveReport, publicHolderWithPlayback as liveHolderWithPlayback, reportIdentity, writeActivePlayback } from "../playback-live-state.js";
 import { isAllowedSocketOrigin } from "../playback-socket.js";
+import { ACCESSIBLE_CATEGORY_TREE_SQL } from "../category-access.js";
 
 export const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
 export const PAUSE_CACHE_TTL_SECONDS = 30 * 60;
@@ -137,11 +138,12 @@ function buildPlaybackEvent(request, body = {}) {
   };
 }
 
-async function dropActivePlayback(redis, viewerId) {
+async function dropActivePlayback(redis, clientIp, viewerId) {
   if (!viewerId) return;
+  const activeIdentity = activePlaybackIdentity(clientIp, viewerId);
   const multi = redis.multi();
-  multi.del(`playback:active:${viewerId}`);
-  multi.zrem(ACTIVE_INDEX_KEY, viewerId);
+  multi.del(`playback:active:${activeIdentity}`);
+  multi.zrem(ACTIVE_INDEX_KEY, activeIdentity);
   await multi.exec();
 }
 
@@ -438,29 +440,7 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
   }
 
   const { rows } = await fastify.pg.query(
-    `WITH RECURSIVE accessible_categories AS (
-       SELECT
-         c.id,
-         c.parent_id,
-         c.min_access_tier,
-         c.name,
-         c.cover_path,
-         ARRAY[c.name::text]::text[] AS path_parts
-       FROM categories c
-       WHERE c.parent_id IS NULL
-         AND c.min_access_tier <= $1
-       UNION ALL
-       SELECT
-         c.id,
-         c.parent_id,
-         c.min_access_tier,
-         c.name,
-         c.cover_path,
-         ac.path_parts || c.name::text
-       FROM categories c
-       JOIN accessible_categories ac ON c.parent_id = ac.id
-       WHERE c.min_access_tier <= $1
-     ),
+    `${ACCESSIBLE_CATEGORY_TREE_SQL},
      playback_stats AS (
        SELECT
          pe.media_id,
@@ -661,7 +641,7 @@ export default async function (fastify) {
   fastify.get("/active", async (request) => {
     const redis = getRedis(fastify);
     const ip = request.clientIp || request.ip;
-    const activeIdentity = readViewerId(request) || ip;
+    const activeIdentity = activePlaybackIdentity(ip, readViewerId(request));
     const key = `playback:active:${activeIdentity}`;
     const raw = await redis.get(key);
     if (!raw) return { active: null };
@@ -691,7 +671,7 @@ export default async function (fastify) {
   fastify.delete("/active", async (request) => {
     const redis = getRedis(fastify);
     const ip = request.clientIp || request.ip;
-    const activeIdentity = readViewerId(request) || ip;
+    const activeIdentity = activePlaybackIdentity(ip, readViewerId(request));
     const key = `playback:active:${activeIdentity}`;
     const multi = redis.multi();
     multi.del(key);
@@ -737,7 +717,7 @@ export default async function (fastify) {
       ? await releaseExclusiveLease(redis, viewerId, sessionId, clientIp)
       : false;
     if (released) {
-      await dropActivePlayback(redis, viewerId);
+      await dropActivePlayback(redis, clientIp, viewerId);
       await fastify.playbackSocketHub?.notify();
     }
     await revokePlaybackSession(redis, sessionId);
@@ -745,7 +725,7 @@ export default async function (fastify) {
   });
 
   fastify.get("/lease", async (request) => {
-    const lease = await getExclusiveLease(getRedis(fastify));
+    const lease = await getExclusiveLease(getRedis(fastify), request.clientIp || request.ip);
     if (!lease) return { state: "available", expiresIn: 0 };
     const viewerId = readViewerId(request);
     const clientId = readPlaybackClientId(request, viewerId);
@@ -765,10 +745,10 @@ export default async function (fastify) {
   fastify.delete("/lease/admin", async (request, reply) => {
     if (request.accessTier < 100) return reply.code(403).send({ error: "Insufficient tier" });
     const redis = getRedis(fastify);
-    const lease = await getExclusiveLease(redis);
-    const released = Number(await forceReleaseExclusiveLease(redis)) > 0;
+    const lease = await getExclusiveLease(redis, request.clientIp || request.ip);
+    const released = Number(await forceReleaseExclusiveLease(redis, request.clientIp || request.ip)) > 0;
     if (released) {
-      await dropActivePlayback(redis, lease?.viewerId);
+      await dropActivePlayback(redis, request.clientIp || request.ip, lease?.viewerId);
       await fastify.playbackSocketHub?.notify();
     }
     return { ok: true, released };
