@@ -326,6 +326,13 @@ impl PlaybackEngine {
             Some(gst::FlowReturn::Ok.to_value())
         });
         playbin.set_property("video-sink", &video_sink);
+        // Bound network streaming buffer in playbin3. Default is -1 (unlimited),
+        // which causes GStreamer to continuously ingest HTTP stream chunks into RAM
+        // without backpressure. Bounding duration and size throttles socket reads
+        // and enforces TCP backpressure on the server stream.
+        playbin.set_property("buffer-duration", 5_000_000_000i64); // 5 seconds
+        playbin.set_property("buffer-size", 8 * 1024 * 1024_i32); // 8 MB max network buffer
+        playbin.set_property("ring-buffer-max-size", 16 * 1024 * 1024_u64); // 16 MB ring buffer limit
         let headers = Arc::new(Mutex::new(None::<ProtectedHeaders>));
         let source_headers = Arc::clone(&headers);
         playbin.connect("source-setup", false, move |values| {

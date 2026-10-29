@@ -31,7 +31,7 @@ This is a private instance. All media streaming endpoints and personal library a
 `;
 
 export default async function (fastify, opts = {}) {
-  const version = opts.version || "0.7.0";
+  const version = opts.version || "0.7.6";
 
   fastify.get("/robots.txt", async (_request, reply) => {
     reply.type("text/plain; charset=utf-8");

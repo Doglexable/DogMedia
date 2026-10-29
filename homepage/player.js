@@ -58,7 +58,10 @@ function render() {
   const track = tracks[selected];
   elements.title.textContent = track.title;
   elements.artist.textContent = track.artist;
-  elements.number.textContent = `${String(selected + 1).padStart(2, "0")} / ${String(tracks.length).padStart(2, "0")}`;
+  const countStr = `${String(selected + 1).padStart(2, "0")} / ${String(tracks.length).padStart(2, "0")}`;
+  elements.number.textContent = countStr;
+  const heroCount = document.querySelector("#hero-track-count");
+  if (heroCount) heroCount.textContent = countStr;
   elements.duration.textContent = formatTime(track.duration);
   elements.art.style.setProperty("--art-a", track.colors[0]);
   elements.art.style.setProperty("--art-b", track.colors[1]);
@@ -67,8 +70,13 @@ function render() {
   elements.play.title = playing ? "Jeda" : "Putar";
   document.body.classList.toggle("is-playing", playing);
   [...elements.list.children].forEach((item, index) => {
-    item.firstElementChild.classList.toggle("is-active", index === selected);
-    item.firstElementChild.setAttribute("aria-current", index === selected ? "true" : "false");
+    const isCurrent = index === selected;
+    item.firstElementChild.classList.toggle("is-active", isCurrent);
+    item.firstElementChild.setAttribute("aria-current", isCurrent ? "true" : "false");
+    const indicator = item.firstElementChild.querySelector(".track-live-bars");
+    if (indicator) {
+      indicator.style.display = isCurrent && playing ? "inline-flex" : "none";
+    }
   });
   renderProgress();
 }
@@ -194,11 +202,16 @@ tracks.forEach((track, index) => {
   const duration = document.createElement("span");
   duration.className = "track-duration";
   duration.textContent = formatTime(track.duration);
+  const liveBars = document.createElement("span");
+  liveBars.className = "track-live-bars";
+  liveBars.setAttribute("aria-hidden", "true");
+  liveBars.innerHTML = "<span></span><span></span><span></span>";
+  liveBars.style.display = "none";
   const arrow = document.createElement("span");
   arrow.className = "track-arrow";
   arrow.setAttribute("aria-hidden", "true");
   arrow.textContent = "↗";
-  button.append(number, artwork, copy, duration, arrow);
+  button.append(number, artwork, copy, liveBars, duration, arrow);
   button.addEventListener("click", () => selectTrack(index, true));
   li.append(button);
   elements.list.append(li);
@@ -249,8 +262,12 @@ modalOverlay?.addEventListener("click", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && modalOverlay?.classList.contains("is-open")) {
-    closePrivacyModal();
+  if (e.key === "Escape") {
+    if (footerInfoModal) {
+      closeFooterModal();
+    } else if (modalOverlay?.classList.contains("is-open")) {
+      closePrivacyModal();
+    }
   }
 });
 
@@ -407,4 +424,149 @@ colorSchemeMedia.addEventListener("change", (e) => {
     }
   }
 });
+
+// Footer Information Dialog Controller & Parity
+const FOOTER_MODAL_DATA = {
+  privacy: {
+    title: "Privacy & Ownership",
+    subtitle: "Local-First Architecture",
+    body: `Dogmedia is designed from the ground up for personal data sovereignty and complete privacy.
+
+• Zero Telemetry: No behavioral logging, fingerprinting, or tracking scripts.
+• Local Storage: Media files, listening habits, and metadata stay strictly inside your storage volume.
+• Direct Streaming: Media chunks are served directly via HTTP Range requests without intermediary cloud proxies.
+• Secure Authentication: Scrypt password hashing, Redis-backed sessions, and access tier boundaries.
+• Private By Design: You own your collection, your stories, and your rhythm.`,
+  },
+  terms: {
+    title: "Terms of Use",
+    subtitle: "Personal Media Space",
+    body: `Dogmedia is an independent, personal media library system intended for lawful self-hosted media playback.
+
+• Personal Collection: For organizing and playing audio, video, and photos you lawfully own or have rights to stream.
+• Self-Hosted Responsibility: You maintain server access controls, account security, and data preservation.
+• Free & Independent: Provided as open software for independent media enthusiasts.`,
+  },
+  license: {
+    title: "Open Source License",
+    subtitle: "MIT License",
+    body: `Dogmedia is free and open source software licensed under the MIT License.
+
+Copyright (c) 2026 Dogmedia contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software.`,
+  },
+  protocol: {
+    title: "Direct Streaming Protocol",
+    subtitle: "Native HTTP Range Chunking",
+    body: `Dogmedia implements native high-performance media chunk streaming:
+
+• HTTP 206 Partial Content: Instant timeline scrubbing and precise video seeking.
+• Zero Transcode Latency: Original audio and video bitstreams are preserved without destructive compression.
+• Redis Queue Sync: Atomic queue manipulation, WebSocket live state, and persistent resume bookmarks across all your devices.`,
+  },
+  "desktop-lan": {
+    title: "Desktop & LAN Streaming",
+    subtitle: "Native Client & Home Network Playback",
+    body: `Access your personal media library anywhere on your home network:
+
+• Native Desktop App: Rust Dioxus & Blitz client available for Linux, Windows, and macOS with native media keys and MPRIS integration.
+• Cross-Device: Stream to any laptop, desktop, tablet, or Smart TV browser via your server's local IP address.
+• Progressive Web App: Install directly from your browser as a standalone desktop application.
+• Seamless Continuity: Playback positions, resume states, and favorites sync seamlessly across all your devices.`,
+  },
+  "self-hosted": {
+    title: "Self-Hosted Architecture",
+    subtitle: "Independent Technology Stack",
+    body: `Built for reliability, speed, and long-term ownership:
+
+• Backend: FastifyJS (Node.js 22 LTS on Alpine Linux)
+• Database: PostgreSQL 17 with automated migration pipelines
+• Cache & Queues: Redis 7 for high-speed queue operations, active sessions, and live state
+• Frontend: React 19, Vite, and native CSS variables (Web v0.7.6)
+• Desktop: Rust Dioxus Native & Blitz desktop application
+• Mobile: React Native & Expo client (Android APK)
+• Deployment: Podman & Docker Compose rootless containerization`,
+  },
+  credits: {
+    title: "Credits & Artworks",
+    subtitle: "Community Artists & Creators",
+    body: `Dogmedia celebrates the talented community creators who crafted the avatar and emote collection:
+
+• comickergirl (Sarah Leuver) - https://x.com/comickergirl
+  Created Francois, Gustave Grave, Lune Journal, Maelle Hug, Monoco Good, Parry It, Sciel Approval, Simon, This Is Fine, Verso Good, Verso LMAO.
+
+• Bugyakis - https://x.com/bugyakis
+  Created E33 Flag, Gustave Absolute Cinema, Gustave For Those Who Come After, Lune Beach, Lune When One Falls, Monoco Cry, Monoco Void Baguette, Noco Treasure, Renoir Gommage, Sciel Laugh, Verso Stare.
+
+• IrunoArt - https://x.com/IrunoArt
+  Created Alicia Side Eye, Clea Pathetic, Esquie Wheee, Esquie Whooo, Gustave Dance Petals, Maelle Play The Piano, Monoco Feet, Monoco Owowow, Osquio Putain, Sciel Celebration, Verso Tired.
+
+Thank you to all community creators for their wonderful contributions!`,
+  },
+};
+
+const footerInfoTemplate = document.querySelector("#footer-info-modal-template");
+let footerInfoModal = null;
+let footerModalTrigger = null;
+let previousRootOverflow = "";
+let previousBodyOverflow = "";
+
+function openFooterModal(key, trigger) {
+  const data = FOOTER_MODAL_DATA[key];
+  if (!data || !footerInfoTemplate || footerInfoModal) return;
+  const fragment = footerInfoTemplate.content.cloneNode(true);
+  footerInfoModal = fragment.querySelector("#footer-info-modal");
+  footerInfoModal.querySelector("#footer-info-modal-title").textContent = data.title;
+  footerInfoModal.querySelector("#footer-info-modal-subtitle").textContent = data.subtitle;
+  footerInfoModal.querySelector("#footer-info-modal-body").textContent = data.body;
+  footerInfoModal.querySelector("#footer-info-modal-close").addEventListener("click", closeFooterModal);
+  footerInfoModal.addEventListener("click", (event) => {
+    if (event.target === footerInfoModal) closeFooterModal();
+  });
+  footerModalTrigger = trigger;
+  previousRootOverflow = document.documentElement.style.overflow;
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.appendChild(fragment);
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.overflow = "hidden";
+  footerInfoModal.querySelector("#footer-info-modal-close").focus();
+}
+
+function closeFooterModal() {
+  if (!footerInfoModal) return;
+  footerInfoModal.remove();
+  footerInfoModal = null;
+  document.documentElement.style.overflow = previousRootOverflow;
+  document.body.style.overflow = previousBodyOverflow;
+  footerModalTrigger?.focus();
+  footerModalTrigger = null;
+}
+
+document.querySelectorAll("[data-modal]").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    openFooterModal(btn.dataset.modal, btn);
+  });
+});
+
+// Footer mobile collapsible columns
+document.querySelectorAll(".site-footer-col-header").forEach((headerBtn) => {
+  headerBtn.addEventListener("click", () => {
+    const isExpanded = headerBtn.getAttribute("aria-expanded") === "true";
+    const nextExpanded = !isExpanded;
+    headerBtn.setAttribute("aria-expanded", String(nextExpanded));
+    const navCol = headerBtn.closest(".site-footer-nav-col");
+    const list = navCol?.querySelector(".site-footer-nav-list");
+    const icon = headerBtn.querySelector(".site-footer-col-toggle-icon");
+    if (list) list.classList.toggle("site-footer-nav-list--open", nextExpanded);
+    if (icon) icon.classList.toggle("site-footer-col-toggle-icon--open", nextExpanded);
+  });
+});
+
+// Footer copyright year
+const copyrightEl = document.querySelector("#footer-copyright");
+if (copyrightEl) {
+  copyrightEl.textContent = `© ${new Date().getFullYear()} Dogmedia. All rights reserved.`;
+}
 

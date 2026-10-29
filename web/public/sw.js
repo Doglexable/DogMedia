@@ -1,6 +1,6 @@
 const CACHE_PREFIX = "dogmedia-static-";
 const CACHE_VERSION = "%APP_VERSION%";
-const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION.startsWith("%") ? "v0.7.0" : CACHE_VERSION}`;
+const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION.startsWith("%") ? "v0.7.6" : CACHE_VERSION}`;
 const APP_SHELL = [
   "/site.webmanifest",
   "/favicon.ico",

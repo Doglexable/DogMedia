@@ -256,7 +256,8 @@ async fn serve_player(
     });
 
     tokio::task::spawn_local(player.run());
-    apply_state(&player, &state_rx.borrow().clone()).await?;
+    let mut previous_state: Option<MprisState> = None;
+    apply_state(&player, &state_rx.borrow().clone(), &mut previous_state).await?;
 
     loop {
         tokio::select! {
@@ -264,7 +265,7 @@ async fn serve_player(
                 if changed.is_err() {
                     break;
                 }
-                apply_state(&player, &state_rx.borrow().clone()).await?;
+                apply_state(&player, &state_rx.borrow().clone(), &mut previous_state).await?;
             }
             changed = shutdown_rx.changed() => {
                 if changed.is_err() || *shutdown_rx.borrow() {
@@ -284,17 +285,47 @@ fn connect_command(
     connect(player, sender.clone());
 }
 
-async fn apply_state(player: &Player, state: &MprisState) -> mpris_server::zbus::Result<()> {
+async fn apply_state(
+    player: &Player,
+    state: &MprisState,
+    prev: &mut Option<MprisState>,
+) -> mpris_server::zbus::Result<()> {
     player.set_position(Time::from_micros(state.position_micros));
-    player.set_playback_status(state.status).await?;
-    player
-        .set_metadata(to_metadata(state.metadata.as_ref()))
-        .await?;
-    player.set_volume(state.volume).await?;
-    player.set_can_play(state.can_play).await?;
-    player.set_can_pause(state.can_pause).await?;
-    player.set_can_go_previous(state.can_go_previous).await?;
-    player.set_can_go_next(state.can_go_next).await?;
+
+    let need_status = prev.as_ref().map(|p| p.status) != Some(state.status);
+    if need_status {
+        player.set_playback_status(state.status).await?;
+    }
+
+    let need_metadata = prev.as_ref().and_then(|p| p.metadata.as_ref()) != state.metadata.as_ref();
+    if need_metadata {
+        player
+            .set_metadata(to_metadata(state.metadata.as_ref()))
+            .await?;
+    }
+
+    let need_volume = prev.as_ref().map(|p| p.volume) != Some(state.volume);
+    if need_volume {
+        player.set_volume(state.volume).await?;
+    }
+
+    let need_caps = prev
+        .as_ref()
+        .map(|p| (p.can_play, p.can_pause, p.can_go_previous, p.can_go_next))
+        != Some((
+            state.can_play,
+            state.can_pause,
+            state.can_go_previous,
+            state.can_go_next,
+        ));
+    if need_caps {
+        player.set_can_play(state.can_play).await?;
+        player.set_can_pause(state.can_pause).await?;
+        player.set_can_go_previous(state.can_go_previous).await?;
+        player.set_can_go_next(state.can_go_next).await?;
+    }
+
+    *prev = Some(state.clone());
     Ok(())
 }
 

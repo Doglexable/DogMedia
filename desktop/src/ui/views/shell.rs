@@ -2,7 +2,7 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::{
-    AppMenubar, FullPlayer, Library, MediaSettingsDialog, PlayerBar, QualityOverlay, QueuePanel, SettingsDialog,
+    AppMenubar, FullPlayer, Library, MediaSettingsDialog, PlayerBar, QueuePanel, SettingsDialog,
     Sidebar, VideoMiniPlayer,
 };
 
@@ -37,9 +37,7 @@ pub(crate) fn Shell(
         match event.key() {
             Key::Escape => {
                 let mut app_w = app.write();
-                if app_w.quality_popover_open {
-                    app_w.quality_popover_open = false;
-                } else if app_w.media_settings_open {
+                if app_w.media_settings_open {
                     app_w.media_settings_open = false;
                 } else if app_w.settings_open
                     && app_w.settings.configured
@@ -117,7 +115,6 @@ pub(crate) fn Shell(
             }
             if !snapshot.player_expanded
                 && !snapshot.queue_open
-                && !snapshot.quality_popover_open
                 && !snapshot.media_settings_open
                 && !snapshot.settings_open
             {
@@ -196,18 +193,6 @@ pub(crate) fn Shell(
             }
             if snapshot.player_expanded && has_media {
                 FullPlayer { app, engine, video_source_id }
-            }
-            if snapshot.quality_popover_open {
-                if let Some(media) = playback.media.as_ref() {
-                    QualityOverlay {
-                        app,
-                        engine,
-                        quality: playback.quality,
-                        is_video: media.is_video(),
-                        expanded: snapshot.player_expanded,
-                        has_lyrics: snapshot.lyrics_visible,
-                    }
-                }
             }
             if snapshot.queue_open {
                 if snapshot.local_mode {

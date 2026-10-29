@@ -559,6 +559,62 @@ describe("playback active cache routes", () => {
 
     await app.close();
   });
+
+  it("rebuilds cached featured media when its category becomes private", async () => {
+    const redis = createMockRedis();
+    let privateTier = 0;
+    let dashboardQueries = 0;
+    const media = [
+      {
+        id: 1, category_id: 1, category_name: "Private", category_path: "Private",
+        title: "Secret song", description: "Secret description", mime_type: "audio/mpeg",
+        created_at: "2026-01-02T00:00:00.000Z", play_count: 3, total_time: 600,
+        playback_score: 1000, last_played_at: "2026-01-02T00:00:00.000Z",
+      },
+      {
+        id: 2, category_id: 2, category_name: "Public", category_path: "Public",
+        title: "Public song", mime_type: "audio/mpeg",
+        created_at: "2026-01-01T00:00:00.000Z", play_count: 1, total_time: 30,
+        playback_score: 210, last_played_at: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    const accessibleMedia = () => media.filter((item) => item.category_id !== 1 || privateTier === 0);
+    const app = Fastify();
+    app.decorate("redis", redis);
+    app.decorate("pg", {
+      async query(sql, params) {
+        expect(sql).toContain("JOIN accessible_categories ac ON ac.id = m.category_id");
+        expect(params[0]).toBe(0);
+        if (sql.includes("WHERE m.id = ANY($2::int[])")) {
+          return { rows: accessibleMedia()
+            .filter((item) => params[1].includes(item.id))
+            .map(({ id, category_name, category_path }) => ({ id, category_name, category_path })) };
+        }
+        dashboardQueries += 1;
+        return { rows: accessibleMedia() };
+      },
+    });
+    app.addHook("onRequest", async (request) => { request.accessTier = 0; });
+    await app.register(playbackRoutes, { prefix: "/api/playback" });
+
+    const first = await app.inject({ method: "GET", url: "/api/playback/dashboard" });
+    expect(first.statusCode).toBe(200);
+    expect(first.headers["cache-control"]).toBe("private, no-store");
+    expect(first.json().featuredId).toBe(1);
+    const cached = await app.inject({ method: "GET", url: "/api/playback/dashboard" });
+    expect(cached.json()).toMatchObject({ featuredId: 1, cached: true });
+    expect(dashboardQueries).toBe(1);
+
+    privateTier = 100;
+    const refreshed = await app.inject({ method: "GET", url: "/api/playback/dashboard" });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json()).toMatchObject({ featuredId: 2, cached: false });
+    expect(refreshed.body).not.toContain("Secret song");
+    expect(refreshed.body).not.toContain("Secret description");
+    expect(dashboardQueries).toBe(2);
+    await app.close();
+  });
+
 });
 
 describe("exclusive playback lease routes", () => {

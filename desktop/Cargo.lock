@@ -1533,7 +1533,7 @@ dependencies = [
 
 [[package]]
 name = "dogmedia-desktop"
-version = "0.7.0"
+version = "0.7.6"
 dependencies = [
  "ab_glyph",
  "async-trait",

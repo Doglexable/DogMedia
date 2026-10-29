@@ -20,7 +20,7 @@ pub(crate) use lyrics_share::LyricsShareDialog;
 pub(crate) use media_settings_dialog::MediaSettingsDialog;
 #[cfg(test)]
 pub(crate) use player_bar::can_take_over_playback;
-pub(crate) use player_bar::{PlayerBar, QualityOverlay, QualityPopover, SessionConflictCard};
+pub(crate) use player_bar::{PlayerBar, SessionConflictCard};
 pub(crate) use queue_panel::QueuePanel;
 pub(crate) use settings_dialog::{ConnectionErrorDialog, SettingsDialog};
 pub(crate) use shell::Shell;

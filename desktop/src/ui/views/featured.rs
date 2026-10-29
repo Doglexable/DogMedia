@@ -11,6 +11,9 @@ pub(crate) fn Featured(
 ) -> Element {
     let snapshot = app.read();
     let source = artwork_url(&snapshot, &media);
+    use_effect(use_reactive((&media,), move |(media,)| {
+        ensure_artwork(app, media);
+    }));
     let full_category = media
         .category_path
         .as_deref()

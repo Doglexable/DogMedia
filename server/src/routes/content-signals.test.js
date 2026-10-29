@@ -42,7 +42,7 @@ describe("Content signals and markdown negotiation routes", () => {
 
   it("returns JSON status when normal browser/client Accept header is sent to root", async () => {
     const app = Fastify();
-    await app.register(contentSignalsRoutes, { version: "0.7.0" });
+    await app.register(contentSignalsRoutes, { version: "0.7.6" });
 
     const response = await app.inject({
       method: "GET",
@@ -58,7 +58,7 @@ describe("Content signals and markdown negotiation routes", () => {
     expect(json).toEqual({
       status: "ok",
       app: "Dogmedia",
-      version: "0.7.0",
+      version: "0.7.6",
     });
   });
 

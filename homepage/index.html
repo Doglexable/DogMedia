@@ -17,9 +17,9 @@
         document.documentElement.dataset.themeMode = mode;
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=4" />
+    <link rel="stylesheet" href="/styles.css?v=6" />
     <title>Dogmedia — ruang untuk musikmu</title>
-    <script src="/player.js?v=4" defer></script>
+    <script src="/player.js?v=6" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -52,12 +52,27 @@
             <p class="hero-note">Audio demo dibuat di perangkatmu. <button type="button" class="inline-link-btn" id="open-privacy-hero-btn">Transparansi data ↗</button></p>
           </div>
           <div class="hero-art" aria-hidden="true">
-            <div class="art-caption"><span>NOW PLAYING</span><span>01 / 03</span></div>
+            <div class="art-caption">
+              <span>NOW PLAYING</span>
+              <span id="hero-track-count">01 / 03</span>
+            </div>
             <div class="record-wrap">
-              <div class="record"><div class="record-label"><span>DM</span><small>SIDE A</small></div></div>
+              <div class="record">
+                <div class="record-grooves"></div>
+                <div class="record-label"><span>DM</span><small>SIDE A</small></div>
+              </div>
+              <div class="record-tonearm"></div>
               <div class="art-sheen"></div>
             </div>
-            <div class="art-bottom"><span>Made for listening.</span><span class="art-signal">▂ ▅ ▃ ▇ ▄ ▆ ▂</span></div>
+            <div class="art-bottom">
+              <div class="art-bottom-title">
+                <span class="live-dot"></span>
+                <span>Made for listening.</span>
+              </div>
+              <div class="art-visualizer" aria-label="Visualizer gelombang audio">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -91,22 +106,482 @@
         </section>
 
         <section class="about-section" id="about" aria-labelledby="about-title">
-          <p class="eyebrow">DOGMEDIA / THE IDEA</p>
-          <h2 id="about-title">Koleksimu tetap<br /><em>di tempatmu.</em></h2>
-          <p>Musik, video, dan foto dalam satu ruang yang kamu kelola sendiri. Halaman ini hanya memperlihatkan pengalaman mendengar; player demo tidak terhubung ke library privat.</p>
+          <div class="about-header">
+            <p class="eyebrow">DOGMEDIA / THE ARCHITECTURE</p>
+            <h2 id="about-title">Koleksimu tetap<br /><em>di tempatmu.</em></h2>
+            <p class="about-intro">
+              Musik, video, dan foto dalam satu ruang mandiri yang kamu kelola secara berdaulat. Nol algoritma monetisasi, nol perantara pihak ketiga.
+            </p>
+          </div>
+
+          <div class="bento-grid" role="region" aria-label="Arsitektur dan keunggulan sistem">
+            <!-- Bento 1: Sovereign Vault (Hero Card / Col span 2) -->
+            <div class="bento-card bento-card--featured">
+              <div class="bento-badge">PRIVATE ARCHITECTURE</div>
+              <h3 class="bento-title">Kedaulatan Data Lokal Penuh</h3>
+              <p class="bento-desc">
+                Pustaka audio dan media tersimpan secara utuh di server milikmu sendiri. Metadata, daftar putar, dan riwayat mendengarkan tidak pernah meninggalkan perangkat tanpa izin.
+              </p>
+              <div class="bento-stat-row">
+                <div class="bento-stat">
+                  <strong>0 Byte</strong>
+                  <span>Telemetri &amp; Pelacak</span>
+                </div>
+                <div class="bento-stat">
+                  <strong>HTTP 206</strong>
+                  <span>Native Range Scrubbing</span>
+                </div>
+                <div class="bento-stat">
+                  <strong>Argon2id</strong>
+                  <span>Kredensial Terenkripsi</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bento 2: Local Web Audio Synthesizer -->
+            <div class="bento-card">
+              <div class="bento-badge">BROWSER ENGINE</div>
+              <h3 class="bento-title">Sintesis Audio di Sisi Klien</h3>
+              <p class="bento-desc">
+                Demo player pada halaman ini disintesis seketika menggunakan Web Audio API lokal. Nol unduhan stream ke server, responsif, dan hemat daya.
+              </p>
+              <div class="bento-wave-preview" aria-hidden="true">
+                <span style="--h: 32%"></span>
+                <span style="--h: 68%"></span>
+                <span style="--h: 100%"></span>
+                <span style="--h: 74%"></span>
+                <span style="--h: 42%"></span>
+                <span style="--h: 88%"></span>
+                <span style="--h: 56%"></span>
+              </div>
+            </div>
+
+            <!-- Bento 3: Multi-Platform Continuity -->
+            <div class="bento-card">
+              <div class="bento-badge">CROSS PLATFORM</div>
+              <h3 class="bento-title">Kontinuitas Multi-Perangkat</h3>
+              <p class="bento-desc">
+                Sinkronisasi antrian putar dan riwayat menit/detik secara instan di peramban Web, aplikasi Native Desktop (Rust Dioxus), maupun Mobile APK.
+              </p>
+              <div class="bento-platform-tags">
+                <span class="bento-tag">Web Player</span>
+                <span class="bento-tag">Rust Desktop</span>
+                <span class="bento-tag">Android APK</span>
+              </div>
+            </div>
+
+            <!-- Bento 4: Audio Engineering Tools -->
+            <div class="bento-card">
+              <div class="bento-badge">HIGH FIDELITY</div>
+              <h3 class="bento-title">Perangkat Audio Berkualitas</h3>
+              <p class="bento-desc">
+                Dilengkapi 10-band parametrik equalizer presisi, sinkronisasi lirik kata per kata (.lrc), takarir subtitle video, dan rekap statistik tahunan (*Wrapped*).
+              </p>
+              <div class="bento-pill-group">
+                <span class="bento-pill">10-Band EQ</span>
+                <span class="bento-pill">Synchronised LRC</span>
+                <span class="bento-pill">Recap Stats</span>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
+    </div>
 
-      <footer>
-        <span>© 2026 Dogmedia — Ruang privat untuk mediamu.</span>
-        <div class="footer-actions">
-          <button type="button" class="theme-toggle-btn theme-toggle-btn--footer" id="theme-toggle-footer-btn" aria-label="Ganti mode tema" title="Ganti mode tema (Sistem / Terang / Gelap)">
-            <span class="theme-icon" aria-hidden="true">◐</span>
-            <span class="theme-label" id="theme-label-footer">Tema: Sistem</span>
-          </button>
-          <button type="button" class="footer-link-button" id="open-privacy-footer-btn">Transparansi Data & Privasi ↗</button>
+      <footer class="site-editorial-footer" role="contentinfo" aria-label="Site footer">
+        <div class="site-footer-container">
+          <!-- ── 1. Main Multi-Column Sitemap ── -->
+          <nav class="site-footer-sitemap" aria-label="Footer sitemap">
+            <!-- Brand Column -->
+            <div class="site-footer-brand-col">
+              <a href="/" class="site-footer-brand-header">
+                <img
+                  src="/web-app-manifest-192x192.png"
+                  alt="Dogmedia"
+                  class="site-footer-brand-logo"
+                  width="38"
+                  height="38"
+                />
+                <span class="site-footer-brand-title">Dogmedia</span>
+              </a>
+
+              <p class="site-footer-brand-tagline">
+                “Koleksimu, ceritamu, ritmemu sendiri.”
+              </p>
+
+              <p class="site-footer-brand-desc">
+                Your media. Your space. Your story. Your rhythm. A personal sanctuary for owning, streaming, and rediscovering your private audio and video vault.
+              </p>
+
+              <div class="site-footer-ethos-tags" aria-label="Core principles">
+                <span class="site-footer-tag">Personal Collection</span>
+                <span class="site-footer-tag">Zero Telemetry</span>
+                <span class="site-footer-tag">Direct Stream</span>
+              </div>
+            </div>
+
+            <!-- Product Column -->
+            <div class="site-footer-nav-col">
+              <button
+                type="button"
+                class="site-footer-col-header"
+                data-section="product"
+                aria-expanded="true"
+              >
+                <h3 class="site-footer-col-title">Product</h3>
+                <svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor" class="site-footer-col-toggle-icon site-footer-col-toggle-icon--open" aria-hidden="true"><path d="M233.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L256 338.7 86.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z"/></svg>
+              </button>
+              <ul class="site-footer-nav-list site-footer-nav-list--open" id="footer-nav-product">
+                <li>
+                  <a href="/" class="site-footer-link">Library</a>
+                </li>
+                <li>
+                  <a href="/?view=liked" class="site-footer-link">Favorites</a>
+                </li>
+                <li>
+                  <a href="/wrapped" class="site-footer-link">Wrapped Recap</a>
+                </li>
+                <li>
+                  <a
+                    href="/api/mobile-release/download"
+                    download="dogmedia-android.apk"
+                    class="site-footer-link"
+                    title="Download Dogmedia Android APK"
+                  >
+                    Android App
+                  </a>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="desktop-lan"
+                  >
+                    Desktop App
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <!-- Platform Column -->
+            <div class="site-footer-nav-col">
+              <button
+                type="button"
+                class="site-footer-col-header"
+                data-section="platform"
+                aria-expanded="false"
+              >
+                <h3 class="site-footer-col-title">Platform</h3>
+                <svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor" class="site-footer-col-toggle-icon" aria-hidden="true"><path d="M233.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L256 338.7 86.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z"/></svg>
+              </button>
+              <ul class="site-footer-nav-list" id="footer-nav-platform">
+                <li>
+                  <a href="/" class="site-footer-link">Web Player</a>
+                </li>
+                <li>
+                  <a
+                    href="/api/mobile-release/download"
+                    class="site-footer-link"
+                    title="Download Android APK"
+                  >
+                    Mobile APK
+                  </a>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="desktop-lan"
+                  >
+                    Desktop &amp; LAN
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="self-hosted"
+                  >
+                    Self-Hosted Vault
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <!-- Resources Column -->
+            <div class="site-footer-nav-col">
+              <button
+                type="button"
+                class="site-footer-col-header"
+                data-section="resources"
+                aria-expanded="false"
+              >
+                <h3 class="site-footer-col-title">Resources</h3>
+                <svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor" class="site-footer-col-toggle-icon" aria-hidden="true"><path d="M233.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L256 338.7 86.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z"/></svg>
+              </button>
+              <ul class="site-footer-nav-list" id="footer-nav-resources">
+                <li>
+                  <a
+                    href="https://github.com/Doglexable/Dogmedia#readme"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="site-footer-link"
+                  >
+                    Documentation
+                    <svg viewBox="0 0 512 512" width="10" height="10" fill="currentColor" class="site-footer-ext-icon" aria-hidden="true"><path d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112v320c0 44.2 35.8 80 80 80h320c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32v112c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16h112c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/Doglexable/Dogmedia/releases"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="site-footer-link"
+                  >
+                    Changelog
+                    <svg viewBox="0 0 512 512" width="10" height="10" fill="currentColor" class="site-footer-ext-icon" aria-hidden="true"><path d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112v320c0 44.2 35.8 80 80 80h320c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32v112c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16h112c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/Doglexable/Dogmedia"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="site-footer-link"
+                  >
+                    Source Code
+                    <svg viewBox="0 0 512 512" width="10" height="10" fill="currentColor" class="site-footer-ext-icon" aria-hidden="true"><path d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112v320c0 44.2 35.8 80 80 80h320c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32v112c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16h112c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://github.com/Doglexable/Dogmedia/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="site-footer-link"
+                  >
+                    Community &amp; Issues
+                    <svg viewBox="0 0 512 512" width="10" height="10" fill="currentColor" class="site-footer-ext-icon" aria-hidden="true"><path d="M320 0c-17.7 0-32 14.3-32 32s14.3 32 32 32h82.7L201.4 265.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L448 109.3V192c0 17.7 14.3 32 32 32s32-14.3 32-32V32c0-17.7-14.3-32-32-32H320zM80 32C35.8 32 0 67.8 0 112v320c0 44.2 35.8 80 80 80h320c44.2 0 80-35.8 80-80V320c0-17.7-14.3-32-32-32s-32 14.3-32 32v112c0 8.8-7.2 16-16 16H80c-8.8 0-16-7.2-16-16V112c0-8.8 7.2-16 16-16h112c17.7 0 32-14.3 32-32s-14.3-32-32-32H80z"/></svg>
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            <!-- Legal Column -->
+            <div class="site-footer-nav-col">
+              <button
+                type="button"
+                class="site-footer-col-header"
+                data-section="legal"
+                aria-expanded="false"
+              >
+                <h3 class="site-footer-col-title">Legal &amp; Privacy</h3>
+                <svg viewBox="0 0 512 512" width="12" height="12" fill="currentColor" class="site-footer-col-toggle-icon" aria-hidden="true"><path d="M233.4 406.6c12.5 12.5 32.8 12.5 45.3 0l192-192c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L256 338.7 86.6 169.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l192 192z"/></svg>
+              </button>
+              <ul class="site-footer-nav-list" id="footer-nav-legal">
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="privacy"
+                  >
+                    Privacy &amp; Ownership
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    id="open-privacy-footer-btn"
+                  >
+                    Transparansi Data &amp; Privasi ↗
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="terms"
+                  >
+                    Terms of Use
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="license"
+                  >
+                    MIT License
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="protocol"
+                  >
+                    Direct Stream Protocol
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="site-footer-link"
+                    data-modal="credits"
+                  >
+                    Credits &amp; Artworks
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </nav>
+
+          <!-- ── 2. Product / Platform Utility Links ── -->
+          <div class="site-footer-utilities" role="region" aria-label="Platform utility shortcuts">
+            <span class="site-footer-util-label">Utilities</span>
+            <a href="/" class="site-footer-util-item" title="Open Web Player">
+              <svg viewBox="0 0 512 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M352 256c0 22.2-1.2 43.6-3.3 64H163.3c-2.2-20.4-3.3-41.8-3.3-64s1.2-43.6 3.3-64h185.3c2.2 20.4 3.3 41.8 3.3 64zm28.8-64h76.7C432.2 121.7 377.9 66.8 308.2 40.5 338.4 82.5 363.3 134.4 380.8 192zm-56.1-128C287.4 22.6 256.4 0 256 0s-31.4 22.6-68.7 64c24.6 27.5 44.5 59.9 58.7 96h20c14.2-36.1 34.1-68.5 58.7-96zM131.2 192c17.5-57.6 42.4-109.5 72.6-151.5C134.1 66.8 79.8 121.7 54.5 192h76.7zM256 512c.4 0 31.4-22.6 68.7-64-24.6-27.5-44.5-59.9-58.7-96h-20c-14.2 36.1-34.1 68.5-58.7 96 37.3 41.4 68.3 64 68.7 64zm-124.8-64c-30.2-42-55.1-93.9-72.6-151.5H54.5c25.3 70.3 79.6 125.2 149.3 151.5zm277.6-151.5c-17.5 57.6-42.4 109.5-72.6 151.5 69.7-26.3 124-81.2 149.3-151.5h-76.7zM256 0C114.6 0 0 114.6 0 256s114.6 256 256 256 256-114.6 256-256S397.4 0 256 0z"/></svg>
+              <span>Web Player</span>
+            </a>
+            <a href="/api/mobile-release/download" class="site-footer-util-item" title="Download Android APK">
+              <svg viewBox="0 0 384 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M16 64C16 28.7 44.7 0 80 0h224c35.3 0 64 28.7 64 64v384c0 35.3-28.7 64-64 64H80c-35.3 0-64-28.7-64-64V64zm176 384a32 32 0 1 0 0-64 32 32 0 1 0 0 64z"/></svg>
+              <span>Android APK</span>
+            </a>
+            <button
+              type="button"
+              class="site-footer-util-item"
+              data-modal="desktop-lan"
+              title="Desktop &amp; Local Network Direct Streaming"
+            >
+              <svg viewBox="0 0 576 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M64 0C28.7 0 0 28.7 0 64v288c0 35.3 28.7 64 64 64h176v48h-48c-17.7 0-32 14.3-32 32s14.3 32 32 32h192c17.7 0 32-14.3 32-32s-14.3-32-32-32h-48v-48h176c35.3 0 64-28.7 64-64V64c0-35.3-28.7-64-64-64H64zm464 336H48V64h480v272z"/></svg>
+              <span>LAN Streaming</span>
+            </button>
+            <button
+              type="button"
+              class="site-footer-util-item"
+              data-modal="self-hosted"
+              title="Self-Hosted Fastify, PostgreSQL &amp; Redis Architecture"
+            >
+              <svg viewBox="0 0 512 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M64 32C28.7 32 0 60.7 0 96v64c0 35.3 28.7 64 64 64h384c35.3 0 64-28.7 64-64V96c0-35.3-28.7-64-64-64H64zm288 96a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm96 0a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zM0 288c0-35.3 28.7-64 64-64h384c35.3 0 64 28.7 64 64v64c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64v-64zm352 32a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm96 0a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zM0 480c0-35.3 28.7-64 64-64h384c35.3 0 64 28.7 64 64v0c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32v0z"/></svg>
+              <span>Self-Hosted</span>
+            </button>
+            <a
+              href="https://github.com/Doglexable/Dogmedia"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="site-footer-util-item"
+              title="View repository on GitHub"
+            >
+              <svg viewBox="0 0 448 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M384 336c-17.7 0-33.7 7.2-45.3 18.7l-94.6-54.1c2.6-7.9 4-16.3 4-25s-1.4-17.1-4-25l94.6-54.1C350.3 208.8 366.3 216 384 216c44.2 0 80-35.8 80-80s-35.8-80-80-80-80 35.8-80 80c0 8.7 1.4 17.1 4 25l-94.6 54.1C201.7 203.2 185.7 196 168 196H96V64c0-17.7-14.3-32-32-32S32 46.3 32 64v384c0 17.7 14.3 32 32 32s32-14.3 32-32v-68h72c17.7 0 33.7-7.2 45.3-18.7l94.6 54.1c-2.6 7.9-4 16.3-4 25 0 44.2 35.8 80 80 80s80-35.8 80-80-35.8-80-80-80z"/></svg>
+              <span>Repository</span>
+            </a>
+            <button type="button" class="site-footer-util-item theme-toggle-btn theme-toggle-btn--footer" id="theme-toggle-footer-btn" aria-label="Ganti mode tema" title="Ganti mode tema (Sistem / Terang / Gelap)">
+              <span class="theme-icon" aria-hidden="true">◐</span>
+              <span class="theme-label" id="theme-label-footer">Tema: Sistem</span>
+            </button>
+          </div>
+
+          <!-- ── 3. Divider and Social Bar ── -->
+          <hr class="site-footer-divider" />
+
+          <div class="site-footer-bar">
+            <a href="/" class="site-footer-bar-brand" aria-label="Dogmedia home">
+              <img
+                src="/web-app-manifest-192x192.png"
+                alt=""
+                width="22"
+                height="22"
+                aria-hidden="true"
+              />
+              <span>Dogmedia</span>
+            </a>
+
+            <div class="site-footer-socials" aria-label="Community and social links">
+              <a
+                href="https://github.com/Doglexable/Dogmedia"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="site-footer-social-link"
+                aria-label="GitHub Repository"
+                title="GitHub"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+              </a>
+              <a
+                href="https://discord.gg"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="site-footer-social-link"
+                aria-label="Discord Community"
+                title="Discord"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.929 1.793 8.18 1.793 12.061 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.893.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.028zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+              </a>
+              <a
+                href="https://x.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="site-footer-social-link"
+                aria-label="X (formerly Twitter)"
+                title="X"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              </a>
+            </div>
+          </div>
+
+          <!-- ── 4. Oversized Brand Wordmark ── -->
+          <div class="site-footer-wordmark-wrap" aria-hidden="true">
+            <span class="site-footer-wordmark">DOGMEDIA</span>
+          </div>
+
+          <!-- ── 5. Fine Print ── -->
+          <div class="site-footer-fine-print">
+            <div class="site-footer-fine-print-left">
+              <span id="footer-copyright">© 2026 Dogmedia. All rights reserved.</span>
+              <span class="site-footer-version-tag" title="Dogmedia Web v0.7.6">
+                Web v0.7.6
+              </span>
+            </div>
+            <span class="site-footer-fine-print-statement">
+              Your media. Your space. Your story. Your rhythm.
+            </span>
+            <span class="site-footer-fine-print-id">
+              Koleksimu, ceritamu, ritmemu sendiri.
+            </span>
+          </div>
         </div>
       </footer>
+
+      <!-- Site Footer Info Modal -->
+      <template id="footer-info-modal-template">
+      <div
+        class="site-footer-modal-overlay"
+        id="footer-info-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="footer-info-modal-title"
+      >
+        <div class="site-footer-modal-card">
+          <div class="site-footer-modal-header">
+            <div>
+              <h2 id="footer-info-modal-title" class="site-footer-modal-title"></h2>
+              <p id="footer-info-modal-subtitle" class="site-footer-modal-subtitle"></p>
+            </div>
+            <button
+              type="button"
+              class="site-footer-modal-close"
+              id="footer-info-modal-close"
+              aria-label="Close dialog"
+            >
+              <svg viewBox="0 0 384 512" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M342.6 150.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L192 210.7 86.6 105.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L146.7 256 41.4 361.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L192 301.3 297.4 406.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L237.3 256 342.6 150.6z"/></svg>
+            </button>
+          </div>
+          <div id="footer-info-modal-body" class="site-footer-modal-body"></div>
+        </div>
+      </div>
+      </template>
 
       <!-- Privacy & Data Transparency Modal -->
       <div class="modal-overlay" id="privacy-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="privacy-modal-title">
@@ -292,6 +767,5 @@
           </div>
         </div>
       </div>
-    </div>
   </body>
 </html>

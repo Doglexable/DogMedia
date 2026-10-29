@@ -2,7 +2,7 @@ use dioxus_native::prelude::*;
 
 use super::super::*;
 use super::VideoPlayer;
-use super::{LyricsShareDialog, QualityPopover, SessionConflictCard};
+use super::{LyricsShareDialog, SessionConflictCard};
 use crate::domain::{
     DisplayLyricSegment, build_lyrics_display_segments, find_active_lyrics_index,
     find_lyrics_focus_index,
@@ -196,7 +196,6 @@ pub(crate) fn FullPlayer(
             autofocus: true,
             onkeydown: on_key_down,
             if !snapshot.queue_open
-                && !snapshot.quality_popover_open
                 && !snapshot.media_settings_open
                 && !snapshot.settings_open
             {
@@ -323,13 +322,6 @@ pub(crate) fn FullPlayer(
                                 onclick: move |_| share_open.set(true),
                             }
                         }
-                        if !media.is_photo() {
-                            QualityPopover {
-                                app,
-                                quality: playback.quality,
-                                disabled: session_unavailable,
-                            }
-                        }
                         IconButton {
                             label: snapshot.coordinator.sleep_timer_remaining()
                                 .map(|seconds| format!("Playback settings, sleep timer {}m remaining", seconds.div_ceil(60)))
@@ -337,9 +329,7 @@ pub(crate) fn FullPlayer(
                             icon: IconName::Settings,
                             class: if snapshot.coordinator.has_sleep_timer() { "active".to_owned() } else { String::new() },
                             onclick: move |_| {
-                                let mut state = app.write();
-                                state.quality_popover_open = false;
-                                state.media_settings_open = true;
+                                app.write().media_settings_open = true;
                             },
                         }
                         IconButton {

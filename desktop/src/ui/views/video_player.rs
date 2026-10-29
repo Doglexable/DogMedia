@@ -3,7 +3,6 @@ use std::sync::Arc;
 use winit::window::{Fullscreen, Window};
 
 use super::super::*;
-use super::QualityPopover;
 
 #[component]
 fn SubtitlesOverlayMenu(
@@ -143,12 +142,10 @@ pub(crate) fn VideoPlayer(
             let elapsed = last_activity.read().elapsed();
             let is_playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing;
             let sub_open = *subtitles_open.read();
-            let quality_open = app.read().quality_popover_open;
             let media_settings_open = app.read().media_settings_open;
             let mut show_hud = show_hud;
             if is_playing
                 && !sub_open
-                && !quality_open
                 && !media_settings_open
                 && elapsed >= std::time::Duration::from_millis(2500)
             {
@@ -320,7 +317,6 @@ pub(crate) fn VideoPlayer(
             onmousemove: move |_| on_activity(),
             onkeydown: on_key_down,
             if !snapshot.queue_open
-                && !snapshot.quality_popover_open
                 && !snapshot.media_settings_open
                 && !snapshot.settings_open
                 && !*subtitles_open.read()
@@ -568,10 +564,6 @@ pub(crate) fn VideoPlayer(
                                     Icon { name: IconName::Subtitles }
                                 }
                             }
-                            QualityPopover {
-                                app,
-                                quality: playback.quality,
-                            }
                             button {
                                 r#type: "button",
                                 class: if snapshot.coordinator.has_sleep_timer() { "video-player-ctrl-btn video-player-ctrl-btn--active" } else { "video-player-ctrl-btn" },
@@ -579,9 +571,7 @@ pub(crate) fn VideoPlayer(
                                 title: "Playback settings",
                                 onclick: move |e: MouseEvent| {
                                     e.stop_propagation();
-                                    let mut state = app.write();
-                                    state.quality_popover_open = false;
-                                    state.media_settings_open = true;
+                                    app.write().media_settings_open = true;
                                     on_activity();
                                 },
                                 Icon { name: IconName::Settings }

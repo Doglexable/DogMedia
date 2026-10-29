@@ -227,6 +227,22 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Checks persisted window geometry without mutating reactive app state.
+    pub fn window_geometry_changed(
+        &self,
+        is_maximized: bool,
+        is_fullscreen: bool,
+        width: i32,
+        height: i32,
+    ) -> bool {
+        if is_fullscreen {
+            return false;
+        }
+        self.window_maximized != is_maximized
+            || (!is_maximized
+                && (self.window_width != width.max(800) || self.window_height != height.max(560)))
+    }
+
     /// Updates window size and maximized state if changed, ignoring video fullscreen.
     /// Returns `true` if any persisted geometry field changed.
     pub fn update_window_geometry(
@@ -236,25 +252,15 @@ impl Settings {
         width: i32,
         height: i32,
     ) -> bool {
-        if is_fullscreen {
+        if !self.window_geometry_changed(is_maximized, is_fullscreen, width, height) {
             return false;
         }
-        let width = width.max(800);
-        let height = height.max(560);
-        let mut changed = false;
-
-        if self.window_maximized != is_maximized {
-            self.window_maximized = is_maximized;
-            changed = true;
+        self.window_maximized = is_maximized;
+        if !is_maximized {
+            self.window_width = width.max(800);
+            self.window_height = height.max(560);
         }
-
-        if !is_maximized && (self.window_width != width || self.window_height != height) {
-            self.window_width = width;
-            self.window_height = height;
-            changed = true;
-        }
-
-        changed
+        true
     }
 
     /// Returns `true` when the URL uses plain HTTP toward a public/non-local
@@ -440,20 +446,24 @@ mod tests {
         assert!(!settings.window_maximized);
 
         // Ignores video fullscreen
+        assert!(!settings.window_geometry_changed(true, true, 1920, 1080));
         assert!(!settings.update_window_geometry(true, true, 1920, 1080));
         assert!(!settings.window_maximized);
         assert_eq!(settings.window_width, 1280);
 
         // Normal resize
+        assert!(settings.window_geometry_changed(false, false, 1440, 900));
         assert!(settings.update_window_geometry(false, false, 1440, 900));
         assert_eq!(settings.window_width, 1440);
         assert_eq!(settings.window_height, 900);
         assert!(!settings.window_maximized);
 
         // Same dimensions report no change
+        assert!(!settings.window_geometry_changed(false, false, 1440, 900));
         assert!(!settings.update_window_geometry(false, false, 1440, 900));
 
         // Maximize window (preserves width/height for unmaximize)
+        assert!(settings.window_geometry_changed(true, false, 1920, 1080));
         assert!(settings.update_window_geometry(true, false, 1920, 1080));
         assert!(settings.window_maximized);
         assert_eq!(settings.window_width, 1440);

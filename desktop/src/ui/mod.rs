@@ -78,19 +78,27 @@ struct ArtworkCache {
 
 impl ArtworkCache {
     fn key(media: &Media) -> String {
-        format!(
-            "media:{}:{}",
-            media.id,
-            media.artwork_version.as_deref().unwrap_or("none")
-        )
+        if let Some(version) = media
+            .artwork_version
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+        {
+            format!("artwork:{version}")
+        } else {
+            format!("media:{}", media.id)
+        }
     }
 
     fn category_key(category: &Category) -> String {
-        format!(
-            "category:{}:{}",
-            category.id,
-            category.cover_path.as_deref().unwrap_or("none")
-        )
+        if let Some(cover) = category
+            .cover_path
+            .as_deref()
+            .filter(|c| !c.trim().is_empty())
+        {
+            format!("artwork:{cover}")
+        } else {
+            format!("category:{}", category.id)
+        }
     }
 
     fn get(&self, media: &Media) -> Option<&ArtworkState> {
@@ -177,11 +185,20 @@ impl ArtworkCache {
     }
 
     fn clear_other_media(&mut self, keep_media: Option<&Media>) {
-        let keep_key = keep_media.map(Self::key);
+        self.clear_unrelated_media(keep_media, None);
+    }
+
+    fn clear_unrelated_media(&mut self, keep_media: Option<&Media>, extra_keep: Option<&Media>) {
+        let keep_1 = keep_media.map(Self::key);
+        let keep_2 = extra_keep.map(Self::key);
         let media_keys: Vec<String> = self
             .entries
             .keys()
-            .filter(|key| key.starts_with("media:") && keep_key.as_deref() != Some(key.as_str()))
+            .filter(|key| {
+                (key.starts_with("media:") || key.starts_with("artwork:"))
+                    && keep_1.as_deref() != Some(key.as_str())
+                    && keep_2.as_deref() != Some(key.as_str())
+            })
             .cloned()
             .collect();
         for key in media_keys {
@@ -246,7 +263,6 @@ pub(crate) struct NativeApp {
     subtitle_cues: Vec<SubtitleCue>,
     photo_data_url: Option<Arc<String>>,
     player_expanded: bool,
-    quality_popover_open: bool,
     media_settings_open: bool,
     queue_open: bool,
     settings_open: bool,
@@ -346,7 +362,6 @@ impl NativeApp {
             subtitle_cues: Vec::new(),
             photo_data_url: None,
             player_expanded: false,
-            quality_popover_open: false,
             media_settings_open: false,
             queue_open: false,
             settings_open,
@@ -432,8 +447,9 @@ impl NativeApp {
 
     pub(crate) fn on_server_connected(&mut self) {
         let current_media = self.coordinator.snapshot().media.clone();
+        let featured = featured_media(self);
         self.purge_local_memory();
-        self.artwork.clear_other_media(current_media.as_ref());
+        self.artwork.clear_unrelated_media(current_media.as_ref(), featured.as_ref());
         self.photo_data_url = None;
         self.library.clear();
         self.dashboard_generation += 1;
@@ -621,6 +637,18 @@ fn App() -> Element {
                     let logical_size = physical_size.to_logical::<f64>(scale);
                     let width = logical_size.width.round() as i32;
                     let height = logical_size.height.round() as i32;
+
+                    // A write guard dirties the root app signal even when the
+                    // window has not moved. Poll without a write first so an
+                    // idle window does not re-render the entire UI every second.
+                    if !app.read().settings.window_geometry_changed(
+                        is_maximized,
+                        is_fullscreen,
+                        width,
+                        height,
+                    ) {
+                        continue;
+                    }
 
                     let mut model = app.write();
                     if model.settings.update_window_geometry(
@@ -1338,13 +1366,10 @@ fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
     });
 }
 
-fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
+pub(crate) fn ensure_artwork(mut app: Signal<NativeApp>, media: Media) {
     if app.read().local_mode {
         return;
     }
-    // Immediately clear artwork data from any previous media so old data does not linger in memory
-    app.write().artwork.clear_other_media(Some(&media));
-
     let Some(client) = app.read().client.clone() else {
         return;
     };
@@ -1460,7 +1485,7 @@ fn play_media(
 
 fn play_media_at(
     mut app: Signal<NativeApp>,
-    engine: Signal<Option<PlaybackEngine>>,
+    mut engine: Signal<Option<PlaybackEngine>>,
     media: Media,
     auto_queue: bool,
     resume_at: Option<f64>,
@@ -1500,7 +1525,11 @@ fn play_media_at(
         .as_ref()
         .and_then(PlaybackEngine::duration)
         .unwrap_or(app.read().coordinator.snapshot().duration);
-    if let Some(engine) = engine.read().as_ref() {
+    if !same_media {
+        if let Some(old_engine) = engine.write().take() {
+            let _ = old_engine.stop();
+        }
+    } else if let Some(engine) = engine.read().as_ref() {
         let _ = engine.pause();
     }
     app.read().video_frames.clear();
@@ -1513,7 +1542,8 @@ fn play_media_at(
         if media.is_video() && resume_at.is_none() {
             state.player_expanded = true;
         }
-        state.artwork.clear_other_media(Some(&media));
+        let featured = featured_media(&state);
+        state.artwork.clear_unrelated_media(Some(&media), featured.as_ref());
         if !same_media {
             state.lyrics.clear();
             state.lyrics.shrink_to_fit();
@@ -1725,8 +1755,9 @@ fn play_photo(
     app.read().video_frames.clear();
     {
         let mut state = app.write();
+        let featured = featured_media(&state);
         state.coordinator.load(media.clone());
-        state.artwork.clear_other_media(Some(&media));
+        state.artwork.clear_unrelated_media(Some(&media), featured.as_ref());
         state.photo_data_url = None;
         state.lyrics.clear();
         state.lyrics.shrink_to_fit();
@@ -1981,7 +2012,7 @@ fn tick_playback(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngin
     publish_socket_state(app);
 }
 
-fn publish_socket_state(mut app: Signal<NativeApp>) {
+fn publish_socket_state(app: Signal<NativeApp>) {
     if app.read().local_mode {
         return;
     }
@@ -2031,7 +2062,10 @@ fn publish_socket_state(mut app: Signal<NativeApp>) {
         {
             return;
         }
-        let mut state = app.write();
+        // Socket bookkeeping is not rendered. Avoid invalidating the root
+        // app signal on every playback report.
+        #[allow(deprecated)]
+        let mut state = app.write_silent();
         state.socket_session_id = Some(session_id.clone());
         state.socket_sequence = 0;
     }
@@ -2051,7 +2085,8 @@ fn publish_socket_state(mut app: Signal<NativeApp>) {
         sequence,
     };
     if sender.try_send(command).is_ok() {
-        let mut state = app.write();
+        #[allow(deprecated)]
+        let mut state = app.write_silent();
         state.socket_sequence = sequence;
         state.socket_last_signature = Some(signature);
         state.socket_last_report_at = Some(Instant::now());
@@ -2125,7 +2160,6 @@ fn heartbeat(mut app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>)
             if error.is_playback_session_unavailable() {
                 apply_remote_holder(app, engine, &client, error.holder(), &message).await;
                 app.write().player_expanded = false;
-                app.write().quality_popover_open = false;
             } else {
                 app.write().coordinator.lease_lost();
             }
@@ -3593,6 +3627,63 @@ mod tests {
         let first = ArtworkCache::category_key(&category);
         category.cover_path = Some("22/front-new.webp".into());
         assert_ne!(first, ArtworkCache::category_key(&category));
+    }
+
+    #[test]
+    fn artwork_cache_shares_same_version_across_media_and_category() {
+        let media_1: Media = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "artwork_version": "7/cover.webp"
+        }))
+        .unwrap();
+        let media_2: Media = serde_json::from_value(serde_json::json!({
+            "id": 2,
+            "artwork_version": "7/cover.webp"
+        }))
+        .unwrap();
+        let category: Category = serde_json::from_value(serde_json::json!({
+            "id": 7,
+            "name": "Hiroyuki Sawano",
+            "cover_path": "7/cover.webp"
+        }))
+        .unwrap();
+
+        assert_eq!(ArtworkCache::key(&media_1), ArtworkCache::key(&media_2));
+        assert_eq!(ArtworkCache::key(&media_1), ArtworkCache::category_key(&category));
+
+        let mut cache = ArtworkCache::default();
+        let key = cache.start(&media_1).unwrap();
+        cache.finish(
+            key,
+            ArtworkState::Ready(Arc::new("data:image/webp;base64,COVER".to_owned())),
+        );
+
+        assert!(cache.get(&media_1).is_some());
+        assert!(cache.get(&media_2).is_some());
+        assert!(cache.get_category(&category).is_some());
+
+        // Switching to media_2 preserves the shared artwork entry
+        cache.clear_other_media(Some(&media_2));
+        assert!(cache.get(&media_1).is_some());
+        assert!(cache.get(&media_2).is_some());
+        assert!(cache.get_category(&category).is_some());
+
+        // Unrelated clearing preserving featured also keeps featured media
+        let featured: Media = serde_json::from_value(serde_json::json!({
+            "id": 99,
+            "artwork_version": "unique_featured.webp"
+        }))
+        .unwrap();
+        let feat_key = cache.start(&featured).unwrap();
+        cache.finish(
+            feat_key,
+            ArtworkState::Ready(Arc::new("data:image/webp;base64,FEAT".to_owned())),
+        );
+        assert!(cache.get(&featured).is_some());
+
+        cache.clear_unrelated_media(Some(&media_2), Some(&featured));
+        assert!(cache.get(&media_2).is_some());
+        assert!(cache.get(&featured).is_some());
     }
 
     #[test]

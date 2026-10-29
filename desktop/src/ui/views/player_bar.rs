@@ -124,13 +124,6 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
             }
             div { class: "mini-tools",
                 if !media.is_photo() {
-                    QualityPopover {
-                        app,
-                        quality: playback.quality,
-                        disabled: session_unavailable,
-                    }
-                }
-                if !media.is_photo() {
                     VolumePopover {
                         app,
                         engine,
@@ -143,9 +136,7 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                     icon: IconName::Settings,
                     class: if snapshot.coordinator.has_sleep_timer() { "active".to_owned() } else { String::new() },
                     onclick: move |_| {
-                        let mut state = app.write();
-                        state.quality_popover_open = false;
-                        state.media_settings_open = true;
+                        app.write().media_settings_open = true;
                     },
                 }
                 IconButton {
@@ -266,138 +257,6 @@ pub(crate) fn quality_description(quality: Quality, is_video: bool) -> &'static 
             Quality::High => "256 kbps • High",
             Quality::Med => "160 kbps • Standard",
             Quality::Low => "96 kbps • Efficient",
-        }
-    }
-}
-
-#[component]
-fn QualityOption(
-    opt: Quality,
-    is_active: bool,
-    is_video: bool,
-    onselect: EventHandler<Quality>,
-) -> Element {
-    rsx! {
-        button {
-            r#type: "button",
-            class: if is_active { "player-quality-preset player-quality-preset--active" } else { "player-quality-preset" },
-            onclick: move |event: MouseEvent| {
-                event.stop_propagation();
-                onselect.call(opt);
-            },
-            div { class: "player-quality-preset-info",
-                span { class: "player-quality-preset-name", "{opt}" }
-                span { class: "player-quality-preset-bitrate", "{quality_description(opt, is_video)}" }
-            }
-            span { class: "player-quality-preset-tag", "{quality_badge(opt)}" }
-        }
-    }
-}
-
-#[component]
-pub(crate) fn QualityPopover(
-    mut app: Signal<NativeApp>,
-    quality: Quality,
-    #[props(default = false)] disabled: bool,
-) -> Element {
-    let active_badge = quality_badge(quality);
-    let is_modified = quality != Quality::Ori;
-    let is_open = app.read().quality_popover_open;
-
-    rsx! {
-        button {
-            r#type: "button",
-            class: if is_modified || is_open { "player-quality-btn player-quality-btn--modified" } else { "player-quality-btn" },
-            aria_label: format!("Quality: {quality}"),
-            "aria-expanded": "{is_open}",
-            "aria-haspopup": "dialog",
-            disabled,
-            onclick: move |event: MouseEvent| {
-                event.stop_propagation();
-                let open = app.read().quality_popover_open;
-                app.write().quality_popover_open = !open;
-            },
-            Icon { name: IconName::Signal }
-            if is_modified || is_open {
-                span { class: "player-quality-badge", "{active_badge}" }
-            }
-        }
-    }
-}
-
-#[component]
-pub(crate) fn QualityOverlay(
-    mut app: Signal<NativeApp>,
-    engine: Signal<Option<PlaybackEngine>>,
-    quality: Quality,
-    is_video: bool,
-    expanded: bool,
-    has_lyrics: bool,
-) -> Element {
-    let active_desc = quality_description(quality, is_video);
-    let available = app
-        .read()
-        .coordinator
-        .snapshot()
-        .media
-        .as_ref()
-        .and_then(|media| media.available_qualities.clone());
-    let layer_class = if !expanded {
-        "quality-layer quality-layer--mini"
-    } else if is_video {
-        "quality-layer quality-layer--video"
-    } else if has_lyrics {
-        "quality-layer quality-layer--full quality-layer--full-with-lyrics"
-    } else {
-        "quality-layer quality-layer--full"
-    };
-
-    rsx! {
-        div {
-            class: layer_class,
-            tabindex: "0",
-            autofocus: true,
-            role: "presentation",
-            onkeydown: move |event: KeyboardEvent| {
-                if event.key() == Key::Escape {
-                    event.stop_propagation();
-                    app.write().quality_popover_open = false;
-                }
-            },
-            onclick: move |event: MouseEvent| {
-                event.stop_propagation();
-                app.write().quality_popover_open = false;
-            },
-            div {
-                class: "quality-layer-card",
-                role: "dialog",
-                "aria-label": "Playback quality",
-                onclick: move |event: MouseEvent| event.stop_propagation(),
-                div { class: "player-quality-popover",
-                    div { class: "player-quality-header",
-                        span { "Quality" }
-                        span { class: "player-quality-bitrate-active", "{active_desc}" }
-                    }
-                    div { class: "player-quality-presets",
-                        for opt in [Quality::Ori, Quality::High, Quality::Med, Quality::Low]
-                            .into_iter()
-                            .filter(|opt| available.as_ref().is_none_or(|choices| choices.contains(opt))) {
-                            QualityOption {
-                                opt,
-                                is_active: quality == opt,
-                                is_video,
-                                onselect: move |selected| {
-                                    app.write().quality_popover_open = false;
-                                    change_quality(app, engine, selected);
-                                },
-                            }
-                        }
-                        if available.as_ref().is_some_and(Vec::is_empty) {
-                            span { class: "player-quality-preset-info", "Preparing quality options…" }
-                        }
-                    }
-                }
-            }
         }
     }
 }

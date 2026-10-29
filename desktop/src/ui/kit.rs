@@ -40,7 +40,6 @@ pub enum IconName {
     Settings,
     Share,
     Shuffle,
-    Signal,
     Stop,
     Subtitles,
     Sun,
@@ -185,13 +184,6 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             path { d: "M2 6h1.4c1.3 0 2.5.6 3.3 1.7l2 2.6" }
             path { d: "m14.7 14.7 1.6 2.1c.8 1.1 2 1.7 3.3 1.7H22" }
             path { d: "m18 14 4 4-4 4" }
-        },
-        IconName::Signal => rsx! {
-            path { d: "M2 20h.01" }
-            path { d: "M7 20v-4" }
-            path { d: "M12 20v-8" }
-            path { d: "M17 20v-12" }
-            path { d: "M22 20V4" }
         },
         IconName::Stop => {
             rsx! { rect { x: "5", y: "5", width: "14", height: "14", rx: "2", fill: "currentColor" } }

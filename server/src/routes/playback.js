@@ -523,6 +523,31 @@ async function getDashboardSummaryFromDb(fastify, request, { view, categoryId, t
   };
 }
 
+async function cachedDashboardMediaIsAccessible(fastify, request, summary) {
+  const media = summary.media || [];
+  const ids = media.map((item) => Number(item.id));
+  if (summary.featuredId != null && !ids.includes(Number(summary.featuredId))) return false;
+  if (ids.some((id) => !Number.isSafeInteger(id) || id < 1)) return false;
+  if (ids.length === 0) return true;
+
+  const { rows } = await fastify.pg.query(
+    `${ACCESSIBLE_CATEGORY_TREE_SQL}
+     SELECT m.id, ac.name AS category_name,
+            array_to_string(ac.path_parts, ' / ') AS category_path
+     FROM media_assets m
+     JOIN accessible_categories ac ON ac.id = m.category_id
+     WHERE m.id = ANY($2::int[])`,
+    [request.accessTier, ids]
+  );
+  if (rows.length !== ids.length) return false;
+  const currentById = new Map(rows.map((row) => [Number(row.id), row]));
+  return media.every((item) => {
+    const current = currentById.get(Number(item.id));
+    return current && current.category_name === item.category_name &&
+      current.category_path === item.category_path;
+  });
+}
+
 async function getCachedDashboardSummary(fastify, request) {
   const redis = getRedis(fastify);
   const view = normalizeDashboardView(request.query.view);
@@ -535,7 +560,10 @@ async function getCachedDashboardSummary(fastify, request) {
 
   const cached = await redis.get(cacheKey);
   if (cached) {
-    return { ...JSON.parse(cached), cached: true };
+    const summary = JSON.parse(cached);
+    if (await cachedDashboardMediaIsAccessible(fastify, request, summary)) {
+      return { ...summary, cached: true };
+    }
   }
 
   try {
@@ -843,7 +871,8 @@ export default async function (fastify) {
     }
   });
 
-  fastify.get("/dashboard", async (request) => {
+  fastify.get("/dashboard", async (request, reply) => {
+    reply.header("Cache-Control", "private, no-store");
     return getCachedDashboardSummary(fastify, request);
   });
 }

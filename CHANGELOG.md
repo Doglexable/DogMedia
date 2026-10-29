@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.6] - 2026-10-29
+
+Maintenance, performance, and parity release resolving active streaming memory spikes, desktop artwork cache fragmentation, and UI parity between web container and landing page.
+
+### Fixed & Improved
+
+#### Desktop Playback & Memory Management
+- **GStreamer Network Buffer Capping**: Configured `playbin3` network stream parameters (`buffer-duration = 5s`, `buffer-size = 8MB`, `ring-buffer-max-size = 16MB`) to throttle socket reads, enforce TCP backpressure on the server stream, and stop active playback heap retention.
+- **MPRIS D-Bus Signal Deduplication**: Added previous-state diffing in MPRIS service to prevent continuous 500ms re-broadcasting of 7 D-Bus properties (`set_playback_status`, `set_metadata`, `set_volume`, `set_can_play`, `set_can_pause`, `set_can_go_previous`, `set_can_go_next`) during playback.
+- **Clean Engine Teardown on Track Switch**: Ensured the previous `PlaybackEngine` instance is completely stopped and dropped when transitioning between different media items, preventing lingering decoder graphs.
+- **Shared Artwork Version Caching**: Normalized `ArtworkCache` keys by file reference (`artwork:{version}`) across all tracks and categories sharing the same cover version, preventing cache fragmentation and duplicate downloads.
+- **Destructive Purge Removal**: Removed destructive `clear_other_media` calls inside `ensure_artwork`, protecting visible on-screen media (like featured cards) from being evicted when other tracks play.
+- **Featured Card Reactive Artwork Loader**: Added reactive effect to the desktop `Featured` card to guarantee artwork is loaded automatically.
+
+#### Web & Homepage Parity
+- **Homepage Footer Parity**: Elevated `homepage` footer to full parity with `web/src/components/site-footer.jsx`, including interactive info modal and elevated styling.
+- **Playback Settings Consolidation**: Consolidated quality selection inside the playback settings dialog.
+
+---
+
 ## [0.7.0] - 2026-10-16
 
 Feature and polish release adding fullscreen playback conflict states and session takeover across Web and Mobile, menubar keyboard shortcut styling and dynamic window titles on Desktop, synchronized lyrics autoscrolling with LRCLIB attribution, artwork color palette extraction for lyrics sharing cards, and further video/audio stream memory optimizations.
