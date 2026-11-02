@@ -186,6 +186,46 @@ impl ServerEnvironmentUrls {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EqSettings {
+    pub enabled: bool,
+    pub preset: String,
+    pub gains: [f64; 10],
+    pub target_db: f64,
+}
+
+impl Default for EqSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preset: "flat".to_owned(),
+            gains: [0.0; 10],
+            target_db: 0.0,
+        }
+    }
+}
+
+impl EqSettings {
+    pub const BAND_LABELS: [&'static str; 10] = [
+        "31Hz", "62Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz",
+    ];
+
+    pub fn preset_gains(preset: &str) -> Option<[f64; 10]> {
+        match preset.to_lowercase().as_str() {
+            "flat" => Some([0.0; 10]),
+            "dialogue" | "movie" => Some([-4.0, -2.0, 1.0, -1.0, 1.0, 3.0, 6.0, 4.0, 1.0, -2.0]),
+            "rock" => Some([3.0, 5.0, 3.0, 0.0, 3.0, 5.0, 5.0, 3.0, 2.0, 0.0]),
+            "pop" => Some([2.0, 3.0, 2.0, 0.0, 2.0, 3.0, 5.0, 5.0, 3.0, 2.0]),
+            "electronic" => Some([8.0, 6.0, 3.0, -2.0, -2.0, 0.0, 3.0, 5.0, 6.0, 6.0]),
+            "metal" => Some([6.0, 8.0, 5.0, -2.0, -5.0, -3.0, 2.0, 5.0, 8.0, 6.0]),
+            "poprock" | "pop rock" => Some([5.0, 6.0, 3.0, 0.0, -2.0, 2.0, 3.0, 6.0, 5.0, 3.0]),
+            "funk" => Some([5.0, 8.0, 6.0, 2.0, 0.0, 2.0, 3.0, 5.0, 6.0, 5.0]),
+            "dreampop" | "dream pop" => Some([3.0, 3.0, 2.0, 0.0, 0.0, 2.0, 3.0, 5.0, 6.0, 6.0]),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -203,6 +243,7 @@ pub struct Settings {
     pub window_height: i32,
     pub window_maximized: bool,
     pub local_folder: Option<PathBuf>,
+    pub eq: EqSettings,
 }
 
 impl Default for Settings {
@@ -222,6 +263,7 @@ impl Default for Settings {
             window_height: 800,
             window_maximized: false,
             local_folder: None,
+            eq: EqSettings::default(),
         }
     }
 }
@@ -473,5 +515,29 @@ mod tests {
         assert!(settings.update_window_geometry(false, false, 1440, 900));
         assert!(!settings.window_maximized);
         assert_eq!(settings.window_width, 1440);
+    }
+
+    #[test]
+    fn old_settings_load_without_eq_settings() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("eq");
+        let loaded: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.eq, EqSettings::default());
+        assert!(!loaded.eq.enabled);
+        assert_eq!(loaded.eq.preset, "flat");
+    }
+
+    #[test]
+    fn eq_presets_resolve_known_gain_curves() {
+        assert_eq!(EqSettings::preset_gains("flat"), Some([0.0; 10]));
+        assert_eq!(
+            EqSettings::preset_gains("rock"),
+            Some([3.0, 5.0, 3.0, 0.0, 3.0, 5.0, 5.0, 3.0, 2.0, 0.0])
+        );
+        assert_eq!(
+            EqSettings::preset_gains("dialogue"),
+            Some([-4.0, -2.0, 1.0, -1.0, 1.0, 3.0, 6.0, 4.0, 1.0, -2.0])
+        );
+        assert_eq!(EqSettings::preset_gains("unknown_preset"), None);
     }
 }

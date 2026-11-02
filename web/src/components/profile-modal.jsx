@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleUser } from "@fortawesome/free-solid-svg-icons/faCircleUser";
 import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFromBracket";
@@ -8,16 +8,44 @@ import { faChevronDown } from "@fortawesome/free-solid-svg-icons/faChevronDown";
 import { faRotateRight } from "@fortawesome/free-solid-svg-icons/faRotateRight";
 import { api, profilePictureUrl } from "../api";
 import { APP_VERSION_LABEL } from "../version";
+import { SpotifyEqualizer } from "./global-player/spotify-equalizer";
+import {
+  EQ_BANDS,
+  GAIN_MIN,
+  GAIN_MAX,
+  EQ_PRESETS,
+  readStoredGains,
+  readStoredEnabled,
+  readStoredTargetDb,
+  detectPreset,
+  dispatchEqUpdate,
+  calculateTargetShift,
+} from "./global-player/use-equalizer";
 
 export function ProfileModal({ isOpen, onClose, access }) {
   const currentUsername = access?.username || "";
   const currentAvatar = access?.profile_picture || access?.user?.profile_picture || "fine";
+  const userEqSettings = access?.user?.eq_settings || access?.eq_settings;
   const tier = access?.tier ?? 0;
   const [username, setUsername] = useState(currentUsername);
   const [avatar, setAvatar] = useState(currentAvatar);
   const [availableAvatars, setAvailableAvatars] = useState([]);
   const [avatarsOpen, setAvatarsOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [eqOpen, setEqOpen] = useState(false);
+  const [eqEnabled, setEqEnabled] = useState(() => {
+    if (typeof userEqSettings?.enabled === "boolean") return userEqSettings.enabled;
+    return readStoredEnabled();
+  });
+  const [eqGains, setEqGains] = useState(() => {
+    if (Array.isArray(userEqSettings?.gains) && userEqSettings.gains.length === 10) return userEqSettings.gains.slice();
+    return readStoredGains() ?? EQ_PRESETS.flat.gains.slice();
+  });
+  const [eqTargetDb, setEqTargetDb] = useState(() => {
+    if (typeof userEqSettings?.targetDb === "number") return userEqSettings.targetDb;
+    return readStoredTargetDb();
+  });
+  const [eqDirty, setEqDirty] = useState(false);
   const [creditsText, setCreditsText] = useState("");
   const [showCreditsRaw, setShowCreditsRaw] = useState(false);
   const [password, setPassword] = useState("");
@@ -37,10 +65,80 @@ export function ProfileModal({ isOpen, onClose, access }) {
       setSuccess("");
       setAvatarsOpen(false);
       setPasswordOpen(false);
+      setEqOpen(false);
+      setEqDirty(false);
       setShowCreditsRaw(false);
       setClearingCache(false);
+      if (userEqSettings) {
+        if (typeof userEqSettings.enabled === "boolean") setEqEnabled(userEqSettings.enabled);
+        if (Array.isArray(userEqSettings.gains) && userEqSettings.gains.length === 10) setEqGains(userEqSettings.gains.slice());
+        if (typeof userEqSettings.targetDb === "number") setEqTargetDb(userEqSettings.targetDb);
+      }
     }
-  }, [isOpen, currentUsername, currentAvatar]);
+  }, [isOpen, currentUsername, currentAvatar, userEqSettings]);
+
+  const handleSetEqGain = useCallback((idx, val) => {
+    const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Number(val)));
+    setEqGains((prev) => {
+      const next = prev.slice();
+      next[idx] = clamped;
+      try { window.localStorage.setItem("pfs:eq-gains", JSON.stringify(next)); } catch {}
+      dispatchEqUpdate({ gains: next });
+      return next;
+    });
+    setEqDirty(true);
+  }, []);
+
+  const handleSetEqGains = useCallback((nextGains) => {
+    if (!Array.isArray(nextGains)) return;
+    const clamped = nextGains.map((g) => Math.min(GAIN_MAX, Math.max(GAIN_MIN, Number(g) || 0)));
+    setEqGains(clamped);
+    try { window.localStorage.setItem("pfs:eq-gains", JSON.stringify(clamped)); } catch {}
+    dispatchEqUpdate({ gains: clamped });
+    setEqDirty(true);
+  }, []);
+
+  const handleSetEqPreset = useCallback((key) => {
+    const preset = EQ_PRESETS[key];
+    if (!preset) return;
+    const next = preset.gains.slice();
+    setEqGains(next);
+    try { window.localStorage.setItem("pfs:eq-gains", JSON.stringify(next)); } catch {}
+    dispatchEqUpdate({ gains: next, preset: key });
+    setEqDirty(true);
+  }, []);
+
+  const handleSetEqEnabled = useCallback((enabled) => {
+    setEqEnabled(enabled);
+    try { window.localStorage.setItem("pfs:eq-enabled", String(enabled)); } catch {}
+    dispatchEqUpdate({ enabled });
+    setEqDirty(true);
+  }, []);
+
+  const handleSetEqTargetDb = useCallback((db) => {
+    const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(Number(db) * 2) / 2));
+    setEqTargetDb(clamped);
+    try { window.localStorage.setItem("pfs:eq-target-db", String(clamped)); } catch {}
+    dispatchEqUpdate({ targetDb: clamped });
+    setEqDirty(true);
+  }, []);
+
+  const handleAdjustEqToTarget = useCallback((target) => {
+    const db = target !== undefined ? Number(target) : eqTargetDb;
+    const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(db * 2) / 2));
+    const next = calculateTargetShift(eqGains, clamped, GAIN_MIN, GAIN_MAX);
+    setEqGains(next);
+    try { window.localStorage.setItem("pfs:eq-gains", JSON.stringify(next)); } catch {}
+    if (!eqEnabled) {
+      setEqEnabled(true);
+      try { window.localStorage.setItem("pfs:eq-enabled", "true"); } catch {}
+      dispatchEqUpdate({ gains: next, enabled: true });
+    } else {
+      dispatchEqUpdate({ gains: next });
+    }
+    setEqDirty(true);
+    return next;
+  }, [eqGains, eqTargetDb, eqEnabled]);
 
   const handleClearCache = async () => {
     if (clearingCache) return;
@@ -103,8 +201,9 @@ export function ProfileModal({ isOpen, onClose, access }) {
     const hasNewUsername = username.trim() !== currentUsername;
     const hasNewPassword = password.length > 0;
     const hasNewAvatar = avatar !== currentAvatar;
+    const hasNewEq = eqDirty;
 
-    if (!hasNewUsername && !hasNewPassword && !hasNewAvatar) {
+    if (!hasNewUsername && !hasNewPassword && !hasNewAvatar && !hasNewEq) {
       setError("No changes requested.");
       return;
     }
@@ -133,6 +232,14 @@ export function ProfileModal({ isOpen, onClose, access }) {
       } else if (currentPassword) {
         payload.currentPassword = currentPassword;
       }
+      if (hasNewEq) {
+        payload.eq_settings = {
+          enabled: eqEnabled,
+          preset: detectPreset(eqGains),
+          gains: eqGains,
+          targetDb: eqTargetDb,
+        };
+      }
 
       const response = await api("/api/auth/profile", {
         method: "PUT",
@@ -150,6 +257,7 @@ export function ProfileModal({ isOpen, onClose, access }) {
       }
 
       setSuccess("Profile updated successfully!");
+      setEqDirty(false);
       setPassword("");
       setCurrentPassword("");
     } catch (err) {
@@ -400,6 +508,47 @@ export function ProfileModal({ isOpen, onClose, access }) {
                       Required when changing password.
                     </small>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Collapsible: Audio Equalizer (EQ) */}
+            <div className="profile-modal-collapsible">
+              <button
+                type="button"
+                className="profile-modal-collapsible-trigger"
+                aria-expanded={eqOpen}
+                onClick={() => setEqOpen((prev) => !prev)}
+              >
+                <span className="profile-modal-collapsible-title">
+                  <strong>Audio Equalizer (EQ)</strong>
+                  <small className="profile-modal-collapsible-subtitle">
+                    {eqEnabled ? `Active • ${EQ_PRESETS[detectPreset(eqGains)]?.label || "Custom"}` : "Disabled"}
+                  </small>
+                </span>
+                <FontAwesomeIcon
+                  icon={faChevronDown}
+                  className={`profile-modal-chevron${eqOpen ? " profile-modal-chevron--open" : ""}`}
+                />
+              </button>
+
+              {eqOpen && (
+                <div className="profile-modal-collapsible-content profile-modal-eq-content">
+                  <SpotifyEqualizer
+                    gains={eqGains}
+                    eqBands={EQ_BANDS}
+                    preset={detectPreset(eqGains)}
+                    eqEnabled={eqEnabled}
+                    gainMin={GAIN_MIN}
+                    gainMax={GAIN_MAX}
+                    targetDb={eqTargetDb}
+                    onSetGain={handleSetEqGain}
+                    onSetGains={handleSetEqGains}
+                    onSetPreset={handleSetEqPreset}
+                    onSetEnabled={handleSetEqEnabled}
+                    onSetTargetDb={handleSetEqTargetDb}
+                    onAdjustToTarget={handleAdjustEqToTarget}
+                  />
                 </div>
               )}
             </div>

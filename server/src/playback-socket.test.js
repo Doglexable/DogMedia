@@ -363,12 +363,13 @@ describe("protected playback socket route", () => {
         return { rows: user ? [user] : [] };
       }
       if (sql.includes("UPDATE users")) {
-        const idParam = params.length >= 4 ? params[3] : params[2];
+        const idParam = params[params.length - 1];
         const user = users.find((u) => String(u.id) === String(idParam));
         if (user) {
           user.username = params[0];
           user.password_hash = params[1];
           if (params.length >= 4) user.profile_picture = params[2];
+          if (params.length >= 5) user.eq_settings = typeof params[3] === "string" ? JSON.parse(params[3]) : params[3];
           if (sql.includes("session_version = session_version + 1")) {
             user.session_version = (user.session_version ?? 0) + 1;
           }

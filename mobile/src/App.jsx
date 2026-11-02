@@ -17,6 +17,15 @@ import { FavoritesScreen } from "./screens/favorites-screen";
 import { PlayerScreen } from "./screens/player-screen";
 import { WrappedScreen } from "./screens/wrapped-screen";
 import { ThemeProvider, ThemeToggle, useTheme } from "./theme";
+import {
+  EQ_BANDS,
+  EQ_PRESETS,
+  GAIN_MIN,
+  GAIN_MAX,
+  normalizeEqSettings,
+  loadEqSettings,
+  saveEqSettings,
+} from "./equalizer";
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -156,9 +165,14 @@ function AccountScreen() {
   const insets = useSafeAreaInsets();
   const currentUsername = access?.username || access?.description || "";
   const tier = access?.tier ?? 0;
+  const userEqSettings = access?.user?.eq_settings || access?.eq_settings;
   const [username, setUsername] = useState(currentUsername);
   const [password, setPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
+  const [eqEnabled, setEqEnabled] = useState(false);
+  const [eqPreset, setEqPreset] = useState("flat");
+  const [eqGains, setEqGains] = useState(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const [eqDirty, setEqDirty] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -169,15 +183,57 @@ function AccountScreen() {
     setCurrentPassword("");
     setError("");
     setSuccess("");
-  }, [currentUsername]);
+    if (userEqSettings) {
+      const normalized = normalizeEqSettings(userEqSettings);
+      setEqEnabled(normalized.enabled);
+      setEqPreset(normalized.preset);
+      setEqGains(normalized.gains);
+    } else {
+      loadEqSettings().then((loaded) => {
+        if (loaded) {
+          setEqEnabled(loaded.enabled);
+          setEqPreset(loaded.preset);
+          setEqGains(loaded.gains);
+        }
+      }).catch(() => {});
+    }
+  }, [currentUsername, userEqSettings]);
+
+  const handleSelectPreset = (key) => {
+    const preset = EQ_PRESETS[key];
+    if (!preset) return;
+    setEqPreset(key);
+    setEqGains(preset.gains.slice());
+    setEqDirty(true);
+    saveEqSettings({ enabled: eqEnabled, preset: key, gains: preset.gains });
+  };
+
+  const handleToggleEqEnabled = () => {
+    const next = !eqEnabled;
+    setEqEnabled(next);
+    setEqDirty(true);
+    saveEqSettings({ enabled: next, preset: eqPreset, gains: eqGains });
+  };
+
+  const handleChangeBandGain = (index, delta) => {
+    const nextGains = eqGains.slice();
+    const current = nextGains[index] || 0;
+    const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, current + delta));
+    nextGains[index] = clamped;
+    setEqGains(nextGains);
+    setEqPreset("custom");
+    setEqDirty(true);
+    saveEqSettings({ enabled: eqEnabled, preset: "custom", gains: nextGains });
+  };
 
   const handleUpdate = async () => {
     setError("");
     setSuccess("");
     const hasNewUsername = username.trim() !== currentUsername;
     const hasNewPassword = password.length > 0;
+    const hasNewEq = eqDirty;
 
-    if (!hasNewUsername && !hasNewPassword) {
+    if (!hasNewUsername && !hasNewPassword && !hasNewEq) {
       setError("No changes requested.");
       return;
     }
@@ -197,6 +253,14 @@ function AccountScreen() {
         payload.password = password;
         payload.currentPassword = currentPassword;
       }
+      if (hasNewEq) {
+        payload.eq_settings = {
+          enabled: eqEnabled,
+          preset: eqPreset,
+          gains: eqGains,
+          targetDb: 0,
+        };
+      }
       const data = await apiJson("/api/auth/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -206,6 +270,8 @@ function AccountScreen() {
         access?.updateUser?.(data.user);
       }
       setSuccess("Profile updated successfully!");
+      setEqDirty(false);
+      saveEqSettings(payload.eq_settings || { enabled: eqEnabled, preset: eqPreset, gains: eqGains });
       setPassword("");
       setCurrentPassword("");
     } catch (err) {
@@ -221,6 +287,13 @@ function AccountScreen() {
     setCurrentPassword("");
     setError("");
     setSuccess("");
+    setEqDirty(false);
+    if (userEqSettings) {
+      const normalized = normalizeEqSettings(userEqSettings);
+      setEqEnabled(normalized.enabled);
+      setEqPreset(normalized.preset);
+      setEqGains(normalized.gains);
+    }
   };
 
   return (
@@ -351,6 +424,140 @@ function AccountScreen() {
           marginBottom: 16,
         }}
       />
+
+      {/* Equalizer (EQ) Settings */}
+      <View
+        style={{
+          marginTop: 8,
+          marginBottom: 20,
+          padding: 16,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.cardBorder,
+          borderRadius: 14,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <View>
+            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>
+              Audio Equalizer (EQ)
+            </Text>
+            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+              {eqEnabled ? `Active • ${EQ_PRESETS[eqPreset]?.label || "Custom"}` : "Disabled"}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Toggle Equalizer"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: eqEnabled }}
+            onPress={handleToggleEqEnabled}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 9999,
+              backgroundColor: eqEnabled ? colors.primary : colors.surface,
+              borderWidth: 1,
+              borderColor: eqEnabled ? colors.primary : colors.cardBorder,
+            }}
+          >
+            <Text style={{ color: eqEnabled ? "white" : colors.muted, fontSize: 12, fontWeight: "700" }}>
+              {eqEnabled ? "ON" : "OFF"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Presets Horizontal List */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+          {Object.entries(EQ_PRESETS).map(([key, p]) => {
+            const isSelected = eqPreset === key;
+            return (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityLabel={`${p.label} preset`}
+                onPress={() => handleSelectPreset(key)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 8,
+                  backgroundColor: isSelected ? "rgba(225, 29, 72, 0.2)" : colors.surface,
+                  borderWidth: 1,
+                  borderColor: isSelected ? colors.primary : colors.cardBorder,
+                }}
+              >
+                <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 12, fontWeight: isSelected ? "700" : "500" }}>
+                  {p.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {/* 10 Band Gain Steppers */}
+        <View style={{ gap: 10, marginTop: 8 }}>
+          {EQ_BANDS.map((band, idx) => {
+            const gain = eqGains[idx] || 0;
+            const gainLabel = gain > 0 ? `+${gain} dB` : `${gain} dB`;
+            return (
+              <View
+                key={band.id}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: colors.surface,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600", width: 60 }}>
+                  {band.label}
+                </Text>
+                <Text style={{ color: gain === 0 ? colors.muted : (gain > 0 ? colors.primary : "#38bdf8"), fontSize: 13, fontWeight: "700" }}>
+                  {gainLabel}
+                </Text>
+                <View style={{ flexDirection: "row", gap: 6 }}>
+                  <Pressable
+                    accessibilityLabel={`Decrease ${band.label}`}
+                    onPress={() => handleChangeBandGain(idx, -1)}
+                    disabled={gain <= GAIN_MIN}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      backgroundColor: colors.card,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: gain <= GAIN_MIN ? 0.3 : 1,
+                    }}
+                  >
+                    <Ionicons name="remove" size={16} color={colors.text} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel={`Increase ${band.label}`}
+                    onPress={() => handleChangeBandGain(idx, 1)}
+                    disabled={gain >= GAIN_MAX}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 6,
+                      backgroundColor: colors.card,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: gain >= GAIN_MAX ? 0.3 : 1,
+                    }}
+                  >
+                    <Ionicons name="add" size={16} color={colors.text} />
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </View>
 
       {error ? (
         <View

@@ -1,9 +1,14 @@
 use dioxus_native::prelude::*;
 
 use super::super::*;
+use crate::playback::PlaybackEngine;
+use crate::store::EqSettings;
 
 #[component]
-pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
+pub(crate) fn SettingsDialog(
+    app: Signal<NativeApp>,
+    #[props(default)] engine: Option<Signal<Option<PlaybackEngine>>>,
+) -> Element {
     let snapshot = app.read();
     let can_close = snapshot.settings.configured && !snapshot.settings_connecting;
     let url_changed = snapshot.settings_url.trim().trim_end_matches('/')
@@ -127,6 +132,129 @@ pub(crate) fn SettingsDialog(app: Signal<NativeApp>) -> Element {
                             onchange: move |scheme| set_color_scheme(app, scheme)
                         }
                         small { "Use your desktop preference or choose a fixed theme." }
+                    }
+                    div { class: "field",
+                        div { class: "field-header",
+                            span { "Audio Equalizer (EQ)" }
+                            button {
+                                class: if snapshot.settings.eq.enabled { "eq-toggle-btn active" } else { "eq-toggle-btn" },
+                                r#type: "button",
+                                onclick: move |_| {
+                                    let next_enabled = !app.read().settings.eq.enabled;
+                                    app.write().settings.eq.enabled = next_enabled;
+                                    let eq = app.read().settings.eq.clone();
+                                    let settings = app.read().settings.clone();
+                                    let _ = app.read().store.save(&settings);
+                                    if let Some(engine_sig) = engine {
+                                        if let Some(eng) = engine_sig.read().as_ref() {
+                                            eng.set_eq(&eq);
+                                        }
+                                    }
+                                },
+                                if snapshot.settings.eq.enabled { "Enabled" } else { "Disabled" }
+                            }
+                        }
+                        small { "Configure 10-band audio equalizer applied to all media playback." }
+                        div { class: "eq-presets-grid",
+                            for preset_name in ["flat", "rock", "pop", "electronic", "metal", "dialogue", "funk", "dreampop"] {
+                                {
+                                    let is_active = snapshot.settings.eq.preset.eq_ignore_ascii_case(preset_name);
+                                    let label = match preset_name {
+                                        "flat" => "Flat",
+                                        "rock" => "Rock",
+                                        "pop" => "Pop",
+                                        "electronic" => "Electronic",
+                                        "metal" => "Metal",
+                                        "dialogue" => "Dialogue",
+                                        "funk" => "Funk",
+                                        "dreampop" => "Dream Pop",
+                                        _ => preset_name,
+                                    };
+                                    rsx! {
+                                        button {
+                                            key: "{preset_name}",
+                                            r#type: "button",
+                                            class: if is_active { "eq-preset-btn active" } else { "eq-preset-btn" },
+                                            onclick: move |_| {
+                                                if let Some(gains) = EqSettings::preset_gains(preset_name) {
+                                                    app.write().settings.eq.preset = preset_name.to_owned();
+                                                    app.write().settings.eq.gains = gains;
+                                                    let eq = app.read().settings.eq.clone();
+                                                    let settings = app.read().settings.clone();
+                                                    let _ = app.read().store.save(&settings);
+                                                    if let Some(engine_sig) = engine {
+                                                        if let Some(eng) = engine_sig.read().as_ref() {
+                                                            eng.set_eq(&eq);
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "{label}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "eq-bands-grid",
+                            for (index, band_label) in EqSettings::BAND_LABELS.iter().enumerate() {
+                                {
+                                    let current_gain = snapshot.settings.eq.gains[index];
+                                    let gain_str = if current_gain > 0.0 {
+                                        format!("+{current_gain:.1} dB")
+                                    } else {
+                                        format!("{current_gain:.1} dB")
+                                    };
+                                    rsx! {
+                                        div {
+                                            key: "{index}",
+                                            class: "eq-band-item",
+                                            span { class: "eq-band-label", "{band_label}" }
+                                            span { class: "eq-band-gain", "{gain_str}" }
+                                            div { style: "display: flex; gap: 4px;",
+                                                button {
+                                                    r#type: "button",
+                                                    class: "eq-step-btn",
+                                                    disabled: current_gain <= -10.0,
+                                                    onclick: move |_| {
+                                                        let new_gain = (current_gain - 1.0).max(-10.0);
+                                                        app.write().settings.eq.gains[index] = new_gain;
+                                                        app.write().settings.eq.preset = "custom".to_owned();
+                                                        let eq = app.read().settings.eq.clone();
+                                                        let settings = app.read().settings.clone();
+                                                        let _ = app.read().store.save(&settings);
+                                                        if let Some(engine_sig) = engine {
+                                                            if let Some(eng) = engine_sig.read().as_ref() {
+                                                                eng.set_eq(&eq);
+                                                            }
+                                                        }
+                                                    },
+                                                    "-"
+                                                }
+                                                button {
+                                                    r#type: "button",
+                                                    class: "eq-step-btn",
+                                                    disabled: current_gain >= 10.0,
+                                                    onclick: move |_| {
+                                                        let new_gain = (current_gain + 1.0).min(10.0);
+                                                        app.write().settings.eq.gains[index] = new_gain;
+                                                        app.write().settings.eq.preset = "custom".to_owned();
+                                                        let eq = app.read().settings.eq.clone();
+                                                        let settings = app.read().settings.clone();
+                                                        let _ = app.read().store.save(&settings);
+                                                        if let Some(engine_sig) = engine {
+                                                            if let Some(eng) = engine_sig.read().as_ref() {
+                                                                eng.set_eq(&eq);
+                                                            }
+                                                        }
+                                                    },
+                                                    "+"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 footer { class: "dialog-actions",

@@ -2661,6 +2661,12 @@ textarea {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.75);
 }
 
+@media (min-width: 1024px) {
+  .settings-panel {
+    width: 620px;
+  }
+}
+
 .fullscreen-player-actions {
   position: relative;
 }

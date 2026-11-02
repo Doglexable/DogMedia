@@ -217,7 +217,7 @@ pub(crate) fn Shell(
                 }
             }
             if snapshot.settings_open {
-                SettingsDialog { app }
+                SettingsDialog { app, engine }
             }
             if snapshot.media_settings_open {
                 MediaSettingsDialog { app, engine }

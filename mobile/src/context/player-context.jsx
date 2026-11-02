@@ -20,6 +20,7 @@ import { getMediaKind, nextLoopMode } from "../utils/media";
 import { conflictDisplayText, conflictFromError } from "../utils/exclusive-session";
 import { createApiUnreachableError } from "../utils/playback-errors";
 import { actualMediaQuality, getStoredMediaQuality, storeMediaQuality } from "../media-quality";
+import { loadEqSettings, saveEqSettings, normalizeEqSettings } from "../equalizer";
 import {
   getCompletionAction,
   getQueueNavigation,
@@ -103,6 +104,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
   const [sleepTimerRemaining, setSleepTimerRemaining] = useState(0);
   const [sleepTimerCompleted, setSleepTimerCompleted] = useState(false);
   const [quality, setQuality] = useState("high");
+  const [eqSettings, setEqSettingsState] = useState(() => normalizeEqSettings(null));
   const [playbackSource, setPlaybackSource] = useState(null);
   const [playbackAccessError, setPlaybackAccessError] = useState("");
   const [playbackConflict, setPlaybackConflict] = useState(null);
@@ -110,6 +112,16 @@ export function PlayerProvider({ accessTier = 0, children }) {
 
   useEffect(() => {
     getStoredMediaQuality().then(setQuality).catch(() => {});
+    loadEqSettings().then((loaded) => {
+      if (loaded) setEqSettingsState(loaded);
+    }).catch(() => {});
+  }, []);
+
+  const updateEqSettings = useCallback((newSettings) => {
+    const normalized = normalizeEqSettings(newSettings);
+    setEqSettingsState(normalized);
+    saveEqSettings(normalized).catch(() => {});
+    return normalized;
   }, []);
 
   const currentKind = getMediaKind(currentMedia?.mime_type || "");
@@ -1307,6 +1319,8 @@ export function PlayerProvider({ accessTier = 0, children }) {
     togglePlayback,
     toggleShuffle,
     volume,
+    eqSettings,
+    setEqSettings: updateEqSettings,
   }), [
     addToQueue, advance, applyResumePosition, changeQuality, changeVolume, clearQueue, currentKind, currentMedia,
     playbackAccessError, playbackConflict, accessTier, applyObservedConflict, takeOverExclusiveSession,
@@ -1315,6 +1329,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     registerVideoController, bindProtectedSource, socketStatus, revokedSessionId, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
     quality, playbackRate, setPlaybackRate, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
+    eqSettings, updateEqSettings,
   ]);
 
   const libraryValue = useMemo(() => ({

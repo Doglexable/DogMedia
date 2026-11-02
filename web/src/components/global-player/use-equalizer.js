@@ -104,7 +104,7 @@ export function getOrCreateMediaElementSource(context, element, sourceCache) {
   return source;
 }
 
-function readStoredGains() {
+export function readStoredGains() {
   try {
     const raw = window.localStorage.getItem(GAINS_KEY);
     if (!raw) return null;
@@ -116,10 +116,16 @@ function readStoredGains() {
   return null;
 }
 
-function readStoredEnabled() {
+export function readStoredEnabled() {
   try {
     return window.localStorage.getItem(ENABLED_KEY) === "true";
   } catch { return false; }
+}
+
+export function dispatchEqUpdate(detail) {
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new CustomEvent("pfs:eq-update", { detail }));
+  }
 }
 
 export function readStoredTargetDb() {
@@ -151,7 +157,7 @@ export function calculateTargetShift(gains, targetDb, min = GAIN_MIN, max = GAIN
   });
 }
 
-function detectPreset(gains) {
+export function detectPreset(gains) {
   if (!Array.isArray(gains)) return "custom";
   for (const [key, preset] of Object.entries(EQ_PRESETS)) {
     if (preset.gains.every((g, i) => Math.abs(g - (gains[i] ?? 0)) < 0.01)) return key;
@@ -351,6 +357,26 @@ export function useEqualizer(mediaRef) {
     });
   }, []);
 
+  // ─── Listen for external EQ updates (e.g. from User Settings Profile Modal) ─
+  useEffect(() => {
+    function handleExternalEq(e) {
+      const detail = e.detail;
+      if (!detail) return;
+      if (Array.isArray(detail.gains)) {
+        setGainsState(detail.gains);
+        applyGains(detail.gains);
+      }
+      if (typeof detail.enabled === "boolean") {
+        setEqEnabledState(detail.enabled);
+      }
+      if (typeof detail.targetDb === "number") {
+        setTargetDbState(detail.targetDb);
+      }
+    }
+    window.addEventListener("pfs:eq-update", handleExternalEq);
+    return () => window.removeEventListener("pfs:eq-update", handleExternalEq);
+  }, [applyGains]);
+
   // ─── Public API ───────────────────────────────────────────────────────────
   const setGain = useCallback((bandIndex, value) => {
     const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Number(value)));
@@ -361,6 +387,7 @@ export function useEqualizer(mediaRef) {
       try { window.localStorage.setItem(GAINS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
       // Apply to live filters
       applyGains(next);
+      dispatchEqUpdate({ gains: next });
       return next;
     });
   }, [applyGains]);
@@ -373,11 +400,13 @@ export function useEqualizer(mediaRef) {
     setGainsState(next);
     try { window.localStorage.setItem(GAINS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
     applyGains(next);
+    dispatchEqUpdate({ gains: next, preset: resolvedKey });
   }, [applyGains]);
 
   const setEqEnabled = useCallback((enabled) => {
     setEqEnabledState(enabled);
     try { window.localStorage.setItem(ENABLED_KEY, String(enabled)); } catch { /* ignore */ }
+    dispatchEqUpdate({ enabled });
   }, []);
 
   const setGains = useCallback((nextGains) => {
@@ -386,12 +415,14 @@ export function useEqualizer(mediaRef) {
     setGainsState(clamped);
     try { window.localStorage.setItem(GAINS_KEY, JSON.stringify(clamped)); } catch { /* ignore */ }
     applyGains(clamped);
+    dispatchEqUpdate({ gains: clamped });
   }, [applyGains]);
 
   const setTargetDb = useCallback((value) => {
     const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(Number(value) * 2) / 2));
     setTargetDbState(clamped);
     try { window.localStorage.setItem(TARGET_DB_KEY, String(clamped)); } catch { /* ignore */ }
+    dispatchEqUpdate({ targetDb: clamped });
   }, []);
 
   const adjustToTargetDb = useCallback((customTarget) => {
@@ -404,6 +435,9 @@ export function useEqualizer(mediaRef) {
     if (!enabledRef.current) {
       setEqEnabledState(true);
       try { window.localStorage.setItem(ENABLED_KEY, "true"); } catch { /* ignore */ }
+      dispatchEqUpdate({ gains: next, enabled: true });
+    } else {
+      dispatchEqUpdate({ gains: next });
     }
     return next;
   }, [applyGains, targetDb]);

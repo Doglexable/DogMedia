@@ -1126,6 +1126,7 @@ fn ensure_playback_engine(
     if !app.read().player_expanded {
         player.set_video_constraint(Some(640), Some(360));
     }
+    player.set_eq(&app.read().settings.eq);
     *engine.write() = Some(player);
     Ok(())
 }

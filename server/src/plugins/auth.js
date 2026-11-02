@@ -116,7 +116,7 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     const parsed = parseSessionValue(rawSession);
     if (!parsed) return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
 
-    const { rows } = await fastify.pg.query("SELECT id, username, access_tier, profile_picture, session_version FROM users WHERE id = $1", [parsed.userId]);
+    const { rows } = await fastify.pg.query("SELECT id, username, access_tier, profile_picture, session_version, eq_settings FROM users WHERE id = $1", [parsed.userId]);
     if (!rows.length) return reply.code(401).send({ error: "Account unavailable", code: "LOGIN_REQUIRED" });
     if (Number(rows[0].session_version ?? 0) !== parsed.sessionVersion) {
       return reply.code(401).send({ error: "Session expired", code: "LOGIN_REQUIRED" });
@@ -181,14 +181,15 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
         username: request.user.username,
         tier: request.accessTier,
         profile_picture: request.user.profile_picture || "fine",
+        eq_settings: request.user.eq_settings || null,
       },
     };
   });
 
   fastify.put("/auth/profile", async (request, reply) => {
-    const { username, password, currentPassword, profile_picture } = request.body || {};
+    const { username, password, currentPassword, profile_picture, eq_settings } = request.body || {};
     const { rows } = await fastify.pg.query(
-      "SELECT id, username, password_hash, access_tier, profile_picture, session_version FROM users WHERE id = $1",
+      "SELECT id, username, password_hash, access_tier, profile_picture, session_version, eq_settings FROM users WHERE id = $1",
       [request.user.id]
     );
     if (!rows.length) return reply.code(404).send({ error: "Account not found" });
@@ -197,8 +198,9 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
     const hasNewPassword = typeof password === "string" && password.length > 0;
     const hasNewUsername = typeof username === "string" && username.trim() !== user.username;
     const hasNewProfilePicture = typeof profile_picture === "string" && profile_picture.trim() !== (user.profile_picture || "fine");
+    const hasNewEqSettings = eq_settings !== undefined && eq_settings !== null && typeof eq_settings === "object";
 
-    if (!hasNewPassword && !hasNewUsername && !hasNewProfilePicture) {
+    if (!hasNewPassword && !hasNewUsername && !hasNewProfilePicture && !hasNewEqSettings) {
       return reply.code(400).send({ error: "No changes requested" });
     }
 
@@ -237,13 +239,28 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
       nextProfilePicture = cleanPic;
     }
 
+    let nextEqSettings = user.eq_settings || null;
+    if (hasNewEqSettings) {
+      const gains = Array.isArray(eq_settings.gains)
+        ? eq_settings.gains.slice(0, 10).map((g) => Math.min(10, Math.max(-10, Number(g) || 0)))
+        : (user.eq_settings?.gains || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      while (gains.length < 10) gains.push(0);
+
+      nextEqSettings = {
+        enabled: Boolean(eq_settings.enabled),
+        preset: typeof eq_settings.preset === "string" ? eq_settings.preset.slice(0, 50) : "custom",
+        gains,
+        targetDb: Math.min(10, Math.max(-10, Number(eq_settings.targetDb) || 0)),
+      };
+    }
+
     try {
       const updateSql = hasNewPassword
-        ? "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3, session_version = session_version + 1 WHERE id = $4 RETURNING id, username, access_tier, profile_picture, session_version"
-        : "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3 WHERE id = $4 RETURNING id, username, access_tier, profile_picture, session_version";
+        ? "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3, eq_settings = $4, session_version = session_version + 1 WHERE id = $5 RETURNING id, username, access_tier, profile_picture, session_version, eq_settings"
+        : "UPDATE users SET username = $1, password_hash = $2, profile_picture = $3, eq_settings = $4 WHERE id = $5 RETURNING id, username, access_tier, profile_picture, session_version, eq_settings";
       const { rows: updatedRows } = await fastify.pg.query(
         updateSql,
-        [nextUsername, nextHash, nextProfilePicture, user.id]
+        [nextUsername, nextHash, nextProfilePicture, JSON.stringify(nextEqSettings), user.id]
       );
       const updated = updatedRows[0];
 
@@ -263,6 +280,7 @@ export default async function authPlugin(fastify, { allowedOrigins = new Set() }
           username: updated.username,
           tier: updated.access_tier,
           profile_picture: updated.profile_picture || "fine",
+          eq_settings: updated.eq_settings || null,
         },
       };
     } catch (error) {

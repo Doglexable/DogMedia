@@ -20,7 +20,7 @@ function createApp() {
     if (sql.includes("lower(username)")) return { rows: users.filter((user) => user.username.toLowerCase() === params[0].toLowerCase()) };
     if (sql.includes("FROM users WHERE id")) return { rows: users.filter((user) => String(user.id) === String(params[0])) };
     if (sql.includes("UPDATE users")) {
-      const idParam = params.length >= 4 ? params[3] : params[2];
+      const idParam = params[params.length - 1];
       const duplicate = users.some((u) => u.username.toLowerCase() === params[0].toLowerCase() && String(u.id) !== String(idParam));
       if (duplicate) {
         const error = new Error("duplicate"); error.code = "23505"; throw error;
@@ -30,6 +30,7 @@ function createApp() {
         user.username = params[0];
         user.password_hash = params[1];
         if (params.length >= 4) user.profile_picture = params[2];
+        if (params.length >= 5) user.eq_settings = typeof params[3] === "string" ? JSON.parse(params[3]) : params[3];
         if (sql.includes("session_version = session_version + 1")) {
           user.session_version = (user.session_version ?? 0) + 1;
         }
@@ -124,16 +125,31 @@ describe("account authentication", () => {
     expect(profileRes.statusCode).toBe(200);
     expect(profileRes.json().user.username).toBe("userone");
 
-    // Updating username and profile picture
+    // Updating username and profile picture and eq_settings
     const updateUsername = await app.inject({
       method: "PUT",
       url: "/api/auth/profile",
       headers,
-      payload: { username: "userupdated", profile_picture: "monoco_good" },
+      payload: {
+        username: "userupdated",
+        profile_picture: "monoco_good",
+        eq_settings: {
+          enabled: true,
+          preset: "rock",
+          gains: [3, 5, 3, 0, 3, 5, 5, 3, 2, 0],
+          targetDb: 2,
+        },
+      },
     });
     expect(updateUsername.statusCode).toBe(200);
     expect(updateUsername.json().user.username).toBe("userupdated");
     expect(updateUsername.json().user.profile_picture).toBe("monoco_good");
+    expect(updateUsername.json().user.eq_settings).toEqual({
+      enabled: true,
+      preset: "rock",
+      gains: [3, 5, 3, 0, 3, 5, 5, 3, 2, 0],
+      targetDb: 2,
+    });
 
     // Updating password with wrong current password should fail
     const wrongPass = await app.inject({

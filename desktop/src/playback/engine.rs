@@ -52,6 +52,7 @@ pub type RedrawCallback = Arc<dyn Fn() + Send + Sync + 'static>;
 pub struct PlaybackEngine {
     playbin: gst::Element,
     video_sink: gst::Element,
+    equalizer: Option<gst::Element>,
     video_constraint: Arc<Mutex<Option<(u32, u32)>>>,
     caps_negotiating: Arc<AtomicBool>,
     small_resolution_since: Arc<Mutex<Option<Instant>>>,
@@ -362,9 +363,18 @@ impl PlaybackEngine {
             None
         });
         let video_constraint = Arc::new(Mutex::new(None));
+        static EQUALIZER_FACTORY_LOCK: Mutex<()> = Mutex::new(());
+        let equalizer = {
+            let _guard = EQUALIZER_FACTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            gst::ElementFactory::make("equalizer-10bands").build().ok()
+        };
+        if let Some(eq) = equalizer.as_ref() {
+            playbin.set_property("audio-filter", eq);
+        }
         Ok(Self {
             playbin,
             video_sink,
+            equalizer,
             video_constraint,
             caps_negotiating,
             small_resolution_since,
@@ -376,6 +386,20 @@ impl PlaybackEngine {
             current_rate: Mutex::new(1.0),
             last_video_pts,
         })
+    }
+
+    pub fn set_eq(&self, eq: &crate::store::EqSettings) {
+        if let Some(element) = self.equalizer.as_ref() {
+            let gains = if eq.enabled {
+                eq.gains
+            } else {
+                [0.0; 10]
+            };
+            for (i, gain) in gains.iter().enumerate() {
+                let prop_name = format!("band{i}");
+                element.set_property(&prop_name, *gain);
+            }
+        }
     }
 
     pub fn open(
@@ -900,5 +924,38 @@ mod tests {
         let caps = engine.video_sink.property::<gst::Caps>("caps");
         let caps_str = caps.to_string();
         assert!(!caps_str.contains("width="));
+    }
+
+    #[test]
+    fn engine_set_eq_updates_gstreamer_equalizer_bands() {
+        let engine = PlaybackEngine::new().unwrap();
+        let eq = crate::store::EqSettings {
+            enabled: true,
+            preset: "rock".to_owned(),
+            gains: [3.0, 5.0, 3.0, 0.0, 3.0, 5.0, 5.0, 3.0, 2.0, 0.0],
+            target_db: 0.0,
+        };
+        engine.set_eq(&eq);
+        if let Some(el) = engine.equalizer.as_ref() {
+            let b0: f64 = el.property("band0");
+            let b1: f64 = el.property("band1");
+            assert_eq!(b0, 3.0);
+            assert_eq!(b1, 5.0);
+        }
+
+        // Disabled resets gains to flat (0.0)
+        let disabled_eq = crate::store::EqSettings {
+            enabled: false,
+            preset: "rock".to_owned(),
+            gains: [3.0, 5.0, 3.0, 0.0, 3.0, 5.0, 5.0, 3.0, 2.0, 0.0],
+            target_db: 0.0,
+        };
+        engine.set_eq(&disabled_eq);
+        if let Some(el) = engine.equalizer.as_ref() {
+            let b0: f64 = el.property("band0");
+            let b1: f64 = el.property("band1");
+            assert_eq!(b0, 0.0);
+            assert_eq!(b1, 0.0);
+        }
     }
 }

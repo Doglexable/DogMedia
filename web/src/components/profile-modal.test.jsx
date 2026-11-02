@@ -31,6 +31,7 @@ describe("ProfileModal", () => {
     expect(markup).toContain("Profile Picture &amp; Credits</strong>");
     expect(markup).toContain("Active: fine");
     expect(markup).toContain("Change Password</strong>");
+    expect(markup).toContain("Audio Equalizer (EQ)</strong>");
     expect(markup).toContain(">Update user</button>");
     expect(markup).toContain(">Batal</button>");
     expect(markup).toContain("profile-modal-clear-cache-btn");
