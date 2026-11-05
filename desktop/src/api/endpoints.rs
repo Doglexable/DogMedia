@@ -23,6 +23,16 @@ pub struct PaletteColor {
     pub percentage: f64,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryFavoriteResult {
+    pub success: bool,
+    pub category_id: CategoryId,
+    pub total_count: usize,
+    pub added_count: usize,
+    pub added_ids: Vec<MediaId>,
+}
+
 #[derive(Serialize)]
 struct CreateSessionRequest {
     quality: Quality,
@@ -384,6 +394,19 @@ impl ApiClient {
             Endpoint::Unlike(media_id)
         };
         self.unit_endpoint(&endpoint, None::<&()>, None).await
+    }
+
+    pub async fn favorite_folder(
+        &self,
+        category_id: CategoryId,
+    ) -> Result<CategoryFavoriteResult, ApiError> {
+        self.json_endpoint(
+            &Endpoint::LikeCategory(category_id),
+            None::<&()>,
+            None,
+            NORMAL_TIMEOUT,
+        )
+        .await
     }
 
     pub async fn lyrics(&self, media_id: MediaId) -> Result<Option<Lyrics>, ApiError> {

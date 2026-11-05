@@ -1,6 +1,8 @@
 import { consumeSocketTicket, getExclusiveLease, readPlaybackSession, refreshExclusiveLease } from "./playback-session.js";
 import { authorizeExclusiveReport, publicHolderWithPlayback, writeActivePlayback } from "./playback-live-state.js";
 import { isUserSessionValid } from "./plugins/auth.js";
+import { listNowPlayingSessions, PAUSE_MAX_IDLE_MS } from "./playback-now-playing.js";
+import { readResumePosition, saveResumePosition } from "./playback-resume.js";
 
 export const SOCKET_MAX_BYTES = 8192;
 export const SOCKET_CLOSE = { malformed: 4400, unauthorized: 4401, rateLimited: 4408, slow: 4429 };
@@ -17,6 +19,14 @@ export function parsePlaybackMessage(raw) {
   if (!value || typeof value !== "object" || Array.isArray(value) || value.version !== VERSION) throw new Error("Invalid protocol version");
   if (value.type === "auth" && typeof value.ticket === "string" && /^[A-Za-z0-9_-]{43}$/.test(value.ticket)) return value;
   if (value.type === "session.bind" && typeof value.sessionId === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(value.sessionId)) return value;
+  if (value.type === "now-playing.subscribe" || value.type === "now-playing.unsubscribe") return value;
+  if (value.type === "resume.get"
+      && Number.isSafeInteger(value.mediaId) && value.mediaId > 0
+      && Number.isSafeInteger(value.requestId) && value.requestId >= 0) return value;
+  if (value.type === "resume.save"
+      && Number.isSafeInteger(value.mediaId) && value.mediaId > 0
+      && Number.isFinite(value.position) && value.position >= 0 && value.position <= 1e9
+      && Number.isFinite(value.duration) && value.duration >= 0 && value.duration <= 1e9) return value;
   if (value.type === "playback.state"
       && typeof value.sessionId === "string" && /^[A-Za-z0-9_-]{20,128}$/.test(value.sessionId)
       && Number.isSafeInteger(value.mediaId) && value.mediaId > 0
@@ -46,6 +56,7 @@ export function createPlaybackSocketHub(fastify, {
   const counters = { connections: 0, authRejected: 0, reconnects: 0, protocolErrors: 0, slowConsumers: 0 };
   let revision = 0;
   let expiryTimer = null;
+  let nowPlayingExpiryTimer = null;
   let closed = false;
 
   const send = (entry, payload) => {
@@ -55,8 +66,9 @@ export function createPlaybackSocketHub(fastify, {
       entry.socket.close(SOCKET_CLOSE.slow, "Slow receiver");
       return;
     }
-    if (entry.socket.bufferedAmount > 64 * 1024 && payload.type === "lease.state") {
-      entry.pendingState = payload;
+    if (entry.socket.bufferedAmount > 64 * 1024 && (payload.type === "lease.state" || payload.type === "now-playing.state")) {
+      if (payload.type === "lease.state") entry.pendingState = payload;
+      else entry.pendingNowPlaying = payload;
       return;
     }
     entry.socket.send(JSON.stringify(payload));
@@ -100,6 +112,31 @@ export function createPlaybackSocketHub(fastify, {
     expiryTimer.unref?.();
   };
 
+  const scheduleNowPlayingExpiry = async (sessions) => {
+    if (nowPlayingExpiryTimer) clearTimeout(nowPlayingExpiryTimer);
+    nowPlayingExpiryTimer = null;
+    if (closed || ![...sockets].some((entry) => entry.nowPlayingSubscribed)) return;
+    const first = await fastify.redis.zrange("playback:active:index", 0, 0, "WITHSCORES");
+    const pauseExpiries = (sessions || await listNowPlayingSessions(fastify))
+      .filter((session) => session.action === "pause" || session.state === "paused")
+      .map((session) => Date.parse(session.pausedAt || session.timestamp) + PAUSE_MAX_IDLE_MS)
+      .filter(Number.isFinite);
+    const expiresAt = Math.min(Number(first?.[1]) || Infinity, ...pauseExpiries);
+    if (!Number.isFinite(expiresAt)) return;
+    nowPlayingExpiryTimer = setTimeout(() => {
+      notify().catch((error) => fastify.log.warn({ err: error }, "now-playing expiry check failed"));
+    }, Math.max(100, expiresAt - Date.now() + 100));
+    nowPlayingExpiryTimer.unref?.();
+  };
+
+  const sendNowPlaying = async (recipients, currentRevision = revision) => {
+    if (recipients.length === 0) return;
+    const sessions = await listNowPlayingSessions(fastify);
+    const payload = { type: "now-playing.state", version: VERSION, revision: currentRevision, sessions };
+    for (const entry of recipients) send(entry, payload);
+    await scheduleNowPlayingExpiry(sessions);
+  };
+
   const notify = async () => {
     if (closed) return;
     revision += 1;
@@ -122,11 +159,12 @@ export function createPlaybackSocketHub(fastify, {
       }
       send(entry, stateFor(entry, lease, holders.get(entry.identity.clientIp)));
     }
+    await sendNowPlaying(recipients.filter((entry) => entry.nowPlayingSubscribed), revision);
     await scheduleExpiry();
   };
 
   const handle = (socket, request) => {
-    const entry = { socket, identity: null, boundSessionId: null, revokedSessionId: null, playing: false, sequence: -1, pong: true, messages: 0, windowAt: Date.now(), pendingState: null };
+    const entry = { socket, identity: null, boundSessionId: null, revokedSessionId: null, playing: false, sequence: -1, pong: true, messages: 0, windowAt: Date.now(), pendingState: null, pendingNowPlaying: null, nowPlayingSubscribed: false };
     const authTimeout = setTimeout(() => {
       if (!entry.identity) { counters.authRejected += 1; socket.close(SOCKET_CLOSE.unauthorized, "Authentication required"); }
     }, 5000);
@@ -138,6 +176,7 @@ export function createPlaybackSocketHub(fastify, {
       timers.delete(pingTimer);
       sockets.delete(entry);
       if (entry.boundSessionId) scheduleExpiry().catch(() => {});
+      if (entry.nowPlayingSubscribed) scheduleNowPlayingExpiry().catch(() => {});
     };
     const pingTimer = schedulePingInterval(async () => {
       if (!entry.identity) return;
@@ -147,6 +186,11 @@ export function createPlaybackSocketHub(fastify, {
       if (entry.pendingState && socket.bufferedAmount < 64 * 1024) {
         const pending = entry.pendingState;
         entry.pendingState = null;
+        send(entry, pending);
+      }
+      if (entry.pendingNowPlaying && socket.bufferedAmount < 64 * 1024) {
+        const pending = entry.pendingNowPlaying;
+        entry.pendingNowPlaying = null;
         send(entry, pending);
       }
       if (entry.identity && fastify.pg?.query && entry.identity.userId) {
@@ -222,6 +266,12 @@ export function createPlaybackSocketHub(fastify, {
           await scheduleExpiry();
           return;
         }
+        if (["now-playing.subscribe", "resume.get", "resume.save"].includes(message.type)
+            && fastify.pg?.query && entry.identity.userId
+            && !await isUserSessionValid(fastify.pg, entry.identity.userId, entry.identity.sessionVersion)) {
+          socket.close(SOCKET_CLOSE.unauthorized, "Session revoked");
+          return;
+        }
         if (message.type === "session.bind") {
           if (fastify.pg?.query && entry.identity.userId) {
             const valid = await isUserSessionValid(fastify.pg, entry.identity.userId, entry.identity.sessionVersion);
@@ -246,6 +296,30 @@ export function createPlaybackSocketHub(fastify, {
           entry.sequence = -1;
           entry.playing = false;
           await sendStateFor(entry, lease);
+          return;
+        }
+        if (message.type === "now-playing.subscribe") {
+          if (entry.identity.accessTier < 100) {
+            send(entry, { type: "protocol.error", version: VERSION, code: "ACCESS_DENIED", message: "Admin access required" });
+            return;
+          }
+          entry.nowPlayingSubscribed = true;
+          await sendNowPlaying([entry]);
+          return;
+        }
+        if (message.type === "now-playing.unsubscribe") {
+          entry.nowPlayingSubscribed = false;
+          entry.pendingNowPlaying = null;
+          await scheduleNowPlayingExpiry();
+          return;
+        }
+        if (message.type === "resume.get") {
+          const resume = await readResumePosition(fastify.redis, entry.identity.clientIp, message.mediaId, fastify.log);
+          send(entry, { type: "resume.state", version: VERSION, mediaId: message.mediaId, requestId: message.requestId, ...resume });
+          return;
+        }
+        if (message.type === "resume.save") {
+          await saveResumePosition(fastify.redis, entry.identity.clientIp, message.mediaId, message.position, message.duration);
           return;
         }
         if (message.type === "playback.state") {
@@ -292,6 +366,7 @@ export function createPlaybackSocketHub(fastify, {
   const close = () => {
     closed = true;
     if (expiryTimer) clearTimeout(expiryTimer);
+    if (nowPlayingExpiryTimer) clearTimeout(nowPlayingExpiryTimer);
     for (const timer of timers) { clearTimeout(timer); clearInterval(timer); }
     timers.clear();
     for (const entry of sockets) entry.socket.close(1001, "Server shutdown");

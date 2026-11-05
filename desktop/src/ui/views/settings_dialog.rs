@@ -1,8 +1,14 @@
 use dioxus_native::prelude::*;
 
 use super::super::*;
+use super::EqualizerPanel;
 use crate::playback::PlaybackEngine;
 use crate::store::EqSettings;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SETTINGS_TAB: std::cell::Cell<Option<Signal<u8>>> = const { std::cell::Cell::new(None) };
+}
 
 #[component]
 pub(crate) fn SettingsDialog(
@@ -25,6 +31,13 @@ pub(crate) fn SettingsDialog(
     let env_urls = snapshot.server_environments.clone();
     let active_env = env_urls.match_environment(&snapshot.settings_url);
     let mut show_password = use_signal(|| false);
+    let mut current_tab = use_signal(|| 0_u8);
+    #[cfg(test)]
+    TEST_SETTINGS_TAB.with(|tab| tab.set(Some(current_tab)));
+    let active_tab = *current_tab.read();
+
+    // Keep each pane mounted when changing tabs. Remounting the EQ pane has
+    // triggered a Blitz `invalid key` panic during template cloning.
 
     rsx! {
         div { class: "dialog-backdrop",
@@ -60,6 +73,24 @@ pub(crate) fn SettingsDialog(
                         }
                     }
                 }
+                div { class: "settings-tabs", role: "tablist",
+                    for (tab_id, label, icon) in [
+                        (0_u8, "Account", IconName::User),
+                        (1_u8, "Appearance", IconName::Sun),
+                        (2_u8, "EQ", IconName::Sliders),
+                    ] {
+                        button {
+                            key: "{tab_id}",
+                            r#type: "button",
+                            role: "tab",
+                            class: if active_tab == tab_id { "settings-tab-btn active" } else { "settings-tab-btn" },
+                            "aria-selected": "{active_tab == tab_id}",
+                            onclick: move |_| current_tab.set(tab_id),
+                            Icon { name: icon }
+                            span { class: "settings-tab-label", "{label}" }
+                        }
+                    }
+                }
                 div { class: "settings-content",
                     if let Some(err) = snapshot.settings_error.as_ref() {
                         div { class: "settings-error-callout", role: "alert",
@@ -70,187 +101,86 @@ pub(crate) fn SettingsDialog(
                             }
                         }
                     }
-                    div { class: "field",
-                        span { "Server URL" }
-                        EnvironmentToggle {
-                            value: active_env,
-                            urls: env_urls,
-                            onchange: move |env| {
-                                let url = app.read().server_environments.url_for(env).to_owned();
-                                app.write().settings_url = url;
-                                app.write().settings_error = None;
-                            }
-                        }
-                    }
-                    label { class: "field",
-                        span { "Username" }
-                        Input {
-                            input_type: "text".to_owned(),
-                            value: snapshot.settings_username.clone(),
-                            placeholder: "Account username".to_owned(),
-                            oninput: move |event: FormEvent| {
-                                app.write().settings_username = event.value();
-                                app.write().settings_error = None;
-                            }
-                        }
-                    }
-                    div { class: "field",
-                        div { class: "field-header",
-                            span { "Password" }
-                            button {
-                                class: "password-toggle-btn",
-                                r#type: "button",
-                                title: if *show_password.read() { "Hide password" } else { "Show password" },
-                                onclick: move |_| {
-                                    let current = *show_password.read();
-                                    show_password.set(!current);
-                                },
-                                Icon {
-                                    name: if *show_password.read() { IconName::EyeOff } else { IconName::Eye },
-                                    class: "password-toggle-icon".to_owned(),
-                                }
-                                span {
-                                    if *show_password.read() { "Hide" } else { "Show" }
+                    div { class: if active_tab == 0 { "settings-pane active" } else { "settings-pane" },
+                        div { class: "field",
+                            span { "Server URL" }
+                            EnvironmentToggle {
+                                value: active_env,
+                                urls: env_urls,
+                                onchange: move |env| {
+                                    let url = app.read().server_environments.url_for(env).to_owned();
+                                    app.write().settings_url = url;
+                                    app.write().settings_error = None;
                                 }
                             }
                         }
-                        Input {
-                            input_type: if *show_password.read() { "text".to_owned() } else { "password".to_owned() },
-                            value: snapshot.settings_password.clone(),
-                            placeholder: "Enter account password".to_owned(),
-                            oninput: move |event: FormEvent| {
-                                app.write().settings_password = event.value();
-                                app.write().settings_error = None;
+                        label { class: "field",
+                            span { "Username" }
+                            Input {
+                                input_type: "text".to_owned(),
+                                value: snapshot.settings_username.clone(),
+                                placeholder: "Account username".to_owned(),
+                                oninput: move |event: FormEvent| {
+                                    app.write().settings_username = event.value();
+                                    app.write().settings_error = None;
+                                }
                             }
                         }
-                        small { "Enter a password to log in, or leave it blank to reuse this device's session." }
-                    }
-                    div { class: "field",
-                        span { "Appearance" }
-                        ThemeToggle {
-                            value: snapshot.settings.color_scheme,
-                            onchange: move |scheme| set_color_scheme(app, scheme)
-                        }
-                        small { "Use your desktop preference or choose a fixed theme." }
-                    }
-                    div { class: "field",
-                        div { class: "field-header",
-                            span { "Audio Equalizer (EQ)" }
-                            button {
-                                class: if snapshot.settings.eq.enabled { "eq-toggle-btn active" } else { "eq-toggle-btn" },
-                                r#type: "button",
-                                onclick: move |_| {
-                                    let next_enabled = !app.read().settings.eq.enabled;
-                                    app.write().settings.eq.enabled = next_enabled;
-                                    let eq = app.read().settings.eq.clone();
-                                    let settings = app.read().settings.clone();
-                                    let _ = app.read().store.save(&settings);
-                                    if let Some(engine_sig) = engine {
-                                        if let Some(eng) = engine_sig.read().as_ref() {
-                                            eng.set_eq(&eq);
-                                        }
+                        div { class: "field",
+                            div { class: "field-header",
+                                span { "Password" }
+                                button {
+                                    class: "password-toggle-btn",
+                                    r#type: "button",
+                                    title: if *show_password.read() { "Hide password" } else { "Show password" },
+                                    onclick: move |_| {
+                                        let current = *show_password.read();
+                                        show_password.set(!current);
+                                    },
+                                    Icon {
+                                        name: if *show_password.read() { IconName::EyeOff } else { IconName::Eye },
+                                        class: "password-toggle-icon".to_owned(),
                                     }
-                                },
-                                if snapshot.settings.eq.enabled { "Enabled" } else { "Disabled" }
-                            }
-                        }
-                        small { "Configure 10-band audio equalizer applied to all media playback." }
-                        div { class: "eq-presets-grid",
-                            for preset_name in ["flat", "rock", "pop", "electronic", "metal", "dialogue", "funk", "dreampop"] {
-                                {
-                                    let is_active = snapshot.settings.eq.preset.eq_ignore_ascii_case(preset_name);
-                                    let label = match preset_name {
-                                        "flat" => "Flat",
-                                        "rock" => "Rock",
-                                        "pop" => "Pop",
-                                        "electronic" => "Electronic",
-                                        "metal" => "Metal",
-                                        "dialogue" => "Dialogue",
-                                        "funk" => "Funk",
-                                        "dreampop" => "Dream Pop",
-                                        _ => preset_name,
-                                    };
-                                    rsx! {
-                                        button {
-                                            key: "{preset_name}",
-                                            r#type: "button",
-                                            class: if is_active { "eq-preset-btn active" } else { "eq-preset-btn" },
-                                            onclick: move |_| {
-                                                if let Some(gains) = EqSettings::preset_gains(preset_name) {
-                                                    app.write().settings.eq.preset = preset_name.to_owned();
-                                                    app.write().settings.eq.gains = gains;
-                                                    let eq = app.read().settings.eq.clone();
-                                                    let settings = app.read().settings.clone();
-                                                    let _ = app.read().store.save(&settings);
-                                                    if let Some(engine_sig) = engine {
-                                                        if let Some(eng) = engine_sig.read().as_ref() {
-                                                            eng.set_eq(&eq);
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            "{label}"
-                                        }
+                                    span {
+                                        if *show_password.read() { "Hide" } else { "Show" }
                                     }
                                 }
                             }
+                            Input {
+                                input_type: if *show_password.read() { "text".to_owned() } else { "password".to_owned() },
+                                value: snapshot.settings_password.clone(),
+                                placeholder: "Enter account password".to_owned(),
+                                oninput: move |event: FormEvent| {
+                                    app.write().settings_password = event.value();
+                                    app.write().settings_error = None;
+                                }
+                            }
+                            small { "Enter a password to log in, or leave it blank to reuse this device's session." }
                         }
-                        div { class: "eq-bands-grid",
-                            for (index, band_label) in EqSettings::BAND_LABELS.iter().enumerate() {
-                                {
-                                    let current_gain = snapshot.settings.eq.gains[index];
-                                    let gain_str = if current_gain > 0.0 {
-                                        format!("+{current_gain:.1} dB")
-                                    } else {
-                                        format!("{current_gain:.1} dB")
-                                    };
-                                    rsx! {
-                                        div {
-                                            key: "{index}",
-                                            class: "eq-band-item",
-                                            span { class: "eq-band-label", "{band_label}" }
-                                            span { class: "eq-band-gain", "{gain_str}" }
-                                            div { style: "display: flex; gap: 4px;",
-                                                button {
-                                                    r#type: "button",
-                                                    class: "eq-step-btn",
-                                                    disabled: current_gain <= -10.0,
-                                                    onclick: move |_| {
-                                                        let new_gain = (current_gain - 1.0).max(-10.0);
-                                                        app.write().settings.eq.gains[index] = new_gain;
-                                                        app.write().settings.eq.preset = "custom".to_owned();
-                                                        let eq = app.read().settings.eq.clone();
-                                                        let settings = app.read().settings.clone();
-                                                        let _ = app.read().store.save(&settings);
-                                                        if let Some(engine_sig) = engine {
-                                                            if let Some(eng) = engine_sig.read().as_ref() {
-                                                                eng.set_eq(&eq);
-                                                            }
-                                                        }
-                                                    },
-                                                    "-"
-                                                }
-                                                button {
-                                                    r#type: "button",
-                                                    class: "eq-step-btn",
-                                                    disabled: current_gain >= 10.0,
-                                                    onclick: move |_| {
-                                                        let new_gain = (current_gain + 1.0).min(10.0);
-                                                        app.write().settings.eq.gains[index] = new_gain;
-                                                        app.write().settings.eq.preset = "custom".to_owned();
-                                                        let eq = app.read().settings.eq.clone();
-                                                        let settings = app.read().settings.clone();
-                                                        let _ = app.read().store.save(&settings);
-                                                        if let Some(engine_sig) = engine {
-                                                            if let Some(eng) = engine_sig.read().as_ref() {
-                                                                eng.set_eq(&eq);
-                                                            }
-                                                        }
-                                                    },
-                                                    "+"
-                                                }
-                                            }
-                                        }
+                    }
+                    div { class: if active_tab == 1 { "settings-pane active" } else { "settings-pane" },
+                        div { class: "field",
+                            span { "Appearance" }
+                            ThemeToggle {
+                                value: snapshot.settings.color_scheme,
+                                onchange: move |scheme| set_color_scheme(app, scheme)
+                            }
+                            small { "Use your desktop preference or choose a fixed theme." }
+                        }
+                    }
+                    div { class: if active_tab == 2 { "settings-pane active" } else { "settings-pane" },
+                        EqualizerPanel {
+                            eq: snapshot.settings.eq.clone(),
+                            onchange: move |eq: EqSettings| {
+                                let (store, settings) = {
+                                    let mut state = app.write();
+                                    state.settings.eq = eq.clone();
+                                    (state.store.clone(), state.settings.clone())
+                                };
+                                let _ = store.save(&settings);
+                                if let Some(engine_sig) = engine {
+                                    if let Some(eng) = engine_sig.read().as_ref() {
+                                        eng.set_eq(&eq);
                                     }
                                 }
                             }
@@ -276,6 +206,67 @@ pub(crate) fn SettingsDialog(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blitz_dom::Document;
+
+    #[test]
+    fn settings_tabs_mount_eq_before_login_without_invalid_nodes() {
+        fn harness() -> Element {
+            let app = use_signal(|| {
+                let mut state = NativeApp::boot();
+                state.settings.configured = false;
+                state.client = None;
+                state.library.access = AccessView::FirstRun;
+                state
+            });
+            rsx! { SettingsDialog { app } }
+        }
+
+        let vdom = dioxus_core::VirtualDom::new(harness);
+        let mut document = dioxus_native::DioxusDocument::new(vdom, Default::default());
+        document.initial_build();
+
+        for target in [2_u8, 1, 0, 2, 0] {
+            TEST_SETTINGS_TAB.with(|tab| tab.get().expect("settings tab signal").set(target));
+            assert!(document.poll(None), "tab {target} did not render");
+
+            let mut active_panes = 0;
+            let mut total_panes = 0;
+            let mut active_text = String::new();
+            document.inner.visit(|_, node| {
+                let Some(element) = node.element_data() else {
+                    return;
+                };
+                if let Some(class) = element.attrs.iter().find(|attribute| {
+                    attribute.name.local.as_ref() == "class"
+                        && attribute.value.starts_with("settings-pane")
+                }) {
+                    total_panes += 1;
+                    if class.value == "settings-pane active" {
+                        active_panes += 1;
+                        active_text = node.text_content();
+                    }
+                }
+            });
+            assert_eq!(total_panes, 3, "all settings panes must stay mounted");
+            assert_eq!(active_panes, 1, "tab {target} must have one active pane");
+            let expected = match target {
+                0 => "Server URL",
+                1 => "Appearance",
+                2 => "Audio Equalizer",
+                _ => unreachable!(),
+            };
+            assert!(
+                active_text.contains(expected),
+                "tab {target} is not visible"
+            );
+        }
+        TEST_SETTINGS_TAB.with(|tab| tab.set(None));
     }
 }
 

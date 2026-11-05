@@ -3,7 +3,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Message},
+};
 
 use super::ApiClient;
 use crate::domain::SessionHolder;
@@ -106,7 +109,13 @@ pub async fn run(
         let connection = async {
             let ticket = client.playback_socket_ticket().await.ok()?;
             let url = client.playback_socket_url().ok()?;
-            connect_async(url.as_str())
+            let mut req = url.as_str().into_client_request().ok()?;
+            if !client.account_token().is_empty() {
+                if let Ok(auth_header) = format!("Bearer {}", client.account_token()).parse() {
+                    req.headers_mut().insert("Authorization", auth_header);
+                }
+            }
+            connect_async(req)
                 .await
                 .ok()
                 .map(|(socket, _)| (socket, ticket))

@@ -682,7 +682,7 @@ export function AudioShareDialog({
                           }}
                         >
                           <time>{formatClipTime(segment.start)}</time>
-                          <span>{segment.text || "Instrumental"}</span>
+                          <span>{segment.text || "♪"}</span>
                         </button>
                       ))
                     ) : (

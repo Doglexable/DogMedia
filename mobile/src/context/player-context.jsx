@@ -1194,6 +1194,23 @@ export function PlayerProvider({ accessTier = 0, children }) {
     });
   }, [likedIds, offline.isConnected]);
 
+  const favoriteFolder = useCallback((categoryId) => {
+    if (!offline.isConnected) return Promise.reject(new Error("Favorites cannot be changed offline"));
+    const id = Number(categoryId?.id ?? categoryId);
+    return apiJson(`/api/likes/category/${id}`, { method: "PUT" }).then((res) => {
+      if (res?.addedIds?.length) {
+        setLikedIds((current) => {
+          const next = new Set(current);
+          for (const item of res.addedIds) {
+            next.add(Number(item));
+          }
+          return next;
+        });
+      }
+      return res;
+    });
+  }, [offline.isConnected]);
+
   useEffect(() => {
     setAudioModeAsync({
       playsInSilentMode: true,
@@ -1314,6 +1331,7 @@ export function PlayerProvider({ accessTier = 0, children }) {
     setSleepTimer,
     stopPlayback,
     toggleLike,
+    favoriteFolder,
     toggleLoop,
     toggleMute,
     togglePlayback,
@@ -1328,19 +1346,20 @@ export function PlayerProvider({ accessTier = 0, children }) {
     playNext, position, queueIds, queueIndex, queueItems, queueOffset, queueTotal, refreshLikes, refreshQueue,
     registerVideoController, bindProtectedSource, socketStatus, revokedSessionId, removeFromQueue, reorderQueue, reportVideoEnded, reportVideoPlaying,
     reportVideoProgress, resumePosition, seek, selectQueueItem, shuffleEnabled, sleepTimerRemaining,
-    quality, playbackRate, setPlaybackRate, setSleepTimer, stopPlayback, toggleLike, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
+    quality, playbackRate, setPlaybackRate, setSleepTimer, stopPlayback, toggleLike, favoriteFolder, toggleLoop, toggleMute, togglePlayback, toggleShuffle, volume,
     eqSettings, updateEqSettings,
   ]);
 
   const libraryValue = useMemo(() => ({
     addToQueue,
     currentMedia,
+    favoriteFolder,
     isLiked: (mediaId) => likedIds.has(Number(mediaId)),
     likedIds,
     playMedia,
     playNext,
     toggleLike,
-  }), [addToQueue, currentMedia, likedIds, playMedia, playNext, toggleLike]);
+  }), [addToQueue, currentMedia, favoriteFolder, likedIds, playMedia, playNext, toggleLike]);
 
   return (
     <PlayerLibraryContext.Provider value={libraryValue}>

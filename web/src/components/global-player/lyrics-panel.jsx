@@ -38,7 +38,7 @@ export function buildLyricsDisplaySegments(segments, minimumGap = MIN_INSTRUMENT
     displaySegments.push({
       start,
       end: Number((end - 0.001).toFixed(3)),
-      text: "Instrumental",
+      text: "♪",
       instrumental: true,
     });
   };
@@ -83,7 +83,7 @@ function LyricsLines({ activeIndex, focusIndex, lineRefs, onSeek, segments, vari
         aria-current={index === activeIndex ? "true" : undefined}
         onClick={() => onSeek(segment.start)}
       >
-        {segment.instrumental ? `♪ ${segment.text}` : segment.text}
+        {segment.text}
       </button>
     );
   });
@@ -386,7 +386,7 @@ export function FullscreenLyrics({ artworkUrl: _artworkUrl, media, mediaId, onSe
               aria-current={active ? "true" : undefined}
               onClick={() => onSeek(segment.start)}
             >
-              {segment.instrumental ? `♪ ${segment.text}` : segment.text}
+              {segment.text}
             </button>
           );
         })}

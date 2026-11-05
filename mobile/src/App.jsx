@@ -159,6 +159,12 @@ function AccessGuard({ children }) {
   } }}>{children}</AccessContext.Provider>;
 }
 
+const ACCOUNT_TABS = [
+  { id: "profile", label: "Profile", icon: "person-outline" },
+  { id: "security", label: "Security", icon: "lock-closed-outline" },
+  { id: "eq", label: "EQ", icon: "options-outline" },
+];
+
 function AccountScreen() {
   const access = useAccess();
   const { colors } = useTheme();
@@ -166,6 +172,7 @@ function AccountScreen() {
   const currentUsername = access?.username || access?.description || "";
   const tier = access?.tier ?? 0;
   const userEqSettings = access?.user?.eq_settings || access?.eq_settings;
+  const [activeTab, setActiveTab] = useState("profile");
   const [username, setUsername] = useState(currentUsername);
   const [password, setPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -356,208 +363,267 @@ function AccountScreen() {
         </View>
       </View>
 
-      {/* Form Fields */}
-      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
-        Username
-      </Text>
-      <TextInput
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={username}
-        onChangeText={setUsername}
-        placeholder="Username"
-        placeholderTextColor={colors.muted}
-        editable={!submitting}
-        style={{
-          color: colors.text,
-          borderColor: colors.cardBorder,
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-          backgroundColor: colors.surface,
-          marginBottom: 16,
-        }}
-      />
-
-      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
-        New Password
-      </Text>
-      <TextInput
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Leave blank to keep current"
-        placeholderTextColor={colors.muted}
-        editable={!submitting}
-        style={{
-          color: colors.text,
-          borderColor: colors.cardBorder,
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-          backgroundColor: colors.surface,
-          marginBottom: 16,
-        }}
-      />
-
-      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
-        Current Password
-      </Text>
-      <TextInput
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={currentPassword}
-        onChangeText={setCurrentPassword}
-        placeholder={password ? "Required to confirm changes" : "Optional verification"}
-        placeholderTextColor={colors.muted}
-        editable={!submitting}
-        style={{
-          color: colors.text,
-          borderColor: colors.cardBorder,
-          borderWidth: 1,
-          borderRadius: 10,
-          padding: 12,
-          backgroundColor: colors.surface,
-          marginBottom: 16,
-        }}
-      />
-
-      {/* Equalizer (EQ) Settings */}
+      {/* Settings Tab Strip */}
       <View
         style={{
-          marginTop: 8,
-          marginBottom: 20,
-          padding: 16,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.cardBorder,
-          borderRadius: 14,
+          flexDirection: "row",
+          borderBottomWidth: 1,
+          borderBottomColor: colors.cardBorder,
+          marginBottom: 16,
         }}
+        accessibilityRole="tablist"
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <View>
-            <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>
-              Audio Equalizer (EQ)
-            </Text>
-            <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
-              {eqEnabled ? `Active • ${EQ_PRESETS[eqPreset]?.label || "Custom"}` : "Disabled"}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Toggle Equalizer"
-            accessibilityRole="switch"
-            accessibilityState={{ checked: eqEnabled }}
-            onPress={handleToggleEqEnabled}
-            style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 9999,
-              backgroundColor: eqEnabled ? colors.primary : colors.surface,
-              borderWidth: 1,
-              borderColor: eqEnabled ? colors.primary : colors.cardBorder,
-            }}
-          >
-            <Text style={{ color: eqEnabled ? "white" : colors.muted, fontSize: 12, fontWeight: "700" }}>
-              {eqEnabled ? "ON" : "OFF"}
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Presets Horizontal List */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
-          {Object.entries(EQ_PRESETS).map(([key, p]) => {
-            const isSelected = eqPreset === key;
-            return (
-              <Pressable
-                key={key}
-                accessibilityRole="button"
-                accessibilityLabel={`${p.label} preset`}
-                onPress={() => handleSelectPreset(key)}
+        {ACCOUNT_TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <Pressable
+              key={tab.id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`${tab.label} tab`}
+              onPress={() => setActiveTab(tab.id)}
+              style={{
+                flex: 1,
+                alignItems: "center",
+                paddingVertical: 10,
+                borderBottomWidth: 2,
+                borderBottomColor: isActive ? colors.primary : "transparent",
+                gap: 4,
+              }}
+            >
+              <Ionicons
+                name={tab.icon}
+                size={16}
+                color={isActive ? colors.text : colors.muted}
+              />
+              <Text
                 style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  borderRadius: 8,
-                  backgroundColor: isSelected ? "rgba(225, 29, 72, 0.2)" : colors.surface,
-                  borderWidth: 1,
-                  borderColor: isSelected ? colors.primary : colors.cardBorder,
+                  fontSize: 11,
+                  fontWeight: isActive ? "700" : "600",
+                  color: isActive ? colors.text : colors.muted,
+                  letterSpacing: 0.3,
                 }}
               >
-                <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 12, fontWeight: isSelected ? "700" : "500" }}>
-                  {p.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {/* 10 Band Gain Steppers */}
-        <View style={{ gap: 10, marginTop: 8 }}>
-          {EQ_BANDS.map((band, idx) => {
-            const gain = eqGains[idx] || 0;
-            const gainLabel = gain > 0 ? `+${gain} dB` : `${gain} dB`;
-            return (
-              <View
-                key={band.id}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  backgroundColor: colors.surface,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600", width: 60 }}>
-                  {band.label}
-                </Text>
-                <Text style={{ color: gain === 0 ? colors.muted : (gain > 0 ? colors.primary : "#38bdf8"), fontSize: 13, fontWeight: "700" }}>
-                  {gainLabel}
-                </Text>
-                <View style={{ flexDirection: "row", gap: 6 }}>
-                  <Pressable
-                    accessibilityLabel={`Decrease ${band.label}`}
-                    onPress={() => handleChangeBandGain(idx, -1)}
-                    disabled={gain <= GAIN_MIN}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 6,
-                      backgroundColor: colors.card,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: gain <= GAIN_MIN ? 0.3 : 1,
-                    }}
-                  >
-                    <Ionicons name="remove" size={16} color={colors.text} />
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel={`Increase ${band.label}`}
-                    onPress={() => handleChangeBandGain(idx, 1)}
-                    disabled={gain >= GAIN_MAX}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 6,
-                      backgroundColor: colors.card,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: gain >= GAIN_MAX ? 0.3 : 1,
-                    }}
-                  >
-                    <Ionicons name="add" size={16} color={colors.text} />
-                  </Pressable>
-                </View>
-              </View>
-            );
-          })}
-        </View>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
+
+      {/* Tab 1: Profile */}
+      {activeTab === "profile" && (
+        <View>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+            Username
+          </Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={username}
+            onChangeText={setUsername}
+            placeholder="Username"
+            placeholderTextColor={colors.muted}
+            editable={!submitting}
+            style={{
+              color: colors.text,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: colors.surface,
+              marginBottom: 16,
+            }}
+          />
+        </View>
+      )}
+
+      {/* Tab 2: Security */}
+      {activeTab === "security" && (
+        <View>
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+            New Password
+          </Text>
+          <TextInput
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Leave blank to keep current"
+            placeholderTextColor={colors.muted}
+            editable={!submitting}
+            style={{
+              color: colors.text,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: colors.surface,
+              marginBottom: 16,
+            }}
+          />
+
+          <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>
+            Current Password
+          </Text>
+          <TextInput
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            placeholder={password ? "Required to confirm changes" : "Optional verification"}
+            placeholderTextColor={colors.muted}
+            editable={!submitting}
+            style={{
+              color: colors.text,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              borderRadius: 10,
+              padding: 12,
+              backgroundColor: colors.surface,
+              marginBottom: 16,
+            }}
+          />
+        </View>
+      )}
+
+      {/* Tab 3: Equalizer (EQ) Settings */}
+      {activeTab === "eq" && (
+        <View
+          style={{
+            marginTop: 4,
+            marginBottom: 20,
+            padding: 16,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.cardBorder,
+            borderRadius: 14,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <View>
+              <Text style={{ color: colors.text, fontSize: 16, fontWeight: "700" }}>
+                Audio Equalizer (EQ)
+              </Text>
+              <Text style={{ color: colors.muted, fontSize: 12, marginTop: 2 }}>
+                {eqEnabled ? `Active • ${EQ_PRESETS[eqPreset]?.label || "Custom"}` : "Disabled"}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Toggle Equalizer"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: eqEnabled }}
+              onPress={handleToggleEqEnabled}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 9999,
+                backgroundColor: eqEnabled ? colors.primary : colors.surface,
+                borderWidth: 1,
+                borderColor: eqEnabled ? colors.primary : colors.cardBorder,
+              }}
+            >
+              <Text style={{ color: eqEnabled ? "white" : colors.muted, fontSize: 12, fontWeight: "700" }}>
+                {eqEnabled ? "ON" : "OFF"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Presets Horizontal List */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+            {Object.entries(EQ_PRESETS).map(([key, p]) => {
+              const isSelected = eqPreset === key;
+              return (
+                <Pressable
+                  key={key}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${p.label} preset`}
+                  onPress={() => handleSelectPreset(key)}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 7,
+                    borderRadius: 8,
+                    backgroundColor: isSelected ? "rgba(225, 29, 72, 0.2)" : colors.surface,
+                    borderWidth: 1,
+                    borderColor: isSelected ? colors.primary : colors.cardBorder,
+                  }}
+                >
+                  <Text style={{ color: isSelected ? colors.primary : colors.text, fontSize: 12, fontWeight: isSelected ? "700" : "500" }}>
+                    {p.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* 10 Band Gain Steppers */}
+          <View style={{ gap: 10, marginTop: 8 }}>
+            {EQ_BANDS.map((band, idx) => {
+              const gain = eqGains[idx] || 0;
+              const gainLabel = gain > 0 ? `+${gain} dB` : `${gain} dB`;
+              return (
+                <View
+                  key={band.id}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    backgroundColor: colors.surface,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600", width: 60 }}>
+                    {band.label}
+                  </Text>
+                  <Text style={{ color: gain === 0 ? colors.muted : (gain > 0 ? colors.primary : "#38bdf8"), fontSize: 13, fontWeight: "700" }}>
+                    {gainLabel}
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      accessibilityLabel={`Decrease ${band.label}`}
+                      onPress={() => handleChangeBandGain(idx, -1)}
+                      disabled={gain <= GAIN_MIN}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 6,
+                        backgroundColor: colors.card,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: gain <= GAIN_MIN ? 0.3 : 1,
+                      }}
+                    >
+                      <Ionicons name="remove" size={16} color={colors.text} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityLabel={`Increase ${band.label}`}
+                      onPress={() => handleChangeBandGain(idx, 1)}
+                      disabled={gain >= GAIN_MAX}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 6,
+                        backgroundColor: colors.card,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: gain >= GAIN_MAX ? 0.3 : 1,
+                      }}
+                    >
+                      <Ionicons name="add" size={16} color={colors.text} />
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {error ? (
         <View

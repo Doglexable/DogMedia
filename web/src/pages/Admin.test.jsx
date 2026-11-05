@@ -161,7 +161,6 @@ beforeEach(() => {
   vi.stubGlobal("window", {
     addEventListener: vi.fn(),
     clearInterval: vi.fn(),
-    confirm: vi.fn(() => true),
     removeEventListener: vi.fn(),
     setInterval: vi.fn(),
   });
@@ -201,10 +200,10 @@ describe("Admin workspace", () => {
     await expect(fetchAllCategoryMedia(7)).rejects.toThrow("Failed");
   });
 
-  it("renders the tier-100 release and category controls and switches media tabs", () => {
+  it("keeps Android uploads separate from media controls and switches media tabs", () => {
     let tree = renderAdmin();
 
-    expect(textContent(tree)).toContain("Android release");
+    expect(textContent(tree)).not.toContain("Android release");
     expect(textContent(tree)).toContain("Category Tree");
     expect(findButton(tree, "Upload Here").props.disabled).toBe(true);
     expect(findButton(tree, "Edit Folder").props.disabled).toBe(true);
@@ -217,6 +216,7 @@ describe("Admin workspace", () => {
       "Collection0 items",
       "Upload videoAnime or film",
       "Import albumMusic and lyrics",
+      "Upload photoJPG, PNG, GIF, WebP",
     ]);
     expect(textContent(tree)).toContain("No media in this category");
 
@@ -263,6 +263,29 @@ describe("Admin workspace", () => {
     }));
   });
 
+  it("requires the custom confirmation before deleting a category", async () => {
+    mocks.api.mockResolvedValue(response(null, { status: 204 }));
+    let tree = renderAdmin();
+    const categoryTree = findAll(tree, (node) => node.type?.name === "CategoryTreeDndMock")[0];
+    categoryTree.props.onDelete(categories[0]);
+    tree = renderAdmin();
+    let dialog = findAll(tree, (node) => node.type?.name === "ConfirmationDialog")[0];
+    expect(dialog.props.confirmation).toMatchObject({ title: 'Delete category "Anime"?', confirmLabel: "Delete category", tone: "danger" });
+    expect(mocks.api).not.toHaveBeenCalled();
+
+    dialog.props.onCancel();
+    tree = renderAdmin();
+    dialog = findAll(tree, (node) => node.type?.name === "ConfirmationDialog")[0];
+    expect(dialog.props.confirmation).toBeNull();
+    expect(mocks.api).not.toHaveBeenCalled();
+
+    categoryTree.props.onDelete(categories[0]);
+    tree = renderAdmin();
+    dialog = findAll(tree, (node) => node.type?.name === "ConfirmationDialog")[0];
+    dialog.props.onConfirm();
+    await vi.waitFor(() => expect(mocks.api).toHaveBeenCalledWith("/api/categories/7", { method: "DELETE" }));
+  });
+
   it("stages a video and splits it using the chunk size returned by the API", async () => {
     const uploadedChunks = [];
     mocks.api.mockImplementation(async (path, options = {}) => {
@@ -306,6 +329,29 @@ describe("Admin workspace", () => {
       { index: "2", size: 2 },
     ]);
     expect(mocks.api).toHaveBeenCalledWith("/api/media/uploads/upload-1/complete", { method: "POST" });
+  });
+
+  it("uploads a requested photo into the selected media category", async () => {
+    mocks.api.mockImplementation(async (path) => {
+      if (path === "/api/media/uploads") return response({ uploadId: "photo-1", chunkSize: 4 });
+      if (path === "/api/media/uploads/photo-1/chunks") return response({});
+      if (path === "/api/media/uploads/photo-1/complete") return response({ uploadId: "photo-1", status: "queued" }, { status: 202 });
+      if (path === "/api/media/uploads/queue") return response({ jobs: [], summary: { queued: 1, processing: 0, completed: 0, failed: 0 } });
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+
+    let tree = openMediaWorkspace();
+    findButton(tree, "Upload photoJPG, PNG, GIF, WebP").props.onClick();
+    tree = renderAdmin();
+    const input = findAll(tree, (node) => node.type === "input" && node.props?.id === "admin-photo-file")[0];
+    input.props.onChange({ target: { files: [new File([new Uint8Array(6)], "cover.jpg", { type: "image/jpeg" })] } });
+    tree = renderAdmin();
+    const form = findAll(tree, (node) => node.type === "form" && findAll(node, (part) => part.props?.id === "admin-photo-file").length > 0)[0];
+    await form.props.onSubmit({ preventDefault: vi.fn() });
+
+    const init = mocks.api.mock.calls.find(([path]) => path === "/api/media/uploads");
+    expect(JSON.parse(init[1].body)).toMatchObject({ category_id: "7", title: "cover", content_kind: "image", fileName: "cover.jpg" });
+    expect(mocks.api).toHaveBeenCalledWith("/api/media/uploads/photo-1/complete", { method: "POST" });
   });
 
   it("uploads multiple selected videos sequentially in chunks", async () => {

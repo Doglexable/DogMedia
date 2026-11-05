@@ -18,7 +18,10 @@ pub(crate) fn MediaSettingsDialog(
     let quality_disabled = snapshot.local_mode || playback.session_unavailable;
     let playback_disabled = playback.session_unavailable
         || media.is_some_and(Media::is_photo)
-        || matches!(playback.status, PlaybackStatus::Idle | PlaybackStatus::Loading | PlaybackStatus::Failed);
+        || matches!(
+            playback.status,
+            PlaybackStatus::Idle | PlaybackStatus::Loading | PlaybackStatus::Failed
+        );
     let is_video = media.is_some_and(Media::is_video);
     let active_tab = *tab.read();
 

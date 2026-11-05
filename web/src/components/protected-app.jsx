@@ -9,6 +9,9 @@ const Dashboard = lazyWithRetry(() => import("../pages/Dashboard"));
 const Player = lazyWithRetry(() => import("../pages/Player"));
 const Wrapped = lazyWithRetry(() => import("../pages/Wrapped"));
 const Admin = lazyWithRetry(() => import("../pages/Admin"));
+const MasterUsers = lazyWithRetry(() => import("../pages/MasterUsers"));
+const RequestMedia = lazyWithRetry(() => import("../pages/RequestMedia"));
+const AndroidUpload = lazyWithRetry(() => import("../pages/AndroidUpload"));
 
 export default function ProtectedApp() {
   const access = useAccess();
@@ -21,7 +24,11 @@ export default function ProtectedApp() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/media/:id" element={<Player />} />
             <Route path="/wrapped" element={<Wrapped />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin" element={<Navigate to="/admin/media" replace />} />
+            <Route path="/admin/media" element={<Admin />} />
+            <Route path="/admin/users" element={<MasterUsers />} />
+            <Route path="/request-media" element={<RequestMedia />} />
+            <Route path="/admin/android-upload" element={<AndroidUpload />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

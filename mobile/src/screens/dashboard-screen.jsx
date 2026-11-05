@@ -279,6 +279,39 @@ export function DashboardScreen({ navigation }) {
 
   const toggleLike = (item) => player.toggleLike(item).catch(() => setNotice("Could not update favorites."));
 
+  const handleFavoriteCategory = useCallback((category) => {
+    if (!category?.id) return;
+    player.favoriteFolder?.(category.id)
+      .then((res) => {
+        const count = res?.addedCount ?? 0;
+        const total = res?.totalCount ?? 0;
+        if (count > 0) {
+          setNotice(`${count} track${count === 1 ? "" : "s"} from "${category.name}" added to favorites.`);
+        } else if (total === 0) {
+          setNotice(`No playable tracks found in "${category.name}".`);
+        } else {
+          setNotice(`All tracks from "${category.name}" are already in favorites.`);
+        }
+      })
+      .catch((err) => {
+        setNotice(err?.message || "Could not favorite folder.");
+      });
+  }, [player]);
+
+  const handleCategoryLongPress = useCallback((category) => {
+    Alert.alert(
+      category.name,
+      "What would you like to do with this folder?",
+      [
+        {
+          text: `Favorite "${category.name}"`,
+          onPress: () => handleFavoriteCategory(category),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  }, [handleFavoriteCategory]);
+
   const currentMediaId = player.currentMedia?.id;
   const isPaused = player.paused;
 
@@ -357,6 +390,7 @@ export function DashboardScreen({ navigation }) {
                   categories={displayCategories}
                   selectedId={selectedCategory}
                   onSelect={handleSelectCategory}
+                  onLongPress={handleCategoryLongPress}
                 />
               )}
             </View>
@@ -421,6 +455,20 @@ export function DashboardScreen({ navigation }) {
               <View style={styles.browseSectionHeader}>
                 <View style={styles.browseHeader}>
                   <Text style={styles.sectionTitle}>{browseTitle}</Text>
+                  {selectedCategory ? (
+                    <Pressable
+                      accessibilityLabel="Favorite all tracks in folder"
+                      accessibilityRole="button"
+                      onPress={() => {
+                        const cat = categories.find((c) => String(c.id) === String(selectedCategory));
+                        if (cat) handleFavoriteCategory(cat);
+                      }}
+                      style={styles.favoriteFolderButton}
+                    >
+                      <Ionicons color={colors.primary} name="heart" size={14} />
+                      <Text style={styles.favoriteFolderText}>Favorite folder</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
 
                 {/* Web-aligned Track List Column Header */}
@@ -626,6 +674,22 @@ const makeStyles = (colors, shadow, isCompact) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
+    },
+    favoriteFolderButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 5,
+      borderRadius: radii.full,
+      backgroundColor: alpha(colors.primary, 0.12),
+      borderWidth: 1,
+      borderColor: alpha(colors.primary, 0.25),
+    },
+    favoriteFolderText: {
+      color: colors.primary,
+      fontSize: 12,
+      fontWeight: "700",
     },
     trackListHeader: {
       flexDirection: "row",

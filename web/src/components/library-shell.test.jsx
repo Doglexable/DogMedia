@@ -71,7 +71,7 @@ describe("CategorySidebarItem", () => {
     expect(markup).toContain("global-sidebar-link--active");
   });
 
-  it("only renders folder actions when the category directly contains media", () => {
+  it("renders folder actions for direct media and for a parent with media in subfolders", () => {
     const withMedia = renderToStaticMarkup(
       <MemoryRouter>
         <CategorySidebarItem
@@ -92,8 +92,20 @@ describe("CategorySidebarItem", () => {
         />
       </MemoryRouter>
     );
+    const parentWithMediaInSubfolders = renderToStaticMarkup(
+      <MemoryRouter>
+        <CategorySidebarItem
+          category={{ id: 10, name: "Albums", depth: 0, media_count: 0 }}
+          hasMedia
+          active={false}
+          close={() => {}}
+          onOpenMenu={() => {}}
+        />
+      </MemoryRouter>
+    );
 
     expect(withMedia).toContain("Open actions for Showbiz");
+    expect(parentWithMediaInSubfolders).toContain("Open actions for Albums");
     expect(empty).not.toContain("Open actions for Empty");
   });
 });

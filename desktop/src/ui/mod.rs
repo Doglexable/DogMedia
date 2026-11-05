@@ -24,9 +24,9 @@ use crate::{
     app::{AccessView, AppState},
     domain::{
         BrowseQuery, Category, CategoryId, DashboardQuery, DashboardSummary, Limit, LocalKind,
-        LocalTrack, Media, MediaFilter, MediaId, PlaybackReport, PlaybackSession, Quality,
-        QueueItem, QueueOrder, QueueWindow, SessionHolder, SubtitleTrack, Volume,
-        scan_local_folder, load_local_lyrics_segments, LyricSegment,
+        LocalTrack, LyricSegment, Media, MediaFilter, MediaId, PlaybackReport, PlaybackSession,
+        Quality, QueueItem, QueueOrder, QueueWindow, SessionHolder, SubtitleTrack, Volume,
+        load_local_lyrics_segments, scan_local_folder,
     },
     integration::mpris::{MprisBridge, MprisCommand, MprisState},
     playback::{
@@ -301,7 +301,11 @@ impl NativeApp {
         let (client, access, status) = if settings.configured {
             let server_url = settings.server_url.to_string();
             match ApiClient::new(&server_url, settings.viewer_id.clone()) {
-                Ok(client) => (Some(client.with_account_token(&settings.account_token)), AccessView::Checking, None),
+                Ok(client) => (
+                    Some(client.with_account_token(&settings.account_token)),
+                    AccessView::Checking,
+                    None,
+                ),
                 Err(error) => (None, AccessView::Unreachable(error.user_message()), None),
             }
         } else {
@@ -449,7 +453,8 @@ impl NativeApp {
         let current_media = self.coordinator.snapshot().media.clone();
         let featured = featured_media(self);
         self.purge_local_memory();
-        self.artwork.clear_unrelated_media(current_media.as_ref(), featured.as_ref());
+        self.artwork
+            .clear_unrelated_media(current_media.as_ref(), featured.as_ref());
         self.photo_data_url = None;
         self.library.clear();
         self.dashboard_generation += 1;
@@ -812,9 +817,6 @@ fn App() -> Element {
                                 state.socket_session_id = None;
                                 state.socket_last_signature = None;
                                 state.socket_last_revision = None;
-                                if state.session.is_none() && state.coordinator.snapshot().session_unavailable {
-                                    state.coordinator.remote_available();
-                                }
                             }
                             SocketEvent::Error { code, session_id } => {
                                 if code == "PLAYBACK_LEASE_LOST" {
@@ -823,7 +825,10 @@ fn App() -> Element {
                                     });
                                     if !stale {
                                         if let Some(engine) = engine.read().as_ref() { let _ = engine.stop(); }
-                                        app.write().socket_ready = true;
+                                        let mut state = app.write();
+                                        state.session = None;
+                                        state.coordinator.lease_lost();
+                                        state.socket_ready = true;
                                     }
                                 }
                             }
@@ -846,7 +851,7 @@ fn App() -> Element {
                                     if same_media {
                                         if let (Some(media), Some(holder)) = (current_media, holder.clone()) {
                                             ensure_artwork(app, media.clone());
-                                            app.write().coordinator.observe_remote(media, holder);
+                                            app.write().coordinator.update_remote_state(media, holder);
                                         }
                                     } else {
                                         apply_remote_holder(app, engine, &client, holder, "Playback is active elsewhere").await;
@@ -928,7 +933,10 @@ fn connect(mut app: Signal<NativeApp>) {
                     let mut state = app.write();
                     state.library.access = AccessView::Denied;
                     state.settings_open = true;
-                    state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
+                    state.settings_error = Some(format!(
+                        "Account session rejected: {}",
+                        error.user_message()
+                    ));
                     return;
                 }
                 exit_local_mode(app);
@@ -1328,11 +1336,22 @@ fn artwork_url(app: &NativeApp, media: &Media) -> Option<Arc<String>> {
     }
 }
 
+fn artwork_loading(app: &NativeApp, media: &Media) -> bool {
+    !app.local_mode && matches!(app.artwork.get(media), Some(ArtworkState::Loading))
+}
+
 fn category_artwork_url(app: &NativeApp, category: &Category) -> Option<Arc<String>> {
     match app.artwork.get_category(category) {
         Some(ArtworkState::Ready(value)) => Some(Arc::clone(value)),
         _ => None,
     }
+}
+
+fn category_artwork_loading(app: &NativeApp, category: &Category) -> bool {
+    matches!(
+        app.artwork.get_category(category),
+        Some(ArtworkState::Loading)
+    )
 }
 
 fn ensure_category_artwork(mut app: Signal<NativeApp>, category: Category) {
@@ -1496,6 +1515,21 @@ fn play_media_at(
     if app.read().local_mode {
         return;
     }
+    if app.read().coordinator.snapshot().session_unavailable
+        && !takeover
+        && app.read().access_tier < 100
+    {
+        let holder_label = app
+            .read()
+            .coordinator
+            .snapshot()
+            .holder
+            .as_ref()
+            .map(|h| h.display_label())
+            .unwrap_or_else(|| "another device".to_owned());
+        app.write().status = Some(format!("Playback is active on {holder_label}."));
+        return;
+    }
     ensure_artwork(app, media.clone());
     if media.is_photo() {
         if takeover {
@@ -1544,7 +1578,9 @@ fn play_media_at(
             state.player_expanded = true;
         }
         let featured = featured_media(&state);
-        state.artwork.clear_unrelated_media(Some(&media), featured.as_ref());
+        state
+            .artwork
+            .clear_unrelated_media(Some(&media), featured.as_ref());
         if !same_media {
             state.lyrics.clear();
             state.lyrics.shrink_to_fit();
@@ -1758,7 +1794,9 @@ fn play_photo(
         let mut state = app.write();
         let featured = featured_media(&state);
         state.coordinator.load(media.clone());
-        state.artwork.clear_unrelated_media(Some(&media), featured.as_ref());
+        state
+            .artwork
+            .clear_unrelated_media(Some(&media), featured.as_ref());
         state.photo_data_url = None;
         state.lyrics.clear();
         state.lyrics.shrink_to_fit();
@@ -1838,8 +1876,14 @@ fn change_quality(
     if app.read().coordinator.snapshot().quality == quality {
         return;
     }
-    if app.read().coordinator.snapshot().media.as_ref()
-        .is_some_and(|media| !media.supports_quality(quality)) {
+    if app
+        .read()
+        .coordinator
+        .snapshot()
+        .media
+        .as_ref()
+        .is_some_and(|media| !media.supports_quality(quality))
+    {
         return;
     }
     let was_playing = app.read().coordinator.snapshot().status == PlaybackStatus::Playing
@@ -2198,8 +2242,6 @@ async fn apply_remote_holder(
     holder: Option<SessionHolder>,
     message: &str,
 ) {
-    let previous_revision = app.read().socket_last_revision;
-    let was_observing = app.read().coordinator.snapshot().session_unavailable;
     if app.read().local_mode {
         return;
     }
@@ -2209,34 +2251,22 @@ async fn apply_remote_holder(
         let _ = engine.stop();
     }
     app.write().session = None;
+    app.write().coordinator.session_unavailable(message);
+    app.write().coordinator.set_holder(holder.clone());
+
     if let Some(holder) = holder.clone()
         && let Some(media_id) = holder.media_id
         && let Ok(media) = client.media(media_id).await
     {
         let current = app.read();
-        let superseded = current.local_mode
-            || current.session.is_some()
-            || current.socket_last_revision != previous_revision
-            || (was_observing && !current.coordinator.snapshot().session_unavailable);
+        let superseded = current.local_mode || current.session.is_some();
         drop(current);
         if superseded {
             return;
         }
         ensure_artwork(app, media.clone());
-        app.write().coordinator.observe_remote(media, holder);
-        return;
+        app.write().coordinator.update_remote_state(media, holder);
     }
-    let current = app.read();
-    let superseded = current.local_mode
-        || current.session.is_some()
-        || current.socket_last_revision != previous_revision
-        || (was_observing && !current.coordinator.snapshot().session_unavailable);
-    drop(current);
-    if superseded {
-        return;
-    }
-    app.write().coordinator.session_unavailable(message);
-    app.write().coordinator.set_holder(holder);
 }
 
 fn toggle_playback(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngine>>) {
@@ -2626,6 +2656,47 @@ fn append_folder(mut app: Signal<NativeApp>, category_id: CategoryId, category_n
             }
             Err(ApiError::QueueEmpty) => {
                 app.write().status = Some("No playable audio in this folder.".to_owned());
+            }
+            Err(error) => {
+                app.write().status = Some(error.user_message());
+            }
+        }
+    });
+}
+
+fn favorite_folder(mut app: Signal<NativeApp>, category_id: CategoryId, category_name: String) {
+    if app.read().local_mode {
+        return;
+    }
+    let Some(client) = app.read().client.clone() else {
+        return;
+    };
+    app.write().status = None;
+    spawn(async move {
+        match client.favorite_folder(category_id).await {
+            Ok(result) => {
+                if !result.added_ids.is_empty() {
+                    let mut app_write = app.write();
+                    for item in app_write.library.items.iter_mut() {
+                        if result.added_ids.contains(&item.id) {
+                            item.liked = true;
+                        }
+                    }
+                }
+                if result.added_count > 0 {
+                    let plural = if result.added_count == 1 { "" } else { "s" };
+                    app.write().status = Some(format!(
+                        "{} track{} from “{category_name}” added to favorites.",
+                        result.added_count, plural
+                    ));
+                } else if result.total_count == 0 {
+                    app.write().status =
+                        Some(format!("No playable audio found in “{category_name}”."));
+                } else {
+                    app.write().status = Some(format!(
+                        "All tracks from “{category_name}” are already in favorites."
+                    ));
+                }
             }
             Err(error) => {
                 app.write().status = Some(error.user_message());
@@ -3219,12 +3290,16 @@ fn save_settings(mut app: Signal<NativeApp>) {
     let url_changed = candidate.server_url != previous_url;
     let username_changed = candidate.username != app.read().settings.username;
     if (url_changed || username_changed) && password.is_empty() {
-        app.write().settings_error = Some("Enter the account password to connect to a different server or account.".to_owned());
+        app.write().settings_error = Some(
+            "Enter the account password to connect to a different server or account.".to_owned(),
+        );
         return;
     }
-    let current_client_is_connected =
-        !url_changed && is_connected && app.read().client.is_some()
-            && password.is_empty() && candidate.username == app.read().settings.username;
+    let current_client_is_connected = !url_changed
+        && is_connected
+        && app.read().client.is_some()
+        && password.is_empty()
+        && candidate.username == app.read().settings.username;
     if current_client_is_connected {
         let _ = app.read().store.save(&candidate);
         app.write().settings = candidate;
@@ -3267,13 +3342,17 @@ fn save_settings(mut app: Signal<NativeApp>) {
 
             dioxus_core::spawn_forever(async move {
                 let client = if !password.is_empty() {
-                    match client.account_session(&candidate.username, &password, false).await {
+                    match client
+                        .account_session(&candidate.username, &password, false)
+                        .await
+                    {
                         Ok(token) => {
                             candidate.account_token = token;
                             let authenticated = client.with_account_token(&candidate.account_token);
                             let save_result = app.read().store.save(&candidate);
                             if let Err(error) = save_result {
-                                app.write().settings_error = Some(format!("Failed to save account session: {error}"));
+                                app.write().settings_error =
+                                    Some(format!("Failed to save account session: {error}"));
                                 app.write().settings_connecting = false;
                                 return;
                             }
@@ -3284,7 +3363,8 @@ fn save_settings(mut app: Signal<NativeApp>) {
                         }
                         Err(error) => {
                             let mut state = app.write();
-                            state.settings_error = Some(format!("Account login failed: {}", error.user_message()));
+                            state.settings_error =
+                                Some(format!("Account login failed: {}", error.user_message()));
                             state.settings_connecting = false;
                             state.library.access = AccessView::Denied;
                             state.settings_open = true;
@@ -3301,7 +3381,10 @@ fn save_settings(mut app: Signal<NativeApp>) {
                             state.library.access = AccessView::Denied;
                             state.settings_open = true;
                             state.settings_connecting = false;
-                            state.settings_error = Some(format!("Account session rejected: {}", error.user_message()));
+                            state.settings_error = Some(format!(
+                                "Account session rejected: {}",
+                                error.user_message()
+                            ));
                             return;
                         }
                         exit_local_mode(app);
@@ -3313,8 +3396,7 @@ fn save_settings(mut app: Signal<NativeApp>) {
                             state.settings_open = false;
                             state.settings_connecting = false;
                             state.settings_error = None;
-                            state.status =
-                                Some("Connected to server successfully.".to_owned());
+                            state.status = Some("Connected to server successfully.".to_owned());
                         }
 
                         begin_browse(app);
@@ -3330,42 +3412,42 @@ fn save_settings(mut app: Signal<NativeApp>) {
                             Err(error) => app.write().status = Some(error.user_message()),
                         }
                     }
-                            Err(ApiError::AccessDenied) => {
-                                let msg = "Access denied: log in with a valid account.".to_owned();
-                                let mut state = app.write();
-                                state.on_server_disconnected();
-                                state.library.access = AccessView::Denied;
-                                state.settings_connecting = false;
-                                state.settings_error = Some(msg.clone());
-                                state.status = Some(msg);
-                                state.settings_open = true;
-                            }
-                            Err(error) => {
-                                let user_msg = error.user_message();
-                                let msg = format!(
-                                    "Cannot connect to server: {user_msg}. Please check the server address, port, and network connection."
-                                );
-                                let mut state = app.write();
-                                state.on_server_disconnected();
-                                state.library.access = AccessView::Unreachable(user_msg);
-                                state.settings_connecting = false;
-                                state.settings_error = Some(msg.clone());
-                                state.status = None;
-                                state.settings_open = true;
-                                drop(state);
-                                auto_open_local_folder(app);
-                            }
-                        }
-                    });
+                    Err(ApiError::AccessDenied) => {
+                        let msg = "Access denied: log in with a valid account.".to_owned();
+                        let mut state = app.write();
+                        state.on_server_disconnected();
+                        state.library.access = AccessView::Denied;
+                        state.settings_connecting = false;
+                        state.settings_error = Some(msg.clone());
+                        state.status = Some(msg);
+                        state.settings_open = true;
+                    }
+                    Err(error) => {
+                        let user_msg = error.user_message();
+                        let msg = format!(
+                            "Cannot connect to server: {user_msg}. Please check the server address, port, and network connection."
+                        );
+                        let mut state = app.write();
+                        state.on_server_disconnected();
+                        state.library.access = AccessView::Unreachable(user_msg);
+                        state.settings_connecting = false;
+                        state.settings_error = Some(msg.clone());
+                        state.status = None;
+                        state.settings_open = true;
+                        drop(state);
+                        auto_open_local_folder(app);
+                    }
                 }
-                Err(error) => {
-                    let msg = error.user_message();
-                    let mut state = app.write();
-                    state.on_server_disconnected();
-                    state.settings_error = Some(msg.clone());
-                    state.status = Some(msg);
-                }
-            }
+            });
+        }
+        Err(error) => {
+            let msg = error.user_message();
+            let mut state = app.write();
+            state.on_server_disconnected();
+            state.settings_error = Some(msg.clone());
+            state.status = Some(msg);
+        }
+    }
 }
 
 fn media_kind(media: &crate::domain::Media) -> &str {
@@ -3650,7 +3732,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(ArtworkCache::key(&media_1), ArtworkCache::key(&media_2));
-        assert_eq!(ArtworkCache::key(&media_1), ArtworkCache::category_key(&category));
+        assert_eq!(
+            ArtworkCache::key(&media_1),
+            ArtworkCache::category_key(&category)
+        );
 
         let mut cache = ArtworkCache::default();
         let key = cache.start(&media_1).unwrap();
@@ -4113,10 +4198,18 @@ mod tests {
             let Some(element) = node.element_data() else {
                 return;
             };
-            if let Some(class_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "class") {
+            if let Some(class_attr) = element
+                .attrs
+                .iter()
+                .find(|a| a.name.local.as_ref() == "class")
+            {
                 if class_attr.value.contains("lyrics-toggle") {
                     found_toggle = true;
-                    if element.attrs.iter().any(|a| a.name.local.as_ref() == "disabled" && a.value.as_str() != "false") {
+                    if element
+                        .attrs
+                        .iter()
+                        .any(|a| a.name.local.as_ref() == "disabled" && a.value.as_str() != "false")
+                    {
                         toggle_disabled = true;
                     }
                 }
@@ -4126,9 +4219,18 @@ mod tests {
             }
         });
 
-        assert!(found_toggle, "lyrics toggle button must be rendered in full player");
-        assert!(!toggle_disabled, "lyrics toggle button must never be disabled even without lyrics");
-        assert!(found_empty_lyrics, "empty lyrics message should be displayed when opened without lyrics");
+        assert!(
+            found_toggle,
+            "lyrics toggle button must be rendered in full player"
+        );
+        assert!(
+            !toggle_disabled,
+            "lyrics toggle button must never be disabled even without lyrics"
+        );
+        assert!(
+            found_empty_lyrics,
+            "empty lyrics message should be displayed when opened without lyrics"
+        );
     }
 
     #[test]
@@ -4159,14 +4261,26 @@ mod tests {
         let mut share_visible = false;
         let mut share_disabled = false;
         document.inner.visit(|_, node| {
-            let Some(element) = node.element_data() else { return; };
-            if element.attrs.iter().any(|attr| attr.name.local.as_ref() == "class" && attr.value.contains("share-lyrics")) {
+            let Some(element) = node.element_data() else {
+                return;
+            };
+            if element.attrs.iter().any(|attr| {
+                attr.name.local.as_ref() == "class" && attr.value.contains("share-lyrics")
+            }) {
                 share_visible = true;
-                share_disabled = element.attrs.iter().any(|attr| attr.name.local.as_ref() == "disabled" && attr.value.as_str() != "false");
+                share_disabled = element.attrs.iter().any(|attr| {
+                    attr.name.local.as_ref() == "disabled" && attr.value.as_str() != "false"
+                });
             }
         });
-        assert!(share_visible, "share button must be visible when the lyrics panel is closed");
-        assert!(!share_disabled, "share button must open the empty state when lyrics are unavailable");
+        assert!(
+            share_visible,
+            "share button must be visible when the lyrics panel is closed"
+        );
+        assert!(
+            !share_disabled,
+            "share button must open the empty state when lyrics are unavailable"
+        );
     }
 
     #[test]
@@ -4214,20 +4328,34 @@ mod tests {
             let Some(element) = node.element_data() else {
                 return;
             };
-            if let Some(class_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "class") {
+            if let Some(class_attr) = element
+                .attrs
+                .iter()
+                .find(|a| a.name.local.as_ref() == "class")
+            {
                 if class_attr.value.contains("full-player-body") {
                     found_body = true;
                 }
             }
-            if let Some(name_attr) = element.attrs.iter().find(|a| a.name.local.as_ref() == "data-name") {
+            if let Some(name_attr) = element
+                .attrs
+                .iter()
+                .find(|a| a.name.local.as_ref() == "data-name")
+            {
                 if name_attr.value == "SessionConflictCard" {
                     found_conflict = true;
                 }
             }
         });
 
-        assert!(found_body, "full-player-body container must wrap the player layout");
-        assert!(found_conflict, "SessionConflictCard must be present when session is unavailable");
+        assert!(
+            found_body,
+            "full-player-body container must wrap the player layout"
+        );
+        assert!(
+            found_conflict,
+            "SessionConflictCard must be present when session is unavailable"
+        );
     }
 
     #[test]
@@ -4367,16 +4495,21 @@ mod tests {
                 found_password_input = true;
             }
 
-            let has_toggle_class = element
-                .attrs
-                .iter()
-                .any(|a| a.name.local.as_ref() == "class" && a.value.contains("password-toggle-btn"));
+            let has_toggle_class = element.attrs.iter().any(|a| {
+                a.name.local.as_ref() == "class" && a.value.contains("password-toggle-btn")
+            });
             if has_toggle_class {
                 found_toggle_btn = true;
             }
         });
 
-        assert!(found_password_input, "Password input with type=password must exist");
-        assert!(found_toggle_btn, "Password visibility toggle button must exist");
+        assert!(
+            found_password_input,
+            "Password input with type=password must exist"
+        );
+        assert!(
+            found_toggle_btn,
+            "Password visibility toggle button must exist"
+        );
     }
 }

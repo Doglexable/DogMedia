@@ -70,8 +70,6 @@ export function FullPlayer({
   onToggleMute, onToggleShuffle, onToggle, liked, onToggleLike, onCloseFull,
   onSetSleepTimer,
   quality, actualQuality, onChangeQuality,
-  eqGains, eqPreset, eqEnabled, eqTargetDb, onSetEqGain, onSetEqPreset, onSetEqEnabled,
-  onSetEqTargetDb, onAdjustEqToTarget,
   lyrics, lyricsLoading,
   conflict, controlsLocked = false, canTakeOver = false, onTakeOver,
 }) {
@@ -335,7 +333,7 @@ export function FullPlayer({
             </div>
 
             <div className="fullscreen-player-actions" aria-label="Track actions">
-              {/* Unified Settings — Quality / EQ / Timer (no speed for audio) */}
+              {/* Unified Settings — Quality / Timer (no speed for audio) */}
               <SettingsControl
                 variant="fullscreen"
                 showSpeed={false}
@@ -343,15 +341,6 @@ export function FullPlayer({
                 quality={quality}
                 actualQuality={actualQuality}
                 onChangeQuality={onChangeQuality}
-                gains={eqGains}
-                eqPreset={eqPreset}
-                eqEnabled={eqEnabled}
-                targetDb={eqTargetDb}
-                onSetGain={onSetEqGain}
-                onSetEqPreset={onSetEqPreset}
-                onSetEqEnabled={onSetEqEnabled}
-                onSetTargetDb={onSetEqTargetDb}
-                onAdjustToTarget={onAdjustEqToTarget}
                 sleepTimerRemaining={sleepTimerRemaining}
                 sleepTimerMode={sleepTimerMode}
                 hasPlaylist={hasPlaylist}
@@ -578,15 +567,6 @@ export function FullPlayer({
         onToggle={onToggle}
         onToggleLike={onToggleLike}
         onSetSleepTimer={onSetSleepTimer}
-        eqGains={eqGains}
-        eqPreset={eqPreset}
-        eqEnabled={eqEnabled}
-        eqTargetDb={eqTargetDb}
-        onSetEqGain={onSetEqGain}
-        onSetEqPreset={onSetEqPreset}
-        onSetEqEnabled={onSetEqEnabled}
-        onSetEqTargetDb={onSetEqTargetDb}
-        onAdjustEqToTarget={onAdjustEqToTarget}
         conflict={conflict}
         controlsLocked={controlsLocked}
         canTakeOver={canTakeOver}

@@ -12,9 +12,17 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
     let playing = playback.status == PlaybackStatus::Playing;
     let session_unavailable = playback.session_unavailable;
     let source = if media.is_photo() {
-        snapshot.photo_data_url.clone()
+        snapshot
+            .photo_data_url
+            .clone()
+            .or_else(|| artwork_url(&snapshot, media))
     } else {
         artwork_url(&snapshot, media)
+    };
+    let art_is_loading = if media.is_photo() {
+        snapshot.photo_data_url.is_none() && playback.status == PlaybackStatus::Loading
+    } else {
+        artwork_loading(&snapshot, media)
     };
     let fallback = if media.is_video() {
         "▶"
@@ -61,7 +69,8 @@ pub(crate) fn PlayerBar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEn
                             source,
                             alt: media.title().to_owned(),
                             fallback: fallback.to_owned(),
-                            class: "mini-art".to_owned()
+                            class: "mini-art".to_owned(),
+                            loading: art_is_loading,
                         }
                         if let Some(badge) = media_badge {
                             span { class: "mini-art-badge", "{badge}" }

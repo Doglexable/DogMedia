@@ -1,14 +1,20 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBars } from "@fortawesome/free-solid-svg-icons/faBars";
 import { faChartSimple } from "@fortawesome/free-solid-svg-icons/faChartSimple";
 import { faDownload } from "@fortawesome/free-solid-svg-icons/faDownload";
+import { faChevronDown } from "@fortawesome/free-solid-svg-icons/faChevronDown";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons/faEllipsis";
 import { faFolder } from "@fortawesome/free-solid-svg-icons/faFolder";
 import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
 import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
+import { faUsers } from "@fortawesome/free-solid-svg-icons/faUsers";
+import { faClapperboard } from "@fortawesome/free-solid-svg-icons/faClapperboard";
+import { faPaperPlane } from "@fortawesome/free-solid-svg-icons/faPaperPlane";
+import { faMobileScreenButton } from "@fortawesome/free-solid-svg-icons/faMobileScreenButton";
 import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
+import { faHeart } from "@fortawesome/free-solid-svg-icons/faHeart";
 import { faHouse } from "@fortawesome/free-solid-svg-icons/faHouse";
 import { faList } from "@fortawesome/free-solid-svg-icons/faList";
 import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
@@ -21,6 +27,7 @@ import { api, apiUrl, categoryThumbnailUrl, profilePictureUrl, readJsonArray } f
 import { SiteFooter } from "./site-footer";
 import { DesktopDownload } from "./desktop-download";
 import { APP_VERSION_LABEL } from "../version";
+import { animateCollectionAdd, captureCollectionOrigin } from "./collection-flight";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -44,7 +51,7 @@ function SidebarLink({ active, children, icon, leading, onClick, onContextMenu, 
   );
 }
 
-function CategoryContextMenu({ category, menu, onAddToQueue, onClose, onPlay }) {
+function CategoryContextMenu({ category, favoriteStatus, favoriteStatusLoading, menu, onAddToQueue, onClose, onFavorite, onPlay }) {
   useEffect(() => {
     if (!menu) return undefined;
     const closeOnEscape = (event) => { if (event.key === "Escape") onClose(); };
@@ -74,9 +81,26 @@ function CategoryContextMenu({ category, menu, onAddToQueue, onClose, onPlay }) 
         <FontAwesomeIcon icon={faPlay} />
         Play {category.name}
       </button>
-      <button type="button" role="menuitem" onClick={() => onAddToQueue(category)}>
+      <button type="button" role="menuitem" onClick={(event) => onAddToQueue(category, event.currentTarget)}>
         <FontAwesomeIcon icon={faList} />
         Queue {category.name}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={favoriteStatusLoading || !favoriteStatus || favoriteStatus.totalAudioCount === 0}
+        onClick={(event) => onFavorite(category, event.currentTarget)}
+      >
+        <FontAwesomeIcon icon={faHeart} />
+        {favoriteStatusLoading
+          ? "Checking favorites…"
+          : favoriteStatus?.fullyLiked
+            ? `Remove ${category.name} from favorites`
+            : favoriteStatus?.totalAudioCount === 0
+              ? "No audio to favorite"
+              : favoriteStatus
+                ? `Add ${category.name} to favorites`
+                : "Favorites unavailable"}
       </button>
     </div>,
     document.body
@@ -112,9 +136,9 @@ export function CategoryIcon({ category }) {
   );
 }
 
-export function CategorySidebarItem({ active, category, close, onOpenMenu }) {
+export function CategorySidebarItem({ active, category, close, hasMedia, onOpenMenu }) {
   const paddingLeft = 12 + Math.min(Number(category.depth) || 0, 4) * 14;
-  const canQueue = Number(category.media_count) > 0;
+  const canQueue = hasMedia ?? Number(category.media_count) > 0;
   return (
     <div
       className="global-sidebar-category-row"
@@ -208,11 +232,28 @@ function AndroidDownloadLink({ mobile = false }) {
   );
 }
 
+function AppDownloads({ mobile = false }) {
+  return (
+    <details className={`sidebar-app-downloads${mobile ? " sidebar-app-downloads--mobile" : ""}`}>
+      <summary className="sidebar-app-downloads-toggle">
+        <span className="sidebar-app-downloads-icon" aria-hidden="true"><FontAwesomeIcon icon={faDownload} /></span>
+        <span className="sidebar-app-downloads-label"><strong>Get the apps</strong><small>Desktop · Android</small></span>
+        <FontAwesomeIcon icon={faChevronDown} className="sidebar-app-downloads-chevron" aria-hidden="true" />
+      </summary>
+      <div className="sidebar-app-downloads-content">
+        <DesktopDownload mobile={mobile} />
+        <AndroidDownloadLink mobile={mobile} />
+      </div>
+    </details>
+  );
+}
+
 function GlobalSidebar({ access, categories, categoriesLoading }) {
   const location = useLocation();
   const tier = access?.tier ?? 0;
   const [open, setOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [masterOpen, setMasterOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [wrappedAvailable, setWrappedAvailable] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -224,19 +265,34 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
   });
   const [categoryMenu, setCategoryMenu] = useState(null);
   const [queueNotice, setQueueNotice] = useState("");
+  const [categoryFavoriteStatus, setCategoryFavoriteStatus] = useState(null);
+  const favoriteStatusGeneration = useRef(0);
   const params = new URLSearchParams(location.search);
   const selectedCategory = params.get("category");
   const liked = location.pathname === "/" && params.get("view") === "liked";
   const showWrapped = wrappedAvailable || location.pathname === "/wrapped";
   const close = () => setOpen(false);
   const closeCategories = () => setCategoriesOpen(false);
+  const closeMaster = () => setMasterOpen(false);
   const closeCategoryMenu = useCallback(() => setCategoryMenu(null), []);
-  const mediaCategories = (Array.isArray(categories) ? categories : []).filter((category) => Number(category.media_count) > 0);
+  const allCategories = Array.isArray(categories) ? categories : [];
+  const categoriesById = new Map(allCategories.map((category) => [Number(category.id), category]));
+  const visibleCategoryIds = new Set();
+  for (const category of allCategories) {
+    if (Number(category.media_count) <= 0) continue;
+    let current = category;
+    while (current && !visibleCategoryIds.has(Number(current.id))) {
+      visibleCategoryIds.add(Number(current.id));
+      current = categoriesById.get(Number(current.parent_id));
+    }
+  }
+  const mediaCategories = allCategories.filter((category) => visibleCategoryIds.has(Number(category.id)));
 
   // Close sidebar and sheet on navigation
   useEffect(() => {
     setOpen(false);
     setCategoriesOpen(false);
+    setMasterOpen(false);
     setCategoryMenu(null);
   }, [location.pathname, location.search]);
 
@@ -245,6 +301,29 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
     const timeout = window.setTimeout(() => setQueueNotice(""), 3000);
     return () => window.clearTimeout(timeout);
   }, [queueNotice]);
+
+  const refreshCategoryFavoriteStatus = useCallback(() => {
+    const generation = ++favoriteStatusGeneration.current;
+    return api("/api/likes/category-status")
+      .then((response) => readJsonArray(response, "Could not load folder favorites"))
+      .then((statuses) => {
+        if (favoriteStatusGeneration.current === generation) {
+          setCategoryFavoriteStatus(new Map(statuses.map((status) => [Number(status.categoryId), status])));
+        }
+      })
+      .catch(() => {
+        if (favoriteStatusGeneration.current === generation) setCategoryFavoriteStatus(new Map());
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshCategoryFavoriteStatus();
+    window.addEventListener("favorites-changed", refreshCategoryFavoriteStatus);
+    return () => {
+      favoriteStatusGeneration.current += 1;
+      window.removeEventListener("favorites-changed", refreshCategoryFavoriteStatus);
+    };
+  }, [categories, refreshCategoryFavoriteStatus]);
 
   const openCategoryMenu = (event, category, anchorToButton = false) => {
     event.preventDefault();
@@ -259,7 +338,8 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
     });
   };
 
-  const addCategoryToQueue = (category) => {
+  const addCategoryToQueue = (category, sourceElement) => {
+    const origin = captureCollectionOrigin(sourceElement);
     closeCategoryMenu();
     api(`/api/queue/items/category/${Number(category.id)}`, { method: "POST" })
       .then(async (response) => {
@@ -267,12 +347,40 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         if (!response.ok) throw new Error(data.error || "Could not add folder to queue");
         window.dispatchEvent(new CustomEvent("queue-changed", { detail: data }));
         const count = Number(data?.addedCount) || 0;
+        if (count > 0) animateCollectionAdd("queue", origin, category, { category: true });
         setQueueNotice(count > 0
           ? `${count} track${count === 1 ? "" : "s"} from “${category.name}” added to queue.`
           : `All tracks from “${category.name}” are already in the queue.`);
         return data;
       })
       .catch((error) => setQueueNotice(error.message || "Could not add folder to queue."));
+  };
+
+  const favoriteCategory = (category, sourceElement) => {
+    const origin = captureCollectionOrigin(sourceElement);
+    const isFavorite = categoryFavoriteStatus?.get(Number(category.id))?.fullyLiked === true;
+    closeCategoryMenu();
+    api(`/api/likes/category/${Number(category.id)}`, { method: isFavorite ? "DELETE" : "PUT" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || (isFavorite ? "Could not remove folder from favorites" : "Could not favorite folder"));
+        window.dispatchEvent(new CustomEvent("favorites-changed", { detail: data }));
+        if (isFavorite) {
+          const removed = Number(data?.removedCount) || 0;
+          setQueueNotice(removed > 0
+            ? `${removed} track${removed === 1 ? "" : "s"} from “${category.name}” removed from favorites.`
+            : `No tracks from “${category.name}” were in favorites.`);
+          return data;
+        }
+        const added = Number(data?.addedCount) || 0;
+        const total = Number(data?.totalCount) || 0;
+        if (added > 0) animateCollectionAdd("favorites", origin, category, { category: true });
+        setQueueNotice(added > 0
+          ? `${added} track${added === 1 ? "" : "s"} from “${category.name}” added to favorites.`
+          : `All ${total} tracks from “${category.name}” are already in favorites.`);
+        return data;
+      })
+      .catch((error) => setQueueNotice(error.message || "Could not update folder favorites."));
   };
 
   const playCategory = (category) => {
@@ -335,7 +443,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
       )}
 
       {/* ── Backdrop ── */}
-      {(open || categoriesOpen) && (
+      {(open || categoriesOpen || masterOpen) && (
         <button
           type="button"
           className="global-sidebar-backdrop"
@@ -343,6 +451,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           onClick={() => {
             close();
             closeCategories();
+            closeMaster();
           }}
         />
       )}
@@ -378,8 +487,20 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           <SidebarLink to="/" icon={faHouse} active={location.pathname === "/" && !liked && !selectedCategory} onClick={close}>All media</SidebarLink>
           <SidebarLink to="/?view=liked" icon={faBookmark} active={liked} onClick={close}>Favorites</SidebarLink>
           {showWrapped && <SidebarLink to="/wrapped" icon={faChartSimple} active={location.pathname === "/wrapped"} onClick={close}>Wrapped</SidebarLink>}
-          {tier >= 100 && <SidebarLink to="/admin" icon={faGear} active={location.pathname === "/admin"} onClick={close}>Admin</SidebarLink>}
+          {tier < 100 && <SidebarLink to="/request-media" icon={faPaperPlane} active={location.pathname === "/request-media"} onClick={close}>Request Media</SidebarLink>}
         </nav>
+
+        {tier >= 100 && <div className="global-sidebar-master">
+          <div className="global-sidebar-heading">Master</div>
+          <nav aria-label="Master navigation">
+            <SidebarLink to="/admin/users" icon={faUsers} active={location.pathname === "/admin/users"} onClick={close}>Users</SidebarLink>
+            <SidebarLink to="/admin/media" icon={faClapperboard} active={location.pathname === "/admin/media" || location.pathname === "/admin"} onClick={close}>Medias</SidebarLink>
+            <SidebarLink to="/request-media" icon={faPaperPlane} active={location.pathname === "/request-media"} onClick={close}>Request Media</SidebarLink>
+          </nav>
+          <nav aria-label="App distribution">
+            <SidebarLink to="/admin/android-upload" icon={faMobileScreenButton} active={location.pathname === "/admin/android-upload"} onClick={close}>Upload Android</SidebarLink>
+          </nav>
+        </div>}
 
         <div className="global-sidebar-section">
           <div className="global-sidebar-heading">Categories</div>
@@ -391,6 +512,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
                 <CategorySidebarItem
                   key={category.id}
                   category={category}
+                  hasMedia
                   active={String(category.id) === selectedCategory}
                   close={close}
                   onOpenMenu={openCategoryMenu}
@@ -404,8 +526,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
 
         {/* Sidebar footer: profile & theme */}
         <div className="global-sidebar-footer">
-          <DesktopDownload />
-          <AndroidDownloadLink />
+          <AppDownloads />
           <button
             type="button"
             className="global-sidebar-profile-btn"
@@ -450,14 +571,13 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
         <BottomNavTab
           icon={categoriesOpen ? faFolderOpen : faFolder}
           active={!!selectedCategory || categoriesOpen}
-          onClick={() => setCategoriesOpen((v) => !v)}
+          onClick={() => { closeMaster(); setCategoriesOpen((v) => !v); }}
         >
           Browse
         </BottomNavTab>
 
-        {tier >= 100 && (
-          <BottomNavTab to="/admin" icon={faGear} active={location.pathname === "/admin"}>Admin</BottomNavTab>
-        )}
+        {tier >= 100 ? <BottomNavTab icon={faGear} active={masterOpen || location.pathname.startsWith("/admin") || location.pathname === "/request-media"} onClick={() => { closeCategories(); setMasterOpen((value) => !value); }}>Master</BottomNavTab>
+          : <BottomNavTab to="/request-media" icon={faPaperPlane} active={location.pathname === "/request-media"}>Request</BottomNavTab>}
 
         <BottomNavTab
           avatarUrl={profilePictureUrl(access?.profile_picture || access?.user?.profile_picture || "fine", "s")}
@@ -465,6 +585,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           active={profileOpen}
           onClick={() => {
             closeCategories();
+            closeMaster();
             setProfileOpen(true);
           }}
         >
@@ -494,8 +615,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           </button>
         </div>
         <nav className="mobile-categories-sheet-body" aria-label="Media categories">
-          <DesktopDownload mobile />
-          <AndroidDownloadLink mobile />
+          <AppDownloads mobile />
           {categoriesLoading ? (
             Array.from({ length: 6 }, (_, index) => (
               <span key={index} className="global-sidebar-category-skeleton skeleton-shimmer" style={{ margin: "4px 0", borderRadius: 10, height: 40 }} />
@@ -505,6 +625,7 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
               <CategorySidebarItem
                 key={category.id}
                 category={category}
+                hasMedia
                 active={String(category.id) === selectedCategory}
                 close={closeCategories}
                 onOpenMenu={openCategoryMenu}
@@ -519,11 +640,24 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
           </div>
         </nav>
       </div>
+      {tier >= 100 && <div className={`mobile-categories-sheet${masterOpen ? " mobile-categories-sheet--open" : ""}`} aria-label="Master menu" aria-hidden={!masterOpen}>
+        <div className="mobile-categories-sheet-handle" />
+        <div className="mobile-categories-sheet-header"><span className="mobile-categories-sheet-title">Master</span><button type="button" className="mobile-categories-sheet-close" aria-label="Close master menu" onClick={closeMaster}><FontAwesomeIcon icon={faXmark} /></button></div>
+        <nav className="mobile-categories-sheet-body" aria-label="Master navigation">
+          <SidebarLink to="/admin/users" icon={faUsers} active={location.pathname === "/admin/users"} onClick={closeMaster}>Users</SidebarLink>
+          <SidebarLink to="/admin/media" icon={faClapperboard} active={location.pathname === "/admin/media"} onClick={closeMaster}>Medias</SidebarLink>
+          <SidebarLink to="/request-media" icon={faPaperPlane} active={location.pathname === "/request-media"} onClick={closeMaster}>Request Media</SidebarLink>
+          <div className="mobile-master-links"><div className="global-sidebar-heading">App distribution</div><SidebarLink to="/admin/android-upload" icon={faMobileScreenButton} active={location.pathname === "/admin/android-upload"} onClick={closeMaster}>Upload Android</SidebarLink></div>
+        </nav>
+      </div>}
       <CategoryContextMenu
         category={categoryMenu?.category}
+        favoriteStatus={categoryFavoriteStatus?.get(Number(categoryMenu?.category?.id))}
+        favoriteStatusLoading={categoryFavoriteStatus === null}
         menu={categoryMenu}
         onAddToQueue={addCategoryToQueue}
         onClose={closeCategoryMenu}
+        onFavorite={favoriteCategory}
         onPlay={playCategory}
       />
       <ProfileModal

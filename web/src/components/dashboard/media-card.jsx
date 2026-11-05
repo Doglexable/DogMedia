@@ -50,18 +50,18 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
     };
   }, [menu]);
 
-  const notifyAction = (action, successMessage) => {
+  const notifyAction = (action, successMessage, sourceElement) => {
     setMenu(null);
-    Promise.resolve(action?.(item))
+    Promise.resolve(action?.(item, sourceElement))
       .then(() => onError?.(successMessage))
       .catch((error) => onError?.(error.message));
   };
 
-  const addToQueue = () => notifyAction(onAddQueue, `“${item.title}” is in the queue.`);
-  const playNext = () => notifyAction(onPlayNext, `“${item.title}” will play next.`);
-  const toggleFavorite = () => {
+  const addToQueue = (event) => notifyAction(onAddQueue, `“${item.title}” is in the queue.`, event.currentTarget);
+  const playNext = (event) => notifyAction(onPlayNext, `“${item.title}” will play next.`, event.currentTarget);
+  const toggleFavorite = (sourceElement) => {
     setMenu(null);
-    Promise.resolve(onToggleLike?.(item))
+    Promise.resolve(onToggleLike?.(item, sourceElement))
       .then((liked) => onError?.(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
       .catch((error) => onError?.(error.message));
   };
@@ -107,7 +107,7 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
             aria-label={isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
             aria-pressed={isLiked}
             title={isLiked ? "Remove from favorites" : "Add to favorites"}
-            onClick={toggleFavorite}
+            onClick={(event) => toggleFavorite(event.currentTarget)}
           >
             <FontAwesomeIcon icon={faBookmark} />
           </button>
@@ -149,6 +149,11 @@ function MediaCard({ index, item, isActive, isLiked, onAddQueue, onError, onPlay
           >
             <button type="button" role="menuitem" onClick={playNext}>Play next</button>
             <button type="button" role="menuitem" onClick={addToQueue}>Add to queue</button>
+            {isAudio && (
+              <button type="button" role="menuitem" onClick={(event) => toggleFavorite(event.currentTarget)}>
+                {isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
+              </button>
+            )}
           </div>
         </>,
         document.body,

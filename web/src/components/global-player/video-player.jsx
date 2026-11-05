@@ -129,15 +129,6 @@ export function VideoPlayer({
   onToggle,
   onToggleLike,
   onSetSleepTimer,
-  eqGains,
-  eqPreset,
-  eqEnabled,
-  eqTargetDb,
-  onSetEqGain,
-  onSetEqPreset,
-  onSetEqEnabled,
-  onSetEqTargetDb,
-  onAdjustEqToTarget,
   conflict,
   controlsLocked = false,
   canTakeOver = false,
@@ -910,7 +901,7 @@ export function VideoPlayer({
                   />
                 )}
 
-                {/* Unified Settings — Quality / EQ / Speed / Timer */}
+                {/* Unified Settings — Quality / Speed / Timer */}
                 <SettingsControl
                   variant="video-ctrl"
                   showSpeed
@@ -918,15 +909,6 @@ export function VideoPlayer({
                   quality={quality}
                   actualQuality={actualQuality}
                   onChangeQuality={onChangeQuality}
-                  gains={eqGains}
-                  eqPreset={eqPreset}
-                  eqEnabled={eqEnabled}
-                  targetDb={eqTargetDb}
-                  onSetGain={onSetEqGain}
-                  onSetEqPreset={onSetEqPreset}
-                  onSetEqEnabled={onSetEqEnabled}
-                  onSetTargetDb={onSetEqTargetDb}
-                  onAdjustToTarget={onAdjustEqToTarget}
                   playbackRate={playbackRate}
                   onSelectRate={handleSelectRate}
                   sleepTimerRemaining={sleepTimerRemaining}

@@ -27,7 +27,7 @@ export function buildLyricsDisplaySegments(segments, minimumGap = MIN_INSTRUMENT
     displaySegments.push({
       start,
       end: Number((end - 0.001).toFixed(3)),
-      text: "Instrumental",
+      text: "♪",
       instrumental: true,
     });
   };

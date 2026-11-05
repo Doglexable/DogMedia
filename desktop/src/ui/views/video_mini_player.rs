@@ -6,8 +6,8 @@ use crate::ui::kit::{Artwork, Icon, IconName, Slider};
 use crate::ui::views::SessionConflictCard;
 use crate::ui::views::player_bar::quality_badge;
 use crate::ui::{
-    NativeApp, PlaybackStatus, PlaybackTiming, artwork_url, format_duration, media_folder, seek,
-    stop_playback, toggle_playback,
+    NativeApp, PlaybackStatus, PlaybackTiming, artwork_loading, artwork_url, format_duration,
+    media_folder, seek, stop_playback, toggle_playback,
 };
 
 #[component]
@@ -38,6 +38,8 @@ pub(crate) fn VideoMiniPlayer(
     let playing = playback.status == PlaybackStatus::Playing;
     let session_unavailable = playback.session_unavailable;
     let source = artwork_url(&snapshot, media);
+    let poster_loading =
+        artwork_loading(&snapshot, media) || playback.status == PlaybackStatus::Loading;
 
     rsx! {
         aside {
@@ -59,6 +61,7 @@ pub(crate) fn VideoMiniPlayer(
                         alt: media.title().to_owned(),
                         fallback: "▶".to_owned(),
                         class: "video-mini-thumb".to_owned(),
+                        loading: poster_loading,
                     }
                 }
 

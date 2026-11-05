@@ -335,13 +335,13 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
           const distance = Math.abs(index - focusIndex);
           return <Pressable
             accessibilityHint="Seeks playback to this lyric"
-            accessibilityLabel={`${formatDuration(segment.start)}. ${segment.instrumental ? "Instrumental" : segment.text}`}
+            accessibilityLabel={`${formatDuration(segment.start)}. ${segment.instrumental ? "Nada musik" : segment.text}`}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             onPress={() => onSeek(segment.start)}
             style={styles.lineButton}
           >
-            <Text style={[styles.line, segment.instrumental && styles.instrumentalLine, active && styles.activeLine, active && segment.instrumental && styles.activeInstrumentalLine, distance > 1 && styles.dimLine]}>{segment.instrumental ? `♪ ${segment.text}` : segment.text}</Text>
+            <Text style={[styles.line, segment.instrumental && styles.instrumentalLine, active && styles.activeLine, active && segment.instrumental && styles.activeInstrumentalLine, distance > 1 && styles.dimLine]}>{segment.text}</Text>
           </Pressable>;
         }}
         showsVerticalScrollIndicator={false}
@@ -386,15 +386,14 @@ const makeStyles = (colors) => StyleSheet.create({
     fontWeight: "900",
   },
   instrumentalLine: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 20,
+    lineHeight: 25,
     fontWeight: "800",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
+    letterSpacing: 0,
   },
   activeInstrumentalLine: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 24,
+    lineHeight: 29,
   },
   dimLine: {
     opacity: 0.62,

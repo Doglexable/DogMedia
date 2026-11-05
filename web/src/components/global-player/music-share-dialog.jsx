@@ -331,7 +331,7 @@ export function MusicReelDialog({ favorites, onClose, singleTrack = false, initi
                         setSelectedLyricIndex(index);
                       }}
                     >
-                      <time>{formatClipTime(segment.start)}</time><span>{segment.text || "Instrumental"}</span>
+                      <time>{formatClipTime(segment.start)}</time><span>{segment.text || "♪"}</span>
                     </button>
                   )) : <p>No timed lyrics found. Drag the timeline to choose the start.</p>}
                 </div>

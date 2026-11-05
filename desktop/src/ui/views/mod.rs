@@ -1,4 +1,5 @@
 mod app_menubar;
+mod equalizer_panel;
 mod featured;
 mod full_player;
 mod library;
@@ -13,6 +14,7 @@ mod video_mini_player;
 mod video_player;
 
 pub(crate) use app_menubar::AppMenubar;
+pub(crate) use equalizer_panel::EqualizerPanel;
 pub(crate) use featured::Featured;
 pub(crate) use full_player::FullPlayer;
 pub(crate) use library::Library;

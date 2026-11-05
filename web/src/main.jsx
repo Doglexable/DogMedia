@@ -1,5 +1,6 @@
 import "./theme.css";
 import "./vault-theme.css";
+import "./components/collection-flight.css";
 import "@fontsource-variable/inter";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use winit::window::{Fullscreen, Window};
 
 use super::super::*;
+use crate::ui::views::SessionConflictCard;
 
 #[component]
 fn SubtitlesOverlayMenu(
@@ -106,6 +107,9 @@ pub(crate) fn VideoPlayer(
     let Some(media) = playback.media.as_ref() else {
         return rsx! {};
     };
+    let poster_source = artwork_url(&snapshot, media);
+    let video_loading = playback.status == PlaybackStatus::Loading;
+    let show_video_preview = video_loading || playback.status == PlaybackStatus::Failed;
     let native_window = consume_context::<Arc<Window>>();
     use_hook({
         let native_window = native_window.clone();
@@ -341,6 +345,20 @@ pub(crate) fn VideoPlayer(
                     class: "video-surface video-player-video",
                     "src": "{video_source_id}",
                 }
+                if show_video_preview {
+                    div { class: "video-loading-preview",
+                        Artwork {
+                            source: poster_source,
+                            alt: media.title().to_owned(),
+                            fallback: "▶".to_owned(),
+                            class: "video-loading-art".to_owned(),
+                            loading: video_loading,
+                        }
+                        span { class: "video-loading-caption",
+                            if video_loading { "Preparing video…" } else { "Video unavailable" }
+                        }
+                    }
+                }
                 if !active_subtitle.is_empty() {
                     div { class: "subtitle-overlay video-subtitles-overlay", "{active_subtitle}" }
                 }
@@ -406,6 +424,7 @@ pub(crate) fn VideoPlayer(
                         class: "video-player-center-btn",
                         aria_label: if playing { "Pause" } else { "Play" },
                         title: if playing { "Pause (Space)" } else { "Play (Space)" },
+                        disabled: playback.session_unavailable,
                         onclick: move |e: MouseEvent| {
                             e.stop_propagation();
                             toggle_playback(app, engine);
@@ -427,6 +446,7 @@ pub(crate) fn VideoPlayer(
                             max: max_pos,
                             step: 0.1,
                             value: current_position,
+                            disabled: playback.session_unavailable,
                             aria_label: "Seek slider".to_owned(),
                             class: "video-player-scrubber-slider".to_owned(),
                             onchange: move |pos| {
@@ -443,6 +463,7 @@ pub(crate) fn VideoPlayer(
                                 class: "video-player-ctrl-btn video-player-ctrl-btn--primary",
                                 aria_label: if playing { "Pause" } else { "Play" },
                                 title: if playing { "Pause (Space)" } else { "Play (Space)" },
+                                disabled: playback.session_unavailable,
                                 onclick: move |e: MouseEvent| {
                                     e.stop_propagation();
                                     toggle_playback(app, engine);
@@ -455,7 +476,7 @@ pub(crate) fn VideoPlayer(
                                 class: "video-player-ctrl-btn",
                                 aria_label: "Previous",
                                 title: "Previous video",
-                                disabled: !has_prev,
+                                disabled: playback.session_unavailable || !has_prev,
                                 onclick: move |e: MouseEvent| {
                                     e.stop_propagation();
                                     navigate_queue(app, engine, false, false);
@@ -468,6 +489,7 @@ pub(crate) fn VideoPlayer(
                                 class: "video-player-ctrl-btn",
                                 aria_label: "Rewind 10 seconds",
                                 title: "Rewind 10s (Left Arrow)",
+                                disabled: playback.session_unavailable,
                                 onclick: {
                                     let toast = show_feedback_toast;
                                     move |e: MouseEvent| {
@@ -484,6 +506,7 @@ pub(crate) fn VideoPlayer(
                                 class: "video-player-ctrl-btn",
                                 aria_label: "Forward 10 seconds",
                                 title: "Forward 10s (Right Arrow)",
+                                disabled: playback.session_unavailable,
                                 onclick: {
                                     let toast = show_feedback_toast;
                                     move |e: MouseEvent| {
@@ -500,7 +523,7 @@ pub(crate) fn VideoPlayer(
                                 class: "video-player-ctrl-btn",
                                 aria_label: "Next",
                                 title: "Next video",
-                                disabled: !has_next,
+                                disabled: playback.session_unavailable || !has_next,
                                 onclick: move |e: MouseEvent| {
                                     e.stop_propagation();
                                     navigate_queue(app, engine, true, false);
@@ -617,6 +640,14 @@ pub(crate) fn VideoPlayer(
                             }
                         }
                     }
+                }
+            }
+
+            if playback.session_unavailable {
+                SessionConflictCard {
+                    holder: playback.holder.clone(),
+                    app: Some(app),
+                    engine: Some(engine),
                 }
             }
 

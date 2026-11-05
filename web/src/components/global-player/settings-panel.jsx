@@ -4,10 +4,7 @@ import { faAlarmClock } from "@fortawesome/free-solid-svg-icons/faAlarmClock";
 import { faBolt } from "@fortawesome/free-solid-svg-icons/faBolt";
 import { faGear } from "@fortawesome/free-solid-svg-icons/faGear";
 import { faSignal } from "@fortawesome/free-solid-svg-icons/faSignal";
-import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
-import { EQ_BANDS, GAIN_MIN, GAIN_MAX } from "./use-equalizer";
-import { SpotifyEqualizer } from "./spotify-equalizer";
 import { getQualityBitrateLabel } from "./player-controls";
 import { APP_VERSION_LABEL } from "../../version";
 import { visibleMediaQualities } from "../../media-quality";
@@ -30,14 +27,13 @@ function formatSleepTimer(seconds) {
 
 const TABS = [
   { id: "quality", label: "Quality", icon: faSignal },
-  { id: "eq",      label: "EQ",      icon: faSliders },
   { id: "speed",   label: "Speed",   icon: faBolt },
   { id: "timer",   label: "Timer",   icon: faAlarmClock },
 ];
 
 /**
  * SettingsControl — single gear-icon button that opens a tabbed panel
- * combining Quality, EQ, Playback Speed, and Sleep Timer.
+ * combining Quality, Playback Speed, and Sleep Timer.
  *
  * Props:
  *   variant           "fullscreen" | "video-ctrl"
@@ -45,10 +41,6 @@ const TABS = [
  *
  *   Quality:
  *     currentMedia, quality, actualQuality, onChangeQuality
- *
- *   EQ:
- *     gains[], eqBands[], eqPreset, eqEnabled, gainMin, gainMax
- *     onSetGain, onSetEqPreset, onSetEqEnabled
  *
  *   Speed (video):
  *     playbackRate, onSelectRate
@@ -64,16 +56,6 @@ export function SettingsControl({
   quality = "ori",
   actualQuality,
   onChangeQuality,
-  // eq
-  gains,
-  eqPreset,
-  eqEnabled,
-  targetDb,
-  onSetGain,
-  onSetEqPreset,
-  onSetEqEnabled,
-  onSetTargetDb,
-  onAdjustToTarget,
   // speed
   playbackRate = 1,
   onSelectRate,
@@ -121,10 +103,9 @@ export function SettingsControl({
 
   // Badge counts for active state indicators
   const timerActive = Boolean(sleepTimerMode) || sleepTimerRemaining > 0;
-  const eqActive    = eqEnabled;
   const qualityMod  = (actualQuality || quality) !== "ori";
   const speedMod    = playbackRate !== 1;
-  const anyActive   = timerActive || eqActive || qualityMod || speedMod;
+  const anyActive   = timerActive || qualityMod || speedMod;
 
   // Close on outside click / Escape
   useEffect(() => {
@@ -186,7 +167,6 @@ export function SettingsControl({
           <div className="settings-tabs" role="tablist">
             {visibleTabs.map((t) => {
               const tabActive =
-                (t.id === "eq" && eqActive) ||
                 (t.id === "quality" && qualityMod) ||
                 (t.id === "speed" && speedMod) ||
                 (t.id === "timer" && timerActive);
@@ -239,26 +219,6 @@ export function SettingsControl({
                   })}
                   {visibleQualityOptions.length === 0 && <span>Preparing quality options…</span>}
                 </div>
-              </div>
-            )}
-
-            {/* ── EQ ── */}
-            {activeTab === "eq" && (
-              <div className="settings-section settings-section--eq">
-                <SpotifyEqualizer
-                  gains={gains}
-                  eqBands={EQ_BANDS}
-                  preset={eqPreset}
-                  eqEnabled={eqEnabled}
-                  gainMin={GAIN_MIN}
-                  gainMax={GAIN_MAX}
-                  targetDb={targetDb}
-                  onSetGain={onSetGain}
-                  onSetPreset={onSetEqPreset}
-                  onSetEnabled={onSetEqEnabled}
-                  onSetTargetDb={onSetTargetDb}
-                  onAdjustToTarget={onAdjustToTarget}
-                />
               </div>
             )}
 

@@ -49,4 +49,20 @@ describe("web playback socket", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(FakeSocket.instances).toHaveLength(2);
   });
+
+  it("queues resume reads until authentication and sends writes on the ready socket", async () => {
+    const service = createPlaybackSocket({ getTicket: async () => "ticket", url: () => "ws://example", WebSocketImpl: FakeSocket });
+    service.start();
+    const resume = service.getResume(17);
+    await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(1));
+    const socket = FakeSocket.instances[0];
+    socket.open();
+    socket.message({ type: "socket.ready", version: 1 });
+    expect(socket.sent).toContainEqual({ type: "resume.get", version: 1, mediaId: 17, requestId: 1 });
+    socket.message({ type: "resume.state", version: 1, mediaId: 17, requestId: 1, position: 42 });
+    await expect(resume).resolves.toMatchObject({ position: 42 });
+    expect(service.saveResume(17, 44, 90)).toBe(true);
+    expect(socket.sent).toContainEqual({ type: "resume.save", version: 1, mediaId: 17, position: 44, duration: 90 });
+    service.stop();
+  });
 });

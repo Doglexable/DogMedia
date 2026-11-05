@@ -10,7 +10,7 @@ describe("ProfileModal", () => {
     expect(markup).toBe("");
   });
 
-  it("renders the profile modal dialog with user info, collapsible sections, and actions when isOpen is true", () => {
+  it("renders the profile modal dialog with user info, tab strip, and actions when isOpen is true", () => {
     const markup = renderToStaticMarkup(
       <ProfileModal
         isOpen={true}
@@ -26,12 +26,14 @@ describe("ProfileModal", () => {
     expect(markup).toContain("Administrator</span>");
     expect(markup).toContain('class="profile-modal-avatar-preview-img"');
     expect(markup).toContain('src="/api/profile-pictures/fine?size=l"');
+    expect(markup).toContain('class="settings-tabs profile-modal-tabs"');
+    expect(markup).toContain('class="settings-tab-label">Profile</span>');
+    expect(markup).toContain('class="settings-tab-label">Security</span>');
+    expect(markup).toContain('class="settings-tab-label">EQ</span>');
     expect(markup).toContain('id="profile-username"');
     expect(markup).toContain('value="alice"');
     expect(markup).toContain("Profile Picture &amp; Credits</strong>");
     expect(markup).toContain("Active: fine");
-    expect(markup).toContain("Change Password</strong>");
-    expect(markup).toContain("Audio Equalizer (EQ)</strong>");
     expect(markup).toContain(">Update user</button>");
     expect(markup).toContain(">Batal</button>");
     expect(markup).toContain("profile-modal-clear-cache-btn");

@@ -54,7 +54,7 @@ describe("buildLyricsDisplaySegments", () => {
       { start: 8, end: 10, text: "Second" },
     ])).toEqual([
       { start: 1, end: 4, text: "First", instrumental: false, lyricIndex: 0 },
-      { start: 4, end: 7.999, text: "Instrumental", instrumental: true },
+      { start: 4, end: 7.999, text: "♪", instrumental: true },
       { start: 8, end: 10, text: "Second", instrumental: false, lyricIndex: 1 },
     ]);
   });
@@ -80,6 +80,20 @@ describe("getLyricsPreview", () => {
 });
 
 describe("FullscreenLyrics", () => {
+  it("shows only a music note during lyric gaps", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const markup = renderToStaticMarkup(
+      <FullscreenLyrics
+        media={{ id: 42 }}
+        lyrics={{ mediaId: 42, segments: [{ start: 4, end: 6, text: "First" }, { start: 10, end: 12, text: "Second" }] }}
+        onSeek={() => {}}
+        position={7}
+      />
+    );
+    expect(markup).toContain(">♪</button>");
+    expect(markup).not.toContain("Instrumental");
+  });
+
   it("renders no panel when the track has no lyrics", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const markup = renderToStaticMarkup(

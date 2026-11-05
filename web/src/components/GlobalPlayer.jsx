@@ -39,6 +39,7 @@ import {
 import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from "../media-quality";
 import { useEqualizer } from "./global-player/use-equalizer";
 import { runViewTransition } from "../utils/view-transitions";
+import { animateCollectionAdd, captureCollectionOrigin } from "./collection-flight";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
@@ -183,17 +184,7 @@ export function GlobalPlayerProvider({ children }) {
   const [retainedWithoutSession, setRetainedWithoutSession] = useState(false);
 
   // EQ — hoisted here so AudioContext persists across full/mini player switches
-  const {
-    gains: eqGains,
-    preset: eqPreset,
-    eqEnabled,
-    targetDb: eqTargetDb,
-    setGain: setEqGain,
-    setPreset: setEqPreset,
-    setEqEnabled,
-    setTargetDb: setEqTargetDb,
-    adjustToTargetDb: adjustEqToTargetDb,
-  } = useEqualizer(mediaRef);
+  useEqualizer(mediaRef);
 
   const fullMatch = matchPath("/media/:id", location.pathname);
   const fullMediaId = fullMatch?.params?.id ? Number(fullMatch.params.id) : null;
@@ -548,12 +539,41 @@ export function GlobalPlayerProvider({ children }) {
     refreshQueue().catch(() => refreshQueueState(null));
   }, [refreshQueue, refreshQueueState]);
 
-  useEffect(() => {
+  const refreshLikedIds = useCallback(() => {
     api("/api/likes")
       .then((response) => response.json())
-      .then((items) => setLikedIds(new Set(items.map((item) => Number(item.id)))))
+      .then((items) => {
+        if (Array.isArray(items)) {
+          setLikedIds(new Set(items.map((item) => Number(item.id))));
+        }
+      })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    refreshLikedIds();
+    const handleFavoritesChanged = (event) => {
+      const addedIds = event?.detail?.addedIds;
+      const removedIds = event?.detail?.removedIds;
+      if (Array.isArray(addedIds) && addedIds.length > 0) {
+        setLikedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of addedIds) next.add(Number(id));
+          return next;
+        });
+      } else if (Array.isArray(removedIds) && removedIds.length > 0) {
+        setLikedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of removedIds) next.delete(Number(id));
+          return next;
+        });
+      } else {
+        refreshLikedIds();
+      }
+    };
+    window.addEventListener("favorites-changed", handleFavoritesChanged);
+    return () => window.removeEventListener("favorites-changed", handleFavoritesChanged);
+  }, [refreshLikedIds]);
 
   const initializeQueue = useCallback((mediaId, nextCategoryId = null, queueContext = null) => {
     const queueEndpoint = getAutoQueueEndpoint(mediaId, nextCategoryId, queueContext);
@@ -674,8 +694,10 @@ export function GlobalPlayerProvider({ children }) {
   }, [handleLeaseLost]);
 
   const loadResumePosition = useCallback((mediaId) => {
-    api(`/api/playback/resume/${mediaId}`)
-      .then((r) => r.json())
+    const request = playbackSocketRef.current?.getResume(mediaId)
+      || Promise.reject(new Error("Playback socket unavailable"));
+    request
+      .catch(() => api(`/api/playback/resume/${mediaId}`).then((response) => response.json()))
       .then((data) => {
         if (data.position != null) setResumePos(Math.floor(data.position));
       })
@@ -1160,9 +1182,10 @@ export function GlobalPlayerProvider({ children }) {
     if (!currentMedia) setSleepTimerCompleted(false);
   }, [currentMedia]);
 
-  const addToQueue = useCallback((mediaItemOrId) => {
+  const addToQueue = useCallback((mediaItemOrId, sourceElement) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
     if (!Number.isFinite(mediaId)) return Promise.reject(new Error("Invalid media"));
+    const origin = captureCollectionOrigin(sourceElement);
     return api("/api/queue/items?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1177,16 +1200,18 @@ export function GlobalPlayerProvider({ children }) {
           return next;
         });
         applyCompactQueueResponse(data);
+        animateCollectionAdd("queue", origin, mediaItemOrId);
         if (queueOpen) await refreshQueue();
         return data;
       });
   }, [applyCompactQueueResponse, queueOpen, refreshQueue]);
 
-  const addCategoryToQueue = useCallback((categoryOrId) => {
+  const addCategoryToQueue = useCallback((categoryOrId, sourceElement) => {
     const categoryId = Number(categoryOrId?.id ?? categoryOrId);
     if (!Number.isInteger(categoryId) || categoryId < 1) {
       return Promise.reject(new Error("Invalid category"));
     }
+    const origin = captureCollectionOrigin(sourceElement);
     return api(`/api/queue/items/category/${categoryId}?compact=1`, { method: "POST" })
       .then(async (response) => {
         const data = await response.json();
@@ -1196,14 +1221,16 @@ export function GlobalPlayerProvider({ children }) {
           return next;
         });
         applyCompactQueueResponse(data);
+        if (Number(data?.addedCount) > 0) animateCollectionAdd("queue", origin, categoryOrId, { category: true });
         if (queueOpen) await refreshQueue();
         return data;
       });
   }, [applyCompactQueueResponse, queueOpen, refreshQueue]);
 
-  const playNext = useCallback((mediaItemOrId) => {
+  const playNext = useCallback((mediaItemOrId, sourceElement) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
     if (!Number.isFinite(mediaId)) return Promise.reject(new Error("Invalid media"));
+    const origin = captureCollectionOrigin(sourceElement);
     return api("/api/queue/items/next?compact=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1218,6 +1245,7 @@ export function GlobalPlayerProvider({ children }) {
           return next;
         });
         applyCompactQueueResponse(data);
+        animateCollectionAdd("queue", origin, mediaItemOrId);
         if (queueOpen) await refreshQueue();
         return data;
       });
@@ -1301,9 +1329,10 @@ export function GlobalPlayerProvider({ children }) {
       });
   }, [applyCompactQueueResponse, stopPlayback]);
 
-  const toggleLike = useCallback((mediaItemOrId) => {
+  const toggleLike = useCallback((mediaItemOrId, sourceElement) => {
     const mediaId = Number(mediaItemOrId?.id ?? mediaItemOrId);
     const liked = likedIds.has(mediaId);
+    const origin = captureCollectionOrigin(sourceElement);
     return api(`/api/likes/${mediaId}`, { method: liked ? "DELETE" : "PUT" })
       .then(async (response) => {
         const data = await response.json();
@@ -1313,6 +1342,10 @@ export function GlobalPlayerProvider({ children }) {
           if (liked) next.delete(mediaId); else next.add(mediaId);
           return next;
         });
+        window.dispatchEvent(new CustomEvent("favorites-changed", {
+          detail: liked ? { removedIds: [mediaId] } : { addedIds: [mediaId] },
+        }));
+        if (!liked) animateCollectionAdd("favorites", origin, mediaItemOrId);
         return !liked;
       });
   }, [likedIds]);
@@ -1390,12 +1423,14 @@ export function GlobalPlayerProvider({ children }) {
     const nextDuration = Math.floor(mediaRef.current?.duration || duration || currentMedia.duration || 0);
     if (nextDuration && nextPosition >= nextDuration - 3) return;
 
+    const position = Math.floor(nextPosition);
+    if (playbackSocketRef.current?.saveResume(currentMedia.id, position, nextDuration)) return;
     api(`/api/playback/resume/${currentMedia.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       keepalive,
       body: JSON.stringify({
-        position: Math.floor(nextPosition),
+        position,
         duration: nextDuration,
       }),
     }).catch(() => {});
@@ -1958,8 +1993,8 @@ export function GlobalPlayerProvider({ children }) {
   }, [resumePos]);
   const handleThumbError = useCallback(() => setThumbFailed(true), []);
   const handleToggleLoop = useCallback(() => setLoopMode((mode) => nextLoopMode(mode)), []);
-  const handleToggleLike = useCallback(() => {
-    if (currentMediaRef.current) toggleLike(currentMediaRef.current);
+  const handleToggleLike = useCallback((event) => {
+    if (currentMediaRef.current) toggleLike(currentMediaRef.current, event?.currentTarget);
   }, [toggleLike]);
 
   useEffect(() => {
@@ -2235,15 +2270,6 @@ export function GlobalPlayerProvider({ children }) {
               onSetSleepTimer={setSleepTimer}
               liked={likedIds.has(Number(currentMedia.id))}
               onToggleLike={handleToggleLike}
-              eqGains={eqGains}
-              eqPreset={eqPreset}
-              eqEnabled={eqEnabled}
-              eqTargetDb={eqTargetDb}
-              onSetEqGain={setEqGain}
-              onSetEqPreset={setEqPreset}
-              onSetEqEnabled={setEqEnabled}
-              onSetEqTargetDb={setEqTargetDb}
-              onAdjustEqToTarget={adjustEqToTargetDb}
               lyrics={lyrics}
               lyricsLoading={lyricsLoading}
               conflict={playbackConflict}

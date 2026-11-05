@@ -68,6 +68,8 @@ pub enum Endpoint {
     Likes,
     Like(MediaId),
     Unlike(MediaId),
+    LikeCategory(CategoryId),
+    UnlikeCategory(CategoryId),
     Lyrics(MediaId),
     Subtitles(MediaId),
 }
@@ -92,13 +94,13 @@ impl Endpoint {
             | Self::PlaybackActive
             | Self::PlaybackEvent
             | Self::ResumeSave(_) => HttpMethod::Post,
-            Self::QueueOrder => HttpMethod::Put,
-            Self::Like(_) => HttpMethod::Put,
+            Self::QueueOrder | Self::Like(_) | Self::LikeCategory(_) => HttpMethod::Put,
             Self::LeaseRelease
             | Self::LeaseForceRelease
             | Self::QueueItem(_)
             | Self::QueueClear
-            | Self::Unlike(_) => HttpMethod::Delete,
+            | Self::Unlike(_)
+            | Self::UnlikeCategory(_) => HttpMethod::Delete,
             _ => HttpMethod::Get,
         }
     }
@@ -154,6 +156,9 @@ impl Endpoint {
             },
             Self::Likes => "api/likes".to_owned(),
             Self::Like(id) | Self::Unlike(id) => format!("api/likes/{id}"),
+            Self::LikeCategory(id) | Self::UnlikeCategory(id) => {
+                format!("api/likes/category/{id}")
+            }
             Self::Lyrics(id) => format!("api/media/{id}/lyrics"),
             Self::Subtitles(id) => format!("api/media/{id}/subtitles"),
         }
@@ -223,6 +228,22 @@ mod tests {
         assert_eq!(Endpoint::Like(MediaId::new(3)).method(), HttpMethod::Put);
         assert_eq!(
             Endpoint::Unlike(MediaId::new(3)).method(),
+            HttpMethod::Delete
+        );
+        assert_eq!(
+            Endpoint::LikeCategory(CategoryId::new(9)).path(),
+            "api/likes/category/9"
+        );
+        assert_eq!(
+            Endpoint::LikeCategory(CategoryId::new(9)).method(),
+            HttpMethod::Put
+        );
+        assert_eq!(
+            Endpoint::UnlikeCategory(CategoryId::new(9)).path(),
+            "api/likes/category/9"
+        );
+        assert_eq!(
+            Endpoint::UnlikeCategory(CategoryId::new(9)).method(),
             HttpMethod::Delete
         );
     }

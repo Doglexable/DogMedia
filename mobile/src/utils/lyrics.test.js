@@ -43,7 +43,7 @@ describe("buildLyricsDisplaySegments", () => {
       { start: 8, end: 10, text: "Second" },
     ])).toEqual([
       { start: 1, end: 4, text: "First", instrumental: false, lyricIndex: 0 },
-      { start: 4, end: 7.999, text: "Instrumental", instrumental: true },
+      { start: 4, end: 7.999, text: "♪", instrumental: true },
       { start: 8, end: 10, text: "Second", instrumental: false, lyricIndex: 1 },
     ]);
   });

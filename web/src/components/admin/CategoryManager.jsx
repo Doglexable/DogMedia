@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCloudArrowUp } from "@fortawesome/free-solid-svg-icons/faCloudArrowUp";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { faFolderOpen } from "@fortawesome/free-solid-svg-icons/faFolderOpen";
 import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
+import { faImage } from "@fortawesome/free-solid-svg-icons/faImage";
 import { useAccess } from "../../access-context";
 import { api } from "../../api";
 import { useLibrary } from "../library-shell";
@@ -15,10 +16,11 @@ import CategoryEditModal from "./CategoryEditModal";
 import EpisodeOrderModal from "./EpisodeOrderModal";
 import MediaMetadataEditorModal from "./MediaMetadataEditorModal";
 import MediaUploadWorkspace, { removeCategoryCover, uploadCategoryCover, uploadMediaInChunks } from "./MediaUploadWorkspace";
-import MobileReleaseManager, { uploadAndroidRelease } from "./MobileReleaseManager";
 import UploadQueueViewer, { BrowserTransferProgress } from "./UploadQueueViewer";
-import { APP_VERSION, APP_VERSION_LABEL } from "../../version";
+import { ConfirmationDialog } from "../confirmation-dialog";
+import { APP_VERSION_LABEL } from "../../version";
 import "../../pages/admin-media-import.css";
+import "../../pages/master.css";
 
 const styles = {
   page: { minHeight: "100vh", background: "var(--bg)", color: "var(--text)" },
@@ -90,14 +92,17 @@ export default function CategoryManager() {
   const { categories: globalCategories, refreshCategories: refreshGlobalCategories } = useLibrary();
   const player = useGlobalPlayerLibrary();
   const [categories, setCategories] = useState(globalCategories), [selectedCategoryId, setSelectedCategoryId] = useState(null), [message, setMessage] = useState(null), [movingCategory, setMovingCategory] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false), [categoryModalTarget, setCategoryModalTarget] = useState(null);
   const [mediaModalCategoryId, setMediaModalCategoryId] = useState(null), [mediaWorkspaceTab, setMediaWorkspaceTab] = useState("collection"), [videoKind, setVideoKind] = useState("episode"), [categoryMedia, setCategoryMedia] = useState([]);
   const [mediaDescription, setMediaDescription] = useState(""), [videoFiles, setVideoFiles] = useState([]), [videoOverrides, setVideoOverrides] = useState({}), [mediaThumb, setMediaThumb] = useState(null), [categoryCoverFile, setCategoryCoverFile] = useState(null), [updatingCategoryCover, setUpdatingCategoryCover] = useState(false), [removingCategoryCover, setRemovingCategoryCover] = useState(false);
   const [batchFiles, setBatchFiles] = useState([]), [batchArtist, setBatchArtist] = useState(""), [batchOverrides, setBatchOverrides] = useState({});
+  const [photoFile, setPhotoFile] = useState(null), [photoTitle, setPhotoTitle] = useState(""), [photoDescription, setPhotoDescription] = useState(""), [uploadingPhoto, setUploadingPhoto] = useState(false), [photoProgress, setPhotoProgress] = useState(null);
   const [uploadingMedia, setUploadingMedia] = useState(false), [uploadingBatch, setUploadingBatch] = useState(false), [uploadProgress, setUploadProgress] = useState(null), [batchProgress, setBatchProgress] = useState(null), [uploadEtaSeconds, setUploadEtaSeconds] = useState(null), [batchEtaSeconds, setBatchEtaSeconds] = useState(null), [loadingMedia, setLoadingMedia] = useState(false);
   const [editingMedia, setEditingMedia] = useState(null), [episodeModalOpen, setEpisodeModalOpen] = useState(false), [scanningTrackOrders, setScanningTrackOrders] = useState(false);
-  const [mobileRelease, setMobileRelease] = useState(null), [releaseVersion, setReleaseVersion] = useState(APP_VERSION), [releaseFile, setReleaseFile] = useState(null), [uploadingRelease, setUploadingRelease] = useState(false), [releaseProgress, setReleaseProgress] = useState(null);
   const [uploadQueueOpen, setUploadQueueOpen] = useState(false), [uploadQueueJobs, setUploadQueueJobs] = useState([]), [uploadQueueSummary, setUploadQueueSummary] = useState({ queued: 0, processing: 0, completed: 0, failed: 0 }), [uploadQueueLoading, setUploadQueueLoading] = useState(false), [uploadQueueError, setUploadQueueError] = useState("");
+  const [requestHint, setRequestHint] = useState(null);
+  const requestId = typeof window === "undefined" ? null : new URLSearchParams(window.location?.search || "").get("request");
   const mediaLoad = useRef({ version: 0, controller: null });
 
   const cancelMediaLoad = () => {
@@ -125,8 +130,8 @@ export default function CategoryManager() {
     return { version, promise };
   };
 
-  const mediaUploadActive = uploadingMedia || uploadingBatch || updatingCategoryCover || removingCategoryCover;
-  const browserTransferActive = mediaUploadActive || uploadingRelease;
+  const mediaUploadActive = uploadingMedia || uploadingBatch || uploadingPhoto || updatingCategoryCover || removingCategoryCover;
+  const browserTransferActive = mediaUploadActive;
 
   const refreshUploadQueue = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setUploadQueueLoading(true);
@@ -146,13 +151,19 @@ export default function CategoryManager() {
     return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", refVis); };
   }, [refreshUploadQueue, uploadQueueOpen, uploadQueueSummary.processing, uploadQueueSummary.queued]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadMobile = async () => { try { const res = await api("/api/mobile-release"); if (!res.ok) throw new Error(); const data = await res.json(); if (!cancelled) { setMobileRelease(data); if (data.available && data.version) setReleaseVersion(data.version); } } catch { if (!cancelled) setMobileRelease({ available: false }); } };
-    loadMobile(); return () => { cancelled = true; };
-  }, []);
-
   useEffect(() => { setCategories(globalCategories); }, [globalCategories]);
+
+  useEffect(() => {
+    if (!requestId) return undefined;
+    let active = true;
+    api("/api/media-requests").then(async (response) => {
+      if (!response.ok) throw new Error("Could not load media request");
+      return response.json();
+    }).then((items) => {
+      if (active) setRequestHint(items.find((item) => String(item.id) === requestId) || null);
+    }).catch(() => { if (active) setRequestHint(null); });
+    return () => { active = false; };
+  }, [requestId]);
 
   useEffect(() => {
     if (!browserTransferActive) return undefined;
@@ -202,9 +213,9 @@ export default function CategoryManager() {
 
   const activeBrowserTransfer = uploadingMedia ? { title: `Uploading ${videoItems.length} video${videoItems.length === 1 ? "" : "s"}`, progress: uploadProgress, detail: uploadProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(uploadEtaSeconds) }
     : uploadingBatch ? { title: `Importing ${batchItems.length} music track${batchItems.length === 1 ? "" : "s"}`, progress: batchProgress, detail: batchProgress >= 100 ? "Transfer complete; waiting for the media worker." : formatUploadRemaining(batchEtaSeconds) }
+    : uploadingPhoto ? { title: "Uploading photo", progress: photoProgress, detail: "Sending the image to the server." }
     : updatingCategoryCover ? { title: "Updating folder artwork", progress: null, detail: "Uploading and optimizing the new cover." }
-    : removingCategoryCover ? { title: "Removing folder artwork", progress: null, detail: "Restoring the folder artwork fallback." }
-    : uploadingRelease ? { title: `Uploading Android ${releaseVersion.trim() || "release"}`, progress: releaseProgress, detail: "Sending the APK to the server." } : null;
+    : removingCategoryCover ? { title: "Removing folder artwork", progress: null, detail: "Restoring the folder artwork fallback." } : null;
 
   if (tier < 100) return <Navigate to="/" replace />;
   const selectedCategory = selectedCategoryId ? categories.find((c) => String(c.id) === String(selectedCategoryId)) : null;
@@ -255,11 +266,19 @@ export default function CategoryManager() {
     await refreshCategories();
   };
 
-  const handleDeleteCategory = async (category) => {
+  const handleDeleteCategory = (category) => {
     const hasChildren = Number(category.child_count || 0) > 0 || categories.some((c) => String(c.parent_id) === String(category.id));
     if (hasChildren) { setMessage({ type: "error", text: "Delete child categories before deleting this category." }); return; }
-    if (!window.confirm(`Delete category "${category.path || category.name}"? Media in this category will also be removed from the library.`)) return;
-    try { const res = await api(`/api/categories/${category.id}`, { method: "DELETE" }); if (!res.ok) throw new Error(await readApiError(res, "Delete failed")); await refreshCategories(); if (String(selectedCategoryId) === String(category.id)) setSelectedCategoryId(null); setMessage({ type: "success", text: `Deleted category "${category.name}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); }
+    setConfirmation({
+      title: `Delete category "${category.path || category.name}"?`,
+      description: "This category and the media stored directly in it will be removed from the library.",
+      impact: "The media files and category artwork will be deleted from storage. This cannot be undone.",
+      confirmLabel: "Delete category",
+      tone: "danger",
+      action: async () => {
+        try { const res = await api(`/api/categories/${category.id}`, { method: "DELETE" }); if (!res.ok) throw new Error(await readApiError(res, "Delete failed")); await refreshCategories(); if (String(selectedCategoryId) === String(category.id)) setSelectedCategoryId(null); setMessage({ type: "success", text: `Deleted category "${category.name}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); }
+      },
+    });
   };
 
   const handleMoveCategory = async (categoryId, parentId, index) => {
@@ -287,22 +306,30 @@ export default function CategoryManager() {
     try { await uploadCategoryCover(mediaModalCategoryId, categoryCoverFile); await refreshCategories(); setCategoryCoverFile(null); const input = document.getElementById("admin-category-cover-file"); if (input) input.value = ""; setMessage({ type: "success", text: `Updated the cover for "${activeMediaCategory?.path || activeMediaCategory?.name || "the selected category"}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); } finally { setUpdatingCategoryCover(false); }
   };
 
-  const handleRemoveCategoryCover = async () => {
+  const handleRemoveCategoryCover = () => {
     if (!mediaModalCategoryId || !activeMediaCategory?.cover_path) return;
     const categoryName = activeMediaCategory.path || activeMediaCategory.name || "the selected folder";
-    if (!window.confirm(`Remove the shared artwork from "${categoryName}"?`)) return;
-    setRemovingCategoryCover(true); setMessage(null);
-    try {
-      await removeCategoryCover(mediaModalCategoryId);
-      setCategoryCoverFile(null);
-      const input = document.getElementById("admin-category-cover-file"); if (input) input.value = "";
-      await refreshCategories();
-      setMessage({ type: "success", text: `Removed the shared artwork from "${categoryName}".` });
-    } catch (err) {
-      setMessage({ type: "error", text: err.message });
-    } finally {
-      setRemovingCategoryCover(false);
-    }
+    setConfirmation({
+      title: `Remove artwork from "${categoryName}"?`,
+      description: "The shared cover image for this category will be removed.",
+      impact: "Media in this category may use their own artwork or a placeholder afterward.",
+      confirmLabel: "Remove artwork",
+      tone: "danger",
+      action: async () => {
+        setRemovingCategoryCover(true); setMessage(null);
+        try {
+          await removeCategoryCover(mediaModalCategoryId);
+          setCategoryCoverFile(null);
+          const input = document.getElementById("admin-category-cover-file"); if (input) input.value = "";
+          await refreshCategories();
+          setMessage({ type: "success", text: `Removed the shared artwork from "${categoryName}".` });
+        } catch (err) {
+          setMessage({ type: "error", text: err.message });
+        } finally {
+          setRemovingCategoryCover(false);
+        }
+      },
+    });
   };
 
   const handleUploadMedia = async (e) => {
@@ -370,42 +397,84 @@ export default function CategoryManager() {
     setUploadingBatch(false); setBatchProgress(null); setBatchEtaSeconds(null);
   };
 
-  const handleDeleteMedia = async (media) => {
-    if (!window.confirm(`Are you sure you want to delete "${media.title}"? This cannot be undone.`)) return;
-    try { const res = await api(`/api/media/${media.id}`, { method: "DELETE" }); if (!res.ok) throw new Error("Delete failed"); setCategoryMedia((prev) => prev.filter((i) => i.id !== media.id)); setMessage({ type: "success", text: `Deleted "${media.title}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); }
+  const handleUploadPhoto = async (event) => {
+    event.preventDefault();
+    if (!mediaModalCategoryId || !photoFile || !photoTitle.trim()) return;
+    if (!/\.(jpe?g|png|gif|webp)$/i.test(photoFile.name)) {
+      setMessage({ type: "error", text: "Choose a JPG, PNG, GIF, or WebP photo." });
+      return;
+    }
+    setUploadingPhoto(true);
+    setPhotoProgress(0);
+    setMessage(null);
+    try {
+      const result = await uploadMediaInChunks({
+        categoryId: mediaModalCategoryId,
+        title: photoTitle.trim(),
+        description: photoDescription.trim(),
+        contentKind: "image",
+        file: photoFile,
+        onWorkerQueued: openUploadQueue,
+        onProgress: (progress) => setPhotoProgress(progress),
+      });
+      if (result.media) {
+        await refreshCategoryMedia([...categoryMedia, result.media]);
+        await refreshCategories().catch(() => {});
+      }
+      setPhotoFile(null);
+      setPhotoTitle("");
+      setPhotoDescription("");
+      const input = document.getElementById("admin-photo-file");
+      if (input) input.value = "";
+      setMessage({ type: "success", text: result.queued ? "Photo queued for processing." : "Photo added to media." });
+      setMediaWorkspaceTab("collection");
+    } catch (error) {
+      setMessage({ type: "error", text: error.message });
+    } finally {
+      setUploadingPhoto(false);
+      setPhotoProgress(null);
+    }
   };
 
-  const handleScanTrackOrders = async () => {
-    if (!window.confirm("Scan track numbers from every audio file? Valid embedded tags will replace stored track orders.")) return;
-    setScanningTrackOrders(true); setMessage(null);
-    try {
-      const res = await api("/api/media/track-orders/scan", { method: "POST" });
-      if (!res.ok) throw new Error(await readApiError(res, "Track metadata scan failed"));
-      const result = await res.json();
-      if (mediaModalCategoryId !== null) {
-        const { promise } = startMediaLoad(mediaModalCategoryId);
-        await promise;
-      }
-      setMessage({ type: result.failed ? "error" : "success", text: `Track scan complete: ${result.scanned} scanned, ${result.updated} updated, ${result.missing} without a track tag, ${result.failed} failed.` });
-    } catch (err) { setMessage({ type: "error", text: err.message }); }
-    finally { setScanningTrackOrders(false); }
+  const handleDeleteMedia = (media) => {
+    setConfirmation({
+      title: `Delete "${media.title}"?`,
+      description: "This media item will be removed from the library.",
+      impact: "Its stored file and associated assets will be deleted. This cannot be undone.",
+      confirmLabel: "Delete media",
+      tone: "danger",
+      action: async () => {
+        try { const res = await api(`/api/media/${media.id}`, { method: "DELETE" }); if (!res.ok) throw new Error("Delete failed"); setCategoryMedia((prev) => prev.filter((i) => i.id !== media.id)); setMessage({ type: "success", text: `Deleted "${media.title}".` }); } catch (err) { setMessage({ type: "error", text: err.message }); }
+      },
+    });
+  };
+
+  const handleScanTrackOrders = () => {
+    setConfirmation({
+      title: "Scan music track numbers?",
+      description: "The server will read embedded track numbers from every audio file in the library.",
+      impact: "Valid file tags will replace existing track order values. Files without valid tags keep their current order.",
+      confirmLabel: "Scan track numbers",
+      action: async () => {
+        setScanningTrackOrders(true); setMessage(null);
+        try {
+          const res = await api("/api/media/track-orders/scan", { method: "POST" });
+          if (!res.ok) throw new Error(await readApiError(res, "Track metadata scan failed"));
+          const result = await res.json();
+          if (mediaModalCategoryId !== null) {
+            const { promise } = startMediaLoad(mediaModalCategoryId);
+            await promise;
+          }
+          setMessage({ type: result.failed ? "error" : "success", text: `Track scan complete: ${result.scanned} scanned, ${result.updated} updated, ${result.missing} without a track tag, ${result.failed} failed.` });
+        } catch (err) { setMessage({ type: "error", text: err.message }); }
+        finally { setScanningTrackOrders(false); }
+      },
+    });
   };
 
   const handleMediaSaved = (updated, { replacementQueued } = {}) => {
     setCategoryMedia((prev) => orderMedia(prev.map((i) => (i.id === updated.id ? updated : i))));
     setMessage({ type: "success", text: replacementQueued ? `Changes saved for "${updated.title}". File processing continues in the background.` : `Updated "${updated.title}".` });
-  };
-
-  const handleUploadRelease = async (e) => {
-    e.preventDefault();
-    if (!releaseVersion.trim() || !releaseFile) { setMessage({ type: "error", text: "Enter a version and choose an Android APK." }); return; }
-    setUploadingRelease(true); setReleaseProgress(0); setMessage(null);
-    try { const release = await uploadAndroidRelease({ file: releaseFile, version: releaseVersion.trim(), onProgress: setReleaseProgress }); setMobileRelease(release); setReleaseFile(null); const input = document.getElementById("admin-android-release-file"); if (input) input.value = ""; setMessage({ type: "success", text: `Android ${release.version} is ready to download.` }); } catch (err) { setMessage({ type: "error", text: err.message }); } finally { setUploadingRelease(false); setReleaseProgress(null); }
-  };
-
-  const handleDeleteRelease = async () => {
-    if (!window.confirm("Remove the current Android app release? The download button will become unavailable.")) return;
-    try { const res = await api("/api/mobile-release", { method: "DELETE" }); if (!res.ok) throw new Error(await readApiError(res, "Release removal failed")); setMobileRelease({ available: false }); setMessage({ type: "success", text: "Android release removed." }); } catch (err) { setMessage({ type: "error", text: err.message }); }
   };
 
   return (
@@ -419,12 +488,13 @@ export default function CategoryManager() {
                 <div className="admin-vault-title" style={styles.headerTitle}>Vault controls</div>
                 <span className="admin-vault-version-pill">Web {APP_VERSION_LABEL}</span>
               </div>
-              <div className="admin-vault-note" style={styles.headerNote}>Categories, media, and app distribution</div>
+              <div className="admin-vault-note" style={styles.headerNote}>Categories and media</div>
             </div>
           </div>
         </header>
         <main className="app-main admin-vault-main" style={{ ...styles.main, ...(player?.currentMedia ? styles.mainWithPlayer : {}) }}>
           {message && (<div style={styles.notice(message.type)}><span>{message.type === "error" ? "⚠️" : "✅"}</span><span>{message.text}</span></div>)}
+          {requestHint && <div className="master-request-hint"><div><strong>Requested: {requestHint.title}</strong><span>{requestHint.media_type}{requestHint.details ? ` · ${requestHint.details}` : ""}</span><small>Select a category, then use Upload Here to add the requested media.</small></div><Link to="/request-media">Back to requests</Link></div>}
           {activeBrowserTransfer && mediaModalCategoryId === null && editingMedia === null && (<BrowserTransferProgress transfer={activeBrowserTransfer} onOpenQueue={openUploadQueue} />)}
           <section className="hero-surface" style={styles.toolbar}>
             <div style={styles.toolbarCopy}><div style={styles.toolbarLabel}>Selected category</div><div style={styles.toolbarValue}>{selectedCategory ? (selectedCategory.path || selectedCategory.name) : "None selected"}</div><div style={styles.toolbarMeta}>{selectedCategory ? `Tier ${selectedCategory.min_access_tier}${selectedCategory.parent_id ? " · nested category" : " · root category"}` : "Choose a row in the table to unlock add-media and add-child actions."}</div></div>
@@ -436,7 +506,6 @@ export default function CategoryManager() {
               <button type="button" style={styles.button("primary", !selectedCategory)} disabled={!selectedCategory} onClick={() => openMediaModal(selectedCategory.id)}>Upload Here</button>
             </div>
           </section>
-          <MobileReleaseManager mobileRelease={mobileRelease} onDelete={handleDeleteRelease} onFileChange={setReleaseFile} onSubmit={handleUploadRelease} onVersionChange={setReleaseVersion} releaseFile={releaseFile} releaseProgress={releaseProgress} releaseVersion={releaseVersion} styles={styles} uploading={uploadingRelease} />
           <section className="glass-surface" style={styles.tableCard}>
             <div style={styles.tableHeader}><h2 style={styles.cardTitle}>Category Tree</h2><p style={styles.cardSubtitle}>Drag folders between rows to reorder, onto a folder to nest, or into the root zone to unnest.</p></div>
             {categories.length === 0 ? (<div style={styles.emptyState}><div style={styles.emptyIcon}>🗂️</div><div style={{ fontWeight: 700, color: "var(--text)" }}>No categories yet</div><p style={{ marginTop: 6, marginBottom: 0 }}>Create a root category first, then add children like Music / Evanescence.</p></div>) : (
@@ -453,6 +522,7 @@ export default function CategoryManager() {
               <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "collection"} className={mediaWorkspaceTab === "collection" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("collection")}><FontAwesomeIcon icon={faFolderOpen} /><span>Collection</span><small>{categoryMedia.length} items</small></button>
               <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "video"} className={mediaWorkspaceTab === "video" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("video")}><FontAwesomeIcon icon={faFilm} /><span>Upload video</span><small>Anime or film</small></button>
               <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "album"} className={mediaWorkspaceTab === "album" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("album")}><FontAwesomeIcon icon={faMusic} /><span>Import album</span><small>Music and lyrics</small></button>
+              <button type="button" role="tab" aria-selected={mediaWorkspaceTab === "photo"} className={mediaWorkspaceTab === "photo" ? "admin-media-tab admin-media-tab--active" : "admin-media-tab"} onClick={() => setMediaWorkspaceTab("photo")}><FontAwesomeIcon icon={faImage} /><span>Upload photo</span><small>JPG, PNG, GIF, WebP</small></button>
             </div>
             {mediaWorkspaceTab === "collection" && (
               <section style={styles.panel}>
@@ -466,7 +536,7 @@ export default function CategoryManager() {
                     </div>
                   </div>
                   {loadingMedia ? (<div style={{ ...styles.emptyState, padding: "18px 8px" }}><span style={styles.spinner} /><p style={{ marginTop: 10, marginBottom: 0 }}>Loading media...</p></div>) : categoryMedia.length === 0 ? (
-                    <div style={{ ...styles.emptyState, padding: "18px 8px" }}><div style={styles.emptyIcon}>🎞️</div><div style={{ fontWeight: 700, color: "var(--text)" }}>No media in this category</div><p style={{ marginTop: 6, marginBottom: 0 }}>Choose Upload video or Import album to add the first item.</p></div>
+                    <div style={{ ...styles.emptyState, padding: "18px 8px" }}><div style={styles.emptyIcon}>🎞️</div><div style={{ fontWeight: 700, color: "var(--text)" }}>No media in this category</div><p style={{ marginTop: 6, marginBottom: 0 }}>Choose an upload tab to add the first item.</p></div>
                   ) : (
                     <div style={styles.mediaList}>
                       {categoryMedia.map((media) => (
@@ -480,6 +550,15 @@ export default function CategoryManager() {
                 </div>
               </section>
             )}
+            {mediaWorkspaceTab === "photo" && <section style={styles.panel}>
+              <div style={styles.panelHeader}><h3 style={styles.cardTitle}>Upload photo</h3><p style={styles.cardSubtitle}>Add a photo to {activeMediaCategory?.path || activeMediaCategory?.name || "the selected category"}.</p></div>
+              <div style={styles.panelBody}><form onSubmit={handleUploadPhoto}>
+                <div style={styles.fieldGroup}><label htmlFor="admin-photo-file" style={styles.label}>Photo</label><input id="admin-photo-file" type="file" accept=".jpg,.jpeg,.png,.gif,.webp" style={styles.fileInput} onChange={(event) => { const file = event.target.files?.[0] || null; setPhotoFile(file); setPhotoTitle(file ? file.name.replace(/\.[^.]+$/, "") : ""); }} /></div>
+                <div style={styles.fieldGroup}><label htmlFor="admin-photo-title" style={styles.label}>Title</label><input id="admin-photo-title" style={styles.input} required maxLength={200} value={photoTitle} onChange={(event) => setPhotoTitle(event.target.value)} /></div>
+                <div style={styles.fieldGroup}><label htmlFor="admin-photo-description" style={styles.label}>Description (optional)</label><textarea id="admin-photo-description" style={styles.textarea} value={photoDescription} onChange={(event) => setPhotoDescription(event.target.value)} /></div>
+                <button type="submit" disabled={uploadingPhoto || !photoFile || !photoTitle.trim()} style={styles.button("primary", uploadingPhoto || !photoFile || !photoTitle.trim())}>{uploadingPhoto ? `Uploading ${photoProgress ?? 0}%` : "Upload photo"}</button>
+              </form></div>
+            </section>}
             {mediaWorkspaceTab === "video" && (
               <section style={styles.panel}>
                 <div style={styles.panelHeader}><h3 style={styles.cardTitle}>Upload anime or film</h3><p style={styles.cardSubtitle}>Choose the source first, then confirm the information viewers will see.</p></div>
@@ -555,6 +634,7 @@ export default function CategoryManager() {
             <UploadQueueViewer browserTransfer={activeBrowserTransfer} error={uploadQueueError} jobs={uploadQueueJobs} loading={uploadQueueLoading} onRefresh={() => refreshUploadQueue()} summary={uploadQueueSummary} />
           </Modal>
         )}
+        <ConfirmationDialog confirmation={confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); if (action) void action(); }} />
       </div>
     </>
   );

@@ -64,9 +64,15 @@ pub(crate) fn FullPlayer(
     let display_segments = build_lyrics_display_segments(&raw_lyrics);
     let lyrics_open = snapshot.lyrics_visible;
     let source = artwork_url(&snapshot, media);
+    let art_is_loading = artwork_loading(&snapshot, media);
+    let full_photo_loading = media.is_photo()
+        && snapshot.photo_data_url.is_none()
+        && playback.status == PlaybackStatus::Loading;
     let share_artwork = source.as_ref().map(|value| value.as_str().to_owned());
     let shadow_color = shadow_palette()
-        .filter(|(id, version, _)| *id == media.id && *version == media.artwork_version && !snapshot.local_mode)
+        .filter(|(id, version, _)| {
+            *id == media.id && *version == media.artwork_version && !snapshot.local_mode
+        })
         .map(|(_, _, hex)| hex);
     let shadow_style = shadow_color.as_ref()
         .and_then(|hex| crate::ui::lyrics_card::parse_hex(hex))
@@ -78,8 +84,16 @@ pub(crate) fn FullPlayer(
         .unwrap_or_default();
     let player_class = format!(
         "full-player{}{}",
-        if snapshot.queue_open { " has-queue-sidebar" } else { "" },
-        if shadow_color.is_some() { " has-palette-shadow" } else { "" },
+        if snapshot.queue_open {
+            " has-queue-sidebar"
+        } else {
+            ""
+        },
+        if shadow_color.is_some() {
+            " has-palette-shadow"
+        } else {
+            ""
+        },
     );
     let fallback = if media.is_video() {
         "▶"
@@ -228,10 +242,10 @@ pub(crate) fn FullPlayer(
                             if let Some(photo) = snapshot.photo_data_url.as_ref() {
                                 img { class: "full-photo", src: "{photo}", alt: "{media.title()}" }
                             } else {
-                                Artwork { source, alt: media.title().to_owned(), fallback: fallback.to_owned(), class: "full-art".to_owned() }
+                                Artwork { source, alt: media.title().to_owned(), fallback: fallback.to_owned(), class: "full-art".to_owned(), loading: full_photo_loading }
                             }
                         } else {
-                            Artwork { source, alt: media.title().to_owned(), fallback: fallback.to_owned(), class: "full-art".to_owned() }
+                            Artwork { source, alt: media.title().to_owned(), fallback: fallback.to_owned(), class: "full-art".to_owned(), loading: art_is_loading }
                         }
                     }
                     div { class: "full-meta",
@@ -466,11 +480,7 @@ fn LyricsView(
                                 onclick: move |_| {
                                     seek(app, engine, start);
                                 },
-                                if is_instrumental {
-                                    span { "♪ {text}" }
-                                } else {
-                                    span { "{text}" }
-                                }
+                                span { "{text}" }
                             }
                         }
                     }
@@ -483,7 +493,9 @@ fn LyricsView(
 fn open_external_url(url: &str) {
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd").args(["/c", "start", "", url]).spawn();
+        let _ = std::process::Command::new("cmd")
+            .args(["/c", "start", "", url])
+            .spawn();
     }
     #[cfg(target_os = "macos")]
     {

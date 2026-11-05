@@ -210,6 +210,13 @@ impl PlaybackCoordinator {
         }
     }
 
+    /// Update only the remote-observer fields used by SessionConflictCard.
+    pub fn update_remote_state(&mut self, media: Media, holder: SessionHolder) {
+        self.snapshot.media = Some(media);
+        self.snapshot.holder = Some(holder);
+        self.snapshot.session_unavailable = true;
+    }
+
     pub fn observe_remote(&mut self, media: Media, holder: SessionHolder) {
         self.set_sleep_timer(None);
         let playback = holder.playback.as_ref();

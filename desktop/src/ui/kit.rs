@@ -1,3 +1,4 @@
+use dioxus_native::prelude::dioxus_elements::input_data::MouseButton;
 use dioxus_native::prelude::*;
 use std::sync::Arc;
 
@@ -40,9 +41,11 @@ pub enum IconName {
     Settings,
     Share,
     Shuffle,
+    Sliders,
     Stop,
     Subtitles,
     Sun,
+    User,
     Volume,
     VolumeLow,
     VolumeMute,
@@ -185,6 +188,9 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
             path { d: "m14.7 14.7 1.6 2.1c.8 1.1 2 1.7 3.3 1.7H22" }
             path { d: "m18 14 4 4-4 4" }
         },
+        IconName::Sliders => rsx! {
+            path { d: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" }
+        },
         IconName::Stop => {
             rsx! { rect { x: "5", y: "5", width: "14", height: "14", rx: "2", fill: "currentColor" } }
         }
@@ -195,6 +201,10 @@ pub fn Icon(name: IconName, #[props(default)] class: String) -> Element {
         IconName::Sun => rsx! {
             circle { cx: "12", cy: "12", r: "4" }
             path { d: "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" }
+        },
+        IconName::User => rsx! {
+            path { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" }
+            circle { cx: "12", cy: "7", r: "4" }
         },
         IconName::Volume => rsx! {
             path { d: "M11 5 6 9H2v6h4l5 4V5Z" }
@@ -388,16 +398,25 @@ pub fn Artwork(
     alt: String,
     fallback: String,
     #[props(default)] class: String,
+    #[props(default)] loading: bool,
 ) -> Element {
     let cached_content = use_memo(use_reactive(
-        (&source, &alt, &fallback, &class),
-        move |(source, alt, fallback, class)| {
+        (&source, &alt, &fallback, &class, &loading),
+        move |(source, alt, fallback, class, loading)| {
             rsx! {
-                div { class: "artwork {class}",
+                div {
+                    class: if loading { "artwork artwork-loading {class}" } else { "artwork {class}" },
+                    "aria-busy": "{loading}",
                     if let Some(source) = source {
                         img { src: "{source}", alt: "{alt}", draggable: "false" }
                     } else {
                         span { class: "artwork-fallback", "aria-hidden": "true", "{fallback}" }
+                    }
+                    if loading {
+                        div { class: "artwork-loading-indicator", "aria-hidden": "true",
+                            span { class: "artwork-loading-track" }
+                            span { class: "artwork-loading-label", "Loading…" }
+                        }
                     }
                 }
             }
@@ -554,19 +573,25 @@ fn SliderHitArea(
     rsx! {
         div {
             class: "slider-hit-area",
-            onmouseleave: move |_| dragging.set(false),
             for index in 0..=hit_divisions {
                 span {
                     key: "{index}",
                     class: "slider-hit-zone",
                     onmousedown: move |event: MouseEvent| {
+                        if event.data().trigger_button() != Some(MouseButton::Primary) {
+                            return;
+                        }
                         event.stop_propagation();
                         dragging.set(true);
                         commit(index);
                     },
-                    onmouseenter: move |_| {
+                    onmousemove: move |event: MouseEvent| {
                         if dragging() {
-                            commit(index);
+                            if event.data().held_buttons().contains(MouseButton::Primary) {
+                                commit(index);
+                            } else {
+                                dragging.set(false);
+                            }
                         }
                     },
                     onmouseup: move |event: MouseEvent| {

@@ -27,6 +27,8 @@ import subtitlesRoutes from "./routes/subtitles.js";
 import offlineRoutes from "./routes/offline.js";
 import mobileReleaseRoutes from "./routes/mobile-release.js";
 import desktopReleaseRoutes from "./routes/desktop-release.js";
+import masterUsersRoutes from "./routes/master-users.js";
+import mediaRequestsRoutes from "./routes/media-requests.js";
 import contentSignalsRoutes from "./routes/content-signals.js";
 import { startOrphanMediaCleanupScheduler } from "./media-cleanup.js";
 import { startMusicReelCleanupScheduler } from "./music-reel-cleanup.js";
@@ -152,6 +154,8 @@ await app.register(async function (instance) {
   await instance.register(offlineRoutes, { prefix: "/offline" });
   await instance.register(mobileReleaseRoutes, { prefix: "/mobile-release" });
   await instance.register(desktopReleaseRoutes, { prefix: "/desktop-release" });
+  await instance.register(masterUsersRoutes, { prefix: "/master/users" });
+  await instance.register(mediaRequestsRoutes, { prefix: "/media-requests" });
 }, { prefix: "/api" });
 
 const port = parseInt(process.env.PORT || "3001", 10);

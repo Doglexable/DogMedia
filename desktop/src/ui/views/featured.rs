@@ -11,6 +11,7 @@ pub(crate) fn Featured(
 ) -> Element {
     let snapshot = app.read();
     let source = artwork_url(&snapshot, &media);
+    let loading = artwork_loading(&snapshot, &media);
     use_effect(use_reactive((&media,), move |(media,)| {
         ensure_artwork(app, media);
     }));
@@ -87,7 +88,8 @@ pub(crate) fn Featured(
                     source,
                     alt: media.title().to_owned(),
                     fallback: fallback.to_owned(),
-                    class: "featured-art".to_owned()
+                    class: "featured-art".to_owned(),
+                    loading,
                 }
             }
         }

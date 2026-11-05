@@ -1538,6 +1538,7 @@ dependencies = [
  "ab_glyph",
  "async-trait",
  "base64 0.22.1",
+ "blitz-dom",
  "dioxus-native",
  "directories",
  "fontdb",

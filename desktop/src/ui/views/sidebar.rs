@@ -76,11 +76,14 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                     app.write().category_id = Some(id);
                                     begin_browse(app);
                                 } },
-                                span { class: "category-mark",
+                                span { class: if category_artwork_loading(&snapshot, category) { "category-mark loading" } else { "category-mark" },
                                     if let Some(source) = category_artwork_url(&snapshot, category) {
                                         img { src: "{source}", alt: "", draggable: "false" }
                                     } else {
                                         Icon { name: IconName::Folder }
+                                    }
+                                    if category_artwork_loading(&snapshot, category) {
+                                        span { class: "category-mark-loading", "aria-hidden": "true" }
                                     }
                                 }
                                 span { class: "category-name", "{truncate_category_name(&category.name, category.depth)}" }
@@ -135,6 +138,17 @@ pub(crate) fn Sidebar(app: Signal<NativeApp>, engine: Signal<Option<PlaybackEngi
                                             } },
                                             span { class: "context-menu-icon", Icon { name: IconName::ListPlus } }
                                             span { "Queue {truncate_category_name(&category.name, category.depth)}" }
+                                        }
+                                        button {
+                                            class: "context-menu-item",
+                                            r#type: "button",
+                                            role: "menuitem",
+                                            onclick: { let id = category.id; let name = category.name.clone(); move |_| {
+                                                folder_menu.set(None);
+                                                favorite_folder(app, id, name.clone());
+                                            } },
+                                            span { class: "context-menu-icon", Icon { name: IconName::Heart } }
+                                            span { "Favorite {truncate_category_name(&category.name, category.depth)}" }
                                         }
                                     }
                                 }

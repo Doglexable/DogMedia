@@ -8,7 +8,7 @@ import { faPlay } from "@fortawesome/free-solid-svg-icons/faPlay";
 import { faPlus } from "@fortawesome/free-solid-svg-icons/faPlus";
 import { faFilm } from "@fortawesome/free-solid-svg-icons/faFilm";
 import { useAccess } from "../access-context";
-import { api, mediaThumbnailUrl, readJsonArray } from "../api";
+import { api, mediaThumbnailUrl } from "../api";
 import { useGlobalPlayer, useGlobalPlayerLibrary } from "../components/GlobalPlayer";
 import { useLibrary } from "../components/library-shell";
 import { MediaSearch } from "../components/dashboard/media-search";
@@ -29,8 +29,7 @@ import {
   shouldShowBrowse,
 } from "./dashboard-utils";
 import { runViewTransition } from "../utils/view-transitions";
-
-const NOW_PLAYING_POLL_MS = 10000;
+import { createNowPlayingSocket } from "../components/dashboard/now-playing-socket";
 
 function MediaGridSkeleton({ count = 8 }) {
   return (
@@ -180,23 +179,23 @@ function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, 
 
   if (!menu) return null;
 
-  const playNext = () => {
+  const playNext = (event) => {
     onClose();
-    onPlayNext?.(item)
+    onPlayNext?.(item, event.currentTarget)
       ?.then(() => onNotice?.(`“${item.title}” will play next.`))
       ?.catch((error) => onNotice?.(error.message));
   };
 
-  const addToQueue = () => {
+  const addToQueue = (event) => {
     onClose();
-    onAddQueue?.(item)
+    onAddQueue?.(item, event.currentTarget)
       ?.then(() => onNotice?.(`“${item.title}” is in the queue.`))
       ?.catch((error) => onNotice?.(error.message));
   };
 
-  const toggleFavorite = () => {
+  const toggleFavorite = (event) => {
     onClose();
-    onToggleLike?.(item)
+    onToggleLike?.(item, event.currentTarget)
       ?.then((liked) => onNotice?.(`“${item.title}” ${liked ? "was added to" : "was removed from"} favorites.`))
       ?.catch((error) => onNotice?.(error.message));
   };
@@ -233,7 +232,7 @@ function MediaContextMenu({ isLiked, item, menu, onAddQueue, onClose, onNotice, 
         <button type="button" role="menuitem" onClick={addToQueue} style={styles.contextMenuItem}>Add to queue</button>
         {item.mime_type?.startsWith("audio/") && (
           <button type="button" role="menuitem" onClick={toggleFavorite} style={styles.contextMenuItem}>
-            {isLiked ? "Remove from favorites" : "Add to favorites"}
+            {isLiked ? `Remove ${item.title} from favorites` : `Add ${item.title} to favorites`}
           </button>
         )}
       </div>
@@ -365,11 +364,11 @@ function FeaturedPanel({ isLiked, item, onAddQueue, onNotice, onPlay, onPlayNext
                 <FontAwesomeIcon icon={faPlay} />
                 Play
               </button>
-              <button type="button" className="library-action" onClick={() => onPlayNext?.(item)}>
+              <button type="button" className="library-action" onClick={(event) => onPlayNext?.(item, event.currentTarget)}>
                 <FontAwesomeIcon icon={faList} />
                 Play next
               </button>
-              <button type="button" className="library-action" onClick={() => onAddQueue?.(item)}>
+              <button type="button" className="library-action" onClick={(event) => onAddQueue?.(item, event.currentTarget)}>
                 <FontAwesomeIcon icon={faPlus} />
                 Queue
               </button>
@@ -489,6 +488,7 @@ export default function Dashboard() {
   const togglePlayback = globalPlayer.togglePlayback;
   const [searchParams] = useSearchParams();
   const [media, setMedia] = useState([]);
+  const [favoritesRevision, setFavoritesRevision] = useState(0);
   const [mediaType, setMediaType] = useState("all");
   const [nextCursor, setNextCursor] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -512,6 +512,13 @@ export default function Dashboard() {
   const selectedCategory = categoryParam && /^\d+$/.test(categoryParam) ? categoryParam : null;
   const playMediaAction = player?.playMedia;
   const currentMediaId = player?.currentMedia?.id;
+
+  useEffect(() => {
+    if (libraryView !== "liked") return undefined;
+    const refreshFavorites = () => setFavoritesRevision((revision) => revision + 1);
+    window.addEventListener("favorites-changed", refreshFavorites);
+    return () => window.removeEventListener("favorites-changed", refreshFavorites);
+  }, [libraryView]);
 
   useEffect(() => {
     setMediaSearch("");
@@ -592,7 +599,7 @@ export default function Dashboard() {
         hasLoadedMediaRef.current = true;
       });
     return () => controller.abort();
-  }, [debouncedSearch, selectedCategory, libraryView, mediaType]);
+  }, [debouncedSearch, selectedCategory, libraryView, mediaType, favoritesRevision]);
 
   const loadMoreMedia = useCallback(() => {
     if (!nextCursor || loadingMore || loadingMoreRef.current) return;
@@ -644,26 +651,15 @@ export default function Dashboard() {
       });
 
     return () => { cancelled = true; };
-  }, [libraryView, mediaType, selectedCategory]);
+  }, [libraryView, mediaType, selectedCategory, favoritesRevision]);
 
   useEffect(() => {
     if (tier < 100) return;
-    const poll = () => {
-      if (document.visibilityState === "hidden") return;
-      api("/api/playback/now-playing")
-        .then((response) => readJsonArray(response, "Could not load active sessions"))
-        .then((sessions) => {
-          setNowPlaying(sessions);
-        })
-        .catch(() => {});
-    };
-    poll();
-    const interval = window.setInterval(poll, NOW_PLAYING_POLL_MS);
-    const handleVisibilityChange = () => poll();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const socket = createNowPlayingSocket({ onSessions: setNowPlaying });
+    socket.start();
     return () => {
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      socket.stop();
+      setNowPlaying([]);
     };
   }, [tier]);
 
@@ -870,10 +866,10 @@ export default function Dashboard() {
                 <FeaturedPanel
                   item={featuredMedia}
                   isLiked={player?.isLiked?.(featuredMedia?.id) || false}
-                  onAddQueue={(item) => player?.addToQueue?.(item)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
+                  onAddQueue={(item, sourceElement) => player?.addToQueue?.(item, sourceElement)?.then(() => setNotice(`“${item.title}” is in the queue.`)).catch((error) => setNotice(error.message))}
                   onNotice={setNotice}
                   onPlay={playMedia}
-                  onPlayNext={(item) => player?.playNext?.(item)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
+                  onPlayNext={(item, sourceElement) => player?.playNext?.(item, sourceElement)?.then(() => setNotice(`“${item.title}” will play next.`)).catch((error) => setNotice(error.message))}
                   onToggleLike={player?.toggleLike}
                 />
               </div>

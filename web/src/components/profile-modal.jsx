@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleUser } from "@fortawesome/free-solid-svg-icons/faCircleUser";
+import { faLock } from "@fortawesome/free-solid-svg-icons/faLock";
 import { faRightFromBracket } from "@fortawesome/free-solid-svg-icons/faRightFromBracket";
+import { faSliders } from "@fortawesome/free-solid-svg-icons/faSliders";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { faCheck } from "@fortawesome/free-solid-svg-icons/faCheck";
-import { faChevronDown } from "@fortawesome/free-solid-svg-icons/faChevronDown";
 import { faRotateRight } from "@fortawesome/free-solid-svg-icons/faRotateRight";
 import { api, profilePictureUrl } from "../api";
 import { APP_VERSION_LABEL } from "../version";
@@ -22,17 +23,21 @@ import {
   calculateTargetShift,
 } from "./global-player/use-equalizer";
 
+const PROFILE_TABS = [
+  { id: "profile",  label: "Profile",  icon: faCircleUser },
+  { id: "security", label: "Security", icon: faLock },
+  { id: "eq",       label: "EQ",       icon: faSliders },
+];
+
 export function ProfileModal({ isOpen, onClose, access }) {
   const currentUsername = access?.username || "";
   const currentAvatar = access?.profile_picture || access?.user?.profile_picture || "fine";
   const userEqSettings = access?.user?.eq_settings || access?.eq_settings;
   const tier = access?.tier ?? 0;
+  const [activeTab, setActiveTab] = useState("profile");
   const [username, setUsername] = useState(currentUsername);
   const [avatar, setAvatar] = useState(currentAvatar);
   const [availableAvatars, setAvailableAvatars] = useState([]);
-  const [avatarsOpen, setAvatarsOpen] = useState(false);
-  const [passwordOpen, setPasswordOpen] = useState(false);
-  const [eqOpen, setEqOpen] = useState(false);
   const [eqEnabled, setEqEnabled] = useState(() => {
     if (typeof userEqSettings?.enabled === "boolean") return userEqSettings.enabled;
     return readStoredEnabled();
@@ -63,9 +68,7 @@ export function ProfileModal({ isOpen, onClose, access }) {
       setCurrentPassword("");
       setError("");
       setSuccess("");
-      setAvatarsOpen(false);
-      setPasswordOpen(false);
-      setEqOpen(false);
+      setActiveTab("profile");
       setEqDirty(false);
       setShowCreditsRaw(false);
       setClearingCache(false);
@@ -114,6 +117,10 @@ export function ProfileModal({ isOpen, onClose, access }) {
     dispatchEqUpdate({ enabled });
     setEqDirty(true);
   }, []);
+
+  const handleToggleEqEnabled = useCallback(() => {
+    handleSetEqEnabled(!eqEnabled);
+  }, [eqEnabled, handleSetEqEnabled]);
 
   const handleSetEqTargetDb = useCallback((db) => {
     const clamped = Math.min(GAIN_MAX, Math.max(GAIN_MIN, Math.round(Number(db) * 2) / 2));
@@ -322,50 +329,58 @@ export function ProfileModal({ isOpen, onClose, access }) {
             </div>
           </div>
 
+          <div className="settings-tabs profile-modal-tabs" role="tablist">
+            {PROFILE_TABS.map((t) => {
+              const isSelected = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isSelected}
+                  className={`settings-tab-btn ${isSelected ? "settings-tab-btn--active" : ""}`}
+                  onClick={() => setActiveTab(t.id)}
+                >
+                  <FontAwesomeIcon icon={t.icon} />
+                  <span className="settings-tab-label">{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <form onSubmit={handleSubmit} className="profile-modal-form">
-            <div className="profile-modal-field">
-              <label htmlFor="profile-username" className="profile-modal-label">
-                Username
-              </label>
-              <input
-                id="profile-username"
-                type="text"
-                className="profile-modal-input"
-                autoComplete="username"
-                required
-                minLength={3}
-                maxLength={40}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={submitting}
-              />
-              <small className="profile-modal-help">
-                3–40 characters (letters, numbers, dots, underscores, hyphens).
-              </small>
-            </div>
-
-            {/* Collapsible: Profile Picture & Credits */}
-            <div className="profile-modal-collapsible">
-              <button
-                type="button"
-                className="profile-modal-collapsible-trigger"
-                aria-expanded={avatarsOpen}
-                onClick={() => setAvatarsOpen((prev) => !prev)}
-              >
-                <span className="profile-modal-collapsible-title">
-                  <strong>Profile Picture &amp; Credits</strong>
-                  <small className="profile-modal-collapsible-subtitle">
-                    Active: {activeAvatarName}
+            {activeTab === "profile" && (
+              <div className="profile-modal-tab-content">
+                <div className="profile-modal-field">
+                  <label htmlFor="profile-username" className="profile-modal-label">
+                    Username
+                  </label>
+                  <input
+                    id="profile-username"
+                    type="text"
+                    className="profile-modal-input"
+                    autoComplete="username"
+                    required
+                    minLength={3}
+                    maxLength={40}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={submitting}
+                  />
+                  <small className="profile-modal-help">
+                    3–40 characters (letters, numbers, dots, underscores, hyphens).
                   </small>
-                </span>
-                <FontAwesomeIcon
-                  icon={faChevronDown}
-                  className={`profile-modal-chevron${avatarsOpen ? " profile-modal-chevron--open" : ""}`}
-                />
-              </button>
+                </div>
 
-              {avatarsOpen && (
-                <div className="profile-modal-collapsible-content">
+                {/* Profile Picture & Credits */}
+                <div className="profile-modal-section-group">
+                  <div className="profile-modal-section-title">
+                    <strong>Profile Picture &amp; Credits</strong>
+                    <small className="profile-modal-collapsible-subtitle">
+                      Active: {activeAvatarName}
+                    </small>
+                  </div>
+
                   <div
                     className="profile-modal-avatar-picker"
                     role="radiogroup"
@@ -445,95 +460,78 @@ export function ProfileModal({ isOpen, onClose, access }) {
                     )}
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* Collapsible: Change Password */}
-            <div className="profile-modal-collapsible">
-              <button
-                type="button"
-                className="profile-modal-collapsible-trigger"
-                aria-expanded={passwordOpen}
-                onClick={() => setPasswordOpen((prev) => !prev)}
-              >
-                <span className="profile-modal-collapsible-title">
+            {activeTab === "security" && (
+              <div className="profile-modal-tab-content">
+                <div className="profile-modal-section-title">
                   <strong>Change Password</strong>
                   <small className="profile-modal-collapsible-subtitle">
                     {password ? "New password entered" : "Leave blank to keep current password"}
                   </small>
-                </span>
-                <FontAwesomeIcon
-                  icon={faChevronDown}
-                  className={`profile-modal-chevron${passwordOpen ? " profile-modal-chevron--open" : ""}`}
-                />
-              </button>
-
-              {(passwordOpen || password.length > 0) && (
-                <div className="profile-modal-collapsible-content">
-                  <div className="profile-modal-field">
-                    <label htmlFor="profile-password" className="profile-modal-label">
-                      New Password
-                    </label>
-                    <input
-                      id="profile-password"
-                      type="password"
-                      className="profile-modal-input"
-                      autoComplete="new-password"
-                      placeholder="Enter new password"
-                      minLength={12}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      disabled={submitting}
-                    />
-                    <small className="profile-modal-help">
-                      Minimum 12 characters if updating password.
-                    </small>
-                  </div>
-
-                  <div className="profile-modal-field">
-                    <label htmlFor="profile-current-password" className="profile-modal-label">
-                      Current Password
-                    </label>
-                    <input
-                      id="profile-current-password"
-                      type="password"
-                      className="profile-modal-input"
-                      autoComplete="current-password"
-                      placeholder="Required to confirm password change"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      disabled={submitting}
-                    />
-                    <small className="profile-modal-help">
-                      Required when changing password.
-                    </small>
-                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Collapsible: Audio Equalizer (EQ) */}
-            <div className="profile-modal-collapsible">
-              <button
-                type="button"
-                className="profile-modal-collapsible-trigger"
-                aria-expanded={eqOpen}
-                onClick={() => setEqOpen((prev) => !prev)}
-              >
-                <span className="profile-modal-collapsible-title">
-                  <strong>Audio Equalizer (EQ)</strong>
-                  <small className="profile-modal-collapsible-subtitle">
-                    {eqEnabled ? `Active • ${EQ_PRESETS[detectPreset(eqGains)]?.label || "Custom"}` : "Disabled"}
+                <div className="profile-modal-field">
+                  <label htmlFor="profile-password" className="profile-modal-label">
+                    New Password
+                  </label>
+                  <input
+                    id="profile-password"
+                    type="password"
+                    className="profile-modal-input"
+                    autoComplete="new-password"
+                    placeholder="Enter new password"
+                    minLength={12}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={submitting}
+                  />
+                  <small className="profile-modal-help">
+                    Minimum 12 characters if updating password.
                   </small>
-                </span>
-                <FontAwesomeIcon
-                  icon={faChevronDown}
-                  className={`profile-modal-chevron${eqOpen ? " profile-modal-chevron--open" : ""}`}
-                />
-              </button>
+                </div>
 
-              {eqOpen && (
-                <div className="profile-modal-collapsible-content profile-modal-eq-content">
+                <div className="profile-modal-field">
+                  <label htmlFor="profile-current-password" className="profile-modal-label">
+                    Current Password
+                  </label>
+                  <input
+                    id="profile-current-password"
+                    type="password"
+                    className="profile-modal-input"
+                    autoComplete="current-password"
+                    placeholder="Required to confirm password change"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    disabled={submitting}
+                  />
+                  <small className="profile-modal-help">
+                    Required when changing password.
+                  </small>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "eq" && (
+              <div className="profile-modal-tab-content profile-modal-eq-tab">
+                <div className="profile-modal-section-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <strong>Audio Equalizer (EQ)</strong>
+                    <small className="profile-modal-collapsible-subtitle" style={{ display: "block" }}>
+                      {eqEnabled ? `Active • ${EQ_PRESETS[detectPreset(eqGains)]?.label || "Custom"}` : "Disabled"}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className={`profile-modal-eq-toggle-btn${eqEnabled ? " profile-modal-eq-toggle-btn--active" : ""}`}
+                    onClick={handleToggleEqEnabled}
+                  >
+                    {eqEnabled ? "Enabled" : "Disabled"}
+                  </button>
+                </div>
+
+                <div className="profile-modal-eq-content">
                   <SpotifyEqualizer
                     gains={eqGains}
                     eqBands={EQ_BANDS}
@@ -550,8 +548,8 @@ export function ProfileModal({ isOpen, onClose, access }) {
                     onAdjustToTarget={handleAdjustEqToTarget}
                   />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {error && (
               <div role="alert" className="profile-modal-alert profile-modal-alert-error">

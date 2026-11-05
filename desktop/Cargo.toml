@@ -48,6 +48,7 @@ fontdb = { version = "0.23.0", optional = true }
 zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
+blitz-dom = { version = "=0.2.4", default-features = false }
 tempfile = "3"
 
 [patch.crates-io]

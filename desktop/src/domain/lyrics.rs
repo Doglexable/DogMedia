@@ -38,7 +38,7 @@ pub fn build_lyrics_display_segments(segments: &[LyricSegment]) -> Vec<DisplayLy
         display.push(DisplayLyricSegment {
             start: 0.0,
             end: first_start,
-            text: "Instrumental".to_string(),
+            text: "♪".to_string(),
             instrumental: true,
         });
     }
@@ -55,7 +55,7 @@ pub fn build_lyrics_display_segments(segments: &[LyricSegment]) -> Vec<DisplayLy
                 display.push(DisplayLyricSegment {
                     start: end,
                     end: next.start,
-                    text: "Instrumental".to_string(),
+                    text: "♪".to_string(),
                     instrumental: true,
                 });
             }
@@ -126,7 +126,7 @@ mod tests {
         ];
         let display = build_lyrics_display_segments(&segments);
         assert_eq!(display.len(), 4);
-        assert_eq!(display[0].text, "Instrumental");
+        assert_eq!(display[0].text, "♪");
         assert!(display[0].instrumental);
         assert_eq!(display[0].start, 0.0);
         assert_eq!(display[0].end, 10.0);
@@ -134,7 +134,7 @@ mod tests {
         assert_eq!(display[1].text, "First line");
         assert!(!display[1].instrumental);
 
-        assert_eq!(display[2].text, "Instrumental");
+        assert_eq!(display[2].text, "♪");
         assert!(display[2].instrumental);
         assert_eq!(display[2].start, 15.0);
         assert_eq!(display[2].end, 25.0);

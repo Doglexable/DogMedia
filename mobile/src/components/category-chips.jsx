@@ -3,7 +3,7 @@ import { ScrollView, Pressable, StyleSheet, Text } from "react-native";
 import { radii, spacing, useTheme } from "../theme";
 import { toggleCategorySelection } from "../utils/categories";
 
-export function CategoryChips({ categories = [], selectedId, onSelect }) {
+export function CategoryChips({ categories = [], selectedId, onSelect, onLongPress }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -47,6 +47,7 @@ export function CategoryChips({ categories = [], selectedId, onSelect }) {
               pressed && styles.pressed,
             ]}
             onPress={() => handlePress(category.id)}
+            onLongPress={() => onLongPress?.(category)}
           >
             <Text
               numberOfLines={1}

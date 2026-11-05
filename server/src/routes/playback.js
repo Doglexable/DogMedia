@@ -16,17 +16,16 @@ import {
 } from "../playback-session.js";
 import { activePlaybackIdentity, authorizeExclusiveReport as authorizeLiveReport, publicHolderWithPlayback as liveHolderWithPlayback, reportIdentity, writeActivePlayback } from "../playback-live-state.js";
 import { isAllowedSocketOrigin } from "../playback-socket.js";
+import { hydrateSessionTitles, isSessionPauseExpired, listNowPlayingSessions } from "../playback-now-playing.js";
+import { readResumePosition, RESUME_TTL_SECONDS, saveResumePosition } from "../playback-resume.js";
 import { ACCESSIBLE_CATEGORY_TREE_SQL } from "../category-access.js";
+
+export { isSessionPauseExpired } from "../playback-now-playing.js";
+export { RESUME_TTL_SECONDS } from "../playback-resume.js";
 
 export const DASHBOARD_CACHE_TTL_SECONDS = 30 * 60;
 export const PAUSE_CACHE_TTL_SECONDS = 30 * 60;
 export const ACTIVE_PLAYING_TTL_SECONDS = 300;
-/// How long a media resume position is kept in Redis (`playback:resume:*`).
-/// Overridable via env, minimum 1 minute, default 15 minutes.
-export const RESUME_TTL_SECONDS = Math.max(
-  60,
-  Number.parseInt(process.env.PLAYBACK_RESUME_TTL_SECONDS || "900", 10) || 900
-);
 export const PAUSE_MAX_IDLE_MS = PAUSE_CACHE_TTL_SECONDS * 1000;
 const DASHBOARD_LOOKBACK_DAYS = 90;
 const PLAYBACK_EVENTS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -35,19 +34,6 @@ const ACTIVE_INDEX_KEY = "playback:active:index";
 export function normalizeTrigger(value) {
   if (value === "system" || value === "user") return value;
   return "user";
-}
-
-export function isSessionPauseExpired(session, now = Date.now()) {
-  if (!session) return false;
-  const isPaused = session.action === "pause" || session.state === "paused";
-  if (!isPaused) return false;
-
-  const pauseTimestamp = session.pausedAt
-    ? new Date(session.pausedAt).getTime()
-    : new Date(session.timestamp).getTime();
-
-  if (!Number.isFinite(pauseTimestamp)) return false;
-  return (now - pauseTimestamp) >= PAUSE_MAX_IDLE_MS;
 }
 
 function getRedis(fastify) {
@@ -159,73 +145,6 @@ async function authorizeExclusiveReport(fastify, request, reply) {
     ...(holder ? { activeSession: holder } : {}),
   });
   return false;
-}
-
-async function hydrateSessionTitles(fastify, sessions) {
-  const mediaIds = [
-    ...new Set(
-      sessions
-        .map((session) => Number(session.mediaId))
-        .filter(Number.isFinite)
-    ),
-  ];
-
-  if (mediaIds.length === 0) return sessions;
-
-  const placeholders = mediaIds.map((_, index) => `$${index + 1}`).join(", ");
-
-  try {
-    const { rows } = await fastify.pg.query(
-      `SELECT id, title FROM media_assets WHERE id IN (${placeholders})`,
-      mediaIds
-    );
-    const titleById = new Map(rows.map((row) => [Number(row.id), row.title]));
-
-    for (const session of sessions) {
-      const dbTitle = titleById.get(Number(session.mediaId));
-      if (dbTitle) session.title = dbTitle;
-    }
-  } catch (err) {
-    fastify.log.warn(err, "failed to hydrate playback session titles");
-  }
-
-  return sessions;
-}
-
-async function hydrateSessionUsers(fastify, sessions) {
-  const userIds = [
-    ...new Set(
-      sessions
-        .map((session) => Number(session.userId))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    ),
-  ];
-
-  if (userIds.length === 0) return sessions;
-
-  const placeholders = userIds.map((_, index) => `$${index + 1}`).join(", ");
-
-  try {
-    const { rows } = await fastify.pg.query(
-      `SELECT id, username, profile_picture FROM users WHERE id IN (${placeholders})`,
-      userIds
-    );
-    const userById = new Map(rows.map((row) => [Number(row.id), row]));
-
-    for (const session of sessions) {
-      if (session.userId) {
-        const user = userById.get(Number(session.userId));
-        if (user) {
-          session.username = user.username;
-          session.profilePicture = user.profile_picture || "fine";
-        }
-      }
-    }
-  } catch (err) {
-    fastify.log.warn(err, "failed to hydrate playback session users");
-  }
-
-  return sessions;
 }
 
 async function storePlaybackEvent(fastify, event, userId) {
@@ -705,6 +624,7 @@ export default async function (fastify) {
     multi.del(key);
     multi.zrem(ACTIVE_INDEX_KEY, activeIdentity);
     await multi.exec();
+    await fastify.playbackSocketHub?.notify();
     return { ok: true, dropped: true };
   });
 
@@ -783,78 +703,19 @@ export default async function (fastify) {
   });
 
   fastify.get("/resume/:mediaId", async (request) => {
-    const redis = getRedis(fastify);
-    const { mediaId } = request.params;
-    const key = `playback:resume:${request.clientIp || request.ip}:${mediaId}`;
-    const raw = await redis.get(key);
-    if (!raw) return { position: null };
-    try {
-      return JSON.parse(raw);
-    } catch {
-      request.log.warn({ key }, "corrupted resume entry in Redis, treating as cache miss");
-      return { position: null };
-    }
+    return readResumePosition(getRedis(fastify), request.clientIp || request.ip, request.params.mediaId, request.log);
   });
 
   fastify.post("/resume/:mediaId", async (request) => {
-    const redis = getRedis(fastify);
-    const { mediaId } = request.params;
     const { position = 0, duration = 0 } = request.body || {};
-    const timestamp = new Date().toISOString();
-    const resume = {
-      position: Math.floor(position || 0),
-      duration: Math.floor(duration || 0),
-      timestamp,
-    };
-    const key = `playback:resume:${request.clientIp || request.ip}:${mediaId}`;
-
-    if (resume.duration && resume.position >= resume.duration - 3) {
-      await redis.del(key);
-      return { ok: true };
-    }
-
-    await redis.set(key, JSON.stringify(resume), "EX", RESUME_TTL_SECONDS);
-
-    return { ok: true };
+    return saveResumePosition(getRedis(fastify), request.clientIp || request.ip, request.params.mediaId, position, duration);
   });
 
   fastify.get("/now-playing", async (request) => {
     if (request.accessTier < 100) {
       return [];
     }
-
-    const redis = getRedis(fastify);
-    const now = Date.now();
-    await redis.zremrangebyscore(ACTIVE_INDEX_KEY, "-inf", now);
-    const ips = await redis.zrangebyscore(ACTIVE_INDEX_KEY, now, "+inf");
-
-    if (ips.length === 0) return [];
-
-    const keys = ips.map((ip) => `playback:active:${ip}`);
-    const values = await redis.mget(keys);
-    const sessions = [];
-
-    for (let i = 0; i < keys.length; i++) {
-      if (!values[i]) continue;
-      let data;
-      try {
-        data = JSON.parse(values[i]);
-      } catch {
-        continue;
-      }
-      const ip = ips[i];
-      if (isSessionPauseExpired(data, now)) {
-        await redis.del(`playback:active:${ip}`);
-        await redis.zrem(ACTIVE_INDEX_KEY, ip);
-        continue;
-      }
-      sessions.push({ ip, ...data });
-    }
-
-    await hydrateSessionTitles(fastify, sessions);
-    await hydrateSessionUsers(fastify, sessions);
-
-    return sessions;
+    return listNowPlayingSessions(fastify);
   });
 
   fastify.get("/wrapped", async (request) => {
