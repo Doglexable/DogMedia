@@ -110,7 +110,7 @@ describe("FullscreenLyrics", () => {
 });
 
 describe("LyricsShareCard", () => {
-  it("renders the Dogmedia brand logo image and title", async () => {
+  it("renders the Dogmedia brand mark and title", async () => {
     const { renderToString } = await import("react-dom/server");
     const markup = renderToString(
       <LyricsShareCard
@@ -118,8 +118,8 @@ describe("LyricsShareCard", () => {
         selected={[{ start: 0, text: "Line one" }]}
       />
     );
-    expect(markup).toContain('src="/web-app-manifest-192x192.png"');
-    expect(markup).toContain('class="lyrics-share-card-logo"');
+    expect(markup).toContain("dm-new-logo-play");
+    expect(markup).toContain("lyrics-share-card-logo");
     expect(markup).toContain("Dogmedia");
   });
 

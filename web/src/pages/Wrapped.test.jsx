@@ -12,8 +12,8 @@ describe("Wrapped StorySlide branding", () => {
         timeline={[]}
       />
     );
-    expect(markup).toContain('src="/web-app-manifest-192x192.png"');
-    expect(markup).toContain('class="wrapped-slide-logo"');
+    expect(markup).toContain("dm-new-logo-play");
+    expect(markup).toContain("wrapped-slide-logo");
     expect(markup).toContain("Dogmedia");
   });
 
@@ -26,8 +26,8 @@ describe("Wrapped StorySlide branding", () => {
         timeline={[]}
       />
     );
-    expect(markup).toContain('src="/web-app-manifest-192x192.png"');
-    expect(markup).toContain('class="wrapped-slide-logo"');
+    expect(markup).toContain("dm-new-logo-play");
+    expect(markup).toContain("wrapped-slide-logo");
     expect(markup).toContain("Dogmedia");
   });
 
@@ -49,8 +49,8 @@ describe("Wrapped StorySlide branding", () => {
           timeline={[]}
         />
       );
-      expect(markup).toContain('src="/web-app-manifest-192x192.png"');
-      expect(markup).toContain('class="wrapped-slide-logo"');
+      expect(markup).toContain("dm-new-logo-play");
+      expect(markup).toContain("wrapped-slide-logo");
       expect(markup).toContain(slide.expectedKicker);
     }
   });

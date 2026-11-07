@@ -9,8 +9,6 @@ import { fetchLyrics, getCachedLyrics, isLyricsLoaded, fetchMediaItem } from "./
 import { MiniPlayer } from "./global-player/mini-player";
 import { lazyWithRetry } from "../utils/lazy-with-retry";
 import {
-  cleanMediaText,
-  getAudioArtist,
   getMediaSessionMetadata,
   registerMediaSessionActionHandlers,
 } from "./global-player/media-session";
@@ -40,6 +38,7 @@ import { actualMediaQuality, MEDIA_QUALITY_STORAGE_KEY, readMediaQuality } from 
 import { useEqualizer } from "./global-player/use-equalizer";
 import { runViewTransition } from "../utils/view-transitions";
 import { animateCollectionAdd, captureCollectionOrigin } from "./collection-flight";
+import { getPlaybackDocumentTitle } from "./global-player/document-title";
 
 const PlayerContext = createContext(null);
 const PlayerLibraryContext = createContext(null);
@@ -60,18 +59,6 @@ export function useGlobalPlayer() {
 
 export function useGlobalPlayerLibrary() {
   return useContext(PlayerLibraryContext);
-}
-
-function getDocumentTitle(media, isAudioMedia) {
-  if (!media) return DEFAULT_DOCUMENT_TITLE;
-
-  const title = cleanMediaText(media.title);
-  if (!title) return DEFAULT_DOCUMENT_TITLE;
-
-  const artist = isAudioMedia ? getAudioArtist(media) : "";
-  return artist
-    ? `${title} by ${artist} - ${DEFAULT_DOCUMENT_TITLE}`
-    : `${title} - ${DEFAULT_DOCUMENT_TITLE}`;
 }
 
 function readMediaItem(response) {
@@ -211,12 +198,19 @@ export function GlobalPlayerProvider({ children }) {
   ), [hiddenQueueIds]);
 
   useEffect(() => {
-    document.title = getDocumentTitle(currentMedia, isAudio);
+    document.title = getPlaybackDocumentTitle({
+      media: currentMedia,
+      isAudio,
+      playlistSuggestion: sleepTimerCompleted ? null : playlistSuggestion,
+      sleepTimerCompleted,
+      sleepTimerMode,
+      sleepTimerRemaining,
+    });
 
     return () => {
       document.title = DEFAULT_DOCUMENT_TITLE;
     };
-  }, [currentMedia, isAudio]);
+  }, [currentMedia, isAudio, playlistSuggestion, sleepTimerCompleted, sleepTimerMode, sleepTimerRemaining]);
 
   useEffect(() => {
     if (!shouldPreventPageUnload({ currentMedia, paused, isImage })) return undefined;

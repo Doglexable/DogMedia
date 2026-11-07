@@ -62,7 +62,8 @@ export function normalizeLyricsResponse(payload, expectedMediaId) {
     if (!text || !Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) {
       throw new TypeError("Lyrics response contains an invalid segment");
     }
-    return { start, end, text };
+    const translation = typeof segment?.translation === "string" && segment.translation.trim() ? segment.translation.trim() : null;
+    return { start, end, text, ...(translation ? { translation } : {}) };
   });
 
   return {

@@ -8,6 +8,8 @@ pub struct LyricSegment {
     #[serde(default)]
     pub end: Option<f64>,
     pub text: String,
+    #[serde(default)]
+    pub translation: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -25,6 +27,7 @@ pub struct DisplayLyricSegment {
     pub start: f64,
     pub end: f64,
     pub text: String,
+    pub translation: Option<String>,
     pub instrumental: bool,
 }
 
@@ -39,6 +42,7 @@ pub fn build_lyrics_display_segments(segments: &[LyricSegment]) -> Vec<DisplayLy
             start: 0.0,
             end: first_start,
             text: "♪".to_string(),
+            translation: None,
             instrumental: true,
         });
     }
@@ -48,6 +52,7 @@ pub fn build_lyrics_display_segments(segments: &[LyricSegment]) -> Vec<DisplayLy
             start: seg.start,
             end,
             text: seg.text.clone(),
+            translation: seg.translation.clone(),
             instrumental: false,
         });
         if let Some(next) = segments.get(i + 1) {
@@ -56,6 +61,7 @@ pub fn build_lyrics_display_segments(segments: &[LyricSegment]) -> Vec<DisplayLy
                     start: end,
                     end: next.start,
                     text: "♪".to_string(),
+                    translation: None,
                     instrumental: true,
                 });
             }
@@ -117,11 +123,13 @@ mod tests {
                 start: 10.0,
                 end: Some(15.0),
                 text: "First line".to_string(),
+                translation: None,
             },
             LyricSegment {
                 start: 25.0,
                 end: Some(30.0),
                 text: "Second line after solo".to_string(),
+                translation: None,
             },
         ];
         let display = build_lyrics_display_segments(&segments);
@@ -150,12 +158,14 @@ mod tests {
                 start: 0.0,
                 end: 10.0,
                 text: "Intro".to_string(),
+                translation: None,
                 instrumental: true,
             },
             DisplayLyricSegment {
                 start: 10.0,
                 end: 20.0,
                 text: "Verse 1".to_string(),
+                translation: None,
                 instrumental: false,
             },
         ];

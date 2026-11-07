@@ -30,8 +30,7 @@ This is a private instance. All media streaming endpoints and personal library a
 - **API**: Endpoints are served under \`/api/\` (requires authentication).
 `;
 
-export default async function (fastify, opts = {}) {
-  const version = opts.version || "0.7.6";
+export default async function (fastify) {
 
   fastify.get("/robots.txt", async (_request, reply) => {
     reply.type("text/plain; charset=utf-8");
@@ -59,7 +58,6 @@ export default async function (fastify, opts = {}) {
     return {
       status: "ok",
       app: "Dogmedia",
-      version,
     };
   });
 }

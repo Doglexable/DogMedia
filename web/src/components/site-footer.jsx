@@ -11,6 +11,7 @@ import { faServer } from "@fortawesome/free-solid-svg-icons/faServer";
 import { faXmark } from "@fortawesome/free-solid-svg-icons/faXmark";
 import { apiUrl } from "../api";
 import { APP_VERSION_LABEL } from "../version";
+import { NewLogoMark } from "./new-logo-mark";
 import "./site-footer.css";
 
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -206,14 +207,7 @@ export function SiteFooter({ access }) {
           {/* Brand Column */}
           <div className="site-footer-brand-col">
             <Link to="/" className="site-footer-brand-header">
-              <img
-                src="/web-app-manifest-192x192.png"
-                alt="Dogmedia"
-                className="site-footer-brand-logo"
-                width="38"
-                height="38"
-              />
-              <span className="site-footer-brand-title">Dogmedia</span>
+              <NewLogoMark className="site-footer-brand-lockup" />
             </Link>
 
             <p className="site-footer-brand-tagline">
@@ -516,13 +510,7 @@ export function SiteFooter({ access }) {
 
         <div className="site-footer-bar">
           <Link to="/" className="site-footer-bar-brand" aria-label="Dogmedia home">
-            <img
-              src="/web-app-manifest-192x192.png"
-              alt=""
-              width="22"
-              height="22"
-              aria-hidden="true"
-            />
+            <NewLogoMark className="site-footer-bar-mark" showName={false} decorative />
             <span>Dogmedia</span>
           </Link>
 
@@ -569,9 +557,6 @@ export function SiteFooter({ access }) {
         <div className="site-footer-fine-print">
           <div className="site-footer-fine-print-left">
             <span>© {currentYear} Dogmedia. All rights reserved.</span>
-            <span className="site-footer-version-tag" title={`Dogmedia Web ${APP_VERSION_LABEL}`}>
-              Web {APP_VERSION_LABEL}
-            </span>
           </div>
           <span className="site-footer-fine-print-statement">
             Your media. Your space. Your story. Your rhythm.

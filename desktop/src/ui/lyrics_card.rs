@@ -8,6 +8,36 @@ use image::{DynamicImage, ImageFormat, Rgba, RgbaImage, imageops};
 pub(crate) const CARD_WIDTH: u32 = 1920;
 pub(crate) const CARD_HEIGHT: u32 = 1080;
 pub(crate) const DEFAULT_BACKGROUND: &str = "#202438";
+pub(crate) const CORNER_RADIUS: f32 = 120.0;
+
+fn corner_coverage(x: u32, y: u32, width: u32, height: u32, radius: f32) -> f32 {
+    let px = x as f32 + 0.5;
+    let py = y as f32 + 0.5;
+    let w = width as f32;
+    let h = height as f32;
+
+    let in_left = px < radius;
+    let in_right = px > w - radius;
+    let in_top = py < radius;
+    let in_bottom = py > h - radius;
+
+    if (in_left || in_right) && (in_top || in_bottom) {
+        let cx = if in_left { radius } else { w - radius };
+        let cy = if in_top { radius } else { h - radius };
+        let dx = px - cx;
+        let dy = py - cy;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist >= radius + 0.5 {
+            0.0
+        } else if dist <= radius - 0.5 {
+            1.0
+        } else {
+            (radius + 0.5 - dist).clamp(0.0, 1.0)
+        }
+    } else {
+        1.0
+    }
+}
 
 pub(crate) fn parse_hex(value: &str) -> Option<[u8; 3]> {
     let bytes = value.as_bytes();
@@ -166,11 +196,20 @@ pub(crate) fn render_lyrics_card(
     let background_rgb = parse_hex(background).ok_or("Invalid palette color.")?;
     let foreground_rgb = parse_hex(text_color(background)).expect("fixed hex color");
     let foreground = Rgba([foreground_rgb[0], foreground_rgb[1], foreground_rgb[2], 255]);
-    let mut image = RgbaImage::from_pixel(
-        CARD_WIDTH,
-        CARD_HEIGHT,
-        Rgba([background_rgb[0], background_rgb[1], background_rgb[2], 255]),
-    );
+    let mut image = RgbaImage::new(CARD_WIDTH, CARD_HEIGHT);
+    for y in 0..CARD_HEIGHT {
+        for x in 0..CARD_WIDTH {
+            let coverage = corner_coverage(x, y, CARD_WIDTH, CARD_HEIGHT, CORNER_RADIUS);
+            if coverage > 0.0 {
+                let alpha = (coverage * 255.0).round().min(255.0) as u8;
+                image.put_pixel(
+                    x,
+                    y,
+                    Rgba([background_rgb[0], background_rgb[1], background_rgb[2], alpha]),
+                );
+            }
+        }
+    }
 
     // The logo, quote, separator, and media details follow the web card's 640×360 layout at 3×.
     if let Ok(logo) = image::load_from_memory(include_bytes!("../../assets/brand-mark.png")) {
@@ -229,6 +268,18 @@ pub(crate) fn render_lyrics_card(
     draw_text(&mut image, &font, &title, 45.0, 270.0, 914.0, foreground);
     draw_text(&mut image, &font, &artist, 33.0, 270.0, 966.0, foreground);
 
+    for y in 0..CARD_HEIGHT {
+        if y < CORNER_RADIUS as u32 || y >= (CARD_HEIGHT as f32 - CORNER_RADIUS) as u32 {
+            for x in 0..CARD_WIDTH {
+                if x < CORNER_RADIUS as u32 || x >= (CARD_WIDTH as f32 - CORNER_RADIUS) as u32 {
+                    let coverage = corner_coverage(x, y, CARD_WIDTH, CARD_HEIGHT, CORNER_RADIUS);
+                    let pixel = image.get_pixel_mut(x, y);
+                    pixel[3] = (f32::from(pixel[3]) * coverage).round() as u8;
+                }
+            }
+        }
+    }
+
     let mut cursor = Cursor::new(Vec::new());
     DynamicImage::ImageRgba8(image)
         .write_to(&mut cursor, ImageFormat::Png)
@@ -249,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn card_is_1920_by_1080_and_uses_the_selected_solid_color() {
+    fn card_is_1920_by_1080_and_has_transparent_rounded_corners() {
         let png = render_lyrics_card(
             "#b6ae5d",
             &["A lyric to share".to_owned()],
@@ -263,8 +314,16 @@ mod tests {
             (decoded.width(), decoded.height()),
             (CARD_WIDTH, CARD_HEIGHT)
         );
+        let rgba = decoded.to_rgba8();
+        assert_eq!(rgba.get_pixel(0, 0), &Rgba([0, 0, 0, 0]));
+        assert_eq!(rgba.get_pixel(CARD_WIDTH - 1, 0), &Rgba([0, 0, 0, 0]));
+        assert_eq!(rgba.get_pixel(0, CARD_HEIGHT - 1), &Rgba([0, 0, 0, 0]));
         assert_eq!(
-            decoded.to_rgba8().get_pixel(0, 0),
+            rgba.get_pixel(CARD_WIDTH - 1, CARD_HEIGHT - 1),
+            &Rgba([0, 0, 0, 0])
+        );
+        assert_eq!(
+            rgba.get_pixel(CARD_WIDTH / 2, CARD_HEIGHT / 2),
             &Rgba([0xb6, 0xae, 0x5d, 255])
         );
     }

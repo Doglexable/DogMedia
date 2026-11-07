@@ -1,10 +1,13 @@
 import * as defaultFs from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
+import { blurPathFromCover } from "./category-cover.js";
 
 export const DEFAULT_ORPHAN_MEDIA_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export const DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS = 15 * 60 * 1000;
 
 const MANAGED_MEDIA_FILE_RE = /^(\d+)(?:[-_][a-zA-Z0-9_-]+)?\.[^.]+$/;
+const MANAGED_CATEGORY_COVER_RE = /^front(?:-[a-zA-Z0-9_-]+)?(?:\.webp|-blur\.webp)$/;
+const MANAGED_MEDIA_COVER_RE = /^cover(?:-[a-zA-Z0-9_-]+)?(?:\.webp|-blur\.webp)$/;
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -37,15 +40,25 @@ function mediaIdFromManagedFilename(filename) {
   return match ? Number(match[1]) : null;
 }
 
-async function existingMediaIds(pg, ids) {
+async function existingMediaAssets(pg, ids) {
   const uniqueIds = [...new Set(ids)].filter((id) => Number.isInteger(id) && id > 0);
-  if (uniqueIds.length === 0) return new Set();
+  if (uniqueIds.length === 0 || !pg?.query) return new Map();
 
   const { rows } = await pg.query(
-    "SELECT id FROM media_assets WHERE id = ANY($1::int[])",
+    "SELECT id, thumbnail_path FROM media_assets WHERE id = ANY($1::int[])",
     [uniqueIds]
   );
-  return new Set(rows.map((row) => Number(row.id)));
+  return new Map(rows.map((row) => [Number(row.id), row]));
+}
+
+async function existingCategoryCover(pg, categoryId) {
+  if (!pg?.query) return { exists: false, coverPath: null };
+  const { rows } = await pg.query(
+    "SELECT id, cover_path FROM categories WHERE id = ANY($1::int[])",
+    [[Number(categoryId)]]
+  );
+  if (!rows || rows.length === 0) return { exists: false, coverPath: null };
+  return { exists: true, coverPath: rows[0].cover_path ?? null, hasCoverField: "cover_path" in rows[0] };
 }
 
 export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs = DEFAULT_ORPHAN_MEDIA_CLEANUP_GRACE_MS, log, now = Date.now(), pg }) {
@@ -71,6 +84,7 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
       continue;
     }
 
+    const categoryId = Number(categoryEntry.name);
     const categoryDir = join(dataDir, categoryEntry.name);
     let fileEntries;
     try {
@@ -82,6 +96,8 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
     }
 
     const candidates = [];
+    const categoryCovers = [];
+
     for (const fileEntry of fileEntries) {
       if (!fileEntry.isFile()) {
         if (fileEntry.isDirectory() && /^\d+$/.test(fileEntry.name)) {
@@ -89,6 +105,14 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
           continue;
         }
         summary.skipped += 1;
+        continue;
+      }
+
+      if (MANAGED_CATEGORY_COVER_RE.test(fileEntry.name)) {
+        categoryCovers.push({
+          name: fileEntry.name,
+          path: join(categoryDir, fileEntry.name),
+        });
         continue;
       }
 
@@ -104,10 +128,78 @@ export async function cleanupOrphanMediaFiles({ dataDir, fs = defaultFs, graceMs
       });
     }
 
-    const existingIds = await existingMediaIds(pg, candidates.map((candidate) => candidate.mediaId));
+    // Check orphan category covers
+    if (categoryCovers.length > 0) {
+      try {
+        const catInfo = await existingCategoryCover(pg, categoryId);
+        // If catInfo.exists is true but hasCoverField is false (e.g. basic mock without cover_path), skip to avoid false deletion
+        if (catInfo.exists && !catInfo.hasCoverField) {
+          summary.skipped += categoryCovers.length;
+        } else {
+          const activeCover = catInfo.coverPath ? basename(catInfo.coverPath) : null;
+          const activeBlur = activeCover ? basename(blurPathFromCover(activeCover)) : null;
+
+          for (const cover of categoryCovers) {
+            summary.scanned += 1;
+            const isOrphan = !catInfo.exists || (!activeCover) || (cover.name !== activeCover && cover.name !== activeBlur);
+            if (!isOrphan) {
+              summary.skipped += 1;
+              continue;
+            }
+
+            try {
+              const fileStat = await fs.stat(cover.path);
+              if (now - fileStat.mtimeMs < graceMs) {
+                summary.skipped += 1;
+                continue;
+              }
+              await fs.rm(cover.path, { force: true });
+              summary.deleted += 1;
+            } catch (error) {
+              summary.errors += 1;
+              log?.warn?.({ err: error, path: cover.path }, "orphan media cleanup could not delete category cover");
+            }
+          }
+        }
+      } catch (error) {
+        summary.errors += 1;
+        log?.warn?.({ err: error, categoryId }, "orphan media cleanup failed checking category covers");
+      }
+    }
+
+    const mediaMap = await existingMediaAssets(pg, candidates.map((candidate) => candidate.mediaId));
     for (const candidate of candidates) {
       summary.scanned += 1;
-      if (existingIds.has(candidate.mediaId)) {
+      const mediaRow = mediaMap.get(candidate.mediaId);
+      if (mediaRow) {
+        // If it's a media folder (recursive), also check for abandoned cover-*.webp inside
+        if (candidate.recursive && "thumbnail_path" in mediaRow) {
+          try {
+            const activeThumb = mediaRow.thumbnail_path ? basename(mediaRow.thumbnail_path) : null;
+            const activeBlurThumb = activeThumb ? basename(blurPathFromCover(activeThumb)) : null;
+            const innerFiles = await fs.readdir(candidate.path, { withFileTypes: true });
+
+            for (const inner of innerFiles) {
+              if (inner.isFile() && MANAGED_MEDIA_COVER_RE.test(inner.name)) {
+                if (inner.name !== activeThumb && inner.name !== activeBlurThumb) {
+                  const innerPath = join(candidate.path, inner.name);
+                  try {
+                    const innerStat = await fs.stat(innerPath);
+                    if (now - innerStat.mtimeMs >= graceMs) {
+                      await fs.rm(innerPath, { force: true });
+                      summary.deleted += 1;
+                    }
+                  } catch (err) {
+                    log?.warn?.({ err, path: innerPath }, "failed to remove orphan media cover");
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            log?.warn?.({ err, path: candidate.path }, "could not scan inner media directory");
+          }
+        }
+
         summary.skipped += 1;
         continue;
       }

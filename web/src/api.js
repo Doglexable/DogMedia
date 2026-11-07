@@ -5,27 +5,32 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`;
 }
 
-export function mediaThumbnailUrl(mediaOrId) {
+export function mediaThumbnailUrl(mediaOrId, { blur = false } = {}) {
   const isMedia = mediaOrId !== null && typeof mediaOrId === "object";
   const mediaId = Number(isMedia ? (mediaOrId.id ?? mediaOrId.mediaId) : mediaOrId);
   if (!Number.isFinite(mediaId) || mediaId <= 0) return "";
   const version = isMedia ? mediaOrId.artwork_version : null;
+  const params = new URLSearchParams();
+  if (version) params.set("v", version);
+  if (blur) params.set("blur", "1");
+  const query = params.toString() ? `?${params.toString()}` : "";
   // If the media belongs to a category and shares the category cover without its own distinct thumbnail,
   // canonicalize to category thumbnail URL so all tracks in the playlist/album reuse the identical image URL & browser cache!
   if (isMedia && !mediaOrId.thumbnail_path && Number.isFinite(Number(mediaOrId.category_id)) && Number(mediaOrId.category_id) > 0 && version && !version.includes(`/${mediaId}/`)) {
-    const query = version ? `?v=${encodeURIComponent(version)}` : "";
     return apiUrl(`/api/categories/${Number(mediaOrId.category_id)}/thumbnail${query}`);
   }
-  const query = version ? `?v=${encodeURIComponent(version)}` : "";
   return apiUrl(`/api/media/${mediaId}/thumbnail${query}`);
 }
 
-export function categoryThumbnailUrl(categoryOrId) {
+export function categoryThumbnailUrl(categoryOrId, { blur = false } = {}) {
   const isCategory = categoryOrId !== null && typeof categoryOrId === "object";
   const categoryId = Number(isCategory ? categoryOrId.id : categoryOrId);
   if (!Number.isFinite(categoryId) || categoryId <= 0) return "";
   const coverPath = isCategory ? categoryOrId.cover_path : null;
-  const query = coverPath ? `?v=${encodeURIComponent(coverPath)}` : "";
+  const params = new URLSearchParams();
+  if (coverPath) params.set("v", coverPath);
+  if (blur) params.set("blur", "1");
+  const query = params.toString() ? `?${params.toString()}` : "";
   return apiUrl(`/api/categories/${categoryId}/thumbnail${query}`);
 }
 

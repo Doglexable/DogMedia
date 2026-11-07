@@ -171,6 +171,81 @@ describe("cleanupOrphanMediaFiles", () => {
     expect(summary.errors).toBe(1);
     expect(warn).toHaveBeenCalled();
   });
+
+  it("deletes orphan category covers and blur companions when category has no cover or was replaced", async () => {
+    const dataDir = await tempDataDir();
+    const activeCover = await writeManagedFile(dataDir, 7, "front-active.webp");
+    const activeBlur = await writeManagedFile(dataDir, 7, "front-active-blur.webp");
+    const oldCover = await writeManagedFile(dataDir, 7, "front-old.webp");
+    const oldBlur = await writeManagedFile(dataDir, 7, "front-old-blur.webp");
+
+    const pg = {
+      async query(sql) {
+        if (sql.includes("FROM categories")) {
+          return { rows: [{ id: 7, cover_path: "7/front-active.webp" }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    const summary = await cleanupOrphanMediaFiles({
+      dataDir,
+      graceMs: DAY_MS,
+      now: new Date("2026-08-06T00:00:00.000Z").getTime(),
+      pg,
+    });
+
+    expect(await exists(activeCover)).toBe(true);
+    expect(await exists(activeBlur)).toBe(true);
+    expect(await exists(oldCover)).toBe(false);
+    expect(await exists(oldBlur)).toBe(false);
+    expect(summary.deleted).toBe(2);
+  });
+
+  it("deletes abandoned media covers and blur companions inside an existing media folder", async () => {
+    const dataDir = await tempDataDir();
+    const mediaDir = join(dataDir, "7", "44");
+    await fs.mkdir(mediaDir, { recursive: true });
+    const oldCover = join(mediaDir, "cover-old.webp");
+    const oldBlur = join(mediaDir, "cover-old-blur.webp");
+    const activeCover = join(mediaDir, "cover-active.webp");
+    const activeBlur = join(mediaDir, "cover-active-blur.webp");
+    const oldDate = new Date("2026-08-04T00:00:00.000Z");
+
+    await fs.writeFile(oldCover, "old");
+    await fs.writeFile(oldBlur, "old-blur");
+    await fs.writeFile(activeCover, "active");
+    await fs.writeFile(activeBlur, "active-blur");
+    await fs.utimes(oldCover, oldDate, oldDate);
+    await fs.utimes(oldBlur, oldDate, oldDate);
+    await fs.utimes(activeCover, oldDate, oldDate);
+    await fs.utimes(activeBlur, oldDate, oldDate);
+
+    const pg = {
+      async query(sql) {
+        if (sql.includes("FROM media_assets")) {
+          return { rows: [{ id: 44, thumbnail_path: "7/44/cover-active.webp" }] };
+        }
+        if (sql.includes("FROM categories")) {
+          return { rows: [{ id: 7, cover_path: null }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    const summary = await cleanupOrphanMediaFiles({
+      dataDir,
+      graceMs: DAY_MS,
+      now: new Date("2026-08-06T00:00:00.000Z").getTime(),
+      pg,
+    });
+
+    expect(await exists(activeCover)).toBe(true);
+    expect(await exists(activeBlur)).toBe(true);
+    expect(await exists(oldCover)).toBe(false);
+    expect(await exists(oldBlur)).toBe(false);
+    expect(summary.deleted).toBe(2);
+  });
 });
 
 describe("orphan media cleanup config and scheduler", () => {

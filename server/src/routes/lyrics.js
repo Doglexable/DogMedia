@@ -197,4 +197,88 @@ export default async function lyricsRoutes(fastify) {
     if (rowCount === 0) return reply.code(404).send({ error: "Lyrics not found" });
     return reply.code(204).send();
   });
+
+  fastify.post("/media/:id/lyrics/translate", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+
+    const gasUrl = process.env.TRANSLATOR_GAS_URL;
+    const adminSecret = process.env.TRANSLATOR_ADMIN_SECRET || process.env.TRANSLATE_ADMIN_SECRET || "pfs_admin_secret_key_123";
+    if (!gasUrl) {
+      return reply.code(400).send({ error: "TRANSLATOR_GAS_URL is not configured" });
+    }
+
+    const { rows } = await fastify.pg.query(ACCESSIBLE_MEDIA_SQL, [request.accessTier, request.params.id]);
+    if (rows.length === 0) return sendMissingMedia(fastify, reply, request.params.id);
+
+    const existingLyrics = await resolveMediaLyrics(rows[0], {
+      pg: fastify.pg,
+      redis: fastify.redis,
+      log: request.log,
+    });
+    if (!existingLyrics || !Array.isArray(existingLyrics.segments) || existingLyrics.segments.length === 0) {
+      return reply.code(404).send({ error: "No lyrics available to translate" });
+    }
+
+    const targetLang = (request.body?.targetLang || "id").trim().toLowerCase();
+    let sourceLang = (existingLyrics.language || "").trim().toLowerCase();
+    const codeMap = { eng: "en", ind: "id", jpn: "ja", kor: "ko", spa: "es", fra: "fr", deu: "de", zho: "zh" };
+    if (codeMap[sourceLang]) sourceLang = codeMap[sourceLang];
+    if (sourceLang === targetLang || sourceLang === "und") {
+      sourceLang = "";
+    }
+
+    let gasResponse;
+    try {
+      gasResponse = await fetch(gasUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminSecret,
+          type: "lyrics",
+          targetLang,
+          sourceLang,
+          segments: existingLyrics.segments,
+        }),
+      });
+    } catch (fetchErr) {
+      return reply.code(502).send({ error: `Failed to connect to translator: ${fetchErr.message}` });
+    }
+
+    if (!gasResponse.ok) {
+      const errText = await gasResponse.text().catch(() => "");
+      return reply.code(502).send({ error: `Translation service failed: ${gasResponse.status} ${errText}` });
+    }
+
+    const gasResult = await gasResponse.json().catch(() => ({}));
+    if (!Array.isArray(gasResult.segments)) {
+      return reply.code(502).send({ error: gasResult.error || "Translation returned invalid format" });
+    }
+
+    const mergedSegments = existingLyrics.segments.map((originalSegment, idx) => {
+      const translatedSegment = gasResult.segments[idx];
+      return {
+        start: originalSegment.start,
+        end: originalSegment.end,
+        text: originalSegment.text,
+        translation: translatedSegment?.text || "",
+      };
+    });
+
+    const { rows: updatedRows } = await fastify.pg.query(
+      `INSERT INTO media_lyrics (
+         media_id, language, segments, source, updated_at
+       ) VALUES ($1, $2, $3::jsonb, 'translated', NOW())
+       ON CONFLICT (media_id) DO UPDATE
+       SET language = EXCLUDED.language,
+           segments = EXCLUDED.segments,
+           source = 'translated',
+           updated_at = NOW()
+       RETURNING media_id, language, segments, updated_at`,
+      [request.params.id, targetLang, JSON.stringify(mergedSegments)]
+    );
+
+    return serializeLyrics(updatedRows[0]);
+  });
 }

@@ -34,20 +34,23 @@ function LyricsCard({ backgroundColor, artworkFailed, cardRef, cardWidth, metada
   const cardHeight = cardWidth * 9 / 16;
   const lineSize = cardWidth * (selected.length >= 4 ? 0.036 : selected.length === 3 ? 0.044 : 0.052);
   const textColor = accessibleTextColor(backgroundColor);
+  const cardRadius = Math.round(cardWidth * 0.0625);
   return (
-    <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }} style={[styles.shareCard, { width: cardWidth, height: cardHeight, backgroundColor }]}>
-      <View style={styles.shareCardBrand}>
-        <Image source={require("../../assets/logo.png")} style={styles.shareCardBrandLogo} />
-        <Text style={[styles.shareCardBrandText, { color: textColor }]}>Dogmedia</Text>
-      </View>
-      <View style={styles.shareCardCopy}>
-        {selected.map((segment, index) => <Text key={`${segment.start}-${index}`} style={[styles.shareCardLine, { color: textColor, fontSize: lineSize, lineHeight: lineSize * 1.12 }]}>{segment.text}</Text>)}
-      </View>
-      <View style={[styles.shareCardFooter, { borderTopColor: textColor }]}>
-        {metadata.artworkUri && !artworkFailed
-          ? <Image source={protectedMediaSource(metadata.artworkUri)} onError={onArtworkError} style={styles.shareCardArtwork} />
-          : <View style={[styles.shareCardArtwork, styles.shareCardArtworkFallback, { backgroundColor: textColor === "#000000" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)" }]}><Ionicons name="reader" size={20} color={textColor} /></View>}
-        <View style={styles.shareCardMeta}><Text numberOfLines={1} style={[styles.shareCardTitle, { color: textColor }]}>{metadata.title}</Text><Text numberOfLines={1} style={[styles.shareCardArtist, { color: textColor }]}>{metadata.artists}</Text></View>
+    <ViewShot ref={cardRef} options={{ format: "png", quality: 1 }} style={{ backgroundColor: "transparent", width: cardWidth, height: cardHeight }}>
+      <View style={[styles.shareCard, { width: cardWidth, height: cardHeight, backgroundColor, borderRadius: cardRadius, overflow: "hidden" }]}>
+        <View style={styles.shareCardBrand}>
+          <Image source={require("../../assets/logo.png")} style={styles.shareCardBrandLogo} />
+          <Text style={[styles.shareCardBrandText, { color: textColor }]}>Dogmedia</Text>
+        </View>
+        <View style={styles.shareCardCopy}>
+          {selected.map((segment, index) => <Text key={`${segment.start}-${index}`} style={[styles.shareCardLine, { color: textColor, fontSize: lineSize, lineHeight: lineSize * 1.12 }]}>{segment.text}</Text>)}
+        </View>
+        <View style={[styles.shareCardFooter, { borderTopColor: textColor }]}>
+          {metadata.artworkUri && !artworkFailed
+            ? <Image source={protectedMediaSource(metadata.artworkUri)} onError={onArtworkError} style={styles.shareCardArtwork} />
+            : <View style={[styles.shareCardArtwork, styles.shareCardArtworkFallback, { backgroundColor: textColor === "#000000" ? "rgba(0,0,0,0.12)" : "rgba(255,255,255,0.14)" }]}><Ionicons name="reader" size={20} color={textColor} /></View>}
+          <View style={styles.shareCardMeta}><Text numberOfLines={1} style={[styles.shareCardTitle, { color: textColor }]}>{metadata.title}</Text><Text numberOfLines={1} style={[styles.shareCardArtist, { color: textColor }]}>{metadata.artists}</Text></View>
+        </View>
       </View>
     </ViewShot>
   );
@@ -342,6 +345,9 @@ export function LyricsView({ artworkUri = null, contentContainerStyle, listCompo
             style={styles.lineButton}
           >
             <Text style={[styles.line, segment.instrumental && styles.instrumentalLine, active && styles.activeLine, active && segment.instrumental && styles.activeInstrumentalLine, distance > 1 && styles.dimLine]}>{segment.text}</Text>
+            {Boolean(segment.translation) && (
+              <Text style={[styles.translationLine, active && styles.activeTranslationLine, distance > 1 && styles.dimLine]}>{segment.translation}</Text>
+            )}
           </Pressable>;
         }}
         showsVerticalScrollIndicator={false}
@@ -384,6 +390,19 @@ const makeStyles = (colors) => StyleSheet.create({
     fontSize: 34,
     lineHeight: 39,
     fontWeight: "900",
+  },
+  translationLine: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  activeTranslationLine: {
+    color: alpha(colors.text, 0.85),
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "700",
   },
   instrumentalLine: {
     fontSize: 20,
@@ -451,7 +470,7 @@ const makeStyles = (colors) => StyleSheet.create({
   sharePaletteLabel: { color: colors.muted, fontSize: 11, fontWeight: "800" },
   sharePaletteOptions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.sm },
   sharePaletteSwatch: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
-  shareCard: { overflow: "hidden", padding: 12, backgroundColor: "#11131c" },
+  shareCard: { overflow: "hidden", padding: 12, borderRadius: 24, backgroundColor: "#11131c" },
   shareCardBrand: { position: "relative", flexDirection: "row", alignItems: "center", gap: 8 },
   shareCardBrandLogo: { width: 18, height: 18, borderRadius: 4 },
   shareCardBrandMark: { width: 25, height: 25, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.45)", borderRadius: 13 },

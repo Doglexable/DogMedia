@@ -4,10 +4,6 @@ import multipart from "@fastify/multipart";
 import postgres from "@fastify/postgres";
 import websocket from "@fastify/websocket";
 import { join } from "path";
-import { createRequire } from "module";
-
-const _require = createRequire(import.meta.url);
-const SERVER_VERSION = _require("../package.json").version || "0.7.6";
 
 import redisPlugin from "./plugins/redis.js";
 import authPlugin from "./plugins/auth.js";
@@ -56,7 +52,7 @@ await app.register(cors, {
   },
   credentials: true,
   allowedHeaders: ["Accept", "Content-Type", "Range", "If-Range", "X-Playback-Session", "X-Playback-Client-ID", "X-Viewer-ID", "X-Client-Platform", "X-Client-Name", "Authorization"],
-  exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range", "X-App-Version"],
+  exposedHeaders: ["X-Media-Quality", "X-File-Version", "Content-Range"],
 });
 await app.register(websocket, { options: { maxPayload: 8192 } });
 await app.register(multipart, {
@@ -86,7 +82,6 @@ app.pg.query = async (...args) => {
 
 const slowRequestMs = Number.parseInt(process.env.SLOW_REQUEST_MS || "250", 10);
 app.addHook("onSend", async (_request, reply) => {
-  reply.header("X-App-Version", SERVER_VERSION);
   reply.header("X-Frame-Options", "DENY");
   reply.header("X-Content-Type-Options", "nosniff");
 });
@@ -138,7 +133,7 @@ startIncompleteUploadCleanupScheduler({
 await app.register(publicLikedMusicRoutes, { prefix: "/api/public" });
 await app.register(publicMusicShareRoutes, { prefix: "/api/public" });
 await app.register(profilePicturesRoutes, { prefix: "/api/profile-pictures", dataDir: DATA_DIR });
-await app.register(contentSignalsRoutes, { version: SERVER_VERSION });
+await app.register(contentSignalsRoutes);
 await app.register(async function (instance) {
   await authPlugin(instance, { allowedOrigins: ALLOWED_ORIGINS });
   await instance.register(checkAccessRoutes);

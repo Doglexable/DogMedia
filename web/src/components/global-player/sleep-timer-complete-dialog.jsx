@@ -30,9 +30,9 @@ export function SleepTimerCompleteDialog({ canResume, mediaTitle, onDismiss, onR
       >
         <div className="sleep-timer-complete-icon" aria-hidden="true">☾</div>
         <span className="sleep-timer-complete-kicker">Sleep timer</span>
-        <h2 id="sleep-timer-complete-title">Playback paused</h2>
+        <h2 id="sleep-timer-complete-title">Sleep timer finished!</h2>
         <p id="sleep-timer-complete-description">
-          {mediaTitle ? `${mediaTitle} is still ready at the same position.` : "Your media is still ready at the same position."}
+          Playback paused. {mediaTitle ? `${mediaTitle} is still ready at the same position.` : "Your media is still ready at the same position."}
         </p>
         <div className="sleep-timer-complete-actions">
           <button ref={dismissRef} type="button" className="sleep-timer-complete-button" onClick={onDismiss}>

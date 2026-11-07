@@ -12,7 +12,8 @@ describe("SharedMusic React Bits components", () => {
   it("renders header with Dogmedia logo, brand title, and Private Stream badge", () => {
     const markup = renderToString(<SharedMusicHeader />);
 
-    expect(markup).toContain('src="/web-app-manifest-192x192.png"');
+    expect(markup).toContain("shared-music-brand-lockup");
+    expect(markup).toContain("dm-new-logo-play");
     expect(markup).toContain("Dogmedia");
     expect(markup).toContain("Private Stream");
     expect(markup).not.toContain("magnet-wrapper");

@@ -16,6 +16,8 @@ describe("PlaylistCompleteDialog", () => {
     );
 
     expect(markup).toContain("Playlist complete");
+    expect(markup).toContain("Next playlist: Season Two!");
+    expect(markup).toContain("Keep it going?");
     expect(markup).toContain("Nothing has been added to your queue");
     expect(markup).toContain("Next folder · Season Two");
     expect(markup).toContain("The Return");

@@ -23,7 +23,8 @@ describe("SiteFooter", () => {
 
   it("renders brand logo, name, and core philosophy statements", () => {
     const markup = renderFooter();
-    expect(markup).toContain("/web-app-manifest-192x192.png");
+    expect(markup).toContain("site-footer-brand-lockup");
+    expect(markup).toContain("dm-new-logo-play");
     expect(markup).toContain("Dogmedia");
     expect(markup).toContain("Koleksimu, ceritamu, ritmemu sendiri.");
     expect(markup).toContain("Your media. Your space. Your story. Your rhythm.");
@@ -68,12 +69,10 @@ describe("SiteFooter", () => {
     expect(markup).toContain("DOGMEDIA");
   });
 
-  it("renders fine print with dynamic current year copyright and version tag", () => {
+  it("renders fine print with dynamic current year copyright", () => {
     const currentYear = new Date().getFullYear();
     const markup = renderFooter();
     expect(markup).toContain(`© ${currentYear} Dogmedia. All rights reserved.`);
-    expect(markup).toContain("site-footer-version-tag");
-    expect(markup).toContain("Web v0.7.6");
   });
 
   it("shows Admin Console link when access tier is >= 100 and hides it for standard users", () => {

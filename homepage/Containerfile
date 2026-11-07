@@ -1,6 +1,14 @@
-FROM nginx:stable-alpine
+FROM alpine:3.21
+RUN apk add --no-cache nginx nginx-mod-http-headers-more
+COPY homepage/nginx-main.conf /etc/nginx/nginx.conf
 COPY homepage/nginx.conf /etc/nginx/conf.d/default.conf
-COPY homepage/index.html homepage/styles.css homepage/player.js /usr/share/nginx/html/
-COPY web/public/favicon.svg /usr/share/nginx/html/favicon.svg
+COPY homepage/error.html /usr/share/nginx/html/error.html
+COPY homepage/index.html homepage/styles.css homepage/player.js homepage/theme-init.js homepage/error.css /usr/share/nginx/html/
+COPY homepage/assets/ /usr/share/nginx/html/assets/
+COPY homepage/dogmedia-mark* /usr/share/nginx/html/
+COPY homepage/pwa-screenshot.png /usr/share/nginx/html/
+COPY homepage/site.webmanifest /usr/share/nginx/html/
+COPY homepage/favicon.svg /usr/share/nginx/html/favicon.svg
 COPY homepage/web-app-manifest-192x192.png /usr/share/nginx/html/web-app-manifest-192x192.png
 EXPOSE 8040
+CMD ["nginx", "-g", "daemon off;"]

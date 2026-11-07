@@ -5,31 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#101116" />
     <meta name="description" content="Kenali Dogmedia lewat demo player musik yang berjalan langsung di browser." />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <script>
-      (function () {
-        var mode = localStorage.getItem("theme") || "system";
-        if (["system", "light", "dark"].indexOf(mode) === -1) mode = "system";
-        var resolved = mode === "system"
-          ? (matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light")
-          : mode;
-        document.documentElement.dataset.theme = resolved;
-        document.documentElement.dataset.themeMode = mode;
-      })();
-    </script>
-    <link rel="stylesheet" href="/styles.css?v=6" />
+    <link rel="icon" type="image/png" href="/dogmedia-mark-96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/dogmedia-mark.svg" />
+    <link rel="shortcut icon" href="/dogmedia-mark.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/dogmedia-mark-180.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/styles.css?v=7" />
     <title>Dogmedia — ruang untuk musikmu</title>
-    <script src="/player.js?v=6" defer></script>
+    <script src="/player.js?v=7" defer></script>
   </head>
   <body>
     <div class="page-shell">
       <header class="site-header">
         <a class="brand" href="/" aria-label="Dogmedia, kembali ke awal">
-          <img src="/favicon.svg" alt="" width="34" height="34" />
-          <span>dogmedia<span class="brand-period">.</span></span>
+          <span class="dm-new-logo" role="img" aria-label="Dogmedia">
+            <span class="dm-new-logo-symbol" aria-hidden="true">
+              <span class="dm-new-logo-curve dm-new-logo-curve--inner"></span>
+              <span class="dm-new-logo-curve dm-new-logo-curve--outer"></span>
+              <span class="dm-new-logo-play"></span>
+            </span>
+            <span class="dm-new-logo-word">dogmedia<span class="dm-new-logo-period">.</span></span>
+          </span>
         </a>
         <nav class="header-nav" aria-label="Navigasi utama">
           <a href="#player">Demo player</a>
+          <a href="#preview">Pratinjau</a>
           <a href="#about">Tentang</a>
           <button type="button" class="nav-button" id="open-privacy-btn">Privasi & Data</button>
         </nav>
@@ -105,6 +106,217 @@
           </div>
         </section>
 
+        <section class="preview-section" id="preview" aria-labelledby="preview-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">DOGMEDIA / STUDIO INTERFACE <span>•</span> 05 PANELS</p>
+              <h2 id="preview-title">Ruang musik yang bersih,<br /><em>setiap sudut memiliki tujuannya.</em></h2>
+            </div>
+            <div class="preview-header-counter">
+              <span class="live-dot"></span>
+              <span id="preview-badge-count">PANEL 01 / 05</span>
+            </div>
+          </div>
+
+          <div class="preview-studio-layout">
+            <!-- Left: Chapter Deck (Master Rail) -->
+            <div class="preview-chapter-deck" role="tablist" aria-label="Pilih panel antarmuka Dogmedia">
+              <div class="preview-deck-header">
+                <span>NAVIGASI PANEL</span>
+                <span class="preview-deck-hint">PILIH ATAU TEKAN 1–5</span>
+              </div>
+
+              <!-- Chapter 0 -->
+              <button type="button" role="tab" class="preview-chapter-card is-active" data-index="0" id="preview-tab-0" aria-selected="true" aria-controls="preview-monitor">
+                <div class="preview-chapter-row">
+                  <span class="preview-chapter-num">01</span>
+                  <span class="preview-chapter-badge">BERANDA &amp; SPOTLIGHT</span>
+                  <span class="preview-chapter-indicator" aria-hidden="true"></span>
+                </div>
+                <h3 class="preview-chapter-name">Library &amp; Dashboard</h3>
+                <p class="preview-chapter-summary">Pusat eksplorasi media dengan kategori folder dinamis, album spotlight featured artis, serta jejak riwayat putar cepat.</p>
+                <div class="preview-chapter-tags">
+                  <span class="preview-tag">Spotlight Album</span>
+                  <span class="preview-tag">MRU Memory</span>
+                  <span class="preview-tag">Multi-Format</span>
+                </div>
+              </button>
+
+              <!-- Chapter 1 -->
+              <button type="button" role="tab" class="preview-chapter-card" data-index="1" id="preview-tab-1" aria-selected="false" aria-controls="preview-monitor">
+                <div class="preview-chapter-row">
+                  <span class="preview-chapter-num">02</span>
+                  <span class="preview-chapter-badge">BROWSE &amp; PLAYBACK BAR</span>
+                  <span class="preview-chapter-indicator" aria-hidden="true"></span>
+                </div>
+                <h3 class="preview-chapter-name">Koleksi &amp; Mini Player Bar</h3>
+                <p class="preview-chapter-summary">Direktori file audio &amp; video instan dengan player bar bawah persisten yang siap dikontrol tanpa meninggalkan alur eksplorasi.</p>
+                <div class="preview-chapter-tags">
+                  <span class="preview-tag">Sticky Player</span>
+                  <span class="preview-tag">Pencarian Cepat</span>
+                  <span class="preview-tag">Waveform Seek</span>
+                </div>
+              </button>
+
+              <!-- Chapter 2 -->
+              <button type="button" role="tab" class="preview-chapter-card" data-index="2" id="preview-tab-2" aria-selected="false" aria-controls="preview-monitor">
+                <div class="preview-chapter-row">
+                  <span class="preview-chapter-num">03</span>
+                  <span class="preview-chapter-badge">IMMERSIVE &amp; SYNCED LYRICS</span>
+                  <span class="preview-chapter-indicator" aria-hidden="true"></span>
+                </div>
+                <h3 class="preview-chapter-name">Full Player &amp; Lirik Realtime</h3>
+                <p class="preview-chapter-summary">Mode pemutar layar penuh dengan pendaran ambient cover album yang adaptif serta penyorotan lirik kata demi kata berbasis LRC waktu-nyata.</p>
+                <div class="preview-chapter-tags">
+                  <span class="preview-tag">Lirik Sinkron</span>
+                  <span class="preview-tag">Ambient Halo</span>
+                  <span class="preview-tag">10-Band EQ</span>
+                </div>
+              </button>
+
+              <!-- Chapter 3 -->
+              <button type="button" role="tab" class="preview-chapter-card" data-index="3" id="preview-tab-3" aria-selected="false" aria-controls="preview-monitor">
+                <div class="preview-chapter-row">
+                  <span class="preview-chapter-num">04</span>
+                  <span class="preview-chapter-badge">CREATIVE CARDS &amp; SHARE</span>
+                  <span class="preview-chapter-indicator" aria-hidden="true"></span>
+                </div>
+                <h3 class="preview-chapter-name">Pembuat Kartu Lirik Visual</h3>
+                <p class="preview-chapter-summary">Pilih bait lirik berkesan, tentukan palet warna suasana yang diekstraksi otomatis dari artwork lagu, dan ekspor kartu visual siap simpan.</p>
+                <div class="preview-chapter-tags">
+                  <span class="preview-tag">Palette Extractor</span>
+                  <span class="preview-tag">Format Ekspor</span>
+                  <span class="preview-tag">Nol Watermark</span>
+                </div>
+              </button>
+
+              <!-- Chapter 4 -->
+              <button type="button" role="tab" class="preview-chapter-card" data-index="4" id="preview-tab-4" aria-selected="false" aria-controls="preview-monitor">
+                <div class="preview-chapter-row">
+                  <span class="preview-chapter-num">05</span>
+                  <span class="preview-chapter-badge">QUEUE &amp; PLAYLIST MANAGER</span>
+                  <span class="preview-chapter-indicator" aria-hidden="true"></span>
+                </div>
+                <h3 class="preview-chapter-name">Panel Antrean Interaktif</h3>
+                <p class="preview-chapter-summary">Panel antrean slide-over geser kanan yang intuitif: atur urutan lagu berikutnya, hapus atau sisipkan track secara mulus tanpa jeda audio.</p>
+                <div class="preview-chapter-tags">
+                  <span class="preview-tag">Slide-Over Queue</span>
+                  <span class="preview-tag">Atomic Reorder</span>
+                  <span class="preview-tag">Gapless Audio</span>
+                </div>
+              </button>
+            </div>
+
+            <!-- Right: The Cinema Monitor Display -->
+            <div class="preview-monitor-stage" id="preview-monitor" role="tabpanel" aria-labelledby="preview-tab-0">
+              <!-- Ambient Underglow -->
+              <div class="preview-ambient-glow" aria-hidden="true"></div>
+
+              <!-- Studio Bezel Frame -->
+              <div class="preview-screen-bezel">
+                <!-- Bezel Top Bar -->
+                <div class="preview-bezel-topbar">
+                  <div class="preview-bezel-left">
+                    <span class="preview-bezel-led" aria-hidden="true"></span>
+                    <span class="preview-bezel-label">DOGMEDIA STUDIO CLIENT</span>
+                  </div>
+                  <div class="preview-bezel-center">
+                    <span id="preview-bezel-coord" class="preview-bezel-coord">PANEL 01 // LIBRARY_DASHBOARD</span>
+                  </div>
+                  <div class="preview-bezel-controls">
+                    <button type="button" class="preview-control-arrow" id="preview-prev" aria-label="Panel sebelumnya" title="Sebelumnya (←)">
+                      ‹
+                    </button>
+                    <button type="button" class="preview-control-arrow" id="preview-next" aria-label="Panel berikutnya" title="Berikutnya (→)">
+                      ›
+                    </button>
+                    <button type="button" class="preview-control-zoom" id="preview-zoom" aria-label="Buka pratinjau resolusi penuh" title="Perbesar ke layar penuh">
+                      <svg viewBox="0 0 512 512" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0s208 93.1 208 208zM208 352a144 144 0 1 0 0-288 144 144 0 1 0 0 288zm16-208h48c8.8 0 16 7.2 16 16s-7.2 16-16 16H224v48c0 8.8-7.2 16-16 16s-16-7.2-16-16V176H144c-8.8 0-16-7.2-16-16s7.2-16 16-16h48V96c0-8.8 7.2-16 16-16s16 7.2 16 16v48z"/></svg>
+                      <span>Perbesar</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Bezel Main Viewport -->
+                <div class="preview-screen-viewport" id="preview-stage" role="button" tabindex="0" title="Klik untuk membuka layar penuh (Resolusi 1920×966)">
+                  <div class="preview-sheen" aria-hidden="true"></div>
+                  <!-- Blur-up low-resolution placeholder -->
+                  <img
+                    id="preview-img-blur"
+                    class="preview-screen-blur-layer"
+                    src="/assets/img/preview-dogmedia/01-blur.webp"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                  <!-- Main high-resolution image with progressive blur reveal -->
+                  <img
+                    id="preview-img"
+                    class="preview-screen-img is-loading"
+                    src="/assets/img/preview-dogmedia/01.webp"
+                    alt="Pratinjau antarmuka Dogmedia Library &amp; Dashboard"
+                    width="1920"
+                    height="966"
+                    loading="eager"
+                  />
+                  <!-- Status telemetry when loading high-res -->
+                  <div class="preview-screen-loader" id="preview-screen-loader" aria-hidden="true">
+                    <span class="preview-loader-pulse"></span>
+                    <span class="preview-loader-text">MEMUAT RESOLUSI PENUH</span>
+                  </div>
+
+                  <!-- Floating Feature Callout Overlay -->
+                  <div class="preview-screen-badge-overlay">
+                    <span class="preview-screen-badge" id="preview-screen-badge">
+                      <span class="live-dot"></span>
+                      <span id="preview-screen-badge-text">BERANDA &amp; SPOTLIGHT</span>
+                    </span>
+                    <span class="preview-screen-hint">
+                      <svg viewBox="0 0 512 512" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0s208 93.1 208 208zM208 352a144 144 0 1 0 0-288 144 144 0 1 0 0 288zm16-208h48c8.8 0 16 7.2 16 16s-7.2 16-16 16H224v48c0 8.8-7.2 16-16 16s-16-7.2-16-16V176H144c-8.8 0-16-7.2-16-16s7.2-16 16-16h48V96c0-8.8 7.2-16 16-16s16 7.2 16 16v48z"/></svg>
+                      Klik untuk perbesar
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Bezel Bottom Bar -->
+                <div class="preview-bezel-bottombar">
+                  <div class="preview-bezel-telemetry">
+                    <span class="preview-bezel-chip">100% PRIVATE ARCHITECTURE</span>
+                    <span class="preview-bezel-chip">HIGH-RESOLUTION RETINA 2X</span>
+                  </div>
+                  <div class="preview-bezel-nav-hint">
+                    <span>Gunakan keyboard</span>
+                    <span class="preview-kbd-pair"><kbd>←</kbd><kbd>→</kbd></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick Micro-Thumb Scrubber Strip -->
+              <div class="preview-scrubber" role="group" aria-label="Scrubber panel pratinjau">
+                <button type="button" class="preview-scrub-item is-active" data-index="0" aria-label="Pilih panel 1: Library & Dashboard">
+                  <span class="preview-scrub-bar"></span>
+                  <span class="preview-scrub-label">01. Dashboard</span>
+                </button>
+                <button type="button" class="preview-scrub-item" data-index="1" aria-label="Pilih panel 2: Koleksi & Mini Bar">
+                  <span class="preview-scrub-bar"></span>
+                  <span class="preview-scrub-label">02. Koleksi</span>
+                </button>
+                <button type="button" class="preview-scrub-item" data-index="2" aria-label="Pilih panel 3: Full Player & Lirik">
+                  <span class="preview-scrub-bar"></span>
+                  <span class="preview-scrub-label">03. Full Player</span>
+                </button>
+                <button type="button" class="preview-scrub-item" data-index="3" aria-label="Pilih panel 4: Kartu Lirik Visual">
+                  <span class="preview-scrub-bar"></span>
+                  <span class="preview-scrub-label">04. Kartu Lirik</span>
+                </button>
+                <button type="button" class="preview-scrub-item" data-index="4" aria-label="Pilih panel 5: Antrean Interaktif">
+                  <span class="preview-scrub-bar"></span>
+                  <span class="preview-scrub-label">05. Antrean</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="about-section" id="about" aria-labelledby="about-title">
           <div class="about-header">
             <p class="eyebrow">DOGMEDIA / THE ARCHITECTURE</p>
@@ -146,13 +358,13 @@
                 Demo player pada halaman ini disintesis seketika menggunakan Web Audio API lokal. Nol unduhan stream ke server, responsif, dan hemat daya.
               </p>
               <div class="bento-wave-preview" aria-hidden="true">
-                <span style="--h: 32%"></span>
-                <span style="--h: 68%"></span>
-                <span style="--h: 100%"></span>
-                <span style="--h: 74%"></span>
-                <span style="--h: 42%"></span>
-                <span style="--h: 88%"></span>
-                <span style="--h: 56%"></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
               </div>
             </div>
 
@@ -194,15 +406,15 @@
           <nav class="site-footer-sitemap" aria-label="Footer sitemap">
             <!-- Brand Column -->
             <div class="site-footer-brand-col">
-              <a href="/" class="site-footer-brand-header">
-                <img
-                  src="/web-app-manifest-192x192.png"
-                  alt="Dogmedia"
-                  class="site-footer-brand-logo"
-                  width="38"
-                  height="38"
-                />
-                <span class="site-footer-brand-title">Dogmedia</span>
+              <a href="/" class="site-footer-brand-header" aria-label="Dogmedia home">
+                <span class="dm-new-logo site-footer-brand-lockup" role="img" aria-label="Dogmedia">
+                  <span class="dm-new-logo-symbol" aria-hidden="true">
+                    <span class="dm-new-logo-curve dm-new-logo-curve--inner"></span>
+                    <span class="dm-new-logo-curve dm-new-logo-curve--outer"></span>
+                    <span class="dm-new-logo-play"></span>
+                  </span>
+                  <span class="dm-new-logo-word">dogmedia<span class="dm-new-logo-period">.</span></span>
+                </span>
               </a>
 
               <p class="site-footer-brand-tagline">
@@ -487,13 +699,13 @@
 
           <div class="site-footer-bar">
             <a href="/" class="site-footer-bar-brand" aria-label="Dogmedia home">
-              <img
-                src="/web-app-manifest-192x192.png"
-                alt=""
-                width="22"
-                height="22"
-                aria-hidden="true"
-              />
+              <span class="dm-new-logo site-footer-bar-mark" aria-hidden="true">
+                <span class="dm-new-logo-symbol" aria-hidden="true">
+                  <span class="dm-new-logo-curve dm-new-logo-curve--inner"></span>
+                  <span class="dm-new-logo-curve dm-new-logo-curve--outer"></span>
+                  <span class="dm-new-logo-play"></span>
+                </span>
+              </span>
               <span>Dogmedia</span>
             </a>
 
@@ -540,9 +752,6 @@
           <div class="site-footer-fine-print">
             <div class="site-footer-fine-print-left">
               <span id="footer-copyright">© 2026 Dogmedia. All rights reserved.</span>
-              <span class="site-footer-version-tag" title="Dogmedia Web v0.7.6">
-                Web v0.7.6
-              </span>
             </div>
             <span class="site-footer-fine-print-statement">
               Your media. Your space. Your story. Your rhythm.
@@ -764,6 +973,47 @@
           <div class="modal-footer">
             <span class="modal-footer-note">🔒 Privasi terproteksi · Tidak ada penjualan data atau integrasi pihak ketiga.</span>
             <button type="button" class="modal-primary-btn" id="modal-confirm-btn">Tutup</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lightbox Zoom Modal for Preview Tour -->
+      <div id="preview-lightbox" class="preview-lightbox" role="dialog" aria-modal="true" aria-label="Tangkapan layar Dogmedia resolusi penuh" hidden>
+        <div class="preview-lightbox-backdrop" id="preview-lightbox-backdrop"></div>
+        <div class="preview-lightbox-dialog">
+          <div class="preview-lightbox-header">
+            <div class="preview-lightbox-info">
+              <span class="preview-lightbox-badge" id="preview-lightbox-badge">BERANDA &amp; SPOTLIGHT</span>
+              <span class="preview-lightbox-title" id="preview-lightbox-title">Library &amp; Dashboard</span>
+            </div>
+            <div class="preview-lightbox-actions">
+              <span class="preview-lightbox-counter" id="preview-lightbox-counter">01 / 05</span>
+              <button type="button" class="preview-lightbox-nav" id="preview-lightbox-prev" aria-label="Pratinjau sebelumnya" title="Sebelumnya (←)">‹</button>
+              <button type="button" class="preview-lightbox-nav" id="preview-lightbox-next" aria-label="Pratinjau berikutnya" title="Berikutnya (→)">›</button>
+              <button type="button" class="preview-lightbox-close" id="preview-lightbox-close" aria-label="Tutup pratinjau perbesar" title="Tutup (Esc)">
+                <svg viewBox="0 0 384 512" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M342.6 150.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L192 210.7 86.6 105.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L146.7 256 41.4 361.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L192 301.3 297.4 406.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L237.3 256 342.6 150.6z"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="preview-lightbox-body" id="preview-lightbox-body">
+            <button type="button" class="preview-lightbox-float-arrow preview-lightbox-float-arrow--prev" id="preview-float-prev" aria-label="Sebelumnya">‹</button>
+            <img
+              id="preview-lightbox-blur"
+              class="preview-lightbox-blur-layer"
+              src="/assets/img/preview-dogmedia/01-blur.webp"
+              alt=""
+              aria-hidden="true"
+            />
+            <img
+              id="preview-lightbox-img"
+              class="preview-lightbox-img is-loading"
+              src="/assets/img/preview-dogmedia/01.webp"
+              alt="Tangkapan layar Dogmedia ukuran penuh"
+            />
+            <div class="preview-lightbox-loader" id="preview-lightbox-loader" aria-hidden="true">
+              <span class="preview-loader-pulse"></span>
+            </div>
+            <button type="button" class="preview-lightbox-float-arrow preview-lightbox-float-arrow--next" id="preview-float-next" aria-label="Berikutnya">›</button>
           </div>
         </div>
       </div>

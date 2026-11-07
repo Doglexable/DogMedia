@@ -1,14 +1,14 @@
 const CACHE_PREFIX = "dogmedia-static-";
 const CACHE_VERSION = "%APP_VERSION%";
-const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION.startsWith("%") ? "v0.7.6" : CACHE_VERSION}`;
+const CACHE_NAME = `${CACHE_PREFIX}${CACHE_VERSION.startsWith("%") ? "v0.7.6" : CACHE_VERSION}-new-brand`;
 const APP_SHELL = [
   "/site.webmanifest",
-  "/favicon.ico",
-  "/favicon.svg",
-  "/favicon-96x96.png",
-  "/apple-touch-icon.png",
-  "/web-app-manifest-192x192.png",
-  "/web-app-manifest-512x512.png",
+  "/dogmedia-mark.ico",
+  "/dogmedia-mark.svg",
+  "/dogmedia-mark-96.png",
+  "/dogmedia-mark-180.png",
+  "/dogmedia-mark-192.png",
+  "/dogmedia-mark-512.png",
 ];
 
 async function precacheAppShell() {

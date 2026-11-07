@@ -37,9 +37,9 @@ export function PlaylistCompleteDialog({ suggestion, onDismiss, onPlay }) {
         aria-describedby="playlist-complete-description"
       >
         <span className="sleep-timer-complete-kicker">Playlist complete</span>
-        <h2 id="playlist-complete-title">Keep it going?</h2>
+        <h2 id="playlist-complete-title">Next playlist: {category.name}!</h2>
         <p id="playlist-complete-description">
-          Here is another folder alongside the one you just finished. Nothing has been added to your queue.
+          Keep it going? “{media.title}” will play first. Nothing has been added to your queue.
         </p>
 
         <div className="playlist-complete-handoff">

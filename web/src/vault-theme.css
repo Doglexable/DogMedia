@@ -125,12 +125,7 @@ textarea {
   border-bottom: 1px solid var(--card-border);
 }
 
-.global-sidebar-brand-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  filter: none;
-}
+.global-sidebar-brand-logo { --dm-logo-size: 24px; }
 
 .global-sidebar-brand strong {
   font-size: 0.88rem;

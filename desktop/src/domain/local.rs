@@ -151,6 +151,7 @@ pub fn parse_lrc_segments(content: &str) -> Vec<LyricSegment> {
                 start: *start,
                 end,
                 text: text.clone(),
+                translation: None,
             });
         }
         segments
@@ -161,6 +162,7 @@ pub fn parse_lrc_segments(content: &str) -> Vec<LyricSegment> {
                 start: 0.0,
                 end: None,
                 text,
+                translation: None,
             })
             .collect()
     }

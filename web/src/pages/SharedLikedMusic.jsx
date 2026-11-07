@@ -4,6 +4,7 @@ import { faBookmark } from "@fortawesome/free-solid-svg-icons/faBookmark";
 import { faMusic } from "@fortawesome/free-solid-svg-icons/faMusic";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { NewLogoMark } from "../components/new-logo-mark";
 
 export default function SharedLikedMusic() {
   const { token } = useParams();
@@ -22,7 +23,9 @@ export default function SharedLikedMusic() {
   return (
     <main className="premium-app-shell vault-public-page min-h-screen px-4 py-10 text-content sm:px-6 sm:py-16">
       <div className="mx-auto w-full max-w-2xl">
-        <Link to="/" className="text-sm font-bold text-primary no-underline transition-opacity hover:opacity-75">Dogmedia</Link>
+        <Link to="/" className="inline-flex no-underline transition-opacity hover:opacity-75" aria-label="Dogmedia home">
+          <NewLogoMark className="[--dm-logo-size:24px]" decorative />
+        </Link>
         <section className="glass-surface vault-public-card mt-6 overflow-hidden">
           <header className="border-b border-card-border p-6 sm:p-8">
             <div className="vault-public-mark flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-xl text-white shadow-lg shadow-black/20">

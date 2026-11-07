@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "../../api";
 
 const modalStyles = {
   overlay: {
@@ -157,6 +158,9 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
   const [minAccessTier, setMinAccessTier] = useState("0");
   const [applyToChildren, setApplyToChildren] = useState(false);
   const [coverFile, setCoverFile] = useState(null);
+  const [translateLang, setTranslateLang] = useState("id");
+  const [translating, setTranslating] = useState(false);
+  const [translateNotice, setTranslateNotice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -188,6 +192,9 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
 
     setCoverFile(null);
     setApplyToChildren(false);
+    setTranslateLang("id");
+    setTranslating(false);
+    setTranslateNotice(null);
     setError(null);
     setSaving(false);
   }, [category, categories, isEditing, isOpen]);
@@ -200,6 +207,32 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose, saving]);
+
+  const handleCategoryTranslate = async () => {
+    if (!category?.id || translating) return;
+    setTranslating(true);
+    setTranslateNotice(null);
+    try {
+      const res = await api(`/api/categories/${category.id}/translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetLang: translateLang }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal menerjemahkan");
+      }
+      const langName = translateLang === "id" ? "Bahasa Indonesia" : translateLang.toUpperCase();
+      setTranslateNotice({
+        type: "success",
+        text: `Berhasil menerjemahkan ${data.count || 0} dari ${data.total || 0} item ke ${langName}!`,
+      });
+    } catch (err) {
+      setTranslateNotice({ type: "error", text: err.message || "Gagal menerjemahkan" });
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -359,6 +392,57 @@ export default function CategoryEditModal({ isOpen, category = null, categories 
               />
               <p style={modalStyles.helpText}>Optionally attach artwork for this folder.</p>
             </div>
+
+            {isEditing && (
+              <div style={modalStyles.fieldGroup}>
+                <label style={modalStyles.label}>
+                  Terjemahkan Lirik & Subtitle di Folder Ini
+                </label>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                  <select
+                    value={translateLang}
+                    onChange={(e) => setTranslateLang(e.target.value)}
+                    style={{ ...modalStyles.select, width: "auto", minWidth: 200, flex: "1 1 200px" }}
+                    disabled={translating || saving}
+                  >
+                    <option value="id">Bahasa Indonesia (Default)</option>
+                    <option value="en">English</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleCategoryTranslate}
+                    disabled={translating || saving}
+                    style={{
+                      ...modalStyles.button("secondary", translating || saving),
+                      padding: "10px 16px",
+                      fontWeight: 700,
+                      cursor: translating || saving ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {translating ? "Menerjemahkan..." : "Terjemahkan Semua"}
+                  </button>
+                </div>
+                {translateNotice && (
+                  <p
+                    style={{
+                      ...modalStyles.helpText,
+                      color: translateNotice.type === "error" ? "var(--danger)" : "var(--signal)",
+                      fontWeight: 700,
+                      marginTop: 8,
+                    }}
+                  >
+                    {translateNotice.text}
+                  </p>
+                )}
+                <p style={modalStyles.helpText}>
+                  Menerjemahkan otomatis semua lirik lagu atau subtitle di folder "{category?.name}" ke bahasa terpilih (default: Bahasa Indonesia).
+                </p>
+              </div>
+            )}
 
             <div style={modalStyles.actions}>
               <button

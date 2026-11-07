@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "Dogmedia",
+  "short_name": "Dogmedia",
+  "description": "A private media library for streaming music, videos, and photos.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/dogmedia-mark-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/dogmedia-mark-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/pwa-screenshot.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dogmedia private media library"
+    }
+  ],
+  "categories": ["entertainment", "music", "photo", "video"],
+  "theme_color": "#e11d48",
+  "background_color": "#f4f4f7",
+  "prefer_related_applications": false
+}

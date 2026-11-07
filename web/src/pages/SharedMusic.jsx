@@ -10,6 +10,7 @@ import { api, apiUrl } from "../api";
 import Squares from "../components/Squares";
 import ShinyText from "../components/ShinyText";
 import SplitText from "../components/SplitText";
+import { NewLogoMark } from "../components/new-logo-mark";
 import "./SharedMusic.css";
 
 const PROCESSING = new Set(["queued", "processing"]);
@@ -18,15 +19,7 @@ export function SharedMusicHeader() {
   return (
     <header className="shared-music-header">
       <a className="shared-music-brand" href="/" aria-label="Dogmedia Home">
-        <img
-          src="/web-app-manifest-192x192.png"
-          alt=""
-          className="shared-music-brand-icon"
-          width="26"
-          height="26"
-          aria-hidden="true"
-        />
-        <span className="shared-music-brand-title">Dogmedia</span>
+        <NewLogoMark className="shared-music-brand-lockup" decorative />
       </a>
       <div className="shared-music-privacy-badge">
         <FontAwesomeIcon icon={faShieldHalved} />

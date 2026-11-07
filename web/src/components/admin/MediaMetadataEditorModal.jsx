@@ -223,6 +223,9 @@ export default function MediaMetadataEditorModal({
   const [artwork, setArtwork] = useState(null);
   const [artworkPreview, setArtworkPreview] = useState("");
   const [lyrics, setLyrics] = useState(null);
+  const [targetLang, setTargetLang] = useState("id");
+  const [translating, setTranslating] = useState(false);
+  const [translateNotice, setTranslateNotice] = useState(null);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
@@ -239,6 +242,9 @@ export default function MediaMetadataEditorModal({
     setFile(null);
     setArtwork(null);
     setLyrics(null);
+    setTargetLang("id");
+    setTranslating(false);
+    setTranslateNotice(null);
     setSaving(false);
     setProgress(null);
     setError(null);
@@ -267,6 +273,39 @@ export default function MediaMetadataEditorModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose, saving]);
+
+  const handleTranslate = async () => {
+    if (!mediaData?.id || translating) return;
+    setTranslating(true);
+    setTranslateNotice(null);
+    const isVideo = mediaData.mime_type?.startsWith("video/");
+    const endpoint = isVideo
+      ? `/api/media/${mediaData.id}/subtitles/translate`
+      : `/api/media/${mediaData.id}/lyrics/translate`;
+
+    try {
+      const res = await api(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetLang }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Gagal menerjemahkan");
+      }
+      const langName = targetLang === "id" ? "Bahasa Indonesia" : targetLang.toUpperCase();
+      setTranslateNotice({
+        type: "success",
+        text: isVideo
+          ? `Subtitle berhasil diterjemahkan ke ${langName}!`
+          : `Lirik berhasil diterjemahkan ke ${langName}!`,
+      });
+    } catch (err) {
+      setTranslateNotice({ type: "error", text: err.message || "Gagal menerjemahkan" });
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const isDirty = useMemo(() => {
     if (!media) return false;
@@ -587,6 +626,55 @@ export default function MediaMetadataEditorModal({
                       disabled={saving}
                     />
                     <p style={styles.helpText}>Use Whisper JSON. Existing lyrics stay unchanged unless you choose a new file.</p>
+                  </div>
+
+                  <div style={styles.fieldGroup}>
+                    <label style={styles.label}>
+                      Terjemahkan {mediaData?.mime_type?.startsWith("video/") ? "Subtitle" : "Lirik"}
+                    </label>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
+                      <select
+                        value={targetLang}
+                        onChange={(e) => setTargetLang(e.target.value)}
+                        style={{ ...styles.input, width: "auto", minWidth: 200, flex: "1 1 200px" }}
+                        disabled={translating || saving}
+                      >
+                        <option value="id">Bahasa Indonesia (Default)</option>
+                        <option value="en">English</option>
+                        <option value="ja">Japanese</option>
+                        <option value="ko">Korean</option>
+                        <option value="es">Spanish</option>
+                        <option value="fr">French</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleTranslate}
+                        disabled={translating || saving}
+                        style={{
+                          ...styles.button("secondary", translating || saving),
+                          padding: "10px 16px",
+                          fontWeight: 700,
+                          cursor: translating || saving ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {translating ? "Menerjemahkan..." : "Terjemahkan"}
+                      </button>
+                    </div>
+                    {translateNotice && (
+                      <p
+                        style={{
+                          ...styles.helpText,
+                          color: translateNotice.type === "error" ? "var(--danger)" : "var(--signal)",
+                          fontWeight: 700,
+                          marginTop: 8,
+                        }}
+                      >
+                        {translateNotice.text}
+                      </p>
+                    )}
+                    <p style={styles.helpText}>
+                      Terjemahkan otomatis via Google Apps Script (hanya admin). Bahasa Indonesia dipilih secara default.
+                    </p>
                   </div>
                 </div>
               </section>

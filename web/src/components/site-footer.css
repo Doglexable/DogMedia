@@ -58,21 +58,8 @@
   outline-offset: 3px;
 }
 
-.site-footer-brand-logo {
-  border-radius: 9px;
-  display: block;
-  object-fit: cover;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 8%, transparent);
-}
+.site-footer-brand-lockup { --dm-logo-size: 28px; }
 
-.site-footer-brand-title {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: var(--text);
-  line-height: 1.15;
-}
 
 .site-footer-brand-tagline {
   margin: 0;
@@ -282,9 +269,7 @@
   outline-offset: 2px;
 }
 
-.site-footer-bar-brand img {
-  border-radius: 5px;
-}
+.site-footer-bar-mark { --dm-logo-size: 22px; }
 
 .site-footer-socials {
   display: flex;

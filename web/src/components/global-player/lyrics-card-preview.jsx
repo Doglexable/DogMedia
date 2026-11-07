@@ -1,6 +1,7 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faQuoteRight } from "@fortawesome/free-solid-svg-icons/faQuoteRight";
 import { accessibleTextColor } from "./lyrics-share";
+import { NewLogoMark } from "../new-logo-mark";
 
 export function LyricsShareCard({
   artworkFailed,
@@ -13,14 +14,7 @@ export function LyricsShareCard({
   return (
     <div ref={cardRef} className="lyrics-share-card" aria-label="Lyrics card preview" style={{ backgroundColor, color: accessibleTextColor(backgroundColor) }}>
       <div className="lyrics-share-card-brand">
-        <img
-          src="/web-app-manifest-192x192.png"
-          alt="Dogmedia"
-          className="lyrics-share-card-logo"
-          width="26"
-          height="26"
-          crossOrigin="anonymous"
-        />
+        <NewLogoMark className="lyrics-share-card-logo" showName={false} decorative />
         <span className="lyrics-share-card-brand-title">Dogmedia</span>
       </div>
       <div className="lyrics-share-card-copy" data-lines={selected.length}>

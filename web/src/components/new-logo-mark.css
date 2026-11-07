@@ -1,0 +1,77 @@
+:where(.dm-new-logo) {
+  --dm-logo-size: 32px;
+  --dm-logo-ink: var(--primary, #e11d48);
+}
+
+.dm-new-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--dm-logo-size) * 0.35);
+  color: var(--dm-logo-text, currentColor);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.dm-new-logo-symbol {
+  display: inline-flex;
+  width: calc(var(--dm-logo-size) * 1.14);
+  height: var(--dm-logo-size);
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--dm-logo-size) * 0.035);
+  flex: 0 0 auto;
+}
+
+.dm-new-logo-curve,
+.dm-new-logo-play {
+  display: block;
+  flex: 0 0 auto;
+  transition: transform 220ms ease;
+}
+
+.dm-new-logo-curve {
+  border-left: calc(var(--dm-logo-size) * 0.145) solid var(--dm-logo-ink);
+  border-radius: 60% 15% 15% 60% / 50% 15% 15% 50%;
+  transform: rotate(-13deg);
+}
+
+.dm-new-logo-curve--inner {
+  width: calc(var(--dm-logo-size) * 0.21);
+  height: 55%;
+}
+
+.dm-new-logo-curve--outer {
+  width: calc(var(--dm-logo-size) * 0.28);
+  height: 83%;
+  border-left-width: calc(var(--dm-logo-size) * 0.16);
+}
+
+.dm-new-logo-play {
+  width: calc(var(--dm-logo-size) * 0.37);
+  height: 43%;
+  background: var(--dm-logo-ink);
+  clip-path: polygon(8% 2%, 16% 3%, 82% 36%, 92% 42%, 98% 47%, 100% 49%, 100% 51%, 98% 53%, 92% 58%, 82% 64%, 16% 97%, 8% 98%, 3% 94%, 1% 88%, 1% 12%, 3% 6%);
+}
+
+.dm-new-logo:hover .dm-new-logo-curve--inner { transform: rotate(-13deg) translateY(-2px); }
+.dm-new-logo:hover .dm-new-logo-curve--outer { transform: rotate(-13deg) translateY(2px); }
+.dm-new-logo:hover .dm-new-logo-play { transform: translateX(3px); }
+
+.dm-new-logo-word {
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: calc(var(--dm-logo-size) * 0.91);
+  font-weight: 800;
+  letter-spacing: -0.07em;
+}
+
+.dm-new-logo-period { color: var(--dm-logo-ink); }
+
+.access-loading-mark { --dm-logo-size: 27px; }
+.access-login-logo { --dm-logo-size: 25px; margin-bottom: 20px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-new-logo-curve,
+  .dm-new-logo-play { transition: none; }
+  .dm-new-logo:hover .dm-new-logo-curve { transform: rotate(-13deg); }
+  .dm-new-logo:hover .dm-new-logo-play { transform: none; }
+}

@@ -472,6 +472,7 @@ fn LyricsView(
                         };
                         let start = segment.start;
                         let text = segment.text.clone();
+                        let translation = segment.translation.clone();
                         rsx! {
                             button {
                                 key: "{segment.start}-{index}",
@@ -480,7 +481,10 @@ fn LyricsView(
                                 onclick: move |_| {
                                     seek(app, engine, start);
                                 },
-                                span { "{text}" }
+                                span { class: "lyrics-line-text", "{text}" }
+                                if let Some(tr) = translation {
+                                    span { class: "lyrics-line-translation", "{tr}" }
+                                }
                             }
                         }
                     }

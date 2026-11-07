@@ -6,9 +6,11 @@ import { ConnectionError } from "./components/app-error-boundary";
 import { lazyWithRetry } from "./utils/lazy-with-retry";
 import { APP_VERSION_LABEL } from "./version";
 import { clearStoredPlaybackSession, getStoredPlaybackSession } from "./components/global-player/playback-session-storage";
+import { NewLogoMark } from "./components/new-logo-mark";
 
 const SharedLikedMusic = lazyWithRetry(() => import("./pages/SharedLikedMusic"));
 const SharedMusic = lazyWithRetry(() => import("./pages/SharedMusic"));
+const NewLogo = lazyWithRetry(() => import("./pages/NewLogo"));
 const ProtectedApp = lazyWithRetry(() => import("./components/protected-app"));
 
 function AccessGuard({ children }) {
@@ -33,7 +35,10 @@ function AccessGuard({ children }) {
   if (status === "loading") return (
     <div className="premium-app-shell grid min-h-screen place-items-center text-content" role="status" aria-label="Checking access">
       <div className="text-center">
-        <div className="mx-auto h-11 w-11 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+        <div className="relative mx-auto grid h-16 w-16 place-items-center">
+          <NewLogoMark className="access-loading-mark" showName={false} />
+          <span className="absolute inset-0 animate-spin rounded-full border-2 border-primary/20 border-t-primary" aria-hidden="true" />
+        </div>
         <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-muted">Opening private library</p>
         <span className="mt-2 inline-block rounded-full border border-primary/28 bg-primary/10 px-2.5 py-0.5 text-[11px] font-mono font-bold tracking-wide text-primary">{APP_VERSION_LABEL}</span>
       </div>
@@ -55,6 +60,7 @@ function AccessGuard({ children }) {
         } catch (failure) { setError(failure.message); }
         finally { setSubmitting(false); }
       }}>
+        <NewLogoMark className="access-login-logo" />
         <h1 className="text-xl font-bold">{mode === "login" ? "Log in to Dogmedia" : "Create account"}</h1>
         <p className="mt-2 text-sm text-muted">Your private media library</p>
         <label className="mt-6 block text-sm font-semibold" htmlFor="account-username">Username</label>
@@ -99,6 +105,7 @@ export default function App() {
         <Routes>
           <Route path="/shared/likes/:token" element={<SharedLikedMusic />} />
           <Route path="/shared/music" element={<SharedMusic />} />
+          <Route path="/new-logo" element={<NewLogo />} />
           <Route path="*" element={<AccessGuard><ProtectedApp /></AccessGuard>} />
         </Routes>
       </Suspense>

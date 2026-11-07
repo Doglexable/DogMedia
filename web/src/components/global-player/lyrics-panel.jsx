@@ -83,7 +83,16 @@ function LyricsLines({ activeIndex, focusIndex, lineRefs, onSeek, segments, vari
         aria-current={index === activeIndex ? "true" : undefined}
         onClick={() => onSeek(segment.start)}
       >
-        {segment.text}
+        {segment.instrumental ? (
+          segment.text
+        ) : (
+          <>
+            <span className={`${variant}-line-main`}>{segment.text}</span>
+            {segment.translation && (
+              <span className={`${variant}-line-translation`}>{segment.translation}</span>
+            )}
+          </>
+        )}
       </button>
     );
   });
@@ -386,7 +395,16 @@ export function FullscreenLyrics({ artworkUrl: _artworkUrl, media, mediaId, onSe
               aria-current={active ? "true" : undefined}
               onClick={() => onSeek(segment.start)}
             >
-              {segment.text}
+              {segment.instrumental ? (
+                segment.text
+              ) : (
+                <>
+                  <span className="fullscreen-lyrics-line-main">{segment.text}</span>
+                  {segment.translation && (
+                    <span className="fullscreen-lyrics-line-translation">{segment.translation}</span>
+                  )}
+                </>
+              )}
             </button>
           );
         })}

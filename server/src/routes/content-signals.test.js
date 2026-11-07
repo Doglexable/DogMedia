@@ -58,8 +58,8 @@ describe("Content signals and markdown negotiation routes", () => {
     expect(json).toEqual({
       status: "ok",
       app: "Dogmedia",
-      version: "0.7.6",
     });
+    expect(json.version).toBeUndefined();
   });
 
   it("serves /index.md directly as markdown", async () => {

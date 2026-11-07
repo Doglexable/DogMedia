@@ -1,9 +1,16 @@
 import { createWriteStream } from "fs";
-import { mkdir, rm, stat, unlink } from "fs/promises";
+import { mkdir, readFile, rm, stat, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { pipeline } from "stream/promises";
 import { randomUUID } from "crypto";
-import { normalizeCategoryCover, sendCoverFile } from "../category-cover.js";
+import { resolveMediaLyrics } from "./lyrics.js";
+import {
+  blurPathFromCover,
+  generateBlurCover,
+  normalizeCategoryCover,
+  sendCoverFile,
+  unlinkCoverWithBlur,
+} from "../category-cover.js";
 
 const DATA_DIR = process.env.DATA_DIR || "data";
 
@@ -195,6 +202,160 @@ export default async function (fastify, options = {}) {
     return reply.code(201).send(rows[0]);
   });
 
+  fastify.post("/:id/translate", async (request, reply) => {
+    if (request.accessTier < 100) {
+      return reply.code(403).send({ error: "Insufficient tier" });
+    }
+
+    const gasUrl = process.env.TRANSLATOR_GAS_URL;
+    const adminSecret = process.env.TRANSLATOR_ADMIN_SECRET || process.env.TRANSLATE_ADMIN_SECRET || "pfs_admin_secret_key_123";
+    if (!gasUrl) {
+      return reply.code(400).send({ error: "TRANSLATOR_GAS_URL is not configured" });
+    }
+
+    const categoryId = Number(request.params.id);
+    const category = await getAccessibleCategory(fastify.pg, categoryId, request.accessTier);
+    if (!category) {
+      const exists = await categoryExists(fastify, categoryId);
+      return exists ? reply.code(403).send({ error: "Access denied" }) : reply.code(404).send({ error: "Not found" });
+    }
+
+    const targetLang = (request.body?.targetLang || "id").trim().toLowerCase();
+
+    const { rows: mediaList } = await fastify.pg.query(
+      `SELECT m.id, m.title, m.artists, m.duration, m.mime_type, ml.language, ml.segments, ml.source AS lyrics_source
+       FROM media_assets m
+       LEFT JOIN media_lyrics ml ON ml.media_id = m.id
+       WHERE m.category_id = $1
+       ORDER BY m.track_order ASC, m.id ASC`,
+      [categoryId]
+    );
+
+    if (mediaList.length === 0) {
+      return reply.code(200).send({ success: true, count: 0, total: 0, targetLang });
+    }
+
+    let translatedCount = 0;
+
+    for (const item of mediaList) {
+      try {
+        if (item.mime_type?.startsWith("audio/")) {
+          let lyrics = item;
+          if (!lyrics.segments) {
+            lyrics = await resolveMediaLyrics(item, {
+              pg: fastify.pg,
+              redis: fastify.redis,
+              log: request.log,
+            });
+          }
+
+          if (lyrics && Array.isArray(lyrics.segments) && lyrics.segments.length > 0) {
+            let itemSourceLang = (lyrics.language || "").trim().toLowerCase();
+            const codeMap = { eng: "en", ind: "id", jpn: "ja", kor: "ko", spa: "es", fra: "fr", deu: "de", zho: "zh" };
+            if (codeMap[itemSourceLang]) itemSourceLang = codeMap[itemSourceLang];
+            if (itemSourceLang === targetLang || itemSourceLang === "und") {
+              itemSourceLang = "";
+            }
+
+            const gasResponse = await fetch(gasUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                adminSecret,
+                type: "lyrics",
+                targetLang,
+                sourceLang: itemSourceLang,
+                segments: lyrics.segments,
+              }),
+            });
+
+            if (gasResponse.ok) {
+              const gasResult = await gasResponse.json().catch(() => ({}));
+              if (Array.isArray(gasResult.segments)) {
+                const mergedSegments = lyrics.segments.map((originalSegment, idx) => {
+                  const translatedSegment = gasResult.segments[idx];
+                  return {
+                    start: originalSegment.start,
+                    end: originalSegment.end,
+                    text: originalSegment.text,
+                    translation: translatedSegment?.text || "",
+                  };
+                });
+                await fastify.pg.query(
+                  `INSERT INTO media_lyrics (
+                     media_id, language, segments, source, updated_at
+                   ) VALUES ($1, $2, $3::jsonb, 'translated', NOW())
+                   ON CONFLICT (media_id) DO UPDATE
+                   SET language = EXCLUDED.language,
+                       segments = EXCLUDED.segments,
+                       source = 'translated',
+                       updated_at = NOW()`,
+                  [item.id, targetLang, JSON.stringify(mergedSegments)]
+                );
+                translatedCount += 1;
+              }
+            }
+          }
+        } else if (item.mime_type?.startsWith("video/")) {
+          const { rows: subRows } = await fastify.pg.query(
+            "SELECT * FROM media_subtitles WHERE media_id = $1 ORDER BY stream_index ASC LIMIT 1",
+            [item.id]
+          );
+          if (subRows.length > 0 && subRows[0].vtt_path) {
+            const vttFile = join(dataDir, subRows[0].vtt_path);
+            const vttContent = await readFile(vttFile, "utf8").catch(() => null);
+            if (vttContent) {
+              const gasResponse = await fetch(gasUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  adminSecret,
+                  type: "subtitle",
+                  targetLang,
+                  sourceLang: subRows[0].language !== "und" ? subRows[0].language : "",
+                  content: vttContent,
+                }),
+              });
+
+              if (gasResponse.ok) {
+                const gasResult = await gasResponse.json().catch(() => ({}));
+                if (typeof gasResult.content === "string") {
+                  const { rows: maxRows } = await fastify.pg.query(
+                    "SELECT COALESCE(MAX(stream_index), -1) AS max_index FROM media_subtitles WHERE media_id = $1",
+                    [item.id]
+                  );
+                  const newStreamIndex = Number(maxRows[0]?.max_index ?? -1) + 1;
+                  const subDir = join(dataDir, "subtitles", String(item.id));
+                  await mkdir(subDir, { recursive: true });
+                  const targetRelative = `subtitles/${item.id}/${item.id}_tr_${targetLang}_${newStreamIndex}.vtt`;
+                  await writeFile(join(dataDir, targetRelative), gasResult.content, "utf8");
+
+                  const langName = targetLang === "id" ? "Indonesian" : targetLang.toUpperCase();
+                  await fastify.pg.query(
+                    `INSERT INTO media_subtitles (
+                       media_id, stream_index, language, title, format, is_default, has_ass_styling, vtt_path, ass_path, updated_at
+                     ) VALUES ($1, $2, $3, $4, 'vtt', FALSE, FALSE, $5, NULL, NOW())`,
+                    [item.id, newStreamIndex, targetLang, `${langName} (Translated)`, targetRelative]
+                  );
+                  translatedCount += 1;
+                }
+              }
+            }
+          }
+        }
+      } catch (itemErr) {
+        request.log.warn({ err: itemErr, mediaId: item.id }, "failed translating category item");
+      }
+    }
+
+    return reply.code(200).send({
+      success: true,
+      count: translatedCount,
+      total: mediaList.length,
+      targetLang,
+    });
+  });
+
   fastify.get("/:id/thumbnail", async (request, reply) => {
     const { rows } = await fastify.pg.query(
       `${CATEGORY_TREE_SQL}
@@ -206,10 +367,27 @@ export default async function (fastify, options = {}) {
       return exists ? reply.code(403).send({ error: "Access denied" }) : reply.code(404).send({ error: "Not found" });
     }
     if (!rows[0].cover_path) return reply.code(404).send({ error: "No thumbnail available" });
-    const filePath = join(dataDir, rows[0].cover_path);
+    const isBlurRequested = request.query?.blur === "1" || request.query?.blur === "true" || request.query?.size === "blur";
+    const coverPath = rows[0].cover_path;
+    const targetPath = isBlurRequested ? blurPathFromCover(coverPath) : coverPath;
+    const filePath = join(dataDir, targetPath);
     try {
       return sendCoverFile({ request, reply, filePath, stats: await stat(filePath) });
     } catch {
+      if (isBlurRequested) {
+        const originalFilePath = join(dataDir, coverPath);
+        try {
+          await generateBlurCover({ inputPath: originalFilePath, outputPath: filePath });
+          const stats = await stat(filePath);
+          return sendCoverFile({ request, reply, filePath, stats });
+        } catch {
+          try {
+            return sendCoverFile({ request, reply, filePath: originalFilePath, stats: await stat(originalFilePath) });
+          } catch {
+            return reply.code(404).send({ error: "No thumbnail available" });
+          }
+        }
+      }
       return reply.code(404).send({ error: "No thumbnail available" });
     }
   });
@@ -238,11 +416,11 @@ export default async function (fastify, options = {}) {
         [coverPath, request.params.id]
       );
       if (category.cover_path && category.cover_path !== coverPath) {
-        await unlink(join(dataDir, category.cover_path)).catch(() => {});
+        await unlinkCoverWithBlur(dataDir, category.cover_path);
       }
       return rows[0];
     } catch (error) {
-      if (coverPath) await unlink(join(dataDir, coverPath)).catch(() => {});
+      if (coverPath) await unlinkCoverWithBlur(dataDir, coverPath);
       request.log.warn({ err: error }, "category cover normalization failed");
       return reply.code(400).send({ error: "Thumbnail could not be converted to WebP" });
     } finally {
@@ -255,7 +433,7 @@ export default async function (fastify, options = {}) {
     const category = await getAccessibleCategory(fastify.pg, request.params.id, request.accessTier);
     if (!category) return sendMissingOrDeniedCategory(fastify, reply, request.params.id);
     await fastify.pg.query("UPDATE categories SET cover_path = NULL WHERE id = $1", [request.params.id]);
-    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
+    if (category.cover_path) await unlinkCoverWithBlur(dataDir, category.cover_path);
     return reply.code(204).send();
   });
 
@@ -502,7 +680,7 @@ export default async function (fastify, options = {}) {
       [id]
     );
     if (rowCount === 0) return reply.code(404).send({ error: "Not found" });
-    if (category.cover_path) await unlink(join(dataDir, category.cover_path)).catch(() => {});
+    if (category.cover_path) await unlinkCoverWithBlur(dataDir, category.cover_path);
     await rm(join(dataDir, String(id)), { recursive: true, force: true }).catch(() => {});
     return reply.code(204).send();
   });

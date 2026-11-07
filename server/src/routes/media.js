@@ -6,7 +6,14 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { LyricsValidationError, normalizeWhisperLyrics, upsertUploadedLyrics } from "../lyrics.js";
-import { normalizeCategoryCover, normalizeMediaCover, sendCoverFile } from "../category-cover.js";
+import {
+  blurPathFromCover,
+  generateBlurCover,
+  normalizeCategoryCover,
+  normalizeMediaCover,
+  sendCoverFile,
+  unlinkCoverWithBlur,
+} from "../category-cover.js";
 import { ensureArtworkPalette, sharePaletteAccent } from "../artwork-palette.js";
 import { isAllowedMediaBrowserRequest } from "../media-request-boundary.js";
 import { enqueueEncodingQuality, retryFailedEncoding } from "../encoding-queue.js";
@@ -504,7 +511,7 @@ export async function replaceMediaFiles({
   }
 
   if (thumbUpload && existing.thumbnail_path && existing.thumbnail_path !== nextThumbnailPath) {
-    await unlink(join(dataDir, existing.thumbnail_path)).catch(() => {});
+    await unlinkCoverWithBlur(dataDir, existing.thumbnail_path);
   }
   await cleanupUploads(thumbUpload);
 
@@ -1304,7 +1311,7 @@ export default async function (fastify, options = {}) {
     const filePath = join(dataDir, rows[0].file_path);
     await unlink(filePath).catch(() => {});
     if (rows[0].thumbnail_path) {
-      await unlink(join(dataDir, rows[0].thumbnail_path)).catch(() => {});
+      await unlinkCoverWithBlur(dataDir, rows[0].thumbnail_path);
     }
 
     await rm(join(dataDir, String(rows[0].category_id), String(id)), { recursive: true, force: true }).catch(() => {});
@@ -1688,10 +1695,26 @@ export default async function (fastify, options = {}) {
     const { rows: categories } = await fastify.pg.query("SELECT cover_path FROM categories WHERE id = $1", [rows[0].category_id]);
     const selectedCover = rows[0].thumbnail_path || categories[0]?.cover_path;
     if (!selectedCover) return reply.code(404).send({ error: "No thumbnail available" });
-    const coverFile = join(dataDir, selectedCover);
+    const isBlurRequested = request.query?.blur === "1" || request.query?.blur === "true" || request.query?.size === "blur";
+    const targetPath = isBlurRequested ? blurPathFromCover(selectedCover) : selectedCover;
+    const coverFile = join(dataDir, targetPath);
     try {
       return sendCoverFile({ request, reply, filePath: coverFile, stats: await stat(coverFile) });
     } catch {
+      if (isBlurRequested) {
+        const originalFilePath = join(dataDir, selectedCover);
+        try {
+          await generateBlurCover({ inputPath: originalFilePath, outputPath: coverFile });
+          const stats = await stat(coverFile);
+          return sendCoverFile({ request, reply, filePath: coverFile, stats });
+        } catch {
+          try {
+            return sendCoverFile({ request, reply, filePath: originalFilePath, stats: await stat(originalFilePath) });
+          } catch {
+            return reply.code(404).send({ error: "No thumbnail available" });
+          }
+        }
+      }
       return reply.code(404).send({ error: "No thumbnail available" });
     }
   });

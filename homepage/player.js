@@ -480,13 +480,13 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
     subtitle: "Independent Technology Stack",
     body: `Built for reliability, speed, and long-term ownership:
 
-• Backend: FastifyJS (Node.js 22 LTS on Alpine Linux)
-• Database: PostgreSQL 17 with automated migration pipelines
-• Cache & Queues: Redis 7 for high-speed queue operations, active sessions, and live state
-• Frontend: React 19, Vite, and native CSS variables (Web v0.7.6)
-• Desktop: Rust Dioxus Native & Blitz desktop application
-• Mobile: React Native & Expo client (Android APK)
-• Deployment: Podman & Docker Compose rootless containerization`,
+• Backend: FastifyJS on Linux
+• Database: PostgreSQL with automated migration pipelines
+• Cache & Queues: Redis for high-speed queue operations, active sessions, and live state
+• Frontend: React and modern web components
+• Desktop: Rust Native desktop application
+• Mobile: Mobile client (Android APK)
+• Deployment: Rootless containerized architecture`,
   },
   credits: {
     title: "Credits & Artworks",
@@ -569,4 +569,321 @@ const copyrightEl = document.querySelector("#footer-copyright");
 if (copyrightEl) {
   copyrightEl.textContent = `© ${new Date().getFullYear()} Dogmedia. All rights reserved.`;
 }
+
+// ==========================================================================
+// Dogmedia Interface Tour / Studio Deck Showcase
+// ==========================================================================
+(function initPreviewTour() {
+  const PREVIEW_DATA = [
+    {
+      src: "/assets/img/preview-dogmedia/01.webp",
+      placeholder: "/assets/img/preview-dogmedia/01-blur.webp",
+      tag: "BERANDA & SPOTLIGHT",
+      title: "Library & Dashboard",
+      coord: "PANEL 01 // LIBRARY_DASHBOARD",
+      alt: "Pratinjau antarmuka Dogmedia Library & Dashboard",
+    },
+    {
+      src: "/assets/img/preview-dogmedia/02.webp",
+      placeholder: "/assets/img/preview-dogmedia/02-blur.webp",
+      tag: "BROWSE & PLAYBACK BAR",
+      title: "Koleksi & Mini Player Bar",
+      coord: "PANEL 02 // BROWSE_PERSISTENT_BAR",
+      alt: "Pratinjau antarmuka Dogmedia Koleksi Folder dan Mini Player Bar",
+    },
+    {
+      src: "/assets/img/preview-dogmedia/03.webp",
+      placeholder: "/assets/img/preview-dogmedia/03-blur.webp",
+      tag: "IMMERSIVE & SYNCED LYRICS",
+      title: "Full Player & Lirik Realtime",
+      coord: "PANEL 03 // FULL_PLAYER_LYRICS_EQ",
+      alt: "Pratinjau antarmuka Dogmedia Full Player dan Lirik Realtime",
+    },
+    {
+      src: "/assets/img/preview-dogmedia/04.webp",
+      placeholder: "/assets/img/preview-dogmedia/04-blur.webp",
+      tag: "CREATIVE CARDS & SHARE",
+      title: "Pembuat Kartu Lirik Visual",
+      coord: "PANEL 04 // LYRIC_CARD_GENERATOR",
+      alt: "Pratinjau antarmuka Dogmedia Pembuat Kartu Lirik Visual",
+    },
+    {
+      src: "/assets/img/preview-dogmedia/05.webp",
+      placeholder: "/assets/img/preview-dogmedia/05-blur.webp",
+      tag: "QUEUE & PLAYLIST MANAGER",
+      title: "Panel Antrean Interaktif",
+      coord: "PANEL 05 // SLIDEOVER_QUEUE_PANEL",
+      alt: "Pratinjau antarmuka Dogmedia Panel Antrean Musik",
+    },
+  ];
+
+  const imgEl = document.querySelector("#preview-img");
+  const blurImgEl = document.querySelector("#preview-img-blur");
+  const screenLoader = document.querySelector("#preview-screen-loader");
+  const stageEl = document.querySelector("#preview-stage");
+  const coordEl = document.querySelector("#preview-bezel-coord");
+  const badgeText = document.querySelector("#preview-screen-badge-text");
+  const countBadge = document.querySelector("#preview-badge-count");
+  const chapters = Array.from(document.querySelectorAll(".preview-chapter-card"));
+  const scrubbers = Array.from(document.querySelectorAll(".preview-scrub-item"));
+  const prevBtn = document.querySelector("#preview-prev");
+  const nextBtn = document.querySelector("#preview-next");
+  const zoomBtn = document.querySelector("#preview-zoom");
+
+  const lightbox = document.querySelector("#preview-lightbox");
+  const lightboxImg = document.querySelector("#preview-lightbox-img");
+  const lightboxBlurImg = document.querySelector("#preview-lightbox-blur");
+  const lightboxLoader = document.querySelector("#preview-lightbox-loader");
+  const lightboxBadge = document.querySelector("#preview-lightbox-badge");
+  const lightboxTitle = document.querySelector("#preview-lightbox-title");
+  const lightboxCounter = document.querySelector("#preview-lightbox-counter");
+  const lightboxClose = document.querySelector("#preview-lightbox-close");
+  const lightboxBackdrop = document.querySelector("#preview-lightbox-backdrop");
+  const lightboxPrev = document.querySelector("#preview-lightbox-prev");
+  const lightboxNext = document.querySelector("#preview-lightbox-next");
+  const floatPrev = document.querySelector("#preview-float-prev");
+  const floatNext = document.querySelector("#preview-float-next");
+
+  if (!imgEl || !stageEl) return;
+
+  let currentIndex = 0;
+  let stageLoadSession = 0;
+  let lightboxLoadSession = 0;
+
+  function loadProgressiveImage(targetImg, blurImg, loaderEl, src, placeholder, alt, getSession, incSession) {
+    const session = incSession();
+    if (blurImg) {
+      blurImg.src = placeholder;
+      blurImg.style.opacity = "1";
+    }
+
+    targetImg.classList.remove("is-loaded");
+    targetImg.classList.add("is-loading");
+    if (loaderEl) loaderEl.classList.add("is-active");
+
+    const highRes = new Image();
+    highRes.src = src;
+
+    const onReady = () => {
+      if (getSession() !== session) return;
+      targetImg.src = src;
+      if (alt) targetImg.alt = alt;
+      targetImg.classList.remove("is-loading");
+      targetImg.classList.add("is-loaded");
+      if (loaderEl) loaderEl.classList.remove("is-active");
+
+      setTimeout(() => {
+        if (getSession() === session && blurImg) {
+          blurImg.style.opacity = "0";
+        }
+      }, 350);
+    };
+
+    if (highRes.complete && highRes.naturalWidth > 0) {
+      onReady();
+    } else {
+      highRes.onload = onReady;
+      highRes.onerror = onReady;
+    }
+  }
+
+  // Handle initial image load state
+  if (imgEl.complete && imgEl.naturalWidth > 0) {
+    imgEl.classList.remove("is-loading");
+    imgEl.classList.add("is-loaded");
+    if (blurImgEl) blurImgEl.style.opacity = "0";
+  } else {
+    imgEl.addEventListener("load", () => {
+      imgEl.classList.remove("is-loading");
+      imgEl.classList.add("is-loaded");
+      if (blurImgEl) blurImgEl.style.opacity = "0";
+    }, { once: true });
+  }
+
+  function setPreview(index, focusTab = false) {
+    if (index < 0) index = PREVIEW_DATA.length - 1;
+    if (index >= PREVIEW_DATA.length) index = 0;
+    currentIndex = index;
+
+    const data = PREVIEW_DATA[currentIndex];
+
+    // Smooth stage switch and progressive blur load
+    stageEl.classList.add("is-switching");
+    setTimeout(() => {
+      loadProgressiveImage(
+        imgEl,
+        blurImgEl,
+        screenLoader,
+        data.src,
+        data.placeholder,
+        data.alt,
+        () => stageLoadSession,
+        () => ++stageLoadSession,
+      );
+      if (coordEl) coordEl.textContent = data.coord;
+      if (badgeText) badgeText.textContent = data.tag;
+      if (countBadge) countBadge.textContent = `PANEL 0${currentIndex + 1} / 0${PREVIEW_DATA.length}`;
+      stageEl.classList.remove("is-switching");
+    }, 110);
+
+    // Update chapter cards
+    chapters.forEach((chapter, i) => {
+      const active = i === currentIndex;
+      chapter.classList.toggle("is-active", active);
+      chapter.setAttribute("aria-selected", String(active));
+      if (active && focusTab) chapter.focus();
+    });
+
+    // Update timeline scrubbers
+    scrubbers.forEach((scrub, i) => {
+      const active = i === currentIndex;
+      scrub.classList.toggle("is-active", active);
+    });
+
+    // Update lightbox elements if open
+    if (lightbox && !lightbox.hidden) {
+      if (lightboxImg) {
+        loadProgressiveImage(
+          lightboxImg,
+          lightboxBlurImg,
+          lightboxLoader,
+          data.src,
+          data.placeholder,
+          data.alt,
+          () => lightboxLoadSession,
+          () => ++lightboxLoadSession,
+        );
+      }
+      if (lightboxBadge) lightboxBadge.textContent = data.tag;
+      if (lightboxTitle) lightboxTitle.textContent = data.title;
+      if (lightboxCounter) lightboxCounter.textContent = `0${currentIndex + 1} / 0${PREVIEW_DATA.length}`;
+    }
+  }
+
+  chapters.forEach((chapter) => {
+    chapter.addEventListener("click", () => {
+      const idx = parseInt(chapter.dataset.index, 10);
+      setPreview(idx);
+    });
+  });
+
+  scrubbers.forEach((scrub) => {
+    scrub.addEventListener("click", () => {
+      const idx = parseInt(scrub.dataset.index, 10);
+      setPreview(idx);
+    });
+  });
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => setPreview(currentIndex - 1));
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => setPreview(currentIndex + 1));
+  }
+
+  // Keyboard navigation on stage and chapter deck
+  stageEl.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      setPreview(currentIndex - 1);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      setPreview(currentIndex + 1);
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openLightbox();
+    }
+  });
+
+  // Lightbox functions
+  function openLightbox() {
+    if (!lightbox) return;
+    const data = PREVIEW_DATA[currentIndex];
+    if (lightboxImg) {
+      loadProgressiveImage(
+        lightboxImg,
+        lightboxBlurImg,
+        lightboxLoader,
+        data.src,
+        data.placeholder,
+        data.alt,
+        () => lightboxLoadSession,
+        () => ++lightboxLoadSession,
+      );
+    }
+    if (lightboxBadge) lightboxBadge.textContent = data.tag;
+    if (lightboxTitle) lightboxTitle.textContent = data.title;
+    if (lightboxCounter) lightboxCounter.textContent = `0${currentIndex + 1} / 0${PREVIEW_DATA.length}`;
+    lightbox.hidden = false;
+    document.body.style.overflow = "hidden";
+    if (lightboxClose) lightboxClose.focus();
+  }
+
+  function closeLightbox() {
+    if (!lightbox || lightbox.hidden) return;
+    lightbox.hidden = true;
+    document.body.style.overflow = "";
+    if (zoomBtn) zoomBtn.focus();
+  }
+
+  if (zoomBtn) {
+    zoomBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openLightbox();
+    });
+  }
+
+  stageEl.addEventListener("click", (e) => {
+    if (e.target.closest(".preview-control-arrow") || e.target.closest(".preview-control-zoom")) return;
+    openLightbox();
+  });
+
+  if (lightboxClose) lightboxClose.addEventListener("click", closeLightbox);
+  if (lightboxBackdrop) lightboxBackdrop.addEventListener("click", closeLightbox);
+  if (lightboxPrev) lightboxPrev.addEventListener("click", () => setPreview(currentIndex - 1));
+  if (lightboxNext) lightboxNext.addEventListener("click", () => setPreview(currentIndex + 1));
+  if (floatPrev) floatPrev.addEventListener("click", (e) => { e.stopPropagation(); setPreview(currentIndex - 1); });
+  if (floatNext) floatNext.addEventListener("click", (e) => { e.stopPropagation(); setPreview(currentIndex + 1); });
+
+  // Global key navigation
+  document.addEventListener("keydown", (e) => {
+    if (lightbox && !lightbox.hidden) {
+      if (e.key === "Escape") {
+        closeLightbox();
+      } else if (e.key === "ArrowLeft") {
+        setPreview(currentIndex - 1);
+      } else if (e.key === "ArrowRight") {
+        setPreview(currentIndex + 1);
+      }
+      return;
+    }
+
+    // Number keys 1-5 when preview section is focused or generally active
+    if (!["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) {
+      if (e.key >= "1" && e.key <= "5" && e.altKey === false && e.ctrlKey === false && e.metaKey === false) {
+        // Check if preview is somewhat in viewport or user is viewing it
+        const previewSec = document.querySelector("#preview");
+        if (previewSec) {
+          const rect = previewSec.getBoundingClientRect();
+          if (rect.top < window.innerHeight && rect.bottom > 0) {
+            setPreview(parseInt(e.key, 10) - 1);
+          }
+        }
+      }
+    }
+  });
+
+  // Touch swipe support on screen viewport
+  let touchStartX = 0;
+  stageEl.addEventListener("touchstart", (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+  }, { passive: true });
+  stageEl.addEventListener("touchend", (e) => {
+    const diff = e.changedTouches[0].screenX - touchStartX;
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) setPreview(currentIndex - 1);
+      else setPreview(currentIndex + 1);
+    }
+  }, { passive: true });
+})();
 

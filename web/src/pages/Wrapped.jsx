@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import DepthCarousel from "../components/DepthCarousel/DepthCarousel";
 import { useGlobalPlayerLibrary } from "../components/GlobalPlayer";
+import { NewLogoMark } from "../components/new-logo-mark";
 import {
   buildWaveformPoints,
   buildWrappedPaletteTheme,
@@ -208,13 +209,7 @@ export default function Wrapped() {
           </div>
         </div>
         <div className="wrapped-viewbar-meta">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-viewbar-logo"
-            width="20"
-            height="20"
-          />
+          <NewLogoMark className="wrapped-viewbar-logo" showName={false} decorative />
           <span>{serverPeriodLabel} · {wrappedCopy.recapLabel}</span>
         </div>
       </div>
@@ -360,14 +355,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
         <div className="wrapped-slide-shade" />
         <div className="wrapped-slide-copy">
           <div className="wrapped-slide-brand">
-            <img
-              src="/web-app-manifest-192x192.png"
-              alt="Dogmedia"
-              className="wrapped-slide-logo"
-              width="26"
-              height="26"
-              crossOrigin="anonymous"
-            />
+            <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
             <span className="wrapped-slide-kicker">Dogmedia · {periodLabel}</span>
           </div>
           <h1>{wrappedCopy.replayTitle}</h1>
@@ -381,14 +369,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     return (
       <article className="wrapped-slide wrapped-slide--time">
         <div className="wrapped-slide-brand">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-slide-logo"
-            width="20"
-            height="20"
-            crossOrigin="anonymous"
-          />
+          <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
           <span className="wrapped-slide-kicker">Time in motion</span>
         </div>
         <div className="wrapped-big-number">{fmtTime(data.totalPlayTime)}</div>
@@ -407,14 +388,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     return (
       <article className="wrapped-slide wrapped-slide--top">
         <div className="wrapped-slide-brand">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-slide-logo"
-            width="20"
-            height="20"
-            crossOrigin="anonymous"
-          />
+          <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
           <span className="wrapped-slide-kicker">Your rotation</span>
         </div>
         <h2>Five titles stayed close</h2>
@@ -435,14 +409,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     return (
       <article className="wrapped-slide wrapped-slide--rhythm">
         <div className="wrapped-slide-brand">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-slide-logo"
-            width="20"
-            height="20"
-            crossOrigin="anonymous"
-          />
+          <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
           <span className="wrapped-slide-kicker">Your listening clock</span>
         </div>
         <div className="wrapped-clock-value">{formatHour(rhythm.peakHour)}</div>
@@ -462,14 +429,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     return (
       <article className="wrapped-slide wrapped-slide--devices">
         <div className="wrapped-slide-brand">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-slide-logo"
-            width="20"
-            height="20"
-            crossOrigin="anonymous"
-          />
+          <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
           <span className="wrapped-slide-kicker">All-account contribution</span>
         </div>
         <h2>One library.<br />Every screen.</h2>
@@ -498,14 +458,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     return (
       <article className="wrapped-slide wrapped-slide--persona">
         <div className="wrapped-slide-brand">
-          <img
-            src="/web-app-manifest-192x192.png"
-            alt="Dogmedia"
-            className="wrapped-slide-logo"
-            width="20"
-            height="20"
-            crossOrigin="anonymous"
-          />
+          <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
           <span className="wrapped-slide-kicker">Your playback character</span>
         </div>
         <p className="wrapped-persona-mark" aria-hidden="true">{persona?.title?.slice(0, 1) || "S"}</p>
@@ -521,14 +474,7 @@ export function StorySlide({ data, periodLabel, slide, timeline, wrappedCopy = g
     <article className="wrapped-slide wrapped-slide--final">
       <div className="wrapped-final-art"><Artwork media={lead} /></div>
       <div className="wrapped-slide-brand">
-        <img
-          src="/web-app-manifest-192x192.png"
-          alt="Dogmedia"
-          className="wrapped-slide-logo"
-          width="26"
-          height="26"
-          crossOrigin="anonymous"
-        />
+        <NewLogoMark className="wrapped-slide-logo" showName={false} decorative />
         <span className="wrapped-slide-kicker">Dogmedia · {wrappedCopy.recapLabel}</span>
       </div>
       <h2>{persona?.title || "Steady Signal"}</h2>
@@ -575,13 +521,7 @@ function SummaryDashboard({ data, periodLabel, timeline, wrappedCopy = getWrappe
       <section className="wrapped-hero">
         <div className="wrapped-hero-copy">
           <div className="wrapped-hero-meta">
-            <img
-              src="/web-app-manifest-192x192.png"
-              alt="Dogmedia"
-              className="wrapped-hero-logo"
-              width="24"
-              height="24"
-            />
+            <NewLogoMark className="wrapped-hero-logo" showName={false} decorative />
             <p className="wrapped-eyebrow">All accounts · {periodLabel}</p>
           </div>
           <h1>Your playback pulse</h1>
@@ -662,13 +602,7 @@ function LoadingState() {
 function EmptyState({ copy, title }) {
   return (
     <section className="wrapped-empty">
-      <img
-        src="/web-app-manifest-192x192.png"
-        alt="Dogmedia"
-        className="wrapped-empty-logo"
-        width="64"
-        height="64"
-      />
+      <NewLogoMark className="wrapped-empty-logo" showName={false} decorative />
       <h2>{title}</h2>
       <p>{copy}</p>
     </section>

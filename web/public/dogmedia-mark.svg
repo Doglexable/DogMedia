@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Dogmedia">
+  <rect x="1" y="1" width="98" height="98" rx="22" fill="#fff" stroke="#eee9eb" stroke-width="2"/>
+  <g fill="#e11d48">
+    <path d="M27 29c-9 8-12 33 0 42-5-12-5-30 0-42Z"/>
+    <path d="M50 17c-20 13-25 53 0 66-10-18-10-48 0-66Z"/>
+    <path d="M61 31c0-2 2-3 4-2l24 17c4 3 4 5 0 8L65 71c-2 1-4 0-4-2V31Z"/>
+  </g>
+</svg>

@@ -16,13 +16,21 @@ export function formatLanguageLabel(langCode) {
   }
   const map = {
     ind: "Indonesia",
+    id: "Indonesia",
     eng: "English",
+    en: "English",
     jpn: "Jepang",
+    ja: "Jepang",
     spa: "Spanyol",
+    es: "Spanyol",
     fra: "Prancis",
+    fr: "Prancis",
     deu: "Jerman",
+    de: "Jerman",
     zho: "Mandarin",
+    zh: "Mandarin",
     kor: "Korea",
+    ko: "Korea",
   };
   return map[langCode.toLowerCase()] || langCode.toUpperCase();
 }
@@ -113,7 +121,14 @@ export function SubtitlesMenu({
             {subtitles.map((sub) => {
               const isCurrent = sub.id === selectedSubtitleId;
               const langText = formatLanguageLabel(sub.language);
-              const label = sub.title && sub.title !== sub.language ? `${langText} (${sub.title})` : langText;
+              let label = langText;
+              if (sub.title && sub.title !== sub.language && sub.title !== langText) {
+                if (sub.title.includes("(Translated)")) {
+                  label = `${langText} (Terjemahan)`;
+                } else {
+                  label = `${langText} (${sub.title})`;
+                }
+              }
 
               return (
                 <button

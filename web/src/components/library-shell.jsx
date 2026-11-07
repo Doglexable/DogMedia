@@ -28,6 +28,7 @@ import { SiteFooter } from "./site-footer";
 import { DesktopDownload } from "./desktop-download";
 import { APP_VERSION_LABEL } from "../version";
 import { animateCollectionAdd, captureCollectionOrigin } from "./collection-flight";
+import { NewLogoMark } from "./new-logo-mark";
 
 const LibraryContext = createContext({ categories: [], categoriesLoading: true });
 const ANDROID_APK_URL = import.meta.env.VITE_ANDROID_APK_URL || apiUrl("/api/mobile-release/download");
@@ -460,16 +461,8 @@ function GlobalSidebar({ access, categories, categoriesLoading }) {
       <aside className={`global-sidebar${open ? " global-sidebar--open" : ""}`} aria-label="Library navigation">
         <div className="global-sidebar-header">
           <Link to="/" className="global-sidebar-brand" onClick={close}>
-            <img
-              src="/web-app-manifest-192x192.png"
-              alt=""
-              className="global-sidebar-brand-mark"
-              width="42"
-              height="42"
-              aria-hidden="true"
-            />
             <span className="min-w-0">
-              <strong>Dogmedia</strong>
+              <NewLogoMark className="global-sidebar-brand-logo" />
               <small title="Your media. Your space. Your story. Your rhythm.">Your media. Your space. Your story. Your rhythm.</small>
             </span>
           </Link>

@@ -1,0 +1,135 @@
+.new-logo-page {
+  --dm-logo-text: #111111;
+  min-height: 100dvh;
+  padding: 0 clamp(20px, 5vw, 72px) 48px;
+  background: #f8f8f7;
+  color: #111111;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.new-logo-page,
+.new-logo-page * { box-sizing: border-box; }
+
+.new-logo-header {
+  display: flex;
+  min-height: 78px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #dededc;
+}
+
+.new-logo-header-label,
+.new-logo-kicker,
+.new-logo-variant-caption {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.new-logo-header-label { color: #6b6969; }
+
+.new-logo-back {
+  color: #191919;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.new-logo-back span { margin-left: 5px; color: #e11d48; }
+.new-logo-back:hover { color: #e11d48; }
+.new-logo-back:focus-visible { outline: 2px solid #e11d48; outline-offset: 5px; }
+
+.new-logo-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  min-height: min(520px, 63dvh);
+  padding: 48px 0;
+}
+
+.new-logo-kicker { color: #e11d48; }
+
+.new-logo-intro h1 {
+  max-width: 620px;
+  margin: 22px 0 20px;
+  font-size: clamp(42px, 5vw, 76px);
+  font-weight: 760;
+  letter-spacing: -0.075em;
+  line-height: 1.03;
+}
+
+.new-logo-intro p {
+  max-width: 490px;
+  margin: 0;
+  color: #626060;
+  font-size: clamp(15px, 1.25vw, 18px);
+  line-height: 1.65;
+}
+
+.new-logo-hero-art {
+  display: grid;
+  min-height: 340px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #e6e5e3;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.new-logo-primary { --dm-logo-size: clamp(34px, 5vw, 70px); }
+
+.new-logo-variants {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.7fr;
+  gap: 12px;
+}
+
+.new-logo-variant {
+  display: flex;
+  min-height: 240px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid #e6e5e3;
+  border-radius: 16px;
+}
+
+.new-logo-variant-caption,
+.new-logo-variant-note { color: #797676; }
+.new-logo-variant-note { font-size: 12px; }
+.new-logo-variant-light { background: #ffffff; }
+.new-logo-variant-wordmark { --dm-logo-size: 31px; }
+
+.new-logo-variant-dark {
+  background: #111111;
+  border-color: #111111;
+}
+
+.new-logo-variant-dark .dm-new-logo { --dm-logo-text: #f7f7f6; --dm-logo-ink: #fb4a72; }
+.new-logo-variant-dark .new-logo-variant-caption,
+.new-logo-variant-dark .new-logo-variant-note { color: #a6a3a3; }
+
+.new-logo-variant-icon { background: #f0eeec; }
+.new-logo-icon-only { --dm-logo-size: 58px; }
+
+@media (max-width: 850px) {
+  .new-logo-hero { grid-template-columns: 1fr; min-height: 0; }
+  .new-logo-hero-art { min-height: 300px; }
+  .new-logo-variants { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .new-logo-header { min-height: 68px; }
+  .new-logo-header-label { font-size: 9px; }
+  .new-logo-back { font-size: 12px; }
+  .new-logo-hero { padding: 56px 0 28px; }
+  .new-logo-hero-art { min-height: 210px; }
+  .new-logo-primary { --dm-logo-size: 35px; }
+  .new-logo-variants { grid-template-columns: 1fr; }
+  .new-logo-variant { min-height: 190px; }
+}

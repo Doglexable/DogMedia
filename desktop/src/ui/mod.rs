@@ -3581,6 +3581,7 @@ mod tests {
                     start: 0.0,
                     end: None,
                     text: "line".to_owned(),
+                    translation: None,
                 }];
                 apply_extras_if_current(app, MediaId::new(7), sample_lyrics.clone(), vec![]);
                 assert_eq!(app.read().lyrics, sample_lyrics);
@@ -3591,6 +3592,7 @@ mod tests {
                         start: 0.0,
                         end: None,
                         text: "stale".to_owned(),
+                        translation: None,
                     }],
                     vec![],
                 );
@@ -4107,6 +4109,7 @@ mod tests {
             start: 0.0,
             end: None,
             text: "Sample lyrics".to_owned(),
+            translation: None,
         }];
         app.photo_data_url = Some(std::sync::Arc::new("data:image/jpeg;base64,...".to_owned()));
         app.socket_ready = true;
@@ -4383,6 +4386,7 @@ mod tests {
             start: 0.0,
             end: None,
             text: "Stale stream lyrics".to_owned(),
+            translation: None,
         }];
         app.subtitle_cues.push(SubtitleCue {
             start: 0.0,
